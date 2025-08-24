@@ -1,0 +1,17 @@
+{
+		"version": "1.0.0.0",
+		"author": {"name":"Your Name","email":"your.email@example.com"},
+		"resources": [
+			{
+				"resourceId": "rId0",
+				"sourceType": 5,
+				"file": "resources/LongestPathVisual.pbiviz.json"
+			}
+		],
+		"visual": {"name":"LongestPathVisual","displayName":"Longest Path Visual","guid":"LongestPathVisual","visualClassName":"Visual","version":"1.0.0.0","description":"Displays the longest path of tasks using CPM analysis.","supportUrl":"https://github.com/your-repo","gitHubUrl":"https://github.com/your-repo"},
+		"metadata": {
+			"pbivizjson": {
+				"resourceId": "rId0"
+			}
+		}
+	}
