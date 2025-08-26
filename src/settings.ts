@@ -153,13 +153,31 @@ class ProjectEndLineCard extends Card {
 }
 
 class DisplayOptionsCard extends Card {
-    name: string = "displayOptions"; displayName: string = "Display Options";
-    showTooltips = new ToggleSwitch({ name: "showTooltips", displayName: "Show Tooltips", value: true });
+    name: string = "displayOptions"; 
+    displayName: string = "Display Options";
+    
+    showTooltips = new ToggleSwitch({ 
+        name: "showTooltips", 
+        displayName: "Show Tooltips", 
+        value: true 
+    });
 
     showNearCritical = new ToggleSwitch({
         name: "showNearCritical",
         displayName: "Highlight Near Longest Path",
         value: true
+    });
+    
+    // NEW: Analysis mode dropdown
+    analysisMode = new ItemDropdown({
+        name: "analysisMode",
+        displayName: "Analysis Method",
+        description: "Choose between traditional longest path or float-based analysis",
+        items: [
+            { value: "longestPath", displayName: "Longest Path (Traditional)" },
+            { value: "floatBased", displayName: "Float-Based (Total/Free Float)" }
+        ],
+        value: { value: "longestPath", displayName: "Longest Path (Traditional)" }
     });
 
     // Hidden property used only for persisting the toggle state
@@ -171,8 +189,13 @@ class DisplayOptionsCard extends Card {
         visible: false
     });
 
-    // Include hidden slice so formatting service reads persisted value
-    slices: Slice[] = [this.showTooltips, this.showNearCritical, this.showAllTasks];
+    // Include all slices
+    slices: Slice[] = [
+        this.showTooltips, 
+        this.showNearCritical, 
+        this.analysisMode,  // NEW
+        this.showAllTasks
+    ];
 }
 
 class TaskSelectionCard extends Card {

@@ -85,6 +85,7 @@ export declare class Visual implements IVisual {
     destroy(): void;
     private toggleTaskDisplayInternal;
     private createOrUpdateToggleButton;
+    private getToggleButtonText;
     private createConnectorLinesToggleButton;
     private createFloatThresholdControl;
     private toggleConnectorLinesDisplay;
@@ -134,8 +135,17 @@ export declare class Visual implements IVisual {
     private ensureCpmWorker;
     private calculateCPMOffThread;
     private calculateCPM;
+    private calculateCPMTraditional;
+    private calculateCPMFloatBased;
+    private getUserProvidedTotalFloat;
+    private calculateRelationshipFreeFloat;
+    private getTaskMinimumFreeFloat;
     private calculateCPMToTask;
+    private calculateCPMToTaskTraditional;
+    private calculateCPMToTaskFloatBased;
     private calculateCPMFromTask;
+    private calculateCPMFromTaskTraditional;
+    private calculateCPMFromTaskFloatBased;
     private topologicalSortOptimized;
     private performOptimizedForwardPass;
     private handleCyclesInForwardPass;

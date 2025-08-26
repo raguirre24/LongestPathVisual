@@ -1,72 +1,78 @@
 {
     "privileges": [],
     "dataRoles": [
-        {
-            "name": "taskId",
-            "kind": "Grouping",
-            "displayName": "Task ID",
-            "description": "Unique identifier for each task"
-        },
-        {
-            "name": "duration",
-            "kind": "Measure",
-            "displayName": "Duration (Work Days)",
-            "description": "Task duration in work days for CPM calc"
-        },
-        {
-            "name": "startDate",
-            "displayName": "Start Date",
-            "kind": "GroupingOrMeasure",
-            "description": "Actual/Forecast start date for plotting"
-        },
-        {
-            "name": "finishDate",
-            "displayName": "Finish Date",
-            "kind": "GroupingOrMeasure",
-            "description": "Actual/Forecast finish date for plotting"
-        },
-        {
-            "name": "taskName",
-            "kind": "Grouping",
-            "displayName": "Task Name",
-            "description": "Name or description of the task"
-        },
-        {
-            "name": "taskType",
-            "kind": "Grouping",
-            "displayName": "Task Type",
-            "description": "Type of task (TT_Task, TT_Mile, TT_FinMile)"
-        },
-        {
-            "name": "predecessorId",
-            "kind": "Grouping",
-            "displayName": "Predecessor ID",
-            "description": "ID of predecessor task"
-        },
-        {
-            "name": "relationshipType",
-            "kind": "Grouping",
-            "displayName": "Relationship Type",
-            "description": "Relationship type (FS, SS, FF, SF)"
-        },
-        {
-            "name": "relationshipFreeFloat",
-            "kind": "Measure",
-            "displayName": "Relationship Free Float",
-            "description": "Free float of the relationship (optional)"
-        },
-        {
-            "name": "relationshipLag",
-            "kind": "Measure",
-            "displayName": "Relationship Lag",
-            "description": "Lag or lead time (negative lag) for relationship in work days"
-        },
-        {
-            "name": "tooltip",
-            "kind": "Grouping",
-            "displayName": "Tooltip",
-            "description": "Additional fields to display in tooltips"
-        }
+    {
+        "name": "taskId",
+        "kind": "Grouping",
+        "displayName": "Task ID",
+        "description": "Unique identifier for each task"
+    },
+    {
+        "name": "duration",
+        "kind": "Measure",
+        "displayName": "Duration (Work Days)",
+        "description": "Task duration in work days for CPM calc"
+    },
+    {
+        "name": "startDate",
+        "displayName": "Start Date",
+        "kind": "GroupingOrMeasure",
+        "description": "Actual/Forecast start date for plotting"
+    },
+    {
+        "name": "finishDate",
+        "displayName": "Finish Date",
+        "kind": "GroupingOrMeasure",
+        "description": "Actual/Forecast finish date for plotting"
+    },
+    {
+        "name": "taskName",
+        "kind": "Grouping",
+        "displayName": "Task Name",
+        "description": "Name or description of the task"
+    },
+    {
+        "name": "taskType",
+        "kind": "Grouping",
+        "displayName": "Task Type",
+        "description": "Type of task (TT_Task, TT_Mile, TT_FinMile)"
+    },
+    {
+        "name": "predecessorId",
+        "kind": "Grouping",
+        "displayName": "Predecessor ID",
+        "description": "ID of predecessor task"
+    },
+    {
+        "name": "relationshipType",
+        "kind": "Grouping",
+        "displayName": "Relationship Type",
+        "description": "Relationship type (FS, SS, FF, SF)"
+    },
+    {
+        "name": "relationshipFreeFloat",
+        "kind": "Measure",
+        "displayName": "Relationship Free Float",
+        "description": "Free float of the relationship (optional)"
+    },
+    {
+        "name": "relationshipTotalFloat",
+        "kind": "Measure",
+        "displayName": "Relationship Total Float",
+        "description": "Total float of the relationship (optional for float-based analysis)"
+    },
+    {
+        "name": "relationshipLag",
+        "kind": "Measure",
+        "displayName": "Relationship Lag",
+        "description": "Lag or lead time (negative lag) for relationship in work days"
+    },
+    {
+        "name": "tooltip",
+        "kind": "Grouping",
+        "displayName": "Tooltip",
+        "description": "Additional fields to display in tooltips"
+    }
     ],
     "objects": {
         "taskAppearance": {
@@ -173,9 +179,40 @@
         "displayOptions": {
             "displayName": "Display Options",
             "properties": {
-                "showTooltips": { "displayName": "Show Tooltips", "type": { "bool": true } },
-                "showNearCritical": { "displayName": "Highlight Near Longest Path", "type": { "bool": true } },
-                "showAllTasks": { "type": { "bool": true } }
+                "showTooltips": {
+                    "displayName": "Show Tooltips",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "showNearCritical": {
+                    "displayName": "Highlight Near Longest Path",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "analysisMode": {
+                    "displayName": "Analysis Method",
+                    "description": "Choose between traditional longest path or float-based analysis",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "longestPath",
+                                "displayName": "Longest Path (Traditional)"
+                            },
+                            {
+                                "value": "floatBased",
+                                "displayName": "Float-Based (Total/Free Float)"
+                            }
+                        ]
+                    }
+                },
+                "showAllTasks": {
+                    "displayName": "",
+                    "type": {
+                        "bool": true
+                    }
+                }
             }
         },
         "persistedState": {

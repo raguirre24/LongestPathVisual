@@ -77,6 +77,7 @@ declare class DisplayOptionsCard extends Card {
     displayName: string;
     showTooltips: formattingSettings.ToggleSwitch;
     showNearCritical: formattingSettings.ToggleSwitch;
+    analysisMode: formattingSettings.ItemDropdown;
     showAllTasks: formattingSettings.ToggleSwitch;
     slices: Slice[];
 }
