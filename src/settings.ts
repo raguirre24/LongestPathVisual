@@ -153,31 +153,13 @@ class ProjectEndLineCard extends Card {
 }
 
 class DisplayOptionsCard extends Card {
-    name: string = "displayOptions"; 
-    displayName: string = "Display Options";
-    
-    showTooltips = new ToggleSwitch({ 
-        name: "showTooltips", 
-        displayName: "Show Tooltips", 
-        value: true 
-    });
+    name: string = "displayOptions"; displayName: string = "Display Options";
+    showTooltips = new ToggleSwitch({ name: "showTooltips", displayName: "Show Tooltips", value: true });
 
     showNearCritical = new ToggleSwitch({
         name: "showNearCritical",
         displayName: "Highlight Near Longest Path",
         value: true
-    });
-    
-    // NEW: Analysis mode dropdown
-    analysisMode = new ItemDropdown({
-        name: "analysisMode",
-        displayName: "Analysis Method",
-        description: "Choose between traditional longest path or float-based analysis",
-        items: [
-            { value: "longestPath", displayName: "Longest Path (Traditional)" },
-            { value: "floatBased", displayName: "Float-Based (Total/Free Float)" }
-        ],
-        value: { value: "longestPath", displayName: "Longest Path (Traditional)" }
     });
 
     // Hidden property used only for persisting the toggle state
@@ -189,15 +171,38 @@ class DisplayOptionsCard extends Card {
         visible: false
     });
 
-    // Include all slices
-    slices: Slice[] = [
-        this.showTooltips, 
-        this.showNearCritical, 
-        this.analysisMode,  // NEW
-        this.showAllTasks
-    ];
+    // Include hidden slice so formatting service reads persisted value
+    slices: Slice[] = [this.showTooltips, this.showNearCritical, this.showAllTasks];
 }
 
+class CriticalityModeCard extends Card {
+    name: string = "criticalityMode";
+    displayName: string = "Criticality Mode";
+    
+    calculationMode = new ItemDropdown({
+        name: "calculationMode",
+        displayName: "Calculation Mode",
+        description: "Choose between Longest Path (CPM) or Float-Based criticality",
+        items: [
+            { value: "longestPath", displayName: "Longest Path (CPM)" },
+            { value: "floatBased", displayName: "Float-Based" }
+        ],
+        value: { value: "longestPath", displayName: "Longest Path (CPM)" }
+    });
+    
+    floatBasedFilter = new ItemDropdown({
+        name: "floatBasedFilter",
+        displayName: "Float-Based Dependency Filter",
+        description: "For Float-Based mode: filter dependencies in trace",
+        items: [
+            { value: "drivingOnly", displayName: "Driving Only (Free Float = 0)" },
+            { value: "all", displayName: "All Dependencies" }
+        ],
+        value: { value: "drivingOnly", displayName: "Driving Only (Free Float = 0)" }
+    });
+    
+    slices: Slice[] = [this.calculationMode, this.floatBasedFilter];
+}
 class TaskSelectionCard extends Card {
     name: string = "taskSelection"; displayName: string = "Task Selection";
     
@@ -253,7 +258,6 @@ class TaskSelectionCard extends Card {
         this.traceMode
     ];
 }
-
 class PersistedStateCard extends Card {
     name: string = "persistedState";
     displayName: string = "Persisted State";
@@ -281,22 +285,21 @@ class PersistedStateCard extends Card {
     slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode];
 }
 
-// Main VisualSettings class 
 export class VisualSettings extends Model {
     // Keep existing cards
     taskAppearance = new TaskAppearanceCard();
     connectorLines = new ConnectorLinesCard();
     textAndLabels = new TextAndLabelsCard();
     layoutSettings = new LayoutSettingsCard();
-    gridLines = new HorizontalGridLinesCard(); // Use renamed class for horizontal lines
-    verticalGridLines = new VerticalGridLinesCard(); // Add instance of the new card
+    gridLines = new HorizontalGridLinesCard();
+    verticalGridLines = new VerticalGridLinesCard();
     projectEndLine = new ProjectEndLineCard();
     displayOptions = new DisplayOptionsCard();
-    taskSelection = new TaskSelectionCard(); // Add the new card
+    criticalityMode = new CriticalityModeCard();  // ADD THIS LINE
+    taskSelection = new TaskSelectionCard();
     persistedState = new PersistedStateCard();
-    // REMOVED: performanceOptions
 
-    // Add the new card to the cards array
+    // Update the cards array
     cards: Card[] = [
         this.taskAppearance,
         this.connectorLines,
@@ -306,8 +309,8 @@ export class VisualSettings extends Model {
         this.verticalGridLines,
         this.projectEndLine,
         this.displayOptions,
+        this.criticalityMode,  // ADD THIS LINE
         this.taskSelection,
         this.persistedState
-        // REMOVED: performanceOptions from array
     ];
 }
