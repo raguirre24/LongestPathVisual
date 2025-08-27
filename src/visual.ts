@@ -741,6 +741,7 @@ export class Visual implements IVisual {
     }
 
     private createModeIndicator(viewportWidth: number): void {
+<<<<<<< HEAD
         if (!this.headerSvg) return;
         
         // Remove any existing mode indicator
@@ -810,7 +811,60 @@ export class Visual implements IVisual {
                 .style("fill", "#0C5460")
                 .text(modeText);
         }
+=======
+    if (!this.headerSvg) return;
+    
+    // Remove any existing mode indicator
+    this.headerSvg.selectAll(".mode-indicator-group").remove();
+    
+    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+    const modeText = mode === 'floatBased' ? 'Float-Based Mode' : 'Longest Path Mode';
+    
+    const indicatorGroup = this.headerSvg.append("g")
+        .attr("class", "mode-indicator-group");
+    
+    const indicatorX = viewportWidth - 200;
+    const indicatorY = 10;
+    
+    // Background
+    indicatorGroup.append("rect")
+        .attr("x", indicatorX)
+        .attr("y", indicatorY)
+        .attr("width", 180)
+        .attr("height", 25)
+        .attr("rx", 4)
+        .attr("ry", 4)
+        .style("fill", mode === 'floatBased' ? "#FFF3CD" : "#D1ECF1")
+        .style("stroke", mode === 'floatBased' ? "#FFC107" : "#17A2B8")
+        .style("stroke-width", 1);
+    
+    // Text
+    indicatorGroup.append("text")
+        .attr("x", indicatorX + 90)
+        .attr("y", indicatorY + 17)
+        .attr("text-anchor", "middle")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px")
+        .style("font-weight", "600")
+        .style("fill", mode === 'floatBased' ? "#856404" : "#0C5460")
+        .text(modeText);
+    
+    // Add filter mode for Float-Based
+    if (mode === 'floatBased') {
+        const filterMode = this.settings?.criticalityMode?.floatBasedFilter?.value?.value || 'drivingOnly';
+        const filterText = filterMode === 'drivingOnly' ? '(Driving Only)' : '(All Dependencies)';
+        
+        indicatorGroup.append("text")
+            .attr("x", indicatorX + 90)
+            .attr("y", indicatorY + 30)
+            .attr("text-anchor", "middle")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "9px")
+            .style("fill", "#856404")
+            .text(filterText);
+>>>>>>> 9f7a6c2640f458fcd0da52e45862b48da7dc51f7
     }
+}
 
     private createConnectorLinesToggleButton(viewportWidth?: number): void {
         if (!this.headerSvg) return;
