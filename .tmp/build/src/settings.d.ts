@@ -77,8 +77,14 @@ declare class DisplayOptionsCard extends Card {
     displayName: string;
     showTooltips: formattingSettings.ToggleSwitch;
     showNearCritical: formattingSettings.ToggleSwitch;
-    analysisMode: formattingSettings.ItemDropdown;
     showAllTasks: formattingSettings.ToggleSwitch;
+    slices: Slice[];
+}
+declare class CriticalityModeCard extends Card {
+    name: string;
+    displayName: string;
+    calculationMode: formattingSettings.ItemDropdown;
+    floatBasedFilter: formattingSettings.ItemDropdown;
     slices: Slice[];
 }
 declare class TaskSelectionCard extends Card {
@@ -109,6 +115,7 @@ export declare class VisualSettings extends Model {
     verticalGridLines: VerticalGridLinesCard;
     projectEndLine: ProjectEndLineCard;
     displayOptions: DisplayOptionsCard;
+    criticalityMode: CriticalityModeCard;
     taskSelection: TaskSelectionCard;
     persistedState: PersistedStateCard;
     cards: Card[];
