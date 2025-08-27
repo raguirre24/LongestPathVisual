@@ -85,7 +85,7 @@ export declare class Visual implements IVisual {
     destroy(): void;
     private toggleTaskDisplayInternal;
     private createOrUpdateToggleButton;
-    private getToggleButtonText;
+    private createModeIndicator;
     private createConnectorLinesToggleButton;
     private createFloatThresholdControl;
     private toggleConnectorLinesDisplay;
@@ -134,24 +134,31 @@ export declare class Visual implements IVisual {
     private detectAndReportCycles;
     private ensureCpmWorker;
     private calculateCPMOffThread;
+    /**
+     * Determines criticality based on the selected mode (Longest Path or Float-Based)
+     */
+    private determineCriticalityMode;
+    /**
+     * Applies Float-Based criticality using user-provided float values
+     */
+    private applyFloatBasedCriticality;
     private calculateCPM;
-    private calculateCPMTraditional;
-    private calculateCPMFloatBased;
-    private getUserProvidedTotalFloat;
-    private calculateRelationshipFreeFloat;
-    private getTaskMinimumFreeFloat;
     private calculateCPMToTask;
-    private calculateCPMToTaskTraditional;
-    private calculateCPMToTaskFloatBased;
     private calculateCPMFromTask;
-    private calculateCPMFromTaskTraditional;
-    private calculateCPMFromTaskFloatBased;
     private topologicalSortOptimized;
     private performOptimizedForwardPass;
     private handleCyclesInForwardPass;
     private performOptimizedBackwardPass;
     private identifyAllPredecessorTasksOptimized;
     private identifyAllSuccessorTasksOptimized;
+    /**
+     * Identifies predecessor tasks for Float-Based mode with dependency filtering
+     */
+    private identifyPredecessorTasksFloatBased;
+    /**
+     * Identifies successor tasks for Float-Based mode with dependency filtering
+     */
+    private identifySuccessorTasksFloatBased;
     private calculateFloatAndCriticalityForSubset;
     /**
      * Extracts and validates task ID from a data row
@@ -161,9 +168,6 @@ export declare class Visual implements IVisual {
      * Extracts predecessor ID from a data row
      */
     private extractPredecessorId;
-    /**
-     * Creates a task object from a data row
-     */
     private createTaskFromRow;
     /**
      * Extracts tooltip data from a row
