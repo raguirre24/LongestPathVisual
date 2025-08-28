@@ -5684,53 +5684,163 @@ private transformDataOptimized(dataView: DataView): void {
     }
 
 private createTaskSelectionDropdown(): void {
-    if (!this.dropdownContainer || !this.selectedTaskLabel || !this.dropdownInput?.node()) {
+    if (!this.dropdownContainer || !this.selectedTaskLabel) {
+        console.warn("Dropdown elements not ready.");
         return;
     }
 
     const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
-    const dropdownWidth = 200; // Reduced default width
+    const dropdownWidth = 200; // Fixed width for compact design
     const showSelectedTaskLabel = this.settings.taskSelection.showSelectedTaskLabel.value;
 
+    // Show/hide dropdown based on settings
     this.dropdownContainer.style("display", enableTaskSelection ? "block" : "none");
     if (!enableTaskSelection) {
         this.selectedTaskLabel.style("display", "none");
         return;
     }
 
-    // Updated styling for compact design
-    this.dropdownInput
-        .style("width", `${dropdownWidth}px`)
-        .style("height", "20px")
-        .style("padding", "2px 6px")
-        .style("font-size", "11px")
-        .style("border", "1px solid #d0d0d0");
-
-    // Position on second row
+    // Remove existing input and list to recreate them
+    this.dropdownContainer.selectAll("*").remove();
+    
+    // IMPORTANT: Set the container positioning first
     this.dropdownContainer
         .style("position", "absolute")
-        .style("top", "32px") // Second row
-        .style("left", "8px");
-
-    // Update list height calculation
-    let availableHeight = Math.max(80, this.headerHeight - 32 - 25); // Adjusted for second row
+        .style("top", "32px")    // Second row in header
+        .style("left", "8px")     // Left side positioning
+        .style("right", "auto")   // Clear any right positioning
+        .style("transform", "none") // Clear any transforms
+        .style("z-index", "20");
     
-    if (this.dropdownList) {
-        this.dropdownList
-            .style("max-height", `${availableHeight}px`)
-            .style("font-size", "11px");
-    }
+    // Create the input
+    this.dropdownInput = this.dropdownContainer.append("input")
+        .attr("type", "text")
+        .attr("class", "task-selection-input")
+        .attr("placeholder", "Search for a task...")
+        .style("width", `${dropdownWidth}px`)
+        .style("height", "20px")  // Compact height
+        .style("padding", "2px 6px")
+        .style("border", "1px solid #d0d0d0")
+        .style("border-radius", "4px")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px")
+        .style("color", "#333")
+        .style("box-sizing", "border-box");
 
-    // Rest of the method remains the same...
-    // (Keep the existing event handlers and functionality)
+    // Create dropdown list
+    this.dropdownList = this.dropdownContainer.append("div")
+        .attr("class", "task-selection-list")
+        .style("position", "absolute")
+        .style("top", "100%")
+        .style("left", "0")
+        .style("width", `${dropdownWidth}px`)
+        .style("max-height", "150px")  // Limit height to fit in header
+        .style("overflow-y", "auto")
+        .style("background", "white")
+        .style("border", "1px solid #d0d0d0")
+        .style("border-top", "none")
+        .style("border-radius", "0 0 4px 4px")
+        .style("box-shadow", "0 2px 5px rgba(0,0,0,0.1)")
+        .style("display", "none")
+        .style("z-index", "1000")
+        .style("box-sizing", "border-box");
+
+    // Set up event handlers
+    const self = this;
+    
+    // Input event handlers
+    this.dropdownInput
+        .on("input", function() {
+            const inputValue = (this as HTMLInputElement).value.trim();
+            self.filterTaskDropdown(inputValue);
+            
+            // Show dropdown when typing
+            if (self.dropdownList) {
+                self.dropdownList.style("display", "block");
+            }
+        })
+        .on("focus", function() {
+            self.dropdownList.style("display", "block");
+            self.populateTaskDropdown(); // Ensure dropdown is populated
+            
+            // Disable pointer events on the trace toggle while dropdown is open
+            self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+                .style("pointer-events", "none");
+        })
+        .on("blur", function() {
+            // Delay hiding to allow click events on dropdown items
+            setTimeout(() => {
+                if (self.dropdownList) {
+                    self.dropdownList.style("display", "none");
+                }
+                // Re-enable trace toggle
+                self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+                    .style("pointer-events", "auto");
+            }, 200);
+        })
+        .on("keydown", function(event: KeyboardEvent) {
+            if (event.key === "Escape") {
+                self.selectTask(null, null);
+                self.dropdownInput.property("value", "");
+                self.dropdownList.style("display", "none");
+                
+                // Re-enable trace toggle
+                self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+                    .style("pointer-events", "auto");
+                
+                event.preventDefault();
+            }
+        });
+
+    // Populate the dropdown with current value if selected
+    if (this.selectedTaskId && this.selectedTaskName) {
+        this.dropdownInput.property("value", this.selectedTaskName);
+    }
+    
+    // Update selected task label visibility (keep this on the right)
+    if (this.selectedTaskLabel) {
+        // Selected task label stays on the right side
+        this.selectedTaskLabel
+            .style("position", "absolute")
+            .style("top", "10px")
+            .style("right", "15px")
+            .style("left", "auto");
+            
+        if (this.selectedTaskId && this.selectedTaskName && showSelectedTaskLabel) {
+            this.selectedTaskLabel
+                .style("display", "block")
+                .text(`Selected: ${this.selectedTaskName}`);
+        } else {
+            this.selectedTaskLabel.style("display", "none");
+        }
+    }
 }
 
 /**
  * Populates the task dropdown with tasks from the dataset
  */
 private populateTaskDropdown(): void {
-    if (!this.dropdownList || this.allTasksData.length === 0) return;
+    if (!this.dropdownList) {
+        console.warn("Dropdown list not initialized");
+        return;
+    }
     
+    if (this.allTasksData.length === 0) {
+        console.warn("No tasks available to populate dropdown");
+        // Show "No tasks available" message
+        this.dropdownList.selectAll("*").remove();
+        this.dropdownList.append("div")
+            .attr("class", "dropdown-item no-data")
+            .text("No tasks available")
+            .style("padding", "8px 10px")
+            .style("color", "#999")
+            .style("font-style", "italic")
+            .style("font-size", "11px")
+            .style("font-family", "Segoe UI, sans-serif");
+        return;
+    }
+    
+    // Clear existing items
     this.dropdownList.selectAll("*").remove();
     
     // Sort tasks by name for better usability
@@ -5740,73 +5850,82 @@ private populateTaskDropdown(): void {
     const self = this;
     
     // Add "Clear Selection" option FIRST (at the top)
-    this.dropdownList.append("div")
+    const clearOption = this.dropdownList.append("div")
         .attr("class", "dropdown-item clear-selection")
-        .text("Clear Selection")
-        .style("padding", "5px 10px")
+        .style("padding", "8px 10px")
         .style("cursor", "pointer")
         .style("color", "#666")
         .style("font-style", "italic")
-        .style("border-bottom", "1px solid #ccc") // Changed from border-top to border-bottom
-        .style("font-size", "9px")
+        .style("border-bottom", "1px solid #eee")
+        .style("font-size", "11px")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("background-color", "white")
+        .text("× Clear Selection");
+    
+    clearOption
         .on("mouseover", function() {
             d3.select(this).style("background-color", "#f0f0f0");
         })
         .on("mouseout", function() {
             d3.select(this).style("background-color", "white");
         })
-        .on("click", () => {
-            this.selectTask(null, null);
-            this.dropdownInput.property("value", "");
-            this.dropdownList.style("display", "none");
+        .on("mousedown", function() {
+            // Use mousedown instead of click to fire before blur
+            event?.preventDefault();
+            event?.stopPropagation();
+            self.selectTask(null, null);
+            self.dropdownInput.property("value", "");
+            self.dropdownList.style("display", "none");
             
-            // Re-enable trace toggle when dropdown closes
-            this.stickyHeaderContainer.selectAll(".trace-mode-toggle")
+            // Re-enable trace toggle
+            self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                 .style("pointer-events", "auto");
         });
     
-    // Create dropdown items for tasks AFTER the Clear Selection option
+    // Create dropdown items for tasks
     sortedTasks.forEach(task => {
+        const taskName = task.name || `Task ${task.internalId}`;
         const item = this.dropdownList.append("div")
             .attr("class", "dropdown-item")
             .attr("data-task-id", task.internalId)
-            .text(task.name || `Task ${task.internalId}`)
-            .style("padding", "5px 10px")
+            .attr("data-task-name", taskName)
+            .style("padding", "6px 10px")
             .style("cursor", "pointer")
-            .style("border-bottom", "1px solid #eee")
+            .style("border-bottom", "1px solid #f5f5f5")
             .style("white-space", "nowrap")
             .style("overflow", "hidden")
             .style("text-overflow", "ellipsis")
-            .style("font-size", "9px"); // Small font size
+            .style("font-size", "11px")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("background-color", task.internalId === self.selectedTaskId ? "#f0f0f0" : "white")
+            .style("font-weight", task.internalId === self.selectedTaskId ? "600" : "normal")
+            .text(taskName);
         
-        // Highlight if currently selected
-        if (task.internalId === this.selectedTaskId) {
-            item.style("background-color", "#f0f0f0")
-                .style("font-weight", "bold");
-        }
-        
-        // Hover effects
+        // Add hover effects
         item.on("mouseover", function() {
-            d3.select(this).style("background-color", "#f0f0f0");
+            d3.select(this).style("background-color", "#e6f7ff");
         });
         
         item.on("mouseout", function() {
-            if (task.internalId !== self.selectedTaskId) {
-                d3.select(this).style("background-color", "white");
-            }
+            d3.select(this).style("background-color", 
+                task.internalId === self.selectedTaskId ? "#f0f0f0" : "white");
         });
         
-        // Click handler
-        item.on("click", function() {
+        // Use mousedown instead of click to fire before blur
+        item.on("mousedown", function() {
+            event?.preventDefault();
+            event?.stopPropagation();
             self.selectTask(task.internalId, task.name);
-            self.dropdownInput.property("value", task.name || `Task ${task.internalId}`);
+            self.dropdownInput.property("value", taskName);
             self.dropdownList.style("display", "none");
             
-            // Re-enable trace toggle when dropdown closes
-            self.stickyHeaderContainer.selectAll(".trace-mode-toggle")
+            // Re-enable trace toggle
+            self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                 .style("pointer-events", "auto");
         });
     });
+    
+    this.debugLog(`Populated dropdown with ${sortedTasks.length} tasks plus clear option`);
 }
 
 private createTraceModeToggle(): void {
@@ -5907,18 +6026,46 @@ private createTraceModeToggle(): void {
 /**
  * Filters the dropdown items based on input text
  */
-private filterTaskDropdown(): void {
-    const searchText = this.dropdownInput.property("value").toLowerCase().trim();
+private filterTaskDropdown(searchText: string = ""): void {
+    if (!this.dropdownList) return;
     
-    this.dropdownList.selectAll(".dropdown-item:not(.clear-selection)")
-        .style("display", function() {
-            const taskName = (this as HTMLElement).textContent?.toLowerCase() || "";
-            return taskName.includes(searchText) ? "block" : "none";
-        });
-        
-    // Make sure the Clear Selection option is always visible
+    const searchLower = searchText.toLowerCase().trim();
+    
+    // Always show the clear selection option
     this.dropdownList.select(".clear-selection")
         .style("display", "block");
+    
+    // Filter task items
+    this.dropdownList.selectAll(".dropdown-item:not(.clear-selection):not(.no-data)")
+        .style("display", function() {
+            const element = this as HTMLElement;
+            const taskName = element.getAttribute("data-task-name") || "";
+            return taskName.toLowerCase().includes(searchLower) ? "block" : "none";
+        });
+    
+    // Check if any items are visible
+    const visibleItems = this.dropdownList.selectAll(".dropdown-item:not(.clear-selection)")
+        .filter(function() {
+            return (this as HTMLElement).style.display !== "none";
+        });
+    
+    // If no items match the search, show a message
+    if (visibleItems.empty() && searchLower.length > 0) {
+        // Remove any existing no-results message
+        this.dropdownList.selectAll(".no-results").remove();
+        
+        this.dropdownList.append("div")
+            .attr("class", "dropdown-item no-results")
+            .text(`No tasks matching "${searchText}"`)
+            .style("padding", "8px 10px")
+            .style("color", "#999")
+            .style("font-style", "italic")
+            .style("font-size", "11px")
+            .style("font-family", "Segoe UI, sans-serif");
+    } else {
+        // Remove no-results message if it exists
+        this.dropdownList.selectAll(".no-results").remove();
+    }
 }
 
 /**
