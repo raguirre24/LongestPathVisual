@@ -234,7 +234,7 @@ export class Visual implements IVisual {
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", "9px")
                 .style("color", "#333");
-        
+
             this.dropdownList = this.dropdownContainer.append("div")
                 .attr("class", "task-selection-list")
                 .style("position", "absolute")
@@ -252,7 +252,27 @@ export class Visual implements IVisual {
                 .style("z-index", "30")
                 .style("pointer-events", "auto")
                 .style("margin-bottom", "40px");
-            
+
+            // Show list when input is focused or clicked and filter on input
+            this.dropdownInput
+                .on("focus", () => {
+                    this.dropdownList.style("display", "block");
+                })
+                .on("click", () => {
+                    this.dropdownList.style("display", "block");
+                })
+                .on("input", () => {
+                    this.filterTaskDropdown();
+                });
+
+            // Hide list when clicking outside the dropdown
+            d3.select(document).on("click.taskDropdown", (event: MouseEvent) => {
+                const target = event.target as Node;
+                if (!this.dropdownContainer.node()?.contains(target)) {
+                    this.dropdownList.style("display", "none");
+                }
+            });
+
             // --- Create modern Float Threshold control ---
             this.createFloatThresholdControl();
         
@@ -5908,17 +5928,21 @@ private createTraceModeToggle(): void {
  * Filters the dropdown items based on input text
  */
 private filterTaskDropdown(): void {
+    if (!this.dropdownInput || !this.dropdownList) {
+        return;
+    }
+
     const searchText = this.dropdownInput.property("value").toLowerCase().trim();
-    
-    this.dropdownList.selectAll(".dropdown-item:not(.clear-selection)")
-        .style("display", function() {
-            const taskName = (this as HTMLElement).textContent?.toLowerCase() || "";
+
+    this.dropdownList.selectAll(".dropdown-item")
+        .style("display", (_d, i, nodes) => {
+            const el = nodes[i] as HTMLElement;
+            if (el.classList.contains("clear-selection")) {
+                return "block";
+            }
+            const taskName = el.textContent?.toLowerCase() || "";
             return taskName.includes(searchText) ? "block" : "none";
         });
-        
-    // Make sure the Clear Selection option is always visible
-    this.dropdownList.select(".clear-selection")
-        .style("display", "block");
 }
 
 /**
