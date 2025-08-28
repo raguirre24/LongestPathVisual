@@ -85,8 +85,11 @@ export declare class Visual implements IVisual {
     destroy(): void;
     private toggleTaskDisplayInternal;
     private createOrUpdateToggleButton;
-    private createModeIndicator;
     private createConnectorLinesToggleButton;
+    private createModeToggleButton;
+    private toggleCriticalityMode;
+    private createFloatFilterToggle;
+    private setFloatBasedFilter;
     private createFloatThresholdControl;
     private toggleConnectorLinesDisplay;
     update(options: VisualUpdateOptions): void;
@@ -183,9 +186,6 @@ export declare class Visual implements IVisual {
     private limitTasks;
     private applyTaskFilter;
     private displayMessage;
-    /**
-     * Creates or updates the task selection dropdown based on current settings
-     */
     private createTaskSelectionDropdown;
     /**
      * Populates the task dropdown with tasks from the dataset
