@@ -88,8 +88,6 @@ export declare class Visual implements IVisual {
     private createConnectorLinesToggleButton;
     private createModeToggleButton;
     private toggleCriticalityMode;
-    private createFloatFilterToggle;
-    private setFloatBasedFilter;
     private createFloatThresholdControl;
     private toggleConnectorLinesDisplay;
     update(options: VisualUpdateOptions): void;
@@ -141,9 +139,6 @@ export declare class Visual implements IVisual {
      * Determines criticality based on the selected mode (Longest Path or Float-Based)
      */
     private determineCriticalityMode;
-    /**
-     * Applies Float-Based criticality using user-provided float values
-     */
     private applyFloatBasedCriticality;
     private calculateCPM;
     private calculateCPMToTask;
@@ -154,13 +149,7 @@ export declare class Visual implements IVisual {
     private performOptimizedBackwardPass;
     private identifyAllPredecessorTasksOptimized;
     private identifyAllSuccessorTasksOptimized;
-    /**
-     * Identifies predecessor tasks for Float-Based mode with dependency filtering
-     */
     private identifyPredecessorTasksFloatBased;
-    /**
-     * Identifies successor tasks for Float-Based mode with dependency filtering
-     */
     private identifySuccessorTasksFloatBased;
     private calculateFloatAndCriticalityForSubset;
     /**

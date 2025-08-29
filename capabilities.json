@@ -20,6 +20,12 @@
             "description": "User-provided total float value for Float-Based mode (optional)"
         },
         {
+            "name": "taskFreeFloat",
+            "kind": "Measure",
+            "displayName": "Task Free Float",
+            "description": "Free float value for each task (time before impacting successors)"
+        },
+        {
             "name": "startDate",
             "displayName": "Start Date",
             "kind": "GroupingOrMeasure",
@@ -54,12 +60,6 @@
             "kind": "Grouping",
             "displayName": "Relationship Type",
             "description": "Relationship type (FS, SS, FF, SF)"
-        },
-        {
-            "name": "relationshipFreeFloat",
-            "kind": "Measure",
-            "displayName": "Relationship Free Float",
-            "description": "Free float of the relationship (for Float-Based mode)"
         },
         {
             "name": "relationshipLag",
@@ -222,20 +222,20 @@
         {
             "table": {
                 "rows": {
-                "select": [
-                    { "bind": { "to": "taskId" } },
-                    { "bind": { "to": "duration" } },
-                    { "bind": { "to": "taskTotalFloat" } },
-                    { "bind": { "to": "startDate" } },
-                    { "bind": { "to": "finishDate" } },
-                    { "bind": { "to": "taskName" } },
-                    { "bind": { "to": "taskType" } },
-                    { "bind": { "to": "predecessorId" } },
-                    { "bind": { "to": "relationshipType" } },
-                    { "bind": { "to": "relationshipFreeFloat" } },
-                    { "bind": { "to": "relationshipLag" } },
-                    { "bind": { "to": "tooltip" } }
-                ],
+                    "select": [
+                        { "bind": { "to": "taskId" } },
+                        { "bind": { "to": "duration" } },
+                        { "bind": { "to": "taskTotalFloat" } },
+                        { "bind": { "to": "taskFreeFloat" } },
+                        { "bind": { "to": "startDate" } },
+                        { "bind": { "to": "finishDate" } },
+                        { "bind": { "to": "taskName" } },
+                        { "bind": { "to": "taskType" } },
+                        { "bind": { "to": "predecessorId" } },
+                        { "bind": { "to": "relationshipType" } },
+                        { "bind": { "to": "relationshipLag" } },
+                        { "bind": { "to": "tooltip" } }
+                    ],
                     "dataReductionAlgorithm": { "top": { "count": 60000 } }
                 }
             }

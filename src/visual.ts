@@ -21,31 +21,31 @@ import FilterAction = powerbi.FilterAction;
 import PriorityQueue from "./priorityQueue";
 
 interface Task {
-    id: string | number;       // Original ID from data
-    internalId: string;        // Processed string ID
+    id: string | number;
+    internalId: string;
     name: string;
-    type: string;              // e.g., TT_Task, TT_Mile
-    duration: number;          // Duration for CPM calculation
-    userProvidedTotalFloat?: number;  // NEW: User-provided total float for Float-Based mode
-    predecessorIds: string[];  // IDs of predecessors
-    relationshipTypes: { [predId: string]: string; }; // e.g., { 'pred1': 'FS', 'pred2': 'SS' }
-    relationshipFreeFloats: { [predId: string]: number | null; }; // Free float per relationship
+    type: string;
+    duration: number;
+    userProvidedTotalFloat?: number;
+    taskFreeFloat?: number;  // NEW: Task Free Float value
+    predecessorIds: string[];
+    relationshipTypes: { [predId: string]: string; };
     relationshipLags: { [predId: string]: number | null; };
-    successors: Task[];        // References to successor Task objects
-    predecessors: Task[];      // References to predecessor Task objects
-    earlyStart: number;        // Calculated by CPM
-    earlyFinish: number;       // Calculated by CPM
-    lateStart: number;         // Calculated by CPM
-    lateFinish: number;        // Calculated by CPM
-    totalFloat: number;        // Either calculated (CPM) or from userProvidedTotalFloat
-    isCritical: boolean;       // Final criticality determination
-    isCriticalByFloat?: boolean; // Intermediate flag
-    isCriticalByRel?: boolean;   // Intermediate flag
+    successors: Task[];
+    predecessors: Task[];
+    earlyStart: number;
+    earlyFinish: number;
+    lateStart: number;
+    lateFinish: number;
+    totalFloat: number;
+    isCritical: boolean;
+    isCriticalByFloat?: boolean;
+    isCriticalByRel?: boolean;
     isNearCritical?: boolean;
-    startDate?: Date | null;     // Actual/Forecast date for plotting
-    finishDate?: Date | null;    // Actual/Forecast date for plotting
-    yOrder?: number;             // Vertical order index for plotting
-    tooltipData?: Map<string, PrimitiveValue>; // Custom tooltip data
+    startDate?: Date | null;
+    finishDate?: Date | null;
+    yOrder?: number;
+    tooltipData?: Map<string, PrimitiveValue>;
 }
 
 interface Relationship {
@@ -920,141 +920,6 @@ export class Visual implements IVisual {
     }
 
 
-    private createFloatFilterToggle(): void {
-        if (!this.headerSvg) return;
-        
-        this.headerSvg.selectAll(".float-filter-toggle").remove();
-        
-        const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-        if (currentMode !== 'floatBased') return;
-        
-        const currentFilter = this.settings?.criticalityMode?.floatBasedFilter?.value?.value || 'drivingOnly';
-        const isDrivingOnly = currentFilter === 'drivingOnly';
-        
-        const filterToggle = this.headerSvg.append("g")
-            .attr("class", "float-filter-toggle");
-        
-        // Mini segmented control
-        const buttonWidth = 70; // Much smaller
-        const buttonHeight = 22;
-        const buttonX = 164; // After mode toggle
-        const buttonY = 4;
-        
-        filterToggle.attr("transform", `translate(${buttonX}, ${buttonY})`);
-        
-        // Background
-        filterToggle.append("rect")
-            .attr("width", buttonWidth)
-            .attr("height", buttonHeight)
-            .attr("rx", 4)
-            .attr("ry", 4)
-            .style("fill", "#f5f5f5")
-            .style("stroke", "#d9d9d9")
-            .style("stroke-width", 1);
-        
-        const segmentWidth = buttonWidth / 2;
-        
-        // Active segment indicator
-        filterToggle.append("rect")
-            .attr("x", isDrivingOnly ? 1 : segmentWidth)
-            .attr("y", 1)
-            .attr("width", segmentWidth - 1)
-            .attr("height", buttonHeight - 2)
-            .attr("rx", 3)
-            .attr("ry", 3)
-            .style("fill", "#faad14")
-            .style("opacity", 0.2);
-        
-        // Text labels (abbreviated)
-        filterToggle.append("text")
-            .attr("x", segmentWidth / 2)
-            .attr("y", buttonHeight / 2)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-size", "10px")
-            .style("font-weight", isDrivingOnly ? "600" : "400")
-            .style("fill", isDrivingOnly ? "#fa8c16" : "#666")
-            .style("pointer-events", "none")
-            .text("Drv");
-        
-        filterToggle.append("text")
-            .attr("x", segmentWidth + segmentWidth / 2)
-            .attr("y", buttonHeight / 2)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-size", "10px")
-            .style("font-weight", !isDrivingOnly ? "600" : "400")
-            .style("fill", !isDrivingOnly ? "#fa8c16" : "#666")
-            .style("pointer-events", "none")
-            .text("All");
-        
-        // Tooltip
-        filterToggle.append("title")
-            .text(isDrivingOnly ? "Driving relationships only (Free Float = 0)" : "All relationships");
-        
-        const self = this;
-        
-        // Click areas
-        filterToggle.append("rect")
-            .attr("width", segmentWidth)
-            .attr("height", buttonHeight)
-            .style("fill", "transparent")
-            .style("cursor", "pointer")
-            .on("click", function(event) {
-                if (event) event.stopPropagation();
-                if (!isDrivingOnly) self.setFloatBasedFilter('drivingOnly');
-            });
-        
-        filterToggle.append("rect")
-            .attr("x", segmentWidth)
-            .attr("width", segmentWidth)
-            .attr("height", buttonHeight)
-            .style("fill", "transparent")
-            .style("cursor", "pointer")
-            .on("click", function(event) {
-                if (event) event.stopPropagation();
-                if (isDrivingOnly) self.setFloatBasedFilter('all');
-            });
-    }
-
-    private setFloatBasedFilter(filterMode: string): void {
-        try {
-            this.debugLog(`Setting Float-Based filter to: ${filterMode}`);
-            
-            // Update the settings value
-            if (this.settings?.criticalityMode?.floatBasedFilter) {
-                this.settings.criticalityMode.floatBasedFilter.value = {
-                    value: filterMode,
-                    displayName: filterMode === 'drivingOnly' ? 'Driving Only (Free Float = 0)' : 'All Dependencies'
-                };
-            }
-            
-            // Persist the filter mode
-            this.host.persistProperties({
-                merge: [{
-                    objectName: "criticalityMode",
-                    properties: { floatBasedFilter: filterMode },
-                    selector: null
-                }]
-            });
-            
-            // Force a full update
-            this.forceFullUpdate = true;
-            
-            if (!this.lastUpdateOptions) {
-                console.error("Cannot trigger update - lastUpdateOptions is null during filter change.");
-                return;
-            }
-            
-            // Trigger update
-            this.update(this.lastUpdateOptions);
-            this.debugLog("Visual update triggered by filter change");
-            
-        } catch (error) {
-            console.error("Error setting float-based filter:", error);
-        }
-    }
-
     private createFloatThresholdControl(): void {
         this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
 
@@ -1227,7 +1092,6 @@ export class Visual implements IVisual {
                 this.clearVisual();
                 this.createOrUpdateToggleButton(viewportWidth);
                 this.createModeToggleButton(viewportWidth);
-                this.createFloatFilterToggle(); // Only shows in Float-Based mode
                 this.createConnectorLinesToggleButton(viewportWidth);
                 this.createFloatThresholdControl();
                 this.createTaskSelectionDropdown();
@@ -1237,7 +1101,7 @@ export class Visual implements IVisual {
             if (!this.validateDataView(dataView)) {
                 const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
                 if (mode === 'floatBased') {
-                    this.displayMessage("Float-Based mode requires: Task ID, Task Total Float, Start Date, Finish Date.");
+                    this.displayMessage("Float-Based mode requires: Task ID, Task Total Float, Task Free Float, Start Date, Finish Date.");
                 } else {
                     this.displayMessage("Longest Path mode requires: Task ID, Duration, Start Date, Finish Date.");
                 }
@@ -1431,7 +1295,7 @@ export class Visual implements IVisual {
             // Update toggle button text
             if (this.toggleButtonGroup) {
                 this.toggleButtonGroup.select("text")
-                    .text(this.showAllTasksInternal ? "Show Longest Path" : "Show All Tasks");
+                    .text(this.showAllTasksInternal ? "Show Critical" : "Show All Tasks");
             }
 
             const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
@@ -2708,15 +2572,23 @@ private drawTasks(
                             return mode === 'floatBased' ? "Non-Critical" : "Not on Longest Path";
                         });
 
-                    // Show float value
-                    if (mode === 'floatBased' && d.userProvidedTotalFloat !== undefined) {
-                        modeInfo.append("div").append("strong").text("Total Float: ")
-                            .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                            .append("span").text(d.userProvidedTotalFloat.toFixed(2));
-                    } else if (mode === 'longestPath') {
-                        modeInfo.append("div").append("strong").text("Calculated Float: ")
-                            .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                            .append("span").text(d.totalFloat === Infinity ? "N/A" : d.totalFloat.toFixed(2));
+                    // Show float values in Float-Based mode
+                    if (mode === 'floatBased') {
+                        // Show Total Float (used for criticality)
+                        if (d.userProvidedTotalFloat !== undefined) {
+                            modeInfo.append("div").append("strong").text("Total Float: ")
+                                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
+                                .append("span")
+                                .style("color", d.userProvidedTotalFloat <= 0 ? criticalColor : "inherit")
+                                .text(d.userProvidedTotalFloat.toFixed(2) + " days");
+                        }
+                        
+                        // Show Task Free Float (informational)
+                        if (d.taskFreeFloat !== undefined) {
+                            modeInfo.append("div").append("strong").text("Task Free Float: ")
+                                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
+                                .append("span").text(d.taskFreeFloat.toFixed(2) + " days");
+                        }
                     }
 
                     // Duration (only for Longest Path mode)
@@ -3917,51 +3789,47 @@ private async determineCriticalityMode(): Promise<void> {
     }
 }
 
-/**
- * Applies Float-Based criticality using user-provided float values
- */
 private applyFloatBasedCriticality(): void {
-    this.debugLog("Applying Float-Based criticality...");
+    this.debugLog("Applying Float-Based criticality using Total Float for criticality and Task Free Float for tracing...");
     const startTime = performance.now();
     
-    // Apply task criticality based on provided total float
+    // Apply task criticality based on TOTAL FLOAT (not Task Free Float)
     this.allTasksData.forEach(task => {
+        // Use Total Float for criticality determination (as before)
         if (task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)) {
-            // Use provided float value
             task.totalFloat = task.userProvidedTotalFloat;
-            task.isCritical = task.totalFloat <= 0;
+            task.isCritical = task.totalFloat <= 0;  // Critical if Total Float ≤ 0
             task.isCriticalByFloat = task.isCritical;
             
-            // Near-critical determination
+            // Near-critical determination based on Total Float
             if (this.showNearCritical && !task.isCritical) {
-                task.isNearCritical = task.totalFloat > 0 && task.totalFloat <= this.floatThreshold;
+                task.isNearCritical = task.totalFloat > 0 && 
+                                     task.totalFloat <= this.floatThreshold;
             } else {
                 task.isNearCritical = false;
             }
         } else {
-            // No float value provided
+            // No total float value provided
             task.totalFloat = Infinity;
             task.isCritical = false;
             task.isCriticalByFloat = false;
             task.isNearCritical = false;
         }
         
+        // Task Free Float is stored but NOT used for criticality
+        // It will be used for path tracing in the identify methods
+        
+        task.isCriticalByRel = false;
         // Reset CPM-specific values
         task.earlyStart = 0;
         task.earlyFinish = task.duration;
         task.lateStart = task.totalFloat === Infinity ? Infinity : 0;
         task.lateFinish = task.totalFloat === Infinity ? Infinity : task.duration;
-        task.isCriticalByRel = false;
     });
     
-    // Apply relationship criticality based on free float
+    // Relationships are no longer critical based on free float
     this.relationships.forEach(rel => {
-        if (rel.freeFloat !== null && !isNaN(rel.freeFloat)) {
-            // Relationship is critical if free float is 0 (driving)
-            rel.isCritical = Math.abs(rel.freeFloat) < 0.001;
-        } else {
-            rel.isCritical = false;
-        }
+        rel.isCritical = false; // All relationships non-critical in task-based model
     });
     
     const endTime = performance.now();
@@ -3969,7 +3837,7 @@ private applyFloatBasedCriticality(): void {
     const nearCriticalCount = this.allTasksData.filter(t => t.isNearCritical).length;
     
     this.debugLog(`Float-Based criticality applied in ${endTime - startTime}ms.`);
-    this.debugLog(`Critical tasks: ${criticalCount}, Near-critical tasks: ${nearCriticalCount}`);
+    this.debugLog(`Critical tasks (Total Float ≤ 0): ${criticalCount}, Near-critical tasks: ${nearCriticalCount}`);
 }
 
 private calculateCPM(): void {
@@ -4802,17 +4670,11 @@ private identifyAllSuccessorTasksOptimized(sourceTaskId: string): Set<string> {
     return tasksInPathFromSource;
 }
 
-/**
- * Identifies predecessor tasks for Float-Based mode with dependency filtering
- */
 private identifyPredecessorTasksFloatBased(targetTaskId: string): Set<string> {
-    const filterMode = this.settings.criticalityMode.floatBasedFilter.value.value;
+    // Simplified - no filtering needed
     const tasksInPath = new Set<string>();
-    
-    // Always include the target task
     tasksInPath.add(targetTaskId);
     
-    // BFS traversal with filtering
     const queue: string[] = [targetTaskId];
     const visited = new Set<string>();
     visited.add(targetTaskId);
@@ -4823,21 +4685,7 @@ private identifyPredecessorTasksFloatBased(targetTaskId: string): Set<string> {
         if (!task) continue;
         
         for (const predId of task.predecessorIds) {
-            // Skip if already visited
-            if (visited.has(predId)) continue;
-            
-            // Check filter condition
-            let includeTask = true;
-            if (filterMode === "drivingOnly") {
-                // Only include if relationship has free float = 0 (driving)
-                const freeFloat = task.relationshipFreeFloats[predId];
-                if (freeFloat !== null && freeFloat !== undefined && Math.abs(freeFloat) > 0.001) {
-                    includeTask = false; // Skip non-driving relationships
-                }
-            }
-            // For "all" mode, include everything
-            
-            if (includeTask) {
+            if (!visited.has(predId)) {
                 tasksInPath.add(predId);
                 visited.add(predId);
                 queue.push(predId);
@@ -4845,21 +4693,15 @@ private identifyPredecessorTasksFloatBased(targetTaskId: string): Set<string> {
         }
     }
     
-    this.debugLog(`Float-Based backward trace from ${targetTaskId}: found ${tasksInPath.size} tasks (filter: ${filterMode})`);
+    this.debugLog(`Float-Based backward trace from ${targetTaskId}: found ${tasksInPath.size} tasks`);
     return tasksInPath;
 }
 
-/**
- * Identifies successor tasks for Float-Based mode with dependency filtering
- */
 private identifySuccessorTasksFloatBased(sourceTaskId: string): Set<string> {
-    const filterMode = this.settings.criticalityMode.floatBasedFilter.value.value;
+    // Simplified - no filtering needed
     const tasksInPath = new Set<string>();
-    
-    // Always include the source task
     tasksInPath.add(sourceTaskId);
     
-    // BFS traversal with filtering
     const queue: string[] = [sourceTaskId];
     const visited = new Set<string>();
     visited.add(sourceTaskId);
@@ -4869,24 +4711,10 @@ private identifySuccessorTasksFloatBased(sourceTaskId: string): Set<string> {
         const successorIds = this.predecessorIndex.get(currentTaskId) || new Set();
         
         for (const succId of successorIds) {
-            // Skip if already visited
-            if (visited.has(succId)) continue;
-            
-            const successor = this.taskIdToTask.get(succId);
-            if (!successor) continue;
-            
-            // Check filter condition
-            let includeTask = true;
-            if (filterMode === "drivingOnly") {
-                // Only include if relationship has free float = 0 (driving)
-                const freeFloat = successor.relationshipFreeFloats[currentTaskId];
-                if (freeFloat !== null && freeFloat !== undefined && Math.abs(freeFloat) > 0.001) {
-                    includeTask = false; // Skip non-driving relationships
-                }
-            }
-            // For "all" mode, include everything
-            
-            if (includeTask) {
+            if (!visited.has(succId)) {
+                const successor = this.taskIdToTask.get(succId);
+                if (!successor) continue;
+                
                 tasksInPath.add(succId);
                 visited.add(succId);
                 queue.push(succId);
@@ -4894,7 +4722,7 @@ private identifySuccessorTasksFloatBased(sourceTaskId: string): Set<string> {
         }
     }
     
-    this.debugLog(`Float-Based forward trace from ${sourceTaskId}: found ${tasksInPath.size} tasks (filter: ${filterMode})`);
+    this.debugLog(`Float-Based forward trace from ${sourceTaskId}: found ${tasksInPath.size} tasks`);
     return tasksInPath;
 }
 
@@ -5052,7 +4880,7 @@ private extractPredecessorId(row: any[]): string | null {
 }
 
 private createTaskFromRow(row: any[], rowIndex: number): Task | null {
-    const dataView = this.lastUpdateOptions?.dataViews[0];
+    const dataView = this.lastUpdateOptions?.dataViews?.[0];
     if (!dataView) return null;
     
     const taskId = this.extractTaskId(row);
@@ -5064,7 +4892,8 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
     const durationIdx = this.getColumnIndex(dataView, 'duration');
     const startDateIdx = this.getColumnIndex(dataView, 'startDate');
     const finishDateIdx = this.getColumnIndex(dataView, 'finishDate');
-    const totalFloatIdx = this.getColumnIndex(dataView, 'taskTotalFloat'); // NEW
+    const totalFloatIdx = this.getColumnIndex(dataView, 'taskTotalFloat');
+    const taskFreeFloatIdx = this.getColumnIndex(dataView, 'taskFreeFloat'); // NEW
     
     // Extract task properties
     const taskName = (nameIdx !== -1 && row[nameIdx] != null) 
@@ -5088,12 +4917,21 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
     }
     duration = Math.max(0, duration);
     
-    // Parse user-provided total float (NEW)
+    // Parse user-provided total float
     let userProvidedTotalFloat: number | undefined = undefined;
     if (totalFloatIdx !== -1 && row[totalFloatIdx] != null) {
         const parsedFloat = Number(row[totalFloatIdx]);
         if (!isNaN(parsedFloat) && isFinite(parsedFloat)) {
             userProvidedTotalFloat = parsedFloat;
+        }
+    }
+    
+    // Parse task free float (NEW)
+    let taskFreeFloat: number | undefined = undefined;
+    if (taskFreeFloatIdx !== -1 && row[taskFreeFloatIdx] != null) {
+        const parsedFloat = Number(row[taskFreeFloatIdx]);
+        if (!isNaN(parsedFloat) && isFinite(parsedFloat)) {
+            taskFreeFloat = parsedFloat;
         }
     }
     
@@ -5115,12 +4953,12 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         name: taskName,
         type: taskType,
         duration: duration,
-        userProvidedTotalFloat: userProvidedTotalFloat, // NEW
+        userProvidedTotalFloat: userProvidedTotalFloat,
+        taskFreeFloat: taskFreeFloat,  // NEW
         predecessorIds: [],
         predecessors: [],
         successors: [],
         relationshipTypes: {},
-        relationshipFreeFloats: {},
         relationshipLags: {},
         earlyStart: 0,
         earlyFinish: duration,
@@ -5211,7 +5049,6 @@ private transformDataOptimized(dataView: DataView): void {
     }
     const predIdIdx = this.getColumnIndex(dataView, 'predecessorId');
     const relTypeIdx = this.getColumnIndex(dataView, 'relationshipType');
-    const relFloatIdx = this.getColumnIndex(dataView, 'relationshipFreeFloat');
     const relLagIdx = this.getColumnIndex(dataView, 'relationshipLag');
 
     if (idIdx === -1) {
@@ -5227,7 +5064,6 @@ private transformDataOptimized(dataView: DataView): void {
         relationships: Array<{
             predId: string,
             relType: string,
-            freeFloat: number | null,
             lag: number | null
         }>
     }>();
@@ -5265,14 +5101,6 @@ private transformDataOptimized(dataView: DataView): void {
                 const validRelTypes = ['FS', 'SS', 'FF', 'SF'];
                 const relType = validRelTypes.includes(relTypeRaw) ? relTypeRaw : 'FS';
 
-                let relFreeFloat: number | null = null;
-                if (relFloatIdx !== -1 && row[relFloatIdx] != null) {
-                    const parsedFloat = Number(row[relFloatIdx]);
-                    if (!isNaN(parsedFloat) && isFinite(parsedFloat)) {
-                        relFreeFloat = parsedFloat;
-                    }
-                }
-
                 let relLag: number | null = null;
                 if (relLagIdx !== -1 && row[relLagIdx] != null) {
                     const parsedLag = Number(row[relLagIdx]);
@@ -5287,7 +5115,6 @@ private transformDataOptimized(dataView: DataView): void {
                     taskData.relationships.push({
                         predId: predId,
                         relType: relType,
-                        freeFloat: relFreeFloat,
                         lag: relLag
                     });
                 }
@@ -5317,7 +5144,6 @@ private transformDataOptimized(dataView: DataView): void {
         taskData.relationships.forEach(rel => {
             task.predecessorIds.push(rel.predId);
             task.relationshipTypes[rel.predId] = rel.relType;
-            task.relationshipFreeFloats[rel.predId] = rel.freeFloat;
             task.relationshipLags[rel.predId] = rel.lag;
             
             // Update predecessor index
@@ -5332,12 +5158,12 @@ private transformDataOptimized(dataView: DataView): void {
             }
             successorMap.get(rel.predId)!.push(task);
             
-            // Create relationship object
+            // Create relationship object (simplified - no free float)
             const relationship: Relationship = {
                 predecessorId: rel.predId,
                 successorId: taskId,
                 type: rel.relType,
-                freeFloat: rel.freeFloat,
+                freeFloat: null,  // No longer used
                 lag: rel.lag,
                 isCritical: false
             };
@@ -5393,52 +5219,57 @@ private transformDataOptimized(dataView: DataView): void {
     }
 
 
-    private validateDataView(dataView: DataView): boolean {
-        if (!dataView?.table?.rows || !dataView.metadata?.columns) {
-            console.warn("validateDataView: Missing table/rows or metadata/columns.");
-            return false;
-        }
-        
-        const hasId = this.hasDataRole(dataView, 'taskId');
-        const hasStartDate = this.hasDataRole(dataView, 'startDate');
-        const hasFinishDate = this.hasDataRole(dataView, 'finishDate');
-        
-        // Mode-specific validation
-        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-        const hasDuration = this.hasDataRole(dataView, 'duration');
-        const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
-
-        let isValid = true;
-        if (!hasId) { 
-            console.warn("validateDataView: Missing 'taskId' data role."); 
-            isValid = false; 
-        }
-        
-        if (mode === 'floatBased') {
-            // Float-Based mode: total float is required, duration optional
-            if (!hasTotalFloat) { 
-                console.warn("validateDataView: Float-Based mode requires 'taskTotalFloat' data role."); 
-                isValid = false; 
-            }
-        } else {
-            // Longest Path mode: duration is required
-            if (!hasDuration) { 
-                console.warn("validateDataView: Longest Path mode requires 'duration' data role (needed for CPM)."); 
-                isValid = false; 
-            }
-        }
-        
-        if (!hasStartDate) { 
-            console.warn("validateDataView: Missing 'startDate' data role (needed for plotting)."); 
-            isValid = false; 
-        }
-        if (!hasFinishDate) { 
-            console.warn("validateDataView: Missing 'finishDate' data role (needed for plotting)."); 
-            isValid = false; 
-        }
-
-        return isValid;
+private validateDataView(dataView: DataView): boolean {
+    if (!dataView?.table?.rows || !dataView.metadata?.columns) {
+        console.warn("validateDataView: Missing table/rows or metadata/columns.");
+        return false;
     }
+    
+    const hasId = this.hasDataRole(dataView, 'taskId');
+    const hasStartDate = this.hasDataRole(dataView, 'startDate');
+    const hasFinishDate = this.hasDataRole(dataView, 'finishDate');
+    
+    // Mode-specific validation
+    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+    const hasDuration = this.hasDataRole(dataView, 'duration');
+    const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
+    const hasTaskFreeFloat = this.hasDataRole(dataView, 'taskFreeFloat');
+
+    let isValid = true;
+    if (!hasId) { 
+        console.warn("validateDataView: Missing 'taskId' data role."); 
+        isValid = false; 
+    }
+    
+    if (mode === 'floatBased') {
+        // Float-Based mode: BOTH total float and task free float are required
+        if (!hasTotalFloat) { 
+            console.warn("validateDataView: Float-Based mode requires 'taskTotalFloat' data role for criticality."); 
+            isValid = false; 
+        }
+        if (!hasTaskFreeFloat) { 
+            console.warn("validateDataView: Float-Based mode requires 'taskFreeFloat' data role."); 
+            isValid = false; 
+        }
+    } else {
+        // Longest Path mode: duration is required
+        if (!hasDuration) { 
+            console.warn("validateDataView: Longest Path mode requires 'duration' data role (needed for CPM)."); 
+            isValid = false; 
+        }
+    }
+    
+    if (!hasStartDate) { 
+        console.warn("validateDataView: Missing 'startDate' data role (needed for plotting)."); 
+        isValid = false; 
+    }
+    if (!hasFinishDate) { 
+        console.warn("validateDataView: Missing 'finishDate' data role (needed for plotting)."); 
+        isValid = false; 
+    }
+
+    return isValid;
+}
 
     private hasDataRole(dataView: DataView, roleName: string): boolean {
         if (!dataView?.metadata?.columns) return false;

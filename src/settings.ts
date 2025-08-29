@@ -190,18 +190,7 @@ class CriticalityModeCard extends Card {
         value: { value: "longestPath", displayName: "Longest Path (CPM)" }
     });
     
-    floatBasedFilter = new ItemDropdown({
-        name: "floatBasedFilter",
-        displayName: "Float-Based Dependency Filter",
-        description: "For Float-Based mode: filter dependencies in trace",
-        items: [
-            { value: "drivingOnly", displayName: "Driving Only (Free Float = 0)" },
-            { value: "all", displayName: "All Dependencies" }
-        ],
-        value: { value: "drivingOnly", displayName: "Driving Only (Free Float = 0)" }
-    });
-    
-    slices: Slice[] = [this.calculationMode, this.floatBasedFilter];
+    slices: Slice[] = [this.calculationMode];
 }
 class TaskSelectionCard extends Card {
     name: string = "taskSelection"; displayName: string = "Task Selection";

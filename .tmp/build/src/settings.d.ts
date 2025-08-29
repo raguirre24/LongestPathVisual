@@ -84,7 +84,6 @@ declare class CriticalityModeCard extends Card {
     name: string;
     displayName: string;
     calculationMode: formattingSettings.ItemDropdown;
-    floatBasedFilter: formattingSettings.ItemDropdown;
     slices: Slice[];
 }
 declare class TaskSelectionCard extends Card {
