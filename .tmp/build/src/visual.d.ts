@@ -77,6 +77,7 @@ export declare class Visual implements IVisual {
     private relationshipIndex;
     private readonly VIEWPORT_CHANGE_THRESHOLD;
     private forceFullUpdate;
+    private visualTitle;
     constructor(options: VisualConstructorOptions);
     /**
      * Determines what type of update is needed based on what changed
@@ -89,6 +90,7 @@ export declare class Visual implements IVisual {
     private createModeToggleButton;
     private toggleCriticalityMode;
     private createFloatThresholdControl;
+    private createOrUpdateVisualTitle;
     private toggleConnectorLinesDisplay;
     update(options: VisualUpdateOptions): void;
     private updateInternal;

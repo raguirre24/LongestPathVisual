@@ -170,6 +170,8 @@ export class Visual implements IVisual {
     private readonly VIEWPORT_CHANGE_THRESHOLD = 0.3; // 30% change triggers full recalculation
     private forceFullUpdate: boolean = false;
 
+    private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
+
     constructor(options: VisualConstructorOptions) {
             this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
             this.target = options.element;
@@ -913,6 +915,7 @@ export class Visual implements IVisual {
             // Trigger update
             this.update(this.lastUpdateOptions);
             this.debugLog("Visual update triggered by mode toggle");
+            this.createOrUpdateVisualTitle();
             
         } catch (error) {
             console.error("Error toggling criticality mode:", error);
@@ -991,6 +994,63 @@ export class Visual implements IVisual {
                 self.update(self.lastUpdateOptions);
             }
         });
+    }
+
+    private createOrUpdateVisualTitle(): void {
+        if (!this.stickyHeaderContainer) return;
+        
+        // Remove existing title
+        this.stickyHeaderContainer.selectAll(".visual-title").remove();
+        
+        // Get current mode
+        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+        const modeDisplayName = mode === 'floatBased' ? 'Float-Based Critical Path' : 'Longest Path (CPM)';
+        
+        // Get viewport width for centering
+        const viewportWidth = this.lastUpdateOptions?.viewport.width || 800;
+        
+        // Create title container
+        this.visualTitle = this.stickyHeaderContainer.append("div")
+            .attr("class", "visual-title")
+            .style("position", "absolute")
+            .style("top", "4px")
+            .style("left", "50%")
+            .style("transform", "translateX(-50%)") // Center horizontally
+            .style("z-index", "15")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("gap", "6px")
+            .style("pointer-events", "none"); // Prevent interference with other controls
+        
+        // Add mode indicator icon
+        const modeIcon = this.visualTitle.append("div")
+            .style("width", "8px")
+            .style("height", "8px")
+            .style("border-radius", "50%")
+            .style("background-color", mode === 'floatBased' ? "#faad14" : "#1890ff")
+            .style("flex-shrink", "0"); // Prevent icon from shrinking
+        
+        // Add title text
+        this.visualTitle.append("span")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "13px")
+            .style("font-weight", "600")
+            .style("color", "#333")
+            .style("white-space", "nowrap")
+            .style("text-align", "center")
+            .text(modeDisplayName);
+        
+        // Add selected task indicator if applicable
+        if (this.selectedTaskId && this.selectedTaskName) {
+            this.visualTitle.append("span")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", "11px")
+                .style("color", "#666")
+                .style("margin-left", "8px")
+                .style("font-weight", "normal")
+                .text(`→ ${this.selectedTaskName}`);
+        }
     }
 
     private toggleConnectorLinesDisplay(): void {
@@ -1093,6 +1153,7 @@ export class Visual implements IVisual {
                 this.createOrUpdateToggleButton(viewportWidth);
                 this.createModeToggleButton(viewportWidth);
                 this.createConnectorLinesToggleButton(viewportWidth);
+                this.createOrUpdateVisualTitle();
                 this.createFloatThresholdControl();
                 this.createTaskSelectionDropdown();
                 this.createTraceModeToggle();
@@ -1510,6 +1571,7 @@ export class Visual implements IVisual {
             this.headerGridLayer?.selectAll("*").remove();
             this.headerSvg?.selectAll(".divider-line").remove();
             this.headerSvg?.selectAll(".connector-toggle-group").remove(); // Clear connector toggle
+            this.stickyHeaderContainer?.selectAll(".visual-title").remove();
         
             this.mainSvg?.selectAll(".message-text").remove();
             this.headerSvg?.selectAll(".message-text").remove();
@@ -5511,6 +5573,7 @@ private validateDataView(dataView: DataView): boolean {
         // Redraw button and divider in header even when showing message
         const viewportWidth = this.lastUpdateOptions?.viewport.width || width;
         this.createOrUpdateToggleButton(viewportWidth);
+        this.createOrUpdateVisualTitle();
         this.drawHeaderDivider(viewportWidth);
     }
 
@@ -5911,6 +5974,8 @@ private selectTask(taskId: string | null, taskName: string | null): void {
     
     this.selectedTaskId = taskId;
     this.selectedTaskName = taskName;
+
+    this.createOrUpdateVisualTitle();
     
     // Persist the selected task
     this.host.persistProperties({
