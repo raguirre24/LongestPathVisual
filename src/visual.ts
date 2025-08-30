@@ -998,59 +998,120 @@ export class Visual implements IVisual {
 
     private createOrUpdateVisualTitle(): void {
         if (!this.stickyHeaderContainer) return;
-        
-        // Remove existing title
-        this.stickyHeaderContainer.selectAll(".visual-title").remove();
-        
-        // Get current mode
+
+        // Configuration constants for better readability and maintenance
+        const CONFIG = {
+            COLORS: {
+                floatBased: "#faad14",
+                longestPath: "#1890ff",
+                textPrimary: "#333",
+                textSecondary: "#666"
+            },
+            TOOLTIPS: {
+                floatBased: "Mode: Float-Based. Criticality is determined by the 'Task Total Float' field.",
+                longestPath: "Mode: Longest Path (CPM). Criticality is calculated to find the longest sequence of tasks."
+            }
+        };
+
+        // Prepare data for the D3 data-join pattern
         const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-        const modeDisplayName = mode === 'floatBased' ? 'Float-Based Critical Path' : 'Longest Path (CPM)';
-        
-        // Get viewport width for centering
-        const viewportWidth = this.lastUpdateOptions?.viewport.width || 800;
-        
-        // Create title container
-        this.visualTitle = this.stickyHeaderContainer.append("div")
+        const isFloatBased = mode === 'floatBased';
+        const titleData = [{
+            mode,
+            displayName: isFloatBased ? 'Float-Based Critical Path' : 'Longest Path (CPM)',
+            color: isFloatBased ? CONFIG.COLORS.floatBased : CONFIG.COLORS.longestPath,
+            tooltip: isFloatBased ? CONFIG.TOOLTIPS.floatBased : CONFIG.TOOLTIPS.longestPath,
+            selectedTaskName: (this.selectedTaskId && this.selectedTaskName) ? this.selectedTaskName : null
+        }];
+
+        // Use the D3 data-join pattern for efficient updates
+        const titleSelection = this.stickyHeaderContainer.selectAll<HTMLDivElement, typeof titleData[0]>(".visual-title")
+            .data(titleData);
+
+        // --- ENTER: Create the title's structure the first time ---
+        const titleEnter = titleSelection.enter().append("div")
             .attr("class", "visual-title")
             .style("position", "absolute")
             .style("top", "4px")
             .style("left", "50%")
-            .style("transform", "translateX(-50%)") // Center horizontally
+            .style("transform", "translateX(-50%)")
             .style("z-index", "15")
+            // MODIFICATION 1: Use a vertical layout for title and subtitle
+            .style("display", "flex")
+            .style("flex-direction", "column")
+            .style("align-items", "center")
+            .style("gap", "2px") // Adds a small space between title and subtitle
+            .style("pointer-events", "none")
+            .style("max-width", "60%");
+
+        // New container for the top row to keep the icon and mode name together
+        const topRowEnter = titleEnter.append("div")
+            .attr("class", "title-top-row")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("gap", "6px")
-            .style("pointer-events", "none"); // Prevent interference with other controls
+            .style("gap", "6px");
+
+        topRowEnter.append("div").attr("class", "mode-icon");
+        topRowEnter.append("span").attr("class", "mode-name");
+
+        // Container for the subtitle (selected task)
+        const subtitleEnter = titleEnter.append("div")
+            .attr("class", "title-subtitle")
+            .style("text-align", "center");
+
+        // The span for the task name, which will be populated on update
+        subtitleEnter.append("span")
+            .attr("class", "selected-task-name")
+            .style("white-space", "nowrap")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
+            .style("display", "inline-block"); // Required for truncation to work
+
+        // --- UPDATE: Merge enter and update selections to apply dynamic styles ---
+        const titleUpdate = titleEnter.merge(titleSelection);
         
-        // Add mode indicator icon
-        const modeIcon = this.visualTitle.append("div")
+        titleUpdate
+            .attr("title", d => d.tooltip)
+            .transition().duration(200)
+            .style("opacity", 1);
+            
+        // Update the top row elements
+        const topRowUpdate = titleUpdate.select(".title-top-row");
+        
+        topRowUpdate.select(".mode-icon")
             .style("width", "8px")
             .style("height", "8px")
             .style("border-radius", "50%")
-            .style("background-color", mode === 'floatBased' ? "#faad14" : "#1890ff")
-            .style("flex-shrink", "0"); // Prevent icon from shrinking
-        
-        // Add title text
-        this.visualTitle.append("span")
+            .style("flex-shrink", "0")
+            .style("background-color", d => d.color);
+
+        topRowUpdate.select(".mode-name")
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "13px")
             .style("font-weight", "600")
-            .style("color", "#333")
-            .style("white-space", "nowrap")
-            .style("text-align", "center")
-            .text(modeDisplayName);
+            .style("color", CONFIG.COLORS.textPrimary)
+            .text(d => d.displayName);
+            
+        // Update the subtitle section
+        const subtitleUpdate = titleUpdate.select<HTMLDivElement>(".title-subtitle");
         
-        // Add selected task indicator if applicable
-        if (this.selectedTaskId && this.selectedTaskName) {
-            this.visualTitle.append("span")
-                .style("font-family", "Segoe UI, sans-serif")
-                .style("font-size", "11px")
-                .style("color", "#666")
-                .style("margin-left", "8px")
-                .style("font-weight", "normal")
-                .text(`→ ${this.selectedTaskName}`);
-        }
+        subtitleUpdate
+            .style("display", d => d.selectedTaskName ? "block" : "none");
+            
+        subtitleUpdate.select(".selected-task-name")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "11px")
+            .style("color", CONFIG.COLORS.textSecondary)
+            .style("font-weight", "normal")
+            .style("max-width", "600px")
+            .attr("title", d => d.selectedTaskName) // Full name on hover
+            .text(d => d.selectedTaskName ? `Tracing: ${d.selectedTaskName}` : "");
+
+        // --- EXIT ---
+        titleSelection.exit()
+            .transition().duration(200)
+            .style("opacity", 0)
+            .remove();
     }
 
     private toggleConnectorLinesDisplay(): void {
@@ -1162,7 +1223,7 @@ export class Visual implements IVisual {
             if (!this.validateDataView(dataView)) {
                 const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
                 if (mode === 'floatBased') {
-                    this.displayMessage("Float-Based mode requires: Task ID, Task Total Float, Task Free Float, Start Date, Finish Date.");
+                    this.displayMessage("Float-Based mode requires: Task ID, Task Total Float, Start Date, Finish Date.");
                 } else {
                     this.displayMessage("Longest Path mode requires: Task ID, Duration, Start Date, Finish Date.");
                 }
@@ -5307,10 +5368,6 @@ private validateDataView(dataView: DataView): boolean {
         // Float-Based mode: BOTH total float and task free float are required
         if (!hasTotalFloat) { 
             console.warn("validateDataView: Float-Based mode requires 'taskTotalFloat' data role for criticality."); 
-            isValid = false; 
-        }
-        if (!hasTaskFreeFloat) { 
-            console.warn("validateDataView: Float-Based mode requires 'taskFreeFloat' data role."); 
             isValid = false; 
         }
     } else {
