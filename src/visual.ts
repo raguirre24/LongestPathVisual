@@ -44,6 +44,8 @@ interface Task {
     isNearCritical?: boolean;
     startDate?: Date | null;
     finishDate?: Date | null;
+    baselineStartDate?: Date | null;
+    baselineFinishDate?: Date | null;
     yOrder?: number;
     tooltipData?: Map<string, PrimitiveValue>;
 }
@@ -2389,6 +2391,35 @@ private drawTasks(
     
     // Merge enter and existing selections
     const allTaskGroups = enterGroups.merge(taskGroupsSelection);
+
+    // --- Draw Baseline Bars ---
+    const showBaseline = this.settings.taskAppearance.showBaseline.value;
+    if (showBaseline) {
+        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
+        const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
+
+        allTaskGroups.selectAll(".baseline-bar").remove(); // Clear old bars
+
+        allTaskGroups.filter((d: Task) =>
+            d.baselineStartDate instanceof Date && !isNaN(d.baselineStartDate.getTime()) &&
+            d.baselineFinishDate instanceof Date && !isNaN(d.baselineFinishDate.getTime()) &&
+            d.baselineFinishDate >= d.baselineStartDate
+        )
+        .append("rect")
+            .attr("class", "baseline-bar")
+            .attr("x", (d: Task) => xScale(d.baselineStartDate!))
+            .attr("y", taskHeight + baselineOffset)
+            .attr("width", (d: Task) => {
+                const startPos = xScale(d.baselineStartDate!);
+                const finishPos = xScale(d.baselineFinishDate!);
+                return Math.max(this.minTaskWidthPixels, finishPos - startPos);
+            })
+            .attr("height", baselineHeight)
+            .style("fill", baselineColor);
+    } else {
+        allTaskGroups.selectAll(".baseline-bar").remove(); // Ensure bars are hidden
+    }
     
     // --- Draw Task Bars ---
     // First remove any existing bars to redraw them (simpler than updating positions)
@@ -2836,6 +2867,10 @@ private drawTasksCanvas(
     const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const nearCriticalColor = "#F7941F";
+    const showBaseline = this.settings.taskAppearance.showBaseline.value;
+    const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+    const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
+    const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
     
     // Set font for measurements
     ctx.font = `${taskNameFontSize}pt Segoe UI, sans-serif`;
@@ -2845,6 +2880,16 @@ private drawTasksCanvas(
         const domainKey = task.yOrder?.toString() ?? '';
         const yPosition = yScale(domainKey);
         if (yPosition === undefined || isNaN(yPosition)) return;
+
+        // --- Draw Baseline Bar on Canvas ---
+        if (showBaseline && task.baselineStartDate && task.baselineFinishDate && task.baselineFinishDate >= task.baselineStartDate) {
+            const x_base = xScale(task.baselineStartDate);
+            const width_base = Math.max(1, xScale(task.baselineFinishDate) - x_base);
+            const y_base = yPosition + taskHeight + baselineOffset;
+
+            ctx.fillStyle = baselineColor;
+            ctx.fillRect(x_base, y_base, width_base, baselineHeight);
+        }
         
         // Determine task color
         let fillColor = taskColor;
@@ -5016,7 +5061,9 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
     const startDateIdx = this.getColumnIndex(dataView, 'startDate');
     const finishDateIdx = this.getColumnIndex(dataView, 'finishDate');
     const totalFloatIdx = this.getColumnIndex(dataView, 'taskTotalFloat');
-    const taskFreeFloatIdx = this.getColumnIndex(dataView, 'taskFreeFloat'); // NEW
+    const taskFreeFloatIdx = this.getColumnIndex(dataView, 'taskFreeFloat');
+    const baselineStartDateIdx = this.getColumnIndex(dataView, 'baselineStartDate');
+    const baselineFinishDateIdx = this.getColumnIndex(dataView, 'baselineFinishDate');
     
     // Extract task properties
     const taskName = (nameIdx !== -1 && row[nameIdx] != null) 
@@ -5066,6 +5113,14 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         ? this.parseDate(row[finishDateIdx]) 
         : null;
     
+    // Parse baseline dates
+    const baselineStartDate = (baselineStartDateIdx !== -1 && row[baselineStartDateIdx] != null) 
+        ? this.parseDate(row[baselineStartDateIdx]) 
+        : null;
+    const baselineFinishDate = (baselineFinishDateIdx !== -1 && row[baselineFinishDateIdx] != null) 
+        ? this.parseDate(row[baselineFinishDateIdx]) 
+        : null;
+    
     // Get tooltip data
     const tooltipData = this.extractTooltipData(row, dataView);
     
@@ -5077,7 +5132,7 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         type: taskType,
         duration: duration,
         userProvidedTotalFloat: userProvidedTotalFloat,
-        taskFreeFloat: taskFreeFloat,  // NEW
+        taskFreeFloat: taskFreeFloat,
         predecessorIds: [],
         predecessors: [],
         successors: [],
@@ -5093,6 +5148,8 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         isCriticalByRel: false,
         startDate: startDate,
         finishDate: finishDate,
+        baselineStartDate: baselineStartDate,
+        baselineFinishDate: baselineFinishDate,
         tooltipData: tooltipData
     };
     

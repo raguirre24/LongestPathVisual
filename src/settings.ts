@@ -29,7 +29,44 @@ class TaskAppearanceCard extends Card {
     milestoneColor = new ColorPicker({ name: "milestoneColor", displayName: "Milestone Color", value: { value: "#555555" } });
     taskHeight = new NumUpDown({ name: "taskHeight", displayName: "Task Height (px)", value: 18, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 40 } } });
     milestoneSize = new NumUpDown({ name: "milestoneSize", displayName: "Milestone Size (px)", description: "Size of milestone markers (px)", value: 12, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 4 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 30 } } });
-    slices: Slice[] = [ this.taskColor, this.criticalPathColor, this.milestoneColor, this.taskHeight, this.milestoneSize ];
+
+    // --- NEW: Baseline Settings ---
+    showBaseline = new ToggleSwitch({
+        name: "showBaseline",
+        displayName: "Show Baseline",
+        description: "Display baseline bars below the main task bars",
+        value: true 
+    });
+    baselineColor = new ColorPicker({
+        name: "baselineColor",
+        displayName: "Baseline Color",
+        value: { value: "#8A8A8A" } // A neutral gray
+    });
+    baselineHeight = new NumUpDown({
+        name: "baselineHeight",
+        displayName: "Baseline Height (px)",
+        value: 4, 
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
+    });
+    baselineOffset = new NumUpDown({
+        name: "baselineOffset",
+        displayName: "Baseline Vertical Offset (px)",
+        description: "Distance between the main task bar and the baseline bar",
+        value: 2,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
+    });
+
+    slices: Slice[] = [ 
+        this.taskColor, this.criticalPathColor, this.milestoneColor, 
+        this.taskHeight, this.milestoneSize,
+        this.showBaseline, this.baselineColor, this.baselineHeight, this.baselineOffset
+    ];
  }
 
  class ConnectorLinesCard extends Card {

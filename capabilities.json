@@ -38,6 +38,18 @@
             "description": "Actual/Forecast finish date for plotting"
         },
         {
+            "name": "baselineStartDate",
+            "displayName": "Baseline Start Date",
+            "kind": "GroupingOrMeasure",
+            "description": "Original/Baseline start date for plotting the baseline bar"
+        },
+        {
+            "name": "baselineFinishDate",
+            "displayName": "Baseline Finish Date",
+            "kind": "GroupingOrMeasure",
+            "description": "Original/Baseline finish date for plotting the baseline bar"
+        },
+        {
             "name": "taskName",
             "kind": "Grouping",
             "displayName": "Task Name",
@@ -82,7 +94,11 @@
                 "criticalPathColor": { "displayName": "Longest Path Color", "type": { "fill": { "solid": { "color": true } } } },
                 "milestoneColor": { "displayName": "Milestone Color", "type": { "fill": { "solid": { "color": true } } } },
                 "taskHeight": { "displayName": "Task Height", "type": { "numeric": true } },
-                "milestoneSize": { "displayName": "Milestone Size", "description": "Size of milestone markers (px)", "type": { "numeric": true } }
+                "milestoneSize": { "displayName": "Milestone Size", "description": "Size of milestone markers (px)", "type": { "numeric": true } },
+                "showBaseline": { "displayName": "Show Baseline", "description": "Display baseline bars below the main task bars", "type": { "bool": true } },
+                "baselineColor": { "displayName": "Baseline Color", "type": { "fill": { "solid": { "color": true } } } },
+                "baselineHeight": { "displayName": "Baseline Height (px)", "type": { "numeric": true } },
+                "baselineOffset": { "displayName": "Baseline Vertical Offset (px)", "description": "Distance between the main task bar and the baseline bar", "type": { "numeric": true } }
             }
         },
         "connectorLines": {
@@ -229,6 +245,8 @@
                         { "bind": { "to": "taskFreeFloat" } },
                         { "bind": { "to": "startDate" } },
                         { "bind": { "to": "finishDate" } },
+                        { "bind": { "to": "baselineStartDate" } },
+                        { "bind": { "to": "baselineFinishDate" } },
                         { "bind": { "to": "taskName" } },
                         { "bind": { "to": "taskType" } },
                         { "bind": { "to": "predecessorId" } },

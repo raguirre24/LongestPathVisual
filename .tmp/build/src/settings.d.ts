@@ -10,6 +10,10 @@ declare class TaskAppearanceCard extends Card {
     milestoneColor: formattingSettings.ColorPicker;
     taskHeight: formattingSettings.NumUpDown;
     milestoneSize: formattingSettings.NumUpDown;
+    showBaseline: formattingSettings.ToggleSwitch;
+    baselineColor: formattingSettings.ColorPicker;
+    baselineHeight: formattingSettings.NumUpDown;
+    baselineOffset: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 declare class ConnectorLinesCard extends Card {
