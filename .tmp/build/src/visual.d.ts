@@ -79,9 +79,6 @@ export declare class Visual implements IVisual {
     private forceFullUpdate;
     private visualTitle;
     constructor(options: VisualConstructorOptions);
-    /**
-     * Determines what type of update is needed based on what changed
-     */
     private determineUpdateType;
     destroy(): void;
     private toggleTaskDisplayInternal;

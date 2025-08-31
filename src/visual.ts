@@ -8,6 +8,7 @@ import { ScaleTime, ScaleBand } from "d3-scale";
 import powerbi from "powerbi-visuals-api";
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
+import VisualUpdateType = powerbi.VisualUpdateType; 
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import DataView = powerbi.DataView;
 import IViewport = powerbi.IViewport;
@@ -562,9 +563,6 @@ export class Visual implements IVisual {
             });
         }
 
-    /**
-     * Determines what type of update is needed based on what changed
-     */
     private determineUpdateType(options: VisualUpdateOptions): UpdateType {
         // CHECK FOR FORCED FULL UPDATE FIRST
         if (this.forceFullUpdate) {
@@ -577,47 +575,82 @@ export class Visual implements IVisual {
         if (!this.lastUpdateOptions) {
             return UpdateType.Full;
         }
-        
-        // Check if data changed
-        const currentDataView = options.dataViews?.[0];
-        const lastDataView = this.lastUpdateOptions.dataViews?.[0];
-        
+
+        // *** FIX START: Utilize Power BI Update Type Flags for robust detection ***
         let dataChanged = false;
-        if (currentDataView && lastDataView) {
-            const currentRowCount = currentDataView.table?.rows?.length || 0;
-            const lastRowCount = lastDataView.table?.rows?.length || 0;
-            dataChanged = currentRowCount !== lastRowCount;
-        } else if (currentDataView !== lastDataView) {
+        let settingsChanged = false;
+        let viewportChanged = false;
+
+        // Check flags provided by Power BI (options.type is a bitmask).
+        // Use bitwise AND (&) to check if the specific flag is set.
+        if (options.type & VisualUpdateType.Data) {
             dataChanged = true;
+            this.debugLog("Data change detected via PBI flags (e.g., external filter).");
+        }
+        if (options.type & VisualUpdateType.Resize) {
+            viewportChanged = true;
+        }
+        // Style (4) and ViewMode often indicate property pane changes or mode switches.
+        if ((options.type & VisualUpdateType.Style) || 
+            (options.type & VisualUpdateType.ViewMode)) {
+             settingsChanged = true;
+        }
+        // *** FIX END ***
+
+        // Fallback manual checks for redundancy (optional, but safe)
+        if (!dataChanged) {
+            const currentDataView = options.dataViews?.[0];
+            const lastDataView = this.lastUpdateOptions.dataViews?.[0];
+            
+            if (currentDataView && lastDataView) {
+                const currentRowCount = currentDataView.table?.rows?.length || 0;
+                const lastRowCount = lastDataView.table?.rows?.length || 0;
+                if (currentRowCount !== lastRowCount) {
+                    dataChanged = true;
+                    this.debugLog("Data change detected via row count mismatch.");
+                }
+            } else if (currentDataView !== lastDataView) {
+                dataChanged = true;
+            }
+        }
+
+        // Ensure viewportChanged captures manual comparison if flag was missed
+        if (!viewportChanged) {
+            viewportChanged = this.lastViewport ? 
+                (options.viewport.width !== this.lastViewport.width || 
+                options.viewport.height !== this.lastViewport.height) : true;
         }
         
         // Check if viewport changed significantly (likely focus mode)
-        const viewportChanged = this.lastViewport ? 
-            (options.viewport.width !== this.lastViewport.width || 
-            options.viewport.height !== this.lastViewport.height) : true;
-        
-        // Calculate viewport change magnitude
         let isSignificantViewportChange = false;
         if (this.lastViewport && viewportChanged) {
-            const widthChangeRatio = Math.abs(options.viewport.width - this.lastViewport.width) / this.lastViewport.width;
-            const heightChangeRatio = Math.abs(options.viewport.height - this.lastViewport.height) / this.lastViewport.height;
+            // Use || 1 to prevent division by zero if lastViewport width/height was 0
+            const widthChangeRatio = Math.abs(options.viewport.width - this.lastViewport.width) / (this.lastViewport.width || 1);
+            const heightChangeRatio = Math.abs(options.viewport.height - this.lastViewport.height) / (this.lastViewport.height || 1);
             isSignificantViewportChange = widthChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD || 
                                         heightChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD;
         }
         
-        // Determine update type
+        // Determine final update type based on prioritized flags
         if (dataChanged) {
+            // Data changes always require a full update (reprocessing and scroll reset).
             return UpdateType.Full;
         } else if (isSignificantViewportChange) {
             this.debugLog("Significant viewport change detected - treating as full update");
             return UpdateType.Full;
-        } else if (viewportChanged && !dataChanged) {
+        } else if (viewportChanged && !dataChanged && !settingsChanged) {
             return UpdateType.ViewportOnly;
-        } else if (options.type === 4) { // Format pane change
+        } else if (settingsChanged && !dataChanged) { 
+            // SettingsOnly assumes we don't need to reprocess data, just redraw.
             return UpdateType.SettingsOnly;
         }
         
-        return UpdateType.Full; // Default to full update
+        // If multiple minor flags are set (e.g. settings and minor viewport change), default to a full update for safety.
+        if (settingsChanged || viewportChanged) {
+            return UpdateType.Full;
+        }
+
+        return UpdateType.Full; // Default to full update if unclear
     }
 
     public destroy(): void {
@@ -1147,7 +1180,7 @@ export class Visual implements IVisual {
         void this.updateInternal(options);
     }
 
-    private async updateInternal(options: VisualUpdateOptions) {
+private async updateInternal(options: VisualUpdateOptions) {
         this.debugLog("--- Visual Update Start ---");
         this.renderStartTime = performance.now();
 
@@ -1155,6 +1188,14 @@ export class Visual implements IVisual {
             // Determine update type for optimization
             const updateType = this.determineUpdateType(options);
             this.debugLog(`Update type detected: ${updateType}`);
+            
+            if (updateType === UpdateType.Full && this.scrollableContainer && this.scrollableContainer.node()) {
+                if (this.scrollableContainer.node().scrollTop > 0) {
+                    this.debugLog("EARLY SCROLL RESET: Full update detected, resetting scrollTop to 0.");
+                    this.scrollableContainer.node().scrollTop = 0;
+                }
+            }
+            // *** COMPREHENSIVE FIX END ***
             
             // Store current viewport for comparison
             this.lastViewport = options.viewport;
@@ -1425,17 +1466,20 @@ export class Visual implements IVisual {
             const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
             const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
             if (limitedTasks.length === 0) {
+                // If the filter results in zero tasks, display a message instead of a blank screen.
                 this.displayMessage("No tasks to display after filtering/limiting."); 
                 return;
             }
             this.debugLog(`Tasks after limiting to ${maxTasksToShowSetting}: ${limitedTasks.length}`);
 
+            // Final check for valid dates required for plotting.
             const tasksToPlot = limitedTasks.filter(task =>
                 task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
                 task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
                 task.finishDate >= task.startDate
             );
             if (tasksToPlot.length === 0) {
+                // If all remaining tasks lack dates, display a message instead of a blank screen.
                 if (limitedTasks.length > 0) {
                     this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
                     console.warn("Update aborted: All limited tasks filtered out due to invalid dates.");
@@ -1473,6 +1517,7 @@ export class Visual implements IVisual {
             const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
 
             if (!this.xScale || !this.yScale) {
+                // If scales cannot be created (e.g., invalid date ranges), display a message.
                 this.displayMessage("Could not create time/band scale. Check Start/Finish dates."); 
                 return;
             }
@@ -1498,6 +1543,8 @@ export class Visual implements IVisual {
                 this.scrollableContainer.style("height", `${Math.min(totalSvgHeight, availableContentHeight)}px`)
                                     .style("overflow-y", "hidden");
             }
+
+            // *** THE ORIGINAL FIX BLOCK WAS REMOVED FROM HERE ***
 
             // Setup virtual scrolling with existing task height and padding variables
             this.debugLog("Setting up virtual scrolling...");
