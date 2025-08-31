@@ -160,14 +160,10 @@ export class Visual implements IVisual {
 
     // Performance monitoring
     private renderStartTime: number = 0;
-    private renderBatchTimer: number | null = null;
-    private renderQueue: Set<string> = new Set();
-    private cpmWorker: Worker | null = null;
     
     // Enhanced data structures for performance
     private predecessorIndex: Map<string, Set<string>> = new Map(); // taskId -> Set of tasks that have this as predecessor
-    private taskDepthCache: Map<string, number> = new Map(); // Cache for task depths in dependency graph
-    private sortedTasksCache: Task[] | null = null; // Cache for topologically sorted tasks
+
     private relationshipIndex: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by successorId
 
     private readonly VIEWPORT_CHANGE_THRESHOLD = 0.3; // 30% change triggers full recalculation
@@ -1181,394 +1177,383 @@ export class Visual implements IVisual {
     }
 
 private async updateInternal(options: VisualUpdateOptions) {
-        this.debugLog("--- Visual Update Start ---");
-        this.renderStartTime = performance.now();
+    this.debugLog("--- Visual Update Start ---");
+    this.renderStartTime = performance.now();
 
-        try {
-            // Determine update type for optimization
-            const updateType = this.determineUpdateType(options);
-            this.debugLog(`Update type detected: ${updateType}`);
-            
-            if (updateType === UpdateType.Full && this.scrollableContainer && this.scrollableContainer.node()) {
-                if (this.scrollableContainer.node().scrollTop > 0) {
-                    this.debugLog("EARLY SCROLL RESET: Full update detected, resetting scrollTop to 0.");
-                    this.scrollableContainer.node().scrollTop = 0;
-                }
+    try {
+        // Determine update type for optimization
+        const updateType = this.determineUpdateType(options);
+        this.debugLog(`Update type detected: ${updateType}`);
+        
+        if (updateType === UpdateType.Full && this.scrollableContainer && this.scrollableContainer.node()) {
+            if (this.scrollableContainer.node().scrollTop > 0) {
+                this.debugLog("EARLY SCROLL RESET: Full update detected, resetting scrollTop to 0.");
+                this.scrollableContainer.node().scrollTop = 0;
             }
-            // *** COMPREHENSIVE FIX END ***
-            
-            // Store current viewport for comparison
-            this.lastViewport = options.viewport;
-            
-            // Handle viewport-only updates efficiently
-            if (updateType === UpdateType.ViewportOnly && this.allTasksData.length > 0) {
-                this.handleViewportOnlyUpdate(options);
-                return;
-            }
-            
-            // Handle settings-only updates efficiently
-            if (updateType === UpdateType.SettingsOnly && this.allTasksData.length > 0) {
-                this.handleSettingsOnlyUpdate(options);
-                return;
-            }
-            
-            // Continue with normal update for other types
-            this.lastUpdateOptions = options;
-
-            if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
-                this.displayMessage("Required options not available."); 
-                return;
-            }
-            
-            const dataView = options.dataViews[0];
-            const viewport = options.viewport;
-            const viewportHeight = viewport.height;
-            const viewportWidth = viewport.width;
-
-            this.debugLog("Viewport:", viewportWidth, "x", viewportHeight);
-
-            this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
-
-            this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
-
-            if (this.isInitialLoad) {
-                if (this.settings?.displayOptions?.showAllTasks !== undefined) {
-                    this.showAllTasksInternal = this.settings.displayOptions.showAllTasks.value;
-                }
-                if (this.settings?.persistedState?.selectedTaskId !== undefined) {
-                    this.selectedTaskId = this.settings.persistedState.selectedTaskId.value || null;
-                }
-                if (this.settings?.persistedState?.floatThreshold !== undefined) {
-                    this.floatThreshold = this.settings.persistedState.floatThreshold.value;
-                }
-                if (this.settings?.persistedState?.traceMode !== undefined) {
-                    const persistedMode = this.settings.persistedState.traceMode.value;
-                    this.traceMode = persistedMode ? persistedMode : "backward";
-                }
-                this.isInitialLoad = false;
-            }
-
-            const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
-            const connectorColor = this.settings.connectorLines.connectorColor.value.value;
-
-            this.margin.left = this.settings.layoutSettings.leftMargin.value;
-
-                this.clearVisual();
-                this.createOrUpdateToggleButton(viewportWidth);
-                this.createModeToggleButton(viewportWidth);
-                this.createConnectorLinesToggleButton(viewportWidth);
-                this.createOrUpdateVisualTitle();
-                this.createFloatThresholdControl();
-                this.createTaskSelectionDropdown();
-                this.createTraceModeToggle();
-                this.drawHeaderDivider(viewportWidth);
-
-            if (!this.validateDataView(dataView)) {
-                const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-                if (mode === 'floatBased') {
-                    this.displayMessage("Float-Based mode requires: Task ID, Task Total Float, Start Date, Finish Date.");
-                } else {
-                    this.displayMessage("Longest Path mode requires: Task ID, Duration, Start Date, Finish Date.");
-                }
-                return;
-            }
-            this.debugLog("Data roles validated.");
-
-            // Transform data with performance optimization
-            this.transformDataOptimized(dataView);
-            if (this.allTasksData.length === 0) {
-                this.displayMessage("No valid task data found to display."); 
-                return;
-            }
-            this.debugLog(`Transformed ${this.allTasksData.length} tasks.`);
-
-            // Restore selected task name after data is loaded
-            if (this.selectedTaskId) {
-                const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
-                this.selectedTaskName = selectedTask ? selectedTask.name || null : null;
-            }
-
-            // Create or update the task selection dropdown
-            this.createTaskSelectionDropdown();
-
-            // Populate input with the persisted task name if available
-            if (this.dropdownInput) {
-                if (this.selectedTaskId) {
-                    this.dropdownInput.property("value", this.selectedTaskName || "");
-                } else {
-                    this.dropdownInput.property("value", "");
-                }
-            }
-
-            if (this.selectedTaskLabel) {
-                if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
-                    this.selectedTaskLabel
-                        .style("display", "block")
-                        .text(`Selected: ${this.selectedTaskName}`);
-                } else {
-                    this.selectedTaskLabel.style("display", "none");
-                }
-            }
-
-            this.populateTaskDropdown();
-            this.createTraceModeToggle();
-            
-            // Enable task selection flag
-            const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
-            
-            // NEW: Get criticality mode
-            const mode = this.settings.criticalityMode.calculationMode.value.value;
-            
-            // Task-specific path calculation if task selected
-            let tasksInPathToTarget = new Set<string>();
-            let tasksInPathFromTarget = new Set<string>();
-
-            if (enableTaskSelection && this.selectedTaskId) {
-                // Get the trace mode from settings or UI toggle
-                const traceModeFromSettings = this.settings.taskSelection.traceMode.value.value;
-                const effectiveTraceMode = this.traceMode || traceModeFromSettings;
-                
-                if (mode === "floatBased") {
-                    // NEW: Float-Based mode with task selection
-                    this.applyFloatBasedCriticality();
-                    
-                    if (effectiveTraceMode === "forward") {
-                        tasksInPathFromTarget = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
-                        this.debugLog(`Float-Based: Identified ${tasksInPathFromTarget.size} tasks forward from ${this.selectedTaskId}`);
-                    } else {
-                        tasksInPathToTarget = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
-                        this.debugLog(`Float-Based: Identified ${tasksInPathToTarget.size} tasks backward to ${this.selectedTaskId}`);
-                    }
-                } else {
-                    // Longest Path mode with task selection (existing logic)
-                    if (effectiveTraceMode === "forward") {
-                        this.calculateCPMFromTask(this.selectedTaskId);
-                        tasksInPathFromTarget = this.identifyAllSuccessorTasksOptimized(this.selectedTaskId);
-                        this.debugLog(`Identified ${tasksInPathFromTarget.size} total tasks that follow from target task ${this.selectedTaskId}`);
-                    } else {
-                        this.calculateCPMToTask(this.selectedTaskId);
-                        tasksInPathToTarget = this.identifyAllPredecessorTasksOptimized(this.selectedTaskId);
-                        this.debugLog(`Identified ${tasksInPathToTarget.size} total tasks that lead to target task ${this.selectedTaskId}`);
-                    }
-                }
-            } else {
-                // No task selected - use appropriate criticality determination
-                if (mode === "floatBased") {
-                    // NEW: Apply Float-Based criticality
-                    this.applyFloatBasedCriticality();
-                    this.debugLog(`Float-Based criticality applied. Found ${this.allTasksData.filter(t => t.isCritical).length} critical tasks.`);
-                } else {
-                    // Existing: Calculate standard critical path with optimized method off-thread
-                    await this.calculateCPMOffThread();
-                    this.debugLog(`CPM calculation complete. Found ${this.allTasksData.filter(t => t.isCritical).length} critical tasks.`);
-                }
-            }
-
-                // --- Filtering/Limiting/Sorting logic ---
-                this.debugLog(`Filtering tasks based on internal state: showAllTasksInternal = ${this.showAllTasksInternal}`);
-
-                // Use cached sorted tasks if available
-                const tasksSortedByES = this.sortedTasksCache || this.allTasksData
-                    .filter(task => task.earlyStart !== undefined && !isNaN(task.earlyStart))
-                    .sort((a, b) => (a.earlyStart || 0) - (b.earlyStart || 0));
-                    
-                // Cache the sorted tasks
-                if (!this.sortedTasksCache) {
-                    this.sortedTasksCache = tasksSortedByES;
-                }
-                    
-                // Get critical path tasks AND near-critical tasks
-                const criticalPathTasks = tasksSortedByES.filter(task => task.isCritical);
-                const nearCriticalTasks = tasksSortedByES.filter(task => task.isNearCritical);
-                const criticalAndNearCriticalTasks = tasksSortedByES.filter(task => task.isCritical || task.isNearCritical);
-
-                // Handle task selection with showAllTasksInternal state
-                let tasksToConsider: Task[] = [];
-
-                if (enableTaskSelection && this.selectedTaskId) {
-                    // Get the trace mode from settings or UI toggle
-                    const traceModeFromSettings = this.settings.taskSelection.traceMode.value.value;
-                    const effectiveTraceMode = this.traceMode || traceModeFromSettings;
-                    
-                    if (mode === "floatBased") {
-                        // FLOAT-BASED MODE WITH TASK SELECTION
-                        if (effectiveTraceMode === "forward") {
-                            // Forward tracing in Float-Based mode
-                            if (this.showAllTasksInternal) {
-                                // Show all successor tasks
-                                tasksToConsider = tasksSortedByES.filter(task => 
-                                    tasksInPathFromTarget.has(task.internalId));
-                            } else {
-                                // Show only critical/near-critical tasks that are also in the forward path
-                                tasksToConsider = tasksSortedByES.filter(task => 
-                                    tasksInPathFromTarget.has(task.internalId) && 
-                                    (task.isCritical || task.isNearCritical));
-                            }
-                        } else {
-                            // Backward tracing in Float-Based mode
-                            if (this.showAllTasksInternal) {
-                                // Show all predecessor tasks
-                                tasksToConsider = tasksSortedByES.filter(task => 
-                                    tasksInPathToTarget.has(task.internalId));
-                            } else {
-                                // Show only critical/near-critical tasks that are also in the backward path
-                                tasksToConsider = tasksSortedByES.filter(task => 
-                                    tasksInPathToTarget.has(task.internalId) && 
-                                    (task.isCritical || task.isNearCritical));
-                            }
-                        }
-                        
-                        // Always include the selected task itself
-                        const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
-                        if (selectedTask && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
-                            tasksToConsider.push(selectedTask);
-                        }
-                        
-                    } else {
-                        // LONGEST PATH MODE WITH TASK SELECTION (existing logic)
-                        if (effectiveTraceMode === "forward") {
-                            // Handle forward tracing
-                            if (this.showAllTasksInternal) {
-                                // "Show All Tasks" mode + task selected = all successor tasks
-                                tasksToConsider = tasksSortedByES.filter(task => 
-                                    tasksInPathFromTarget.has(task.internalId));
-                            } else {
-                                // "Show Critical Only" mode + task selected = critical path from target
-                                tasksToConsider = criticalAndNearCriticalTasks;
-                            }
-                        } else {
-                            // Handle backward tracing
-                            if (this.showAllTasksInternal) {
-                                // "Show All Tasks" mode + task selected = all predecessor tasks
-                                tasksToConsider = tasksSortedByES.filter(task => 
-                                    tasksInPathToTarget.has(task.internalId));
-                            } else {
-                                // "Show Critical Only" mode + task selected = critical path to target
-                                tasksToConsider = criticalAndNearCriticalTasks;
-                            }
-                        }
-                    }
-                } else {
-                    // No task selected, use standard toggle behavior
-                    tasksToConsider = this.showAllTasksInternal
-                        ? tasksSortedByES
-                        : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : tasksSortedByES;
-                }
-
-                this.debugLog(`Tasks to consider for display (after filtering): ${tasksToConsider.length}`);
-
-            // Update toggle button text
-            if (this.toggleButtonGroup) {
-                this.toggleButtonGroup.select("text")
-                    .text(this.showAllTasksInternal ? "Show Critical" : "Show All Tasks");
-            }
-
-            const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
-            const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
-            if (limitedTasks.length === 0) {
-                // If the filter results in zero tasks, display a message instead of a blank screen.
-                this.displayMessage("No tasks to display after filtering/limiting."); 
-                return;
-            }
-            this.debugLog(`Tasks after limiting to ${maxTasksToShowSetting}: ${limitedTasks.length}`);
-
-            // Final check for valid dates required for plotting.
-            const tasksToPlot = limitedTasks.filter(task =>
-                task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
-                task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
-                task.finishDate >= task.startDate
-            );
-            if (tasksToPlot.length === 0) {
-                // If all remaining tasks lack dates, display a message instead of a blank screen.
-                if (limitedTasks.length > 0) {
-                    this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
-                    console.warn("Update aborted: All limited tasks filtered out due to invalid dates.");
-                } else {
-                    this.displayMessage("No tasks with valid dates to display.");
-                    console.warn("Update aborted: No tasks with valid dates.");
-                }
-                return;
-            }
-            if (tasksToPlot.length < limitedTasks.length) {
-                console.warn(`Filtered out ${limitedTasks.length - tasksToPlot.length} tasks due to missing/invalid Start/Finish dates.`);
-            }
-            this.debugLog(`Tasks ready for plotting (with valid dates): ${tasksToPlot.length}`);
-
-            tasksToPlot.sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-            tasksToPlot.forEach((task, index) => { task.yOrder = index; });
-            const tasksToShow = tasksToPlot;
-            this.debugLog("Assigned yOrder to tasks for plotting.");
-            this.applyTaskFilter(tasksToShow.map(t => t.id));
-
-            // --- Calculate dimensions and scales ---
-            const taskHeight = this.settings.taskAppearance.taskHeight.value;
-            const taskPadding = this.settings.layoutSettings.taskPadding.value;
-            const taskCount = tasksToShow.length;
-            const chartContentHeight = Math.max(50, taskCount * (taskHeight + taskPadding));
-            const totalSvgHeight = chartContentHeight + this.margin.top + this.margin.bottom;
-
-            const scaleSetupResult = this.setupTimeBasedSVGAndScales(
-                { width: viewportWidth, height: totalSvgHeight },
-                tasksToShow
-            );
-            this.xScale = scaleSetupResult.xScale;
-            this.yScale = scaleSetupResult.yScale;
-            const chartWidth = scaleSetupResult.chartWidth;
-            const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
-
-            if (!this.xScale || !this.yScale) {
-                // If scales cannot be created (e.g., invalid date ranges), display a message.
-                this.displayMessage("Could not create time/band scale. Check Start/Finish dates."); 
-                return;
-            }
-            this.debugLog(`Chart width: ${chartWidth}, Calculated chart height (used by yScale): ${calculatedChartHeight}`);
-
-            // --- Set SVG dimensions ---
-            this.mainSvg.attr("width", viewportWidth);
-            this.mainSvg.attr("height", totalSvgHeight);
-            this.headerSvg.attr("width", viewportWidth);
-
-            // --- Apply transforms ---
-            this.mainGroup.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
-            this.headerGridLayer.attr("transform", `translate(${this.margin.left}, 0)`);
-
-            // --- Scrolling logic ---
-            const availableContentHeight = viewportHeight - this.headerHeight;
-            if (totalSvgHeight > availableContentHeight && taskCount > 1) {
-                this.debugLog("Enabling vertical scroll.");
-                this.scrollableContainer.style("height", `${availableContentHeight}px`)
-                                    .style("overflow-y", "scroll");
-            } else {
-                this.debugLog("Disabling vertical scroll.");
-                this.scrollableContainer.style("height", `${Math.min(totalSvgHeight, availableContentHeight)}px`)
-                                    .style("overflow-y", "hidden");
-            }
-
-            // *** THE ORIGINAL FIX BLOCK WAS REMOVED FROM HERE ***
-
-            // Setup virtual scrolling with existing task height and padding variables
-            this.debugLog("Setting up virtual scrolling...");
-            this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding);
-
-            // Get only visible tasks for first draw
-            const visibleTasks = tasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
-            this.debugLog(`Drawing ${visibleTasks.length} of ${tasksToShow.length} tasks initially visible`);
-
-            this.debugLog("Drawing visual elements...");
-            this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
-            
-            const renderEndTime = performance.now();
-            this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
-            this.debugLog("Drawing complete.");
-
-        } catch (error) {
-            console.error("--- ERROR during visual update ---", error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            this.displayMessage(`Error: ${errorMessage}`);
-            this.isInitialLoad = true;
         }
-        this.debugLog("--- Visual Update End ---");
+        
+        // Store current viewport for comparison
+        this.lastViewport = options.viewport;
+        
+        // Handle viewport-only updates efficiently
+        if (updateType === UpdateType.ViewportOnly && this.allTasksData.length > 0) {
+            this.handleViewportOnlyUpdate(options);
+            return;
+        }
+        
+        // Handle settings-only updates efficiently
+        if (updateType === UpdateType.SettingsOnly && this.allTasksData.length > 0) {
+            this.handleSettingsOnlyUpdate(options);
+            return;
+        }
+        
+        // Continue with normal update for other types
+        this.lastUpdateOptions = options;
+
+        if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
+            this.displayMessage("Required options not available."); 
+            return;
+        }
+        
+        const dataView = options.dataViews[0];
+        const viewport = options.viewport;
+        const viewportHeight = viewport.height;
+        const viewportWidth = viewport.width;
+
+        this.debugLog("Viewport:", viewportWidth, "x", viewportHeight);
+
+        this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+
+        this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
+
+        if (this.isInitialLoad) {
+            if (this.settings?.displayOptions?.showAllTasks !== undefined) {
+                this.showAllTasksInternal = this.settings.displayOptions.showAllTasks.value;
+            }
+            if (this.settings?.persistedState?.selectedTaskId !== undefined) {
+                this.selectedTaskId = this.settings.persistedState.selectedTaskId.value || null;
+            }
+            if (this.settings?.persistedState?.floatThreshold !== undefined) {
+                this.floatThreshold = this.settings.persistedState.floatThreshold.value;
+            }
+            if (this.settings?.persistedState?.traceMode !== undefined) {
+                const persistedMode = this.settings.persistedState.traceMode.value;
+                this.traceMode = persistedMode ? persistedMode : "backward";
+            }
+            this.isInitialLoad = false;
+        }
+
+        const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
+        const connectorColor = this.settings.connectorLines.connectorColor.value.value;
+
+        this.margin.left = this.settings.layoutSettings.leftMargin.value;
+
+        this.clearVisual();
+        this.createOrUpdateToggleButton(viewportWidth);
+        this.createModeToggleButton(viewportWidth);
+        this.createConnectorLinesToggleButton(viewportWidth);
+        this.createOrUpdateVisualTitle();
+        this.createFloatThresholdControl();
+        this.createTaskSelectionDropdown();
+        this.createTraceModeToggle();
+        this.drawHeaderDivider(viewportWidth);
+
+        if (!this.validateDataView(dataView)) {
+            const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+            if (mode === 'floatBased') {
+                this.displayMessage("Float-Based mode requires: Task ID, Task Total Float, Start Date, Finish Date.");
+            } else {
+                this.displayMessage("Longest Path mode requires: Task ID, Duration, Start Date, Finish Date.");
+            }
+            return;
+        }
+        this.debugLog("Data roles validated.");
+
+        // Transform data
+        this.transformDataOptimized(dataView);
+        if (this.allTasksData.length === 0) {
+            this.displayMessage("No valid task data found to display."); 
+            return;
+        }
+        this.debugLog(`Transformed ${this.allTasksData.length} tasks.`);
+
+        // Restore selected task name after data is loaded
+        if (this.selectedTaskId) {
+            const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
+            this.selectedTaskName = selectedTask ? selectedTask.name || null : null;
+        }
+
+        // Create or update the task selection dropdown
+        this.createTaskSelectionDropdown();
+
+        // Populate input with the persisted task name if available
+        if (this.dropdownInput) {
+            if (this.selectedTaskId) {
+                this.dropdownInput.property("value", this.selectedTaskName || "");
+            } else {
+                this.dropdownInput.property("value", "");
+            }
+        }
+
+        if (this.selectedTaskLabel) {
+            if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
+                this.selectedTaskLabel
+                    .style("display", "block")
+                    .text(`Selected: ${this.selectedTaskName}`);
+            } else {
+                this.selectedTaskLabel.style("display", "none");
+            }
+        }
+
+        this.populateTaskDropdown();
+        this.createTraceModeToggle();
+        
+        // Enable task selection flag
+        const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
+        
+        // Get criticality mode
+        const mode = this.settings.criticalityMode.calculationMode.value.value;
+        
+        // Task-specific path calculation if task selected
+        let tasksInPathToTarget = new Set<string>();
+        let tasksInPathFromTarget = new Set<string>();
+
+        if (enableTaskSelection && this.selectedTaskId) {
+            // Get the trace mode from settings or UI toggle
+            const traceModeFromSettings = this.settings.taskSelection.traceMode.value.value;
+            const effectiveTraceMode = this.traceMode || traceModeFromSettings;
+            
+            if (mode === "floatBased") {
+                // Float-Based mode with task selection
+                this.applyFloatBasedCriticality();
+                
+                if (effectiveTraceMode === "forward") {
+                    tasksInPathFromTarget = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
+                    this.debugLog(`Float-Based: Identified ${tasksInPathFromTarget.size} tasks forward from ${this.selectedTaskId}`);
+                } else {
+                    tasksInPathToTarget = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
+                    this.debugLog(`Float-Based: Identified ${tasksInPathToTarget.size} tasks backward to ${this.selectedTaskId}`);
+                }
+            } else {
+                // P6 Longest Path mode with task selection
+                if (effectiveTraceMode === "forward") {
+                    this.calculateCPMFromTask(this.selectedTaskId);
+                    tasksInPathFromTarget = this.identifyDrivingSuccessorTasks(this.selectedTaskId);
+                    this.debugLog(`P6: Identified ${tasksInPathFromTarget.size} tasks in driving path from ${this.selectedTaskId}`);
+                } else {
+                    this.calculateCPMToTask(this.selectedTaskId);
+                    tasksInPathToTarget = this.identifyDrivingPredecessorTasks(this.selectedTaskId);
+                    this.debugLog(`P6: Identified ${tasksInPathToTarget.size} tasks in driving path to ${this.selectedTaskId}`);
+                }
+            }
+        } else {
+            // No task selected - use appropriate criticality determination
+            if (mode === "floatBased") {
+                // Apply Float-Based criticality
+                this.applyFloatBasedCriticality();
+                this.debugLog(`Float-Based criticality applied. Found ${this.allTasksData.filter(t => t.isCritical).length} critical tasks.`);
+            } else {
+                // Use P6 reflective approach for Longest Path
+                this.identifyLongestPathFromP6();
+                this.debugLog(`P6 longest path identified. Found ${this.allTasksData.filter(t => t.isCritical).length} critical tasks.`);
+            }
+        }
+
+        // --- Filtering/Limiting/Sorting logic ---
+        this.debugLog(`Filtering tasks based on internal state: showAllTasksInternal = ${this.showAllTasksInternal}`);
+
+        // Sort tasks by early start (or start date for P6)
+        const tasksSortedByES = this.allTasksData
+            .filter(task => task.startDate instanceof Date && !isNaN(task.startDate.getTime()))
+            .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+            
+        // Get critical path tasks AND near-critical tasks
+        const criticalPathTasks = tasksSortedByES.filter(task => task.isCritical);
+        const nearCriticalTasks = tasksSortedByES.filter(task => task.isNearCritical);
+        const criticalAndNearCriticalTasks = tasksSortedByES.filter(task => task.isCritical || task.isNearCritical);
+
+        // Handle task selection with showAllTasksInternal state
+        let tasksToConsider: Task[] = [];
+
+        if (enableTaskSelection && this.selectedTaskId) {
+            // Get the trace mode from settings or UI toggle
+            const traceModeFromSettings = this.settings.taskSelection.traceMode.value.value;
+            const effectiveTraceMode = this.traceMode || traceModeFromSettings;
+            
+            if (mode === "floatBased") {
+                // FLOAT-BASED MODE WITH TASK SELECTION
+                if (effectiveTraceMode === "forward") {
+                    // Forward tracing in Float-Based mode
+                    if (this.showAllTasksInternal) {
+                        // Show all successor tasks
+                        tasksToConsider = tasksSortedByES.filter(task => 
+                            tasksInPathFromTarget.has(task.internalId));
+                    } else {
+                        // Show only critical/near-critical tasks that are also in the forward path
+                        tasksToConsider = tasksSortedByES.filter(task => 
+                            tasksInPathFromTarget.has(task.internalId) && 
+                            (task.isCritical || task.isNearCritical));
+                    }
+                } else {
+                    // Backward tracing in Float-Based mode
+                    if (this.showAllTasksInternal) {
+                        // Show all predecessor tasks
+                        tasksToConsider = tasksSortedByES.filter(task => 
+                            tasksInPathToTarget.has(task.internalId));
+                    } else {
+                        // Show only critical/near-critical tasks that are also in the backward path
+                        tasksToConsider = tasksSortedByES.filter(task => 
+                            tasksInPathToTarget.has(task.internalId) && 
+                            (task.isCritical || task.isNearCritical));
+                    }
+                }
+                
+                // Always include the selected task itself
+                const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
+                if (selectedTask && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
+                    tasksToConsider.push(selectedTask);
+                }
+                
+            } else {
+                // P6 LONGEST PATH MODE WITH TASK SELECTION
+                if (effectiveTraceMode === "forward") {
+                    // Handle forward tracing
+                    if (this.showAllTasksInternal) {
+                        // "Show All Tasks" mode + task selected = all successor tasks
+                        tasksToConsider = tasksSortedByES.filter(task => 
+                            tasksInPathFromTarget.has(task.internalId));
+                    } else {
+                        // "Show Critical Only" mode + task selected = critical path from target
+                        tasksToConsider = criticalAndNearCriticalTasks;
+                    }
+                } else {
+                    // Handle backward tracing
+                    if (this.showAllTasksInternal) {
+                        // "Show All Tasks" mode + task selected = all predecessor tasks
+                        tasksToConsider = tasksSortedByES.filter(task => 
+                            tasksInPathToTarget.has(task.internalId));
+                    } else {
+                        // "Show Critical Only" mode + task selected = critical path to target
+                        tasksToConsider = criticalAndNearCriticalTasks;
+                    }
+                }
+            }
+        } else {
+            // No task selected, use standard toggle behavior
+            tasksToConsider = this.showAllTasksInternal
+                ? tasksSortedByES
+                : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : tasksSortedByES;
+        }
+
+        this.debugLog(`Tasks to consider for display (after filtering): ${tasksToConsider.length}`);
+
+        // Update toggle button text
+        if (this.toggleButtonGroup) {
+            this.toggleButtonGroup.select("text")
+                .text(this.showAllTasksInternal ? "Show Critical" : "Show All Tasks");
+        }
+
+        const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
+        const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
+        if (limitedTasks.length === 0) {
+            this.displayMessage("No tasks to display after filtering/limiting."); 
+            return;
+        }
+        this.debugLog(`Tasks after limiting to ${maxTasksToShowSetting}: ${limitedTasks.length}`);
+
+        // Final check for valid dates required for plotting
+        const tasksToPlot = limitedTasks.filter(task =>
+            task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
+            task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
+            task.finishDate >= task.startDate
+        );
+        if (tasksToPlot.length === 0) {
+            if (limitedTasks.length > 0) {
+                this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
+                console.warn("Update aborted: All limited tasks filtered out due to invalid dates.");
+            } else {
+                this.displayMessage("No tasks with valid dates to display.");
+                console.warn("Update aborted: No tasks with valid dates.");
+            }
+            return;
+        }
+        if (tasksToPlot.length < limitedTasks.length) {
+            console.warn(`Filtered out ${limitedTasks.length - tasksToPlot.length} tasks due to missing/invalid Start/Finish dates.`);
+        }
+        this.debugLog(`Tasks ready for plotting (with valid dates): ${tasksToPlot.length}`);
+
+        tasksToPlot.sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+        tasksToPlot.forEach((task, index) => { task.yOrder = index; });
+        const tasksToShow = tasksToPlot;
+        this.debugLog("Assigned yOrder to tasks for plotting.");
+        this.applyTaskFilter(tasksToShow.map(t => t.id));
+
+        // --- Calculate dimensions and scales ---
+        const taskHeight = this.settings.taskAppearance.taskHeight.value;
+        const taskPadding = this.settings.layoutSettings.taskPadding.value;
+        const taskCount = tasksToShow.length;
+        const chartContentHeight = Math.max(50, taskCount * (taskHeight + taskPadding));
+        const totalSvgHeight = chartContentHeight + this.margin.top + this.margin.bottom;
+
+        const scaleSetupResult = this.setupTimeBasedSVGAndScales(
+            { width: viewportWidth, height: totalSvgHeight },
+            tasksToShow
+        );
+        this.xScale = scaleSetupResult.xScale;
+        this.yScale = scaleSetupResult.yScale;
+        const chartWidth = scaleSetupResult.chartWidth;
+        const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
+
+        if (!this.xScale || !this.yScale) {
+            this.displayMessage("Could not create time/band scale. Check Start/Finish dates."); 
+            return;
+        }
+        this.debugLog(`Chart width: ${chartWidth}, Calculated chart height (used by yScale): ${calculatedChartHeight}`);
+
+        // --- Set SVG dimensions ---
+        this.mainSvg.attr("width", viewportWidth);
+        this.mainSvg.attr("height", totalSvgHeight);
+        this.headerSvg.attr("width", viewportWidth);
+
+        // --- Apply transforms ---
+        this.mainGroup.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
+        this.headerGridLayer.attr("transform", `translate(${this.margin.left}, 0)`);
+
+        // --- Scrolling logic ---
+        const availableContentHeight = viewportHeight - this.headerHeight;
+        if (totalSvgHeight > availableContentHeight && taskCount > 1) {
+            this.debugLog("Enabling vertical scroll.");
+            this.scrollableContainer.style("height", `${availableContentHeight}px`)
+                                .style("overflow-y", "scroll");
+        } else {
+            this.debugLog("Disabling vertical scroll.");
+            this.scrollableContainer.style("height", `${Math.min(totalSvgHeight, availableContentHeight)}px`)
+                                .style("overflow-y", "hidden");
+        }
+
+        // Setup virtual scrolling
+        this.debugLog("Setting up virtual scrolling...");
+        this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding);
+
+        // Get only visible tasks for first draw
+        const visibleTasks = tasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+        this.debugLog(`Drawing ${visibleTasks.length} of ${tasksToShow.length} tasks initially visible`);
+
+        this.debugLog("Drawing visual elements...");
+        this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
+        
+        const renderEndTime = performance.now();
+        this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
+        this.debugLog("Drawing complete.");
+
+    } catch (error) {
+        console.error("--- ERROR during visual update ---", error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.displayMessage(`Error: ${errorMessage}`);
+        this.isInitialLoad = true;
     }
+    this.debugLog("--- Visual Update End ---");
+}
 
     private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing viewport-only update");
@@ -3528,482 +3513,29 @@ private drawArrowsCanvas(
               .text(endDateText);
     }
 
-    private calculateCriticalPathDuration(tasks: Task[]): number {
-        const validEarlyFinishes = tasks
-            .map(task => task.earlyFinish)
-            .filter(ef => ef !== undefined && !isNaN(ef) && isFinite(ef)) as number[]; // Added type assertion
-        return validEarlyFinishes.length > 0 ? Math.max(0, ...validEarlyFinishes) : 0;
-    }
-
-
-/**
- * Detects cycles in the task dependency graph and returns affected tasks
- * @returns Object containing whether cycles exist and which tasks are involved
- */
-private detectAndReportCycles(): {hasCycles: boolean, cyclicTasks: Set<string>, cycleDetails: string[]} {
-    const visited = new Set<string>();
-    const recursionStack = new Set<string>();
-    const cyclicTasks = new Set<string>();
-    const cycleDetails: string[] = [];
-    
-    // Helper function to detect cycles using Depth-First Search
-    const detectCycleDFS = (taskId: string, path: string[] = []): boolean => {
-        visited.add(taskId);
-        recursionStack.add(taskId);
-        path.push(taskId);
-        
-        const task = this.taskIdToTask.get(taskId);
-        if (!task) {
-            recursionStack.delete(taskId);
-            path.pop();
-            return false;
-        }
-        
-        // Check all successors of the current task
-        for (const successor of task.successors || []) {
-            const succId = successor.internalId;
-            
-            if (!visited.has(succId)) {
-                if (detectCycleDFS(succId, [...path])) {
-                    cyclicTasks.add(taskId);
-                    return true;
-                }
-            } else if (recursionStack.has(succId)) {
-                // Found a cycle
-                cyclicTasks.add(taskId);
-                cyclicTasks.add(succId);
-                
-                // Create cycle description
-                const cycleStartIndex = path.indexOf(succId);
-                const cyclePath = [...path.slice(cycleStartIndex), succId];
-                const cycleDescription = cyclePath
-                    .map(id => {
-                        const t = this.taskIdToTask.get(id);
-                        return t ? `${t.name} (${id})` : id;
-                    })
-                    .join(' → ');
-                    
-                cycleDetails.push(`Cycle found: ${cycleDescription}`);
-                return true;
-            }
-        }
-        
-        recursionStack.delete(taskId);
-        path.pop();
-        return false;
-    };
-    
-    // Check all tasks for cycles
-    for (const task of this.allTasksData) {
-        if (!visited.has(task.internalId)) {
-            detectCycleDFS(task.internalId);
-        }
-    }
-    
-    return {
-        hasCycles: cyclicTasks.size > 0,
-        cyclicTasks,
-        cycleDetails
-    };
-}
-
-private ensureCpmWorker(): void {
-    // Only create worker for Longest Path mode
+private async calculateCPMOffThread(): Promise<void> {
     const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+    
     if (mode === 'floatBased') {
-        this.debugLog("Float-Based mode doesn't require WebWorker");
-        this.cpmWorker = null;
-        return;
-    }
-    
-    if (!this.cpmWorker) {
-        try {
-            // Create worker code as a string
-            const workerCode = `
-// Priority Queue implementation
-class PriorityQueue {
-    constructor(compare = (a, b) => a < b) {
-        this.compare = compare;
-        this.heap = [];
-    }
-    
-    enqueue(item, priority) {
-        this.heap.push({item, priority});
-        this.bubbleUp(this.heap.length - 1);
-    }
-    
-    dequeue() {
-        if (this.heap.length === 0) return undefined;
-        const result = this.heap[0];
-        const end = this.heap.pop();
-        if (this.heap.length > 0 && end) {
-            this.heap[0] = end;
-            this.bubbleDown(0);
-        }
-        return result.item;
-    }
-    
-    size() {
-        return this.heap.length;
-    }
-    
-    bubbleUp(index) {
-        const element = this.heap[index];
-        while (index > 0) {
-            const parentIndex = Math.floor((index - 1) / 2);
-            const parent = this.heap[parentIndex];
-            if (!this.compare(element.priority, parent.priority)) break;
-            this.heap[parentIndex] = element;
-            this.heap[index] = parent;
-            index = parentIndex;
-        }
-    }
-    
-    bubbleDown(index) {
-        const length = this.heap.length;
-        const element = this.heap[index];
-        
-        while (true) {
-            let leftChildIdx = 2 * index + 1;
-            let rightChildIdx = 2 * index + 2;
-            let swapIdx = -1;
-            
-            if (leftChildIdx < length) {
-                if (this.compare(this.heap[leftChildIdx].priority, element.priority)) {
-                    swapIdx = leftChildIdx;
-                }
-            }
-            
-            if (rightChildIdx < length) {
-                if (swapIdx === -1) {
-                    if (this.compare(this.heap[rightChildIdx].priority, element.priority)) {
-                        swapIdx = rightChildIdx;
-                    }
-                } else {
-                    if (this.compare(this.heap[rightChildIdx].priority, this.heap[leftChildIdx].priority)) {
-                        swapIdx = rightChildIdx;
-                    }
-                }
-            }
-            
-            if (swapIdx === -1) break;
-            
-            this.heap[index] = this.heap[swapIdx];
-            this.heap[swapIdx] = element;
-            index = swapIdx;
-        }
-    }
-}
-
-// Main message handler
-self.onmessage = function(e) {
-    const { tasks, relationships, floatTolerance, floatThreshold } = e.data;
-    
-    // Perform CPM calculation
-    const results = performCPMCalculation(tasks, relationships, floatTolerance, floatThreshold);
-    
-    // Send results back to main thread
-    self.postMessage(results);
-};
-
-function performCPMCalculation(tasks, relationships, floatTolerance, floatThreshold) {
-    // Build task map for quick lookup
-    const taskMap = new Map();
-    tasks.forEach(task => {
-        taskMap.set(task.internalId, {
-            ...task,
-            earlyStart: 0,
-            earlyFinish: task.duration,
-            lateStart: Infinity,
-            lateFinish: Infinity,
-            totalFloat: Infinity,
-            isCritical: false,
-            isCriticalByFloat: false,
-            isCriticalByRel: false,
-            isNearCritical: false,
-            predecessors: [],
-            successors: []
-        });
-    });
-    
-    // Build predecessor index
-    const predecessorIndex = new Map();
-    tasks.forEach(task => {
-        task.predecessorIds.forEach(predId => {
-            if (!predecessorIndex.has(predId)) {
-                predecessorIndex.set(predId, new Set());
-            }
-            predecessorIndex.get(predId).add(task.internalId);
-        });
-    });
-    
-    // Forward Pass
-    const processingQueue = new PriorityQueue();
-    const inDegree = new Map();
-    
-    // Initialize in-degree
-    tasks.forEach(task => {
-        const taskData = taskMap.get(task.internalId);
-        taskData.predecessors = task.predecessorIds
-            .map(id => taskMap.get(id))
-            .filter(t => t !== undefined);
-        
-        const degree = taskData.predecessors.length;
-        inDegree.set(task.internalId, degree);
-        
-        if (degree === 0) {
-            processingQueue.enqueue(taskData, 0);
-        }
-    });
-    
-    // Process tasks in topological order
-    const sortedTasks = [];
-    while (processingQueue.size() > 0) {
-        const currentTask = processingQueue.dequeue();
-        sortedTasks.push(currentTask);
-        
-        const successorIds = predecessorIndex.get(currentTask.internalId) || new Set();
-        currentTask.successors = Array.from(successorIds)
-            .map(id => taskMap.get(id))
-            .filter(t => t !== undefined);
-        
-        for (const successor of currentTask.successors) {
-            const relationshipType = successor.relationshipTypes[currentTask.internalId] || 'FS';
-            const lag = successor.relationshipLags[currentTask.internalId] || 0;
-            
-            let potentialStartTime = 0;
-            switch (relationshipType) {
-                case 'FS': potentialStartTime = currentTask.earlyFinish + lag; break;
-                case 'SS': potentialStartTime = currentTask.earlyStart + lag; break;
-                case 'FF': potentialStartTime = currentTask.earlyFinish - successor.duration + lag; break;
-                case 'SF': potentialStartTime = currentTask.earlyStart - successor.duration + lag; break;
-                default: potentialStartTime = currentTask.earlyFinish + lag;
-            }
-            
-            successor.earlyStart = Math.max(successor.earlyStart, Math.max(0, potentialStartTime));
-            successor.earlyFinish = successor.earlyStart + successor.duration;
-            
-            const currentInDegree = inDegree.get(successor.internalId);
-            if (currentInDegree !== undefined && currentInDegree > 0) {
-                const newInDegree = currentInDegree - 1;
-                inDegree.set(successor.internalId, newInDegree);
-                if (newInDegree === 0) {
-                    processingQueue.enqueue(successor, successor.earlyStart);
-                }
-            }
-        }
-    }
-    
-    // Calculate project end date
-    let projectEndDate = 0;
-    sortedTasks.forEach(task => {
-        if (task.earlyFinish !== undefined && !isNaN(task.earlyFinish) && isFinite(task.earlyFinish)) {
-            projectEndDate = Math.max(projectEndDate, task.earlyFinish);
-        }
-    });
-    
-    // Backward Pass
-    sortedTasks.forEach(task => {
-        if (task.successors.length === 0) {
-            task.lateFinish = projectEndDate;
-            task.lateStart = Math.max(0, task.lateFinish - task.duration);
-        }
-    });
-    
-    const reverseSortedTasks = [...sortedTasks].reverse();
-    for (const task of reverseSortedTasks) {
-        if (task.successors.length === 0) continue;
-        
-        let minSuccessorRequirement = Infinity;
-        for (const successor of task.successors) {
-            if (successor.lateStart === undefined || isNaN(successor.lateStart) || 
-                successor.lateStart === Infinity || successor.lateFinish === undefined || 
-                isNaN(successor.lateFinish)) continue;
-            
-            const lag = successor.relationshipLags[task.internalId] || 0;
-            const relationshipType = successor.relationshipTypes[task.internalId] || 'FS';
-            
-            let requiredFinishTime = Infinity;
-            switch (relationshipType) {
-                case 'FS': requiredFinishTime = successor.lateStart - lag; break;
-                case 'SS': requiredFinishTime = successor.lateStart - lag + task.duration; break;
-                case 'FF': requiredFinishTime = successor.lateFinish - lag; break;
-                case 'SF': requiredFinishTime = successor.lateFinish - lag - successor.duration + task.duration; break;
-                default: requiredFinishTime = successor.lateStart - lag;
-            }
-            
-            minSuccessorRequirement = Math.min(minSuccessorRequirement, requiredFinishTime);
-        }
-        
-        task.lateFinish = minSuccessorRequirement !== Infinity ? minSuccessorRequirement : projectEndDate;
-        task.lateStart = Math.max(0, task.lateFinish - task.duration);
-    }
-    
-    // Calculate float and criticality
-    sortedTasks.forEach(task => {
-        if (task.lateStart === undefined || isNaN(task.lateStart) || task.lateStart === Infinity ||
-            task.earlyStart === undefined || isNaN(task.earlyStart)) {
-            task.totalFloat = Infinity;
-            task.isCriticalByFloat = false;
-            task.isNearCritical = false;
-        } else {
-            task.totalFloat = Math.max(0, task.lateStart - task.earlyStart);
-            task.isCriticalByFloat = task.totalFloat <= floatTolerance;
-            task.isNearCritical = !task.isCriticalByFloat && 
-                                 task.totalFloat > floatTolerance && 
-                                 task.totalFloat <= floatThreshold;
-        }
-        task.isCriticalByRel = false;
-    });
-    
-    // Process relationships
-    const relationshipsWithCriticality = relationships.map(rel => ({
-        ...rel,
-        isCritical: false
-    }));
-    
-    const criticalRelationships = new Set();
-    
-    relationshipsWithCriticality.forEach(rel => {
-        const pred = taskMap.get(rel.predecessorId);
-        const succ = taskMap.get(rel.successorId);
-        
-        if (!pred || !succ) {
-            rel.isCritical = false;
-            return;
-        }
-        
-        if (rel.freeFloat === null || isNaN(rel.freeFloat)) {
-            const relType = rel.type || 'FS';
-            const lag = rel.lag || 0;
-            let isCritical = false;
-            
-            switch (relType) {
-                case 'FS': isCritical = Math.abs(pred.earlyFinish + lag - succ.earlyStart) <= floatTolerance; break;
-                case 'SS': isCritical = Math.abs(pred.earlyStart + lag - succ.earlyStart) <= floatTolerance; break;
-                case 'FF': isCritical = Math.abs(pred.earlyFinish + lag - succ.earlyFinish) <= floatTolerance; break;
-                case 'SF': isCritical = Math.abs(pred.earlyStart + lag - succ.earlyFinish) <= floatTolerance; break;
-            }
-            
-            rel.isCritical = isCritical && pred.isCriticalByFloat && succ.isCriticalByFloat;
-        } else {
-            rel.isCritical = rel.freeFloat <= floatTolerance;
-        }
-        
-        if (rel.isCritical) {
-            criticalRelationships.add(rel.predecessorId);
-            criticalRelationships.add(rel.successorId);
-        }
-    });
-    
-    // Mark tasks critical by relationships
-    criticalRelationships.forEach(taskId => {
-        const task = taskMap.get(taskId);
-        if (task) {
-            task.isCriticalByRel = true;
-        }
-    });
-    
-    // Final criticality determination
-    sortedTasks.forEach(task => {
-        task.isCritical = task.isCriticalByFloat || task.isCriticalByRel;
-        if (!task.isCritical && floatThreshold > 0) {
-            task.isNearCritical = task.totalFloat <= floatThreshold;
-        }
-    });
-    
-    // Return results
-    return {
-        tasks: Array.from(taskMap.values()),
-        relationships: relationshipsWithCriticality
-    };
-}
-`;
-
-            // Create blob and worker
-            const blob = new Blob([workerCode], { type: 'application/javascript' });
-            const workerUrl = URL.createObjectURL(blob);
-            this.cpmWorker = new Worker(workerUrl);
-            
-            console.log("CPM Worker successfully created using inline blob");
-            
-        } catch (e) {
-            console.error("Failed to create inline CPM worker, falling back to main thread:", e);
-            this.cpmWorker = null;
-        }
-    }
-}
-
-private calculateCPMOffThread(): Promise<void> {
-    this.ensureCpmWorker();
-    if (!this.cpmWorker) {
-        this.calculateCPM();
         return Promise.resolve();
     }
-    return new Promise(resolve => {
-        const handler = (event: MessageEvent) => {
-            const { tasks, relationships } = event.data;
-            this.cpmWorker!.removeEventListener('message', handler);
-            tasks.forEach((res: any) => {
-                const task = this.taskIdToTask.get(res.internalId);
-                if (task) {
-                    task.earlyStart = res.earlyStart;
-                    task.earlyFinish = res.earlyFinish;
-                    task.lateStart = res.lateStart;
-                    task.lateFinish = res.lateFinish;
-                    task.totalFloat = res.totalFloat;
-                    task.isCritical = res.isCritical;
-                    task.isCriticalByFloat = res.isCriticalByFloat;
-                    task.isCriticalByRel = res.isCriticalByRel;
-                    task.isNearCritical = res.isNearCritical;
-                }
-            });
-            relationships.forEach((relRes: any) => {
-                const rel = this.relationships.find(r => r.predecessorId === relRes.predecessorId && r.successorId === relRes.successorId);
-                if (rel) {
-                    rel.isCritical = relRes.isCritical;
-                }
-            });
-            resolve();
-        };
-        this.cpmWorker!.addEventListener('message', handler);
-        this.cpmWorker!.postMessage({
-            tasks: this.allTasksData.map(t => ({
-                internalId: t.internalId,
-                duration: t.duration,
-                predecessorIds: t.predecessorIds,
-                relationshipTypes: t.relationshipTypes,
-                relationshipLags: t.relationshipLags,
-            })),
-            relationships: this.relationships.map(r => ({
-                predecessorId: r.predecessorId,
-                successorId: r.successorId,
-                type: r.type,
-                freeFloat: r.freeFloat,
-                lag: r.lag,
-            })),
-            floatTolerance: this.floatTolerance,
-            floatThreshold: this.showNearCritical ? this.floatThreshold : 0,
-        });
-    });
+    
+    // Use P6 reflective approach directly
+    this.identifyLongestPathFromP6();
+    return Promise.resolve();
 }
 
-/**
- * Determines criticality based on the selected mode (Longest Path or Float-Based)
- */
 private async determineCriticalityMode(): Promise<void> {
     const mode = this.settings.criticalityMode.calculationMode.value.value;
     this.debugLog(`Criticality Mode: ${mode}`);
     
     if (mode === "floatBased") {
-        // Float-Based Mode: Use provided float values
         this.applyFloatBasedCriticality();
     } else {
-        // Longest Path Mode: Calculate using CPM
-        await this.calculateCPMOffThread();
+        // Use P6 reflective approach
+        this.identifyLongestPathFromP6();
     }
 }
-
 private applyFloatBasedCriticality(): void {
     this.debugLog("Applying Float-Based criticality using Total Float for criticality and Task Free Float for tracing...");
     const startTime = performance.now();
@@ -4056,833 +3588,540 @@ private applyFloatBasedCriticality(): void {
 }
 
 private calculateCPM(): void {
-    this.debugLog("Starting optimized CPM calculation...");
+    this.identifyLongestPathFromP6();
+}
+
+/**
+ * Identifies the longest path using P6 scheduled dates (reflective approach)
+ * This replaces the old calculateCPM() method for Longest Path mode
+ */
+private identifyLongestPathFromP6(): void {
+    this.debugLog("Starting P6 reflective longest path identification...");
     const startTime = performance.now();
     
     if (this.allTasksData.length === 0) { 
-        this.debugLog("No tasks for CPM."); 
+        this.debugLog("No tasks for longest path identification."); 
         return; 
     }
     
-    const tasksToProcess = this.allTasksData;
-
-    // Detect cycles before proceeding
-    const cycleCheck = this.detectAndReportCycles();
-    if (cycleCheck.hasCycles) {
-        console.error("Cannot calculate critical path: Circular dependencies detected!");
-        this.displayMessage("Error: Circular dependencies in schedule. Please fix before selecting tasks.");
-        return;
-    }
-    
-    // Reset task values first
-    tasksToProcess.forEach(task => {
-        task.earlyStart = 0;
-        task.earlyFinish = task.duration;
-        task.lateStart = Infinity;
-        task.lateFinish = Infinity;
-        task.totalFloat = Infinity;
+    // Reset criticality flags
+    this.allTasksData.forEach(task => {
         task.isCritical = false;
         task.isCriticalByFloat = false;
         task.isCriticalByRel = false;
         task.isNearCritical = false;
+        task.totalFloat = Infinity;
     });
     
-    // Perform forward pass with optimization
-    const sortedTasks = this.performOptimizedForwardPass(tasksToProcess);
+    // Step 1: Calculate which relationships are driving
+    this.identifyDrivingRelationships();
     
-    // Calculate project end date
-    const projectEndDate = this.calculateCriticalPathDuration(tasksToProcess);
-    this.debugLog(`Project End Date (CPM Day): ${projectEndDate}`);
+    // Step 2: Find the project finish
+    const projectFinishTask = this.findProjectFinishTask();
+    if (!projectFinishTask) {
+        console.warn("Could not identify project finish task");
+        return;
+    }
     
-    // Perform backward pass with optimization
-    this.performOptimizedBackwardPass(tasksToProcess, projectEndDate);
+    this.debugLog(`Project finish task: ${projectFinishTask.name} (${projectFinishTask.internalId})`);
     
-    // --- Calculate Float and Criticality with batch processing ---
-    this.debugLog("Calculating floats and criticality...");
+    // Step 3: Find all driving chains to the project finish
+    const drivingChains = this.findAllDrivingChainsToTask(projectFinishTask.internalId);
     
-    // Pre-calculate floats for all tasks in a single pass
-    const taskFloatMap = new Map<string, number>();
+    // Step 4: Select the longest chain
+    const longestChain = this.selectLongestChain(drivingChains);
     
-    const threshold = this.showNearCritical ? this.floatThreshold : 0;
+    if (longestChain) {
+        // Mark tasks in the longest chain as critical
+        longestChain.tasks.forEach(taskId => {
+            const task = this.taskIdToTask.get(taskId);
+            if (task) {
+                task.isCritical = true;
+                task.isCriticalByFloat = true;
+                task.totalFloat = 0;
+            }
+        });
+        
+        // Mark relationships in the longest chain as critical
+        longestChain.relationships.forEach(rel => {
+            rel.isCritical = true;
+        });
+        
+        this.debugLog(`Longest path: ${longestChain.tasks.size} tasks, duration ${longestChain.totalDuration}`);
+    }
+    
+    // Apply near-critical logic if enabled
+    if (this.showNearCritical && this.floatThreshold > 0) {
+        this.identifyNearCriticalTasks();
+    }
+    
+    const endTime = performance.now();
+    this.debugLog(`P6 longest path completed in ${endTime - startTime}ms`);
+}
 
-    tasksToProcess.forEach((task: Task) => {
-        if (task.lateStart === undefined || isNaN(task.lateStart) || task.lateStart === Infinity ||
-            task.earlyStart === undefined || isNaN(task.earlyStart)) {
-            task.totalFloat = Infinity;
-            task.isCriticalByFloat = false;
-            task.isNearCritical = false;
-        } else {
-            task.totalFloat = Math.max(0, task.lateStart - task.earlyStart);
-            taskFloatMap.set(task.internalId, task.totalFloat);
-            task.isCriticalByFloat = task.totalFloat <= this.floatTolerance;
-            task.isNearCritical = !task.isCriticalByFloat &&
-                                task.totalFloat > this.floatTolerance &&
-                                task.totalFloat <= threshold;
-        }
-        task.isCriticalByRel = false; // Reset relationship flag
-    });
-    
-    // Process relationships with their criticality using cached floats
-    const criticalRelationships = new Set<string>();
-    
-    this.relationships.forEach((rel: Relationship) => {
+/**
+ * Identifies which relationships are driving based on minimum float
+ */
+private identifyDrivingRelationships(): void {
+    // First, calculate relationship float for all relationships
+    this.relationships.forEach(rel => {
         const pred = this.taskIdToTask.get(rel.predecessorId);
         const succ = this.taskIdToTask.get(rel.successorId);
         
-        // Skip invalid relationships
-        if (!pred || !succ ||
-            pred.earlyFinish === undefined || isNaN(pred.earlyFinish) || 
-            pred.earlyStart === undefined || isNaN(pred.earlyStart) ||
-            succ.earlyStart === undefined || isNaN(succ.earlyStart) || 
-            succ.earlyFinish === undefined || isNaN(succ.earlyFinish) ||
-            pred.isCriticalByFloat === undefined || succ.isCriticalByFloat === undefined) {
+        if (!pred || !succ || !pred.startDate || !pred.finishDate || 
+            !succ.startDate || !succ.finishDate) {
+            (rel as any).relationshipFloat = Infinity;
+            (rel as any).isDriving = false;
             rel.isCritical = false;
             return;
         }
         
-        // Use Free Float if provided
-        if (rel.freeFloat !== null && !isNaN(rel.freeFloat)) {
-            rel.isCritical = rel.freeFloat <= this.floatTolerance;
-        } else {
-            // Check if relationship is 'driving'
-            const relType = rel.type || 'FS';
-            const lag = rel.lag || 0;
-            
-            // Calculate if the relationship is driving
-            let isDriving = false;
-            try {
-                switch (relType) {
-                    case 'FS': isDriving = Math.abs((pred.earlyFinish + lag) - succ.earlyStart) <= this.floatTolerance; break;
-                    case 'SS': isDriving = Math.abs((pred.earlyStart + lag) - succ.earlyStart) <= this.floatTolerance; break;
-                    case 'FF': isDriving = Math.abs((pred.earlyFinish + lag) - succ.earlyFinish) <= this.floatTolerance; break;
-                    case 'SF': isDriving = Math.abs((pred.earlyStart + lag) - succ.earlyFinish) <= this.floatTolerance; break;
-                    default: isDriving = Math.abs((pred.earlyFinish + lag) - succ.earlyStart) <= this.floatTolerance;
-                }
-            } catch (e) { 
-                isDriving = false; 
-            }
-            
-            // Relationship is critical if driving AND connects two tasks critical by float
-            rel.isCritical = isDriving && pred.isCriticalByFloat && succ.isCriticalByFloat;
+        const relType = rel.type || 'FS';
+        const lag = rel.lag || 0;
+        
+        // Get dates in days since epoch
+        const predStart = pred.startDate.getTime() / 86400000;
+        const predFinish = pred.finishDate.getTime() / 86400000;
+        const succStart = succ.startDate.getTime() / 86400000;
+        const succFinish = succ.finishDate.getTime() / 86400000;
+        
+        let relFloat = 0;
+        
+        switch (relType) {
+            case 'FS': relFloat = succStart - (predFinish + lag); break;
+            case 'SS': relFloat = succStart - (predStart + lag); break;
+            case 'FF': relFloat = succFinish - (predFinish + lag); break;
+            case 'SF': relFloat = succFinish - (predStart + lag); break;
         }
         
-        // Mark connected tasks as critical by relationship if the relationship is critical
-        if (rel.isCritical) {
-            criticalRelationships.add(rel.predecessorId);
-            criticalRelationships.add(rel.successorId);
+        (rel as any).relationshipFloat = relFloat;
+        (rel as any).isDriving = false;
+        rel.isCritical = false;
+    });
+    
+    // Group relationships by successor
+    const successorGroups = new Map<string, Relationship[]>();
+    this.relationships.forEach(rel => {
+        if (!successorGroups.has(rel.successorId)) {
+            successorGroups.set(rel.successorId, []);
+        }
+        successorGroups.get(rel.successorId)!.push(rel);
+    });
+    
+    // For each successor, mark the predecessor(s) with minimum float as driving
+    successorGroups.forEach((rels, successorId) => {
+        let minFloat = Infinity;
+        rels.forEach(rel => {
+            const relFloat = (rel as any).relationshipFloat;
+            if (relFloat < minFloat) {
+                minFloat = relFloat;
+            }
+        });
+        
+        // Mark all relationships with minimum float as driving
+        rels.forEach(rel => {
+            const relFloat = (rel as any).relationshipFloat;
+            if (Math.abs(relFloat - minFloat) <= this.floatTolerance) {
+                (rel as any).isDriving = true;
+            }
+        });
+    });
+    
+    const drivingCount = this.relationships.filter(r => (r as any).isDriving).length;
+    this.debugLog(`Identified ${drivingCount} driving relationships`);
+}
+
+/**
+ * Finds the project finish task (latest finish date)
+ */
+private findProjectFinishTask(): Task | null {
+    let latestFinish: Date | null = null;
+    let candidates: Task[] = [];
+    
+    this.allTasksData.forEach(task => {
+        if (!task.finishDate) return;
+        
+        if (!latestFinish || task.finishDate > latestFinish) {
+            latestFinish = task.finishDate;
+            candidates = [task];
+        } else if (Math.abs(task.finishDate.getTime() - latestFinish.getTime()) <= this.floatTolerance * 86400000) {
+            candidates.push(task);
         }
     });
     
-    // Apply critical relationship flags
-    criticalRelationships.forEach(taskId => {
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+    
+    // Multiple candidates - select best one
+    let bestCandidate = candidates[0];
+    let bestChainDuration = 0;
+    
+    for (const candidate of candidates) {
+        const chains = this.findAllDrivingChainsToTask(candidate.internalId);
+        const bestChain = this.selectLongestChain(chains);
+        if (bestChain && bestChain.totalDuration > bestChainDuration) {
+            bestCandidate = candidate;
+            bestChainDuration = bestChain.totalDuration;
+        }
+    }
+    
+    return bestCandidate;
+}
+
+/**
+ * Finds all driving chains leading to a specific task
+ */
+private findAllDrivingChainsToTask(targetTaskId: string): Array<{
+    tasks: Set<string>,
+    relationships: Relationship[],
+    totalDuration: number
+}> {
+    const chains: Array<{
+        tasks: Set<string>,
+        relationships: Relationship[],
+        totalDuration: number
+    }> = [];
+    
+    const visited = new Set<string>();
+    const currentPath = new Set<string>();
+    const currentRelationships: Relationship[] = [];
+    
+    const dfs = (taskId: string) => {
+        if (visited.has(taskId)) return;
+        
+        visited.add(taskId);
+        currentPath.add(taskId);
+        
         const task = this.taskIdToTask.get(taskId);
-        if (task) {
-            task.isCriticalByRel = true;
+        if (!task) {
+            currentPath.delete(taskId);
+            return;
         }
-    });
-    
-    // Determine final criticality in a single pass
-    tasksToProcess.forEach((task: Task) => {
-        if (task.totalFloat !== undefined && !isNaN(task.totalFloat) && task.totalFloat !== Infinity) {
-            task.isCritical = task.isCriticalByFloat || (task.isCriticalByRel ?? false);
-            task.isNearCritical = this.showNearCritical &&
-                                !task.isCritical &&
-                                task.totalFloat > this.floatTolerance &&
-                                task.totalFloat <= threshold;
+        
+        // Find driving predecessors
+        const drivingPreds = this.relationships.filter(rel => 
+            rel.successorId === taskId && (rel as any).isDriving
+        );
+        
+        if (drivingPreds.length === 0) {
+            // Chain start - record it
+            const chainTasks = new Set(currentPath);
+            const chainRels = [...currentRelationships];
+            
+            let totalDuration = 0;
+            chainTasks.forEach(tId => {
+                const t = this.taskIdToTask.get(tId);
+                if (t) totalDuration += t.duration;
+            });
+            
+            chains.push({
+                tasks: chainTasks,
+                relationships: chainRels,
+                totalDuration: totalDuration
+            });
         } else {
-            task.isCritical = task.isCriticalByRel ?? false;
-            task.isNearCritical = false;
+            for (const rel of drivingPreds) {
+                currentRelationships.push(rel);
+                dfs(rel.predecessorId);
+                currentRelationships.pop();
+            }
+        }
+        
+        currentPath.delete(taskId);
+    };
+    
+    dfs(targetTaskId);
+    
+    if (chains.length === 0) {
+        const task = this.taskIdToTask.get(targetTaskId);
+        if (task) {
+            chains.push({
+                tasks: new Set([targetTaskId]),
+                relationships: [],
+                totalDuration: task.duration
+            });
+        }
+    }
+    
+    return chains;
+}
+
+/**
+ * Selects the longest chain by total working duration
+ */
+private selectLongestChain(chains: Array<{
+    tasks: Set<string>,
+    relationships: Relationship[],
+    totalDuration: number
+}>): {
+    tasks: Set<string>,
+    relationships: Relationship[],
+    totalDuration: number
+} | null {
+    if (chains.length === 0) return null;
+    chains.sort((a, b) => b.totalDuration - a.totalDuration);
+    return chains[0];
+}
+
+/**
+ * Identifies near-critical tasks based on accumulated minimum float
+ */
+private identifyNearCriticalTasks(): void {
+    this.allTasksData.forEach(task => {
+        if (task.isCritical) return;
+        
+        let minFloatToCritical = Infinity;
+        const visited = new Set<string>();
+        const queue: Array<{taskId: string, accumulatedFloat: number}> = [
+            {taskId: task.internalId, accumulatedFloat: 0}
+        ];
+        
+        while (queue.length > 0) {
+            const {taskId, accumulatedFloat} = queue.shift()!;
+            
+            if (visited.has(taskId)) continue;
+            visited.add(taskId);
+            
+            const currentTask = this.taskIdToTask.get(taskId);
+            if (!currentTask) continue;
+            
+            if (currentTask.isCritical) {
+                minFloatToCritical = Math.min(minFloatToCritical, accumulatedFloat);
+                continue;
+            }
+            
+            // Find successors with minimum float
+            const successorRels = this.relationships.filter(r => r.predecessorId === taskId);
+            const successorFloats = new Map<string, number>();
+            
+            successorRels.forEach(rel => {
+                const relFloat = (rel as any).relationshipFloat ?? Infinity;
+                const currentMin = successorFloats.get(rel.successorId) ?? Infinity;
+                successorFloats.set(rel.successorId, Math.min(currentMin, relFloat));
+            });
+            
+            successorFloats.forEach((minFloat, succId) => {
+                const floatToAdd = Math.max(0, minFloat);
+                queue.push({
+                    taskId: succId,
+                    accumulatedFloat: accumulatedFloat + floatToAdd
+                });
+            });
+        }
+        
+        if (minFloatToCritical <= this.floatThreshold) {
+            task.isNearCritical = true;
+            task.totalFloat = minFloatToCritical;
         }
     });
+}
+
+/**
+ * Identifies predecessor tasks connected through driving relationships
+ */
+private identifyDrivingPredecessorTasks(targetTaskId: string): Set<string> {
+    const tasksInPath = new Set<string>();
+    tasksInPath.add(targetTaskId);
     
-    const endTime = performance.now();
-    this.debugLog(`CPM calculation completed in ${endTime - startTime}ms for ${tasksToProcess.length} tasks.`);
-    this.debugLog(`Found ${tasksToProcess.filter(t => t.isCritical).length} critical tasks and ${tasksToProcess.filter(t => t.isNearCritical).length} near-critical tasks.`);
+    this.identifyDrivingRelationships(); // Ensure driving relationships are identified
+    
+    const queue: string[] = [targetTaskId];
+    const visited = new Set<string>();
+    visited.add(targetTaskId);
+    
+    while (queue.length > 0) {
+        const currentTaskId = queue.shift()!;
+        
+        // Find driving predecessors only
+        const drivingPreds = this.relationships.filter(rel => 
+            rel.successorId === currentTaskId && (rel as any).isDriving
+        );
+        
+        for (const rel of drivingPreds) {
+            if (!visited.has(rel.predecessorId)) {
+                tasksInPath.add(rel.predecessorId);
+                visited.add(rel.predecessorId);
+                queue.push(rel.predecessorId);
+            }
+        }
+    }
+    
+    this.debugLog(`P6 backward trace from ${targetTaskId}: ${tasksInPath.size} tasks`);
+    return tasksInPath;
+}
+
+/**
+ * Identifies successor tasks connected through driving relationships
+ */
+private identifyDrivingSuccessorTasks(sourceTaskId: string): Set<string> {
+    const tasksInPath = new Set<string>();
+    tasksInPath.add(sourceTaskId);
+    
+    this.identifyDrivingRelationships(); // Ensure driving relationships are identified
+    
+    const queue: string[] = [sourceTaskId];
+    const visited = new Set<string>();
+    visited.add(sourceTaskId);
+    
+    while (queue.length > 0) {
+        const currentTaskId = queue.shift()!;
+        
+        // Find driving successors only
+        const drivingSuccs = this.relationships.filter(rel => 
+            rel.predecessorId === currentTaskId && (rel as any).isDriving
+        );
+        
+        for (const rel of drivingSuccs) {
+            if (!visited.has(rel.successorId)) {
+                tasksInPath.add(rel.successorId);
+                visited.add(rel.successorId);
+                queue.push(rel.successorId);
+            }
+        }
+    }
+    
+    this.debugLog(`P6 forward trace from ${sourceTaskId}: ${tasksInPath.size} tasks`);
+    return tasksInPath;
 }
 
 private calculateCPMToTask(targetTaskId: string | null): void {
-    this.debugLog(`Calculating optimized CPM to task: ${targetTaskId || "None (full project)"}`);
-    const startTime = performance.now();
+    this.debugLog(`Calculating P6 driving path to task: ${targetTaskId || "None"}`);
     
-    if (this.allTasksData.length === 0) { 
-        this.debugLog("No tasks for CPM."); 
-        return; 
-    }
-
-    // If no specific task is selected, use the standard CPM calculation
     if (!targetTaskId) {
-        this.calculateCPM();
+        this.identifyLongestPathFromP6();
         return;
     }
     
     const targetTask = this.taskIdToTask.get(targetTaskId);
     if (!targetTask) {
-        console.warn(`Target task ${targetTaskId} not found. Falling back to full project CPM.`);
-        this.calculateCPM();
+        console.warn(`Target task ${targetTaskId} not found.`);
+        this.identifyLongestPathFromP6();
         return;
     }
     
-    const tasksToProcess = this.allTasksData;
-    const taskMap = this.taskIdToTask;
-    
-    // Detect cycles before proceeding
-    const cycleCheck = this.detectAndReportCycles();
-    if (cycleCheck.hasCycles) {
-        console.error("Cannot calculate critical path to task: Circular dependencies detected!");
-        this.displayMessage("Error: Circular dependencies in schedule. Please fix before selecting tasks.");
-        return;
-    }
-
-    // Reset CPM values for all tasks
-    tasksToProcess.forEach((task: Task) => {
-        task.predecessors = task.predecessorIds
-            .map(id => taskMap.get(id))
-            .filter(t => t !== undefined) as Task[];
-            
-        // Reset calculated values
-        task.earlyStart = 0;
-        task.earlyFinish = task.duration;
-        task.lateStart = Infinity;
-        task.lateFinish = Infinity;
-        task.totalFloat = Infinity;
+    // Reset all tasks
+    this.allTasksData.forEach(task => {
         task.isCritical = false;
         task.isCriticalByFloat = false;
         task.isCriticalByRel = false;
         task.isNearCritical = false;
+        task.totalFloat = Infinity;
     });
-
-    // --- Use cached predecessor information for efficiency ---
-    const tasksInPathToTarget = this.identifyAllPredecessorTasksOptimized(targetTaskId);
-    this.debugLog(`Identified ${tasksInPathToTarget.size} tasks in path to target`);
-
-    // --- Forward Pass (optimized for subset) ---
-    const sortedTasks = this.performOptimizedForwardPass(
-        Array.from(tasksInPathToTarget).map(id => this.taskIdToTask.get(id)!).filter(t => t !== undefined)
-    );
     
-    // --- Modified Backward Pass (starting from target task) ---
-    // Set target task as the endpoint
-    targetTask.lateFinish = targetTask.earlyFinish;
-    targetTask.lateStart = targetTask.earlyStart;
+    // Identify driving relationships
+    this.identifyDrivingRelationships();
     
-    // Process tasks in reverse topological order
-    const reverseSortedTasks = [...sortedTasks].reverse();
-    for (const task of reverseSortedTasks) {
-        // Skip tasks not in the path to target and tasks already processed (target)
-        if (!tasksInPathToTarget.has(task.internalId) || task.internalId === targetTaskId) {
-            continue;
-        }
-        
-        let minSuccessorRequirement = Infinity;
-        let hasValidSuccessor = false;
-        
-        // Use cached successor information
-        const successors = this.predecessorIndex.get(task.internalId) || new Set();
-        
-        for (const successorId of successors) {
-            if (!tasksInPathToTarget.has(successorId)) {
-                continue;
+    // Find all driving chains to the target
+    const chains = this.findAllDrivingChainsToTask(targetTaskId);
+    const longestChain = this.selectLongestChain(chains);
+    
+    if (longestChain) {
+        longestChain.tasks.forEach(taskId => {
+            const task = this.taskIdToTask.get(taskId);
+            if (task) {
+                task.isCritical = true;
+                task.isCriticalByFloat = true;
+                task.totalFloat = 0;
             }
-            
-            const successor = this.taskIdToTask.get(successorId);
-            if (!successor || successor.lateStart === undefined || isNaN(successor.lateStart) || 
-                successor.lateStart === Infinity || successor.lateFinish === undefined || 
-                isNaN(successor.lateFinish)) {
-                continue;
-            }
-
-            hasValidSuccessor = true;
-            const relationshipType = successor.relationshipTypes[task.internalId] || 'FS';
-            const lag = successor.relationshipLags[task.internalId] || 0;
-            
-            let requiredFinishTime = Infinity;
-            
-            switch (relationshipType) {
-                case 'FS': requiredFinishTime = successor.lateStart - lag; break;
-                case 'SS': requiredFinishTime = successor.lateStart - lag + task.duration; break;
-                case 'FF': requiredFinishTime = successor.lateFinish - lag; break;
-                case 'SF': requiredFinishTime = successor.lateFinish - lag - successor.duration + task.duration; break;
-                default: requiredFinishTime = successor.lateStart - lag;
-            }
-
-            minSuccessorRequirement = Math.min(minSuccessorRequirement, requiredFinishTime);
-        }
-
-        if (hasValidSuccessor && minSuccessorRequirement !== Infinity) {
-            task.lateFinish = minSuccessorRequirement;
-            task.lateStart = Math.max(0, task.lateFinish - task.duration);
-        } else {
-            // If no valid successors on path to target, use early times
-            task.lateFinish = task.earlyFinish;
-            task.lateStart = task.earlyStart;
-        }
+        });
+        
+        longestChain.relationships.forEach(rel => {
+            rel.isCritical = true;
+        });
     }
     
-    // --- Calculate Float and Criticality (optimized for subset) ---
-    this.calculateFloatAndCriticalityForSubset(tasksInPathToTarget, targetTaskId);
+    // Always mark target task as critical
+    targetTask.isCritical = true;
+    targetTask.isCriticalByFloat = true;
     
-    const endTime = performance.now();
-    this.debugLog(`CPM to task ${targetTaskId} completed in ${endTime - startTime}ms. ${tasksToProcess.filter(t => t.isCritical).length} critical tasks identified.`);
+    this.debugLog(`P6 path to ${targetTaskId} with ${longestChain?.tasks.size || 0} tasks`);
 }
 
-private calculateCPMFromTask(targetTaskId: string | null): void {
-    this.debugLog(`Calculating optimized forward CPM from task: ${targetTaskId || "None (full project)"}`);
-    const startTime = performance.now();
+private calculateCPMFromTask(sourceTaskId: string | null): void {
+    this.debugLog(`Calculating P6 driving path from task: ${sourceTaskId || "None"}`);
     
-    if (this.allTasksData.length === 0) { 
-        this.debugLog("No tasks for CPM."); 
-        return; 
-    }
-
-    // If no specific task is selected, use the standard CPM calculation
-    if (!targetTaskId) {
-        this.calculateCPM();
+    if (!sourceTaskId) {
+        this.identifyLongestPathFromP6();
         return;
     }
     
-    const sourceTask = this.taskIdToTask.get(targetTaskId);
+    const sourceTask = this.taskIdToTask.get(sourceTaskId);
     if (!sourceTask) {
-        console.warn(`Source task ${targetTaskId} not found. Falling back to full project CPM.`);
-        this.calculateCPM();
+        console.warn(`Source task ${sourceTaskId} not found.`);
+        this.identifyLongestPathFromP6();
         return;
     }
     
-    const tasksToProcess = this.allTasksData;
-    const taskMap = this.taskIdToTask;
-
-    // Detect cycles before proceeding
-    const cycleCheck = this.detectAndReportCycles();
-    if (cycleCheck.hasCycles) {
-        console.error("Cannot calculate critical path from task: Circular dependencies detected!");
-        this.displayMessage("Error: Circular dependencies in schedule. Please fix before selecting tasks.");
-        return;
-    } 
-    
-    // Reset CPM values for all tasks
-    tasksToProcess.forEach((task: Task) => {
-        task.predecessors = task.predecessorIds
-            .map(id => taskMap.get(id))
-            .filter(t => t !== undefined) as Task[];
-            
-        // Reset calculated values
-        task.earlyStart = 0;
-        task.earlyFinish = task.duration;
-        task.lateStart = Infinity;
-        task.lateFinish = Infinity;
-        task.totalFloat = Infinity;
+    // Reset all tasks
+    this.allTasksData.forEach(task => {
         task.isCritical = false;
         task.isCriticalByFloat = false;
         task.isCriticalByRel = false;
         task.isNearCritical = false;
-    });
-
-    // --- Use cached successor information for efficiency ---
-    const tasksInPathFromTarget = this.identifyAllSuccessorTasksOptimized(targetTaskId);
-    this.debugLog(`Identified ${tasksInPathFromTarget.size} tasks that follow from target task`);
-
-    // Set the selected task as the starting point
-    sourceTask.earlyStart = 0;
-    sourceTask.earlyFinish = sourceTask.duration;
-    
-    // Process tasks in topological order, but only consider those in path from target
-    const sortedTasks = this.topologicalSortOptimized(tasksToProcess);
-    
-    // Find the index of the source task in the sorted list
-    const sourceTaskIndex = sortedTasks.findIndex(task => task.internalId === targetTaskId);
-    if (sourceTaskIndex === -1) {
-        console.warn("Source task not found in topological sort.");
-        return;
-    }
-    
-    // Process only the source task and tasks after it in the topological order
-    const tasksToConsider = sortedTasks.slice(sourceTaskIndex);
-    
-    // Forward pass from source task
-    for (const task of tasksToConsider) {
-        // Skip tasks that aren't in the path from target
-        if (!tasksInPathFromTarget.has(task.internalId)) {
-            continue;
-        }
-        
-        // For the source task, keep the early dates as initialized
-        if (task.internalId === targetTaskId) {
-            continue;
-        }
-        
-        // For successor tasks, calculate early dates based on predecessors
-        let maxPredFinish = 0;
-        let hasPredInPath = false;
-        
-        for (const pred of task.predecessors) {
-            // Only consider predecessors that are in the path from target
-            if (!tasksInPathFromTarget.has(pred.internalId)) {
-                continue;
-            }
-            
-            if (pred.earlyFinish === undefined || isNaN(pred.earlyFinish) || 
-                pred.earlyStart === undefined || isNaN(pred.earlyStart)) {
-                continue;
-            }
-            
-            hasPredInPath = true;
-            const relType = task.relationshipTypes[pred.internalId] || 'FS';
-            const lag = task.relationshipLags[pred.internalId] || 0;
-            
-            let potentialStart = 0;
-            
-            switch(relType) {
-                case 'FS': potentialStart = pred.earlyFinish + lag; break;
-                case 'SS': potentialStart = pred.earlyStart + lag; break;
-                case 'FF': potentialStart = pred.earlyFinish - task.duration + lag; break;
-                case 'SF': potentialStart = pred.earlyStart - task.duration + lag; break;
-            }
-            
-            maxPredFinish = Math.max(maxPredFinish, potentialStart);
-        }
-        
-        if (hasPredInPath) {
-            task.earlyStart = Math.max(0, maxPredFinish);
-            task.earlyFinish = task.earlyStart + task.duration;
-        } else {
-            // If no valid predecessors in path, set to Infinity (not reachable from source)
-            task.earlyStart = Infinity;
-            task.earlyFinish = Infinity;
-        }
-    }
-    
-    // Find the latest finish date among tasks in the path
-    let maxFinish = 0;
-    tasksToProcess.forEach(task => {
-        if (tasksInPathFromTarget.has(task.internalId) && 
-            task.earlyFinish !== undefined && !isNaN(task.earlyFinish) && 
-            task.earlyFinish !== Infinity) {
-            maxFinish = Math.max(maxFinish, task.earlyFinish);
-        }
+        task.totalFloat = Infinity;
     });
     
-    // --- Backward Pass (optimized) ---
-    // Set late finish for all end tasks (no successors in the path)
-    tasksToProcess.forEach(task => {
-        if (!tasksInPathFromTarget.has(task.internalId)) {
-            // Skip tasks not in path
-            return;
-        }
-        
-        // Check if this task has any successors in the path
-        const successorSet = this.predecessorIndex.get(task.internalId) || new Set<string>();
-        const successorsInPath = Array.from(successorSet)
-            .filter((succId: string) => tasksInPathFromTarget.has(succId));
-        
-        if (successorsInPath.length === 0 && task.earlyFinish !== undefined && 
-            !isNaN(task.earlyFinish) && task.earlyFinish !== Infinity) {
-            // This is an end task in the path
-            task.lateFinish = maxFinish;
-            task.lateStart = Math.max(0, task.lateFinish - task.duration);
-        }
-    });
+    // Identify driving relationships
+    this.identifyDrivingRelationships();
     
-    // Process tasks in reverse topological order
-    const reverseSortedTasks = [...sortedTasks].reverse();
-    
-    for (const task of reverseSortedTasks) {
-        // Skip tasks not in path from target
-        if (!tasksInPathFromTarget.has(task.internalId)) {
-            continue;
-        }
-        
-        // Skip end tasks (already processed)
-        if (task.lateFinish !== Infinity) {
-            continue;
-        }
-        
-        let minSuccessorRequirement = Infinity;
-        let hasValidSuccessorInPath = false;
-        
-        // Use cached successor information
-        const successorIds = this.predecessorIndex.get(task.internalId) || new Set();
-        
-        for (const successorId of successorIds) {
-            // Only consider successors in the path
-            if (!tasksInPathFromTarget.has(successorId)) {
-                continue;
-            }
-            
-            const successor = this.taskIdToTask.get(successorId);
-            if (!successor || successor.lateStart === undefined || isNaN(successor.lateStart) || 
-                successor.lateStart === Infinity || successor.lateFinish === undefined || 
-                isNaN(successor.lateFinish) || successor.lateFinish === Infinity) {
-                continue;
-            }
-            
-            hasValidSuccessorInPath = true;
-            const relationshipType = successor.relationshipTypes[task.internalId] || 'FS';
-            const lag = successor.relationshipLags[task.internalId] || 0;
-            
-            let requiredFinishTime = Infinity;
-            
-            switch (relationshipType) {
-                case 'FS': requiredFinishTime = successor.lateStart - lag; break;
-                case 'SS': requiredFinishTime = successor.lateStart - lag + task.duration; break;
-                case 'FF': requiredFinishTime = successor.lateFinish - lag; break;
-                case 'SF': requiredFinishTime = successor.lateFinish - lag - successor.duration + task.duration; break;
-                default: requiredFinishTime = successor.lateStart - lag;
-            }
-            
-            minSuccessorRequirement = Math.min(minSuccessorRequirement, requiredFinishTime);
-        }
-        
-        if (hasValidSuccessorInPath && minSuccessorRequirement !== Infinity) {
-            task.lateFinish = minSuccessorRequirement;
-            task.lateStart = Math.max(0, task.lateFinish - task.duration);
-        } else if (task.earlyFinish !== undefined && !isNaN(task.earlyFinish) && 
-                task.earlyFinish !== Infinity) {
-            // If no valid successors but task is in path, use maxFinish
-            task.lateFinish = maxFinish;
-            task.lateStart = Math.max(0, task.lateFinish - task.duration);
-        }
-    }
-    
-    // --- Calculate Float and Criticality (optimized for subset) ---
-    this.calculateFloatAndCriticalityForSubset(tasksInPathFromTarget, targetTaskId);
-    
-    const endTime = performance.now();
-    this.debugLog(`CPM forward from task ${targetTaskId} completed in ${endTime - startTime}ms. ${tasksToProcess.filter(t => t.isCritical).length} critical tasks identified.`);
-}
-
-private topologicalSortOptimized(tasks: Task[]): Task[] {
-    this.debugLog("Starting optimized topological sort...");
-    const startTime = performance.now();
-    
-    const result: Task[] = [];
+    // Find longest driving chain from source
     const visited = new Set<string>();
-    const temp = new Set<string>();
+    let longestForwardChain: {
+        tasks: Set<string>,
+        relationships: Relationship[],
+        totalDuration: number
+    } | null = null;
     
-    // Memoization cache for predecessor resolution
-    const predCache = new Map<string, Task[]>();
-    
-    // Function to get cached predecessors
-    const getCachedPredecessors = (taskId: string): Task[] => {
-        if (predCache.has(taskId)) {
-            return predCache.get(taskId)!;
-        }
-        
-        const task = this.taskIdToTask.get(taskId);
-        if (!task) return [];
-        
-        const preds = task.predecessorIds
-            .map(id => this.taskIdToTask.get(id))
-            .filter(t => t !== undefined) as Task[];
-            
-        predCache.set(taskId, preds);
-        return preds;
-    };
-    
-    // Visit function with memoization
-    const visit = (taskId: string): void => {
-        // Skip if already visited
+    const findForwardChains = (taskId: string, currentChain: Set<string>, currentRels: Relationship[], currentDuration: number) => {
         if (visited.has(taskId)) return;
         
-        // Check for cycles
-        if (temp.has(taskId)) {
-            console.warn(`Cycle detected in dependency graph at task ${taskId}`);
-            return;
-        }
-        
-        // Mark as temporarily visited
-        temp.add(taskId);
-        
-        // Get the task
         const task = this.taskIdToTask.get(taskId);
         if (!task) return;
         
-        // Visit predecessors first (using cached predecessors)
-        getCachedPredecessors(taskId).forEach(pred => {
-            visit(pred.internalId);
-        });
+        currentChain.add(taskId);
+        currentDuration += task.duration;
         
-        // Mark as permanently visited
-        temp.delete(taskId);
-        visited.add(taskId);
+        const drivingSuccs = this.relationships.filter(rel => 
+            rel.predecessorId === taskId && (rel as any).isDriving
+        );
         
-        // Add to result
-        result.push(task);
+        if (drivingSuccs.length === 0) {
+            if (!longestForwardChain || currentDuration > longestForwardChain.totalDuration) {
+                longestForwardChain = {
+                    tasks: new Set(currentChain),
+                    relationships: [...currentRels],
+                    totalDuration: currentDuration
+                };
+            }
+        } else {
+            for (const rel of drivingSuccs) {
+                currentRels.push(rel);
+                findForwardChains(rel.successorId, currentChain, currentRels, currentDuration);
+                currentRels.pop();
+            }
+        }
+        
+        currentChain.delete(taskId);
     };
     
-    // Use an index structure for faster lookups when processing many tasks
-    const taskIdIndex = new Map<string, Task>();
-    tasks.forEach(task => {
-        taskIdIndex.set(task.internalId, task);
-    });
+    findForwardChains(sourceTaskId, new Set(), [], 0);
     
-    // Visit all tasks
-    tasks.forEach(task => {
-        if (!visited.has(task.internalId)) {
-            visit(task.internalId);
-        }
-    });
-    
-    const endTime = performance.now();
-    this.debugLog(`Topological sort completed in ${endTime - startTime}ms for ${tasks.length} tasks with ${result.length} sorted tasks.`);
-    
-    return result;
-}
-
-private performOptimizedForwardPass(tasks: Task[]): Task[] {
-    this.debugLog("Starting optimized forward pass...");
-    const startTime = performance.now();
-    
-    // Create an efficient data structure for task lookup
-    const taskMap = this.taskIdToTask;
-    
-    // Use a priority queue for task processing
-    const processingQueue = new PriorityQueue<Task>();
-    const inDegree = new Map<string, number>();
-    
-    // Initialize in-degree for all tasks
-    tasks.forEach(task => {
-        task.predecessors = task.predecessorIds
-            .map(id => taskMap.get(id))
-            .filter(t => t !== undefined) as Task[];
-            
-        const degree = task.predecessors.length;
-        inDegree.set(task.internalId, degree);
-        
-        // Reset CPM values
-        task.earlyStart = 0;
-        task.earlyFinish = task.duration;
-        
-        // Add tasks with no predecessors to the queue
-        if (degree === 0) {
-            processingQueue.enqueue(task, task.earlyStart ?? 0);
-        }
-    });
-    
-    // Process queue in topological order
-    const processedTasks = new Map<string, boolean>();
-    const sortedTasks: Task[] = [];
-    
-    while (processingQueue.size() > 0) {
-        const currentTask = processingQueue.dequeue()!;
-        sortedTasks.push(currentTask);
-        processedTasks.set(currentTask.internalId, true);
-        
-        // Pre-compute and cache successors
-        const succIds = this.predecessorIndex.get(currentTask.internalId) || new Set<string>();
-        currentTask.successors = Array.from(succIds)
-            .map(id => this.taskIdToTask.get(id))
-            .filter((t): t is Task => t !== undefined);
-        
-        for (const successor of currentTask.successors) {
-            const successorId = successor.internalId;
-            const relationshipType = successor.relationshipTypes[currentTask.internalId] || 'FS';
-            const lag = successor.relationshipLags[currentTask.internalId] || 0;
-            
-            let potentialStartTime = 0;
-            
-            switch (relationshipType) {
-                case 'FS': potentialStartTime = currentTask.earlyFinish + lag; break;
-                case 'SS': potentialStartTime = currentTask.earlyStart + lag; break;
-                case 'FF': potentialStartTime = currentTask.earlyFinish - successor.duration + lag; break;
-                case 'SF': potentialStartTime = currentTask.earlyStart - successor.duration + lag; break;
-                default: potentialStartTime = currentTask.earlyFinish + lag;
+    if (longestForwardChain) {
+        longestForwardChain.tasks.forEach(taskId => {
+            const task = this.taskIdToTask.get(taskId);
+            if (task) {
+                task.isCritical = true;
+                task.isCriticalByFloat = true;
+                task.totalFloat = 0;
             }
-            
-            successor.earlyStart = Math.max(successor.earlyStart ?? 0, Math.max(0, potentialStartTime));
-            successor.earlyFinish = successor.earlyStart + successor.duration;
-            
-            // Update in-degree and add to queue if ready
-            const currentInDegree = inDegree.get(successorId);
-            if (currentInDegree !== undefined && currentInDegree > 0) {
-                const newInDegree = currentInDegree - 1;
-                inDegree.set(successorId, newInDegree);
-                if (newInDegree === 0) {
-                    processingQueue.enqueue(successor, successor.earlyStart ?? 0);
-                }
-            }
-        }
+        });
+        
+        longestForwardChain.relationships.forEach(rel => {
+            rel.isCritical = true;
+        });
     }
     
-    // Handle cycles if any tasks weren't processed
-    const cycleDetected = processedTasks.size < tasks.length;
-    if (cycleDetected) {
-        this.handleCyclesInForwardPass(tasks, processedTasks);
-    }
-    
-    const endTime = performance.now();
-    this.debugLog(`Forward pass completed in ${endTime - startTime}ms for ${tasks.length} tasks.`);
-    
-    return sortedTasks;
-}
-
-private handleCyclesInForwardPass(tasks: Task[], processedTasks: Map<string, boolean>): void {
-    console.warn("Cycle detected in task dependencies. Attempting to resolve...");
-    
-    // Use a relaxation approach for tasks involved in cycles
-    const maxIterations = tasks.length * 2; // Cap the iterations to avoid infinite loops
-    let changed = true;
-    let iteration = 0;
-    
-    while (changed && iteration < maxIterations) {
-        changed = false;
-        iteration++;
-        
-        for (const task of tasks) {
-            // Skip tasks already processed normally
-            if (processedTasks.has(task.internalId)) continue;
-            
-            // Get the task's predecessors
-            const predecessors = task.predecessors;
-            if (predecessors.length === 0) continue;
-            
-            // Calculate best early start based on predecessors
-            let newEarlyStart = 0;
-            for (const pred of predecessors) {
-                const lag = task.relationshipLags[pred.internalId] || 0;
-                const relType = task.relationshipTypes[pred.internalId] || 'FS';
-                
-                let predRequiredStart = 0;
-                switch (relType) {
-                    case 'FS': predRequiredStart = (pred.earlyFinish || 0) + lag; break;
-                    case 'SS': predRequiredStart = (pred.earlyStart || 0) + lag; break;
-                    case 'FF': predRequiredStart = (pred.earlyFinish || 0) - task.duration + lag; break;
-                    case 'SF': predRequiredStart = (pred.earlyStart || 0) - task.duration + lag; break;
-                    default: predRequiredStart = (pred.earlyFinish || 0) + lag;
-                }
-                
-                newEarlyStart = Math.max(newEarlyStart, predRequiredStart);
-            }
-            
-            // If we get a better (later) early start, update
-            if (newEarlyStart > task.earlyStart) {
-                task.earlyStart = newEarlyStart;
-                task.earlyFinish = task.earlyStart + task.duration;
-                changed = true;
-            }
-        }
-    }
-    
-    this.debugLog(`Cycle resolution completed in ${iteration} iterations.`);
-}
-
-private performOptimizedBackwardPass(tasks: Task[], projectEndDate: number): void {
-    this.debugLog("Starting optimized backward pass...");
-    const startTime = performance.now();
-    
-    // Prepare successors cache for all tasks using predecessorIndex
-    const successorCache = new Map<string, Task[]>();
-
-    tasks.forEach((task: Task) => {
-        const successorIds = this.predecessorIndex.get(task.internalId) || new Set<string>();
-        const successors = Array.from(successorIds)
-            .map(id => this.taskIdToTask.get(id))
-            .filter((t): t is Task => t !== undefined);
-        successorCache.set(task.internalId, successors);
-        task.successors = successors;
-        
-        // Initialize late dates
-        if (successors.length === 0) {
-            task.lateFinish = projectEndDate;
-            task.lateStart = Math.max(0, task.lateFinish - task.duration);
-        } else {
-            task.lateFinish = Infinity;
-            task.lateStart = Infinity;
-        }
-    });
-    
-    // Get a topologically sorted list in reverse order
-    const sortedTasks = this.topologicalSortOptimized(tasks);
-    const reverseSortedTasks = [...sortedTasks].reverse();
-    
-    // Process tasks in reverse topological order
-    for (const task of reverseSortedTasks) {
-        if (task.successors.length === 0) continue; // Skip if no successors
-        
-        // Get cached successors
-        const successors = successorCache.get(task.internalId) || [];
-        
-        let minSuccessorRequirement = Infinity;
-        
-        for (const successor of successors) {
-            if (successor.lateStart === undefined || isNaN(successor.lateStart) || 
-                successor.lateStart === Infinity || successor.lateFinish === undefined || 
-                isNaN(successor.lateFinish)) continue;
-            
-            const lag = successor.relationshipLags[task.internalId] || 0;
-            const relationshipType = successor.relationshipTypes[task.internalId] || 'FS';
-            
-            let requiredFinishTime = Infinity;
-            
-            switch (relationshipType) {
-                case 'FS': requiredFinishTime = successor.lateStart - lag; break;
-                case 'SS': requiredFinishTime = successor.lateStart - lag + task.duration; break;
-                case 'FF': requiredFinishTime = successor.lateFinish - lag; break;
-                case 'SF': requiredFinishTime = successor.lateFinish - lag - successor.duration + task.duration; break;
-                default: requiredFinishTime = successor.lateStart - lag;
-            }
-            
-            minSuccessorRequirement = Math.min(minSuccessorRequirement, requiredFinishTime);
-        }
-        
-        if (minSuccessorRequirement !== Infinity) {
-            task.lateFinish = minSuccessorRequirement;
-        } else {
-            task.lateFinish = projectEndDate;
-        }
-        
-        task.lateStart = Math.max(0, task.lateFinish - task.duration);
-    }
-    
-    const endTime = performance.now();
-    this.debugLog(`Backward pass completed in ${endTime - startTime}ms for ${tasks.length} tasks.`);
-}
-
-private identifyAllPredecessorTasksOptimized(targetTaskId: string): Set<string> {
-    const tasksInPathToTarget = new Set<string>();
-    
-    // Always include the target task itself
-    tasksInPathToTarget.add(targetTaskId);
-    
-    // Use BFS with cached predecessor information
-    const queue: string[] = [targetTaskId];
-    
-    while (queue.length > 0) {
-        const currentTaskId = queue.shift()!;
-        const task = this.taskIdToTask.get(currentTaskId);
-        if (!task) continue;
-        
-        for (const predId of task.predecessorIds) {
-            if (!tasksInPathToTarget.has(predId)) {
-                tasksInPathToTarget.add(predId);
-                queue.push(predId);
-            }
-        }
-    }
-    
-    return tasksInPathToTarget;
-}
-
-private identifyAllSuccessorTasksOptimized(sourceTaskId: string): Set<string> {
-    const tasksInPathFromSource = new Set<string>();
-    
-    // Always include the source task itself
-    tasksInPathFromSource.add(sourceTaskId);
-    
-    // Use cached successor information for efficiency
-    const queue: string[] = [sourceTaskId];
-    
-    while (queue.length > 0) {
-        const currentTaskId = queue.shift()!;
-        const successorIds = this.predecessorIndex.get(currentTaskId) || new Set();
-        
-        for (const succId of successorIds) {
-            if (!tasksInPathFromSource.has(succId)) {
-                tasksInPathFromSource.add(succId);
-                queue.push(succId);
-            }
-        }
-    }
-    
-    return tasksInPathFromSource;
+    this.debugLog(`P6 path from ${sourceTaskId} with ${longestForwardChain?.tasks.size || 0} tasks`);
 }
 
 private identifyPredecessorTasksFloatBased(targetTaskId: string): Set<string> {
@@ -4939,127 +4178,6 @@ private identifySuccessorTasksFloatBased(sourceTaskId: string): Set<string> {
     
     this.debugLog(`Float-Based forward trace from ${sourceTaskId}: found ${tasksInPath.size} tasks`);
     return tasksInPath;
-}
-
-private calculateFloatAndCriticalityForSubset(taskSubset: Set<string>, targetTaskId: string | null = null): void {
-    // Calculate float for subset
-    const threshold = this.showNearCritical ? this.floatThreshold : 0;
-
-    this.allTasksData.forEach((task: Task) => {
-        // Mark all tasks not in subset as non-critical
-        if (!taskSubset.has(task.internalId)) {
-            task.isCritical = false;
-            task.isCriticalByFloat = false;
-            task.isCriticalByRel = false;
-            task.isNearCritical = false;
-            task.totalFloat = Infinity;
-            return;
-        }
-        
-        if (task.lateStart === undefined || isNaN(task.lateStart) || 
-            task.lateStart === Infinity || task.earlyStart === undefined || 
-            isNaN(task.earlyStart) || task.earlyStart === Infinity) {
-            task.totalFloat = Infinity;
-            task.isCriticalByFloat = false;
-            task.isNearCritical = false;
-        } else {
-            task.totalFloat = Math.max(0, task.lateStart - task.earlyStart);
-            task.isCriticalByFloat = task.totalFloat <= this.floatTolerance;
-            task.isNearCritical = !task.isCriticalByFloat &&
-                                task.totalFloat > this.floatTolerance &&
-                                task.totalFloat <= threshold;
-        }
-        task.isCriticalByRel = false;
-    });
-    
-    // Determine relationship criticality for subset
-    const criticalRelationships = new Set<string>();
-    
-    this.relationships.forEach((rel: Relationship) => {
-        const pred = this.taskIdToTask.get(rel.predecessorId);
-        const succ = this.taskIdToTask.get(rel.successorId);
-        
-        // Skip relationships not in subset
-        if (!pred || !succ || 
-            !taskSubset.has(pred.internalId) || 
-            !taskSubset.has(succ.internalId)) {
-            rel.isCritical = false;
-            return;
-        }
-        
-        // Skip relationships with invalid dates
-        if (pred.earlyFinish === undefined || isNaN(pred.earlyFinish) || 
-            pred.earlyStart === undefined || isNaN(pred.earlyStart) ||
-            succ.earlyStart === undefined || isNaN(succ.earlyStart) || 
-            succ.earlyFinish === undefined || isNaN(succ.earlyFinish) ||
-            pred.isCriticalByFloat === undefined || succ.isCriticalByFloat === undefined) {
-            rel.isCritical = false;
-            return;
-        }
-        
-        // Use free float if provided
-        if (rel.freeFloat !== null && !isNaN(rel.freeFloat)) {
-            rel.isCritical = rel.freeFloat <= this.floatTolerance;
-        } else {
-            // Otherwise, check if relationship is 'driving'
-            const relType = rel.type || 'FS';
-            const lag = rel.lag || 0;
-            
-            let isDriving = false;
-            try {
-                switch (relType) {
-                    case 'FS': isDriving = Math.abs((pred.earlyFinish + lag) - succ.earlyStart) <= this.floatTolerance; break;
-                    case 'SS': isDriving = Math.abs((pred.earlyStart + lag) - succ.earlyStart) <= this.floatTolerance; break;
-                    case 'FF': isDriving = Math.abs((pred.earlyFinish + lag) - succ.earlyFinish) <= this.floatTolerance; break;
-                    case 'SF': isDriving = Math.abs((pred.earlyStart + lag) - succ.earlyFinish) <= this.floatTolerance; break;
-                    default: isDriving = Math.abs((pred.earlyFinish + lag) - succ.earlyStart) <= this.floatTolerance;
-                }
-            } catch (e) { isDriving = false; }
-            
-            // Relationship is critical if driving AND connects two tasks critical by float
-            rel.isCritical = isDriving && pred.isCriticalByFloat && succ.isCriticalByFloat;
-        }
-        
-        // Mark connected tasks as critical by relationship
-        if (rel.isCritical) {
-            criticalRelationships.add(rel.predecessorId);
-            criticalRelationships.add(rel.successorId);
-        }
-    });
-    
-    // Apply critical relationship flags
-    criticalRelationships.forEach(taskId => {
-        const task = this.taskIdToTask.get(taskId);
-        if (task && taskSubset.has(taskId)) {
-            task.isCriticalByRel = true;
-        }
-    });
-    
-    // Final criticality determination
-    this.allTasksData.forEach((task: Task) => {
-        if (!taskSubset.has(task.internalId)) {
-            task.isCritical = false;
-            task.isNearCritical = false;
-        } else if (task.totalFloat !== undefined && !isNaN(task.totalFloat) && task.totalFloat !== Infinity) {
-            task.isCritical = task.isCriticalByFloat || (task.isCriticalByRel ?? false);
-            task.isNearCritical = this.showNearCritical &&
-                                !task.isCritical &&
-                                task.totalFloat > this.floatTolerance &&
-                                task.totalFloat <= threshold;
-        } else {
-            task.isCritical = task.isCriticalByRel ?? false;
-            task.isNearCritical = false;
-        }
-    });
-    
-    // Ensure target task is always marked as critical if specified
-    if (targetTaskId) {
-        const targetTask = this.taskIdToTask.get(targetTaskId);
-        if (targetTask) {
-            targetTask.isCritical = true;
-            targetTask.isNearCritical = false;
-        }
-    }
 }
 
 /**
@@ -5246,8 +4364,6 @@ private transformDataOptimized(dataView: DataView): void {
     this.taskIdToTask.clear();
     this.predecessorIndex.clear();
     this.relationshipIndex.clear();
-    this.taskDepthCache.clear();
-    this.sortedTasksCache = null;
 
     if (!dataView.table?.rows || !dataView.metadata?.columns) {
         console.error("Data transformation failed: No table data or columns found.");

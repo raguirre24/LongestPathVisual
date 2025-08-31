@@ -68,12 +68,7 @@ export declare class Visual implements IVisual {
     private lastViewport;
     private lastDataViewId;
     private renderStartTime;
-    private renderBatchTimer;
-    private renderQueue;
-    private cpmWorker;
     private predecessorIndex;
-    private taskDepthCache;
-    private sortedTasksCache;
     private relationshipIndex;
     private readonly VIEWPORT_CHANGE_THRESHOLD;
     private forceFullUpdate;
@@ -126,31 +121,47 @@ export declare class Visual implements IVisual {
     private positionTooltip;
     private drawArrows;
     private drawProjectEndLine;
-    private calculateCriticalPathDuration;
-    /**
-     * Detects cycles in the task dependency graph and returns affected tasks
-     * @returns Object containing whether cycles exist and which tasks are involved
-     */
-    private detectAndReportCycles;
-    private ensureCpmWorker;
     private calculateCPMOffThread;
-    /**
-     * Determines criticality based on the selected mode (Longest Path or Float-Based)
-     */
     private determineCriticalityMode;
     private applyFloatBasedCriticality;
     private calculateCPM;
+    /**
+     * Identifies the longest path using P6 scheduled dates (reflective approach)
+     * This replaces the old calculateCPM() method for Longest Path mode
+     */
+    private identifyLongestPathFromP6;
+    /**
+     * Identifies which relationships are driving based on minimum float
+     */
+    private identifyDrivingRelationships;
+    /**
+     * Finds the project finish task (latest finish date)
+     */
+    private findProjectFinishTask;
+    /**
+     * Finds all driving chains leading to a specific task
+     */
+    private findAllDrivingChainsToTask;
+    /**
+     * Selects the longest chain by total working duration
+     */
+    private selectLongestChain;
+    /**
+     * Identifies near-critical tasks based on accumulated minimum float
+     */
+    private identifyNearCriticalTasks;
+    /**
+     * Identifies predecessor tasks connected through driving relationships
+     */
+    private identifyDrivingPredecessorTasks;
+    /**
+     * Identifies successor tasks connected through driving relationships
+     */
+    private identifyDrivingSuccessorTasks;
     private calculateCPMToTask;
     private calculateCPMFromTask;
-    private topologicalSortOptimized;
-    private performOptimizedForwardPass;
-    private handleCyclesInForwardPass;
-    private performOptimizedBackwardPass;
-    private identifyAllPredecessorTasksOptimized;
-    private identifyAllSuccessorTasksOptimized;
     private identifyPredecessorTasksFloatBased;
     private identifySuccessorTasksFloatBased;
-    private calculateFloatAndCriticalityForSubset;
     /**
      * Extracts and validates task ID from a data row
      */
