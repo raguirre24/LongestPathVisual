@@ -152,9 +152,6 @@ export declare class Visual implements IVisual {
      * Selects the longest chain by total working duration
      */
     private selectLongestChain;
-    /**
-     * Identifies near-critical tasks based on accumulated minimum float
-     */
     private identifyNearCriticalTasks;
     /**
      * Identifies predecessor tasks connected through driving relationships

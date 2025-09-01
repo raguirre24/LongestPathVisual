@@ -117,7 +117,7 @@ export class Visual implements IVisual {
 
     // --- Configuration/Constants ---
     private margin = { top: 10, right: 100, bottom: 40, left: 280 };
-    private headerHeight = 100;
+    private headerHeight = 110;
     private dateLabelOffset = 8;
     private floatTolerance = 0.001;
     private defaultMaxTasks = 500;
@@ -734,213 +734,372 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         });
     }
 
-    private createModeToggleButton(viewportWidth: number): void {
-        if (!this.headerSvg) return;
-        
-        this.headerSvg.selectAll(".mode-toggle-group").remove();
-        
-        const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-        const isFloatBased = currentMode === 'floatBased';
-        const dataView = this.lastUpdateOptions?.dataViews?.[0];
-        const hasTotalFloat = dataView ? this.hasDataRole(dataView, 'taskTotalFloat') : false;
-        
-        const modeToggleGroup = this.headerSvg.append("g")
-            .attr("class", "mode-toggle-group")
-            .style("cursor", hasTotalFloat ? "pointer" : "not-allowed");
-        
-        // Icon-only toggle button
-        const buttonSize = 22; // Square button
-        const buttonX = 136; // After Show All/Critical toggle
-        const buttonY = 4;
-        
-        modeToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
-        
-        // Button background
-        const buttonRect = modeToggleGroup.append("rect")
-            .attr("width", buttonSize)
-            .attr("height", buttonSize)
-            .attr("rx", 4)
-            .attr("ry", 4)
-            .style("fill", isFloatBased ? "#fff7e6" : "#e6f4ff")
-            .style("stroke", isFloatBased ? "#faad14" : "#1890ff")
-            .style("stroke-width", 1)
-            .style("opacity", hasTotalFloat ? 1 : 0.4);
-        
-        // Mode icon centered
-        const iconCenter = buttonSize / 2;
-        
-        if (isFloatBased) {
-            // Float icon - stylized "F"
-            modeToggleGroup.append("text")
-                .attr("x", iconCenter)
-                .attr("y", iconCenter + 1)
-                .attr("text-anchor", "middle")
-                .attr("dominant-baseline", "central")
-                .style("font-family", "Segoe UI, sans-serif")
-                .style("font-size", "12px")
-                .style("font-weight", "600")
-                .style("fill", "#fa8c16")
-                .style("pointer-events", "none")
-                .text("F");
-        } else {
-            // Path icon - network symbol
-            const pathData = `M${iconCenter-6},${iconCenter} L${iconCenter},${iconCenter-3} L${iconCenter+6},${iconCenter}`;
-            modeToggleGroup.append("path")
-                .attr("d", pathData)
-                .attr("stroke", "#1890ff")
-                .attr("stroke-width", 1.5)
-                .attr("fill", "none");
-            // Add nodes
-            [iconCenter-6, iconCenter, iconCenter+6].forEach((x, i) => {
-                const y = i === 1 ? iconCenter-3 : iconCenter;
-                modeToggleGroup.append("circle")
-                    .attr("cx", x)
-                    .attr("cy", y)
-                    .attr("r", 2)
-                    .style("fill", "#1890ff");
+private createModeToggleButton(viewportWidth: number): void {
+    if (!this.headerSvg) return;
+    
+    this.headerSvg.selectAll(".mode-toggle-group").remove();
+    
+    const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+    const isFloatBased = currentMode === 'floatBased';
+    const dataView = this.lastUpdateOptions?.dataViews?.[0];
+    const hasTotalFloat = dataView ? this.hasDataRole(dataView, 'taskTotalFloat') : false;
+    
+    const modeToggleGroup = this.headerSvg.append("g")
+        .attr("class", "mode-toggle-group")
+        .style("cursor", hasTotalFloat ? "pointer" : "not-allowed");
+    
+    // Increased width for better spacing
+    const buttonWidth = 220; // Increased from 180
+    const buttonHeight = 24;
+    const buttonX = 136;
+    const buttonY = 4;
+    
+    modeToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+    
+    // Main button container with shadow effect
+    const buttonG = modeToggleGroup.append("g")
+        .attr("class", "mode-button-container");
+    
+    // Drop shadow filter
+    const filterId = `mode-shadow-${Date.now()}`;
+    const defs = this.headerSvg.select("defs").empty() 
+        ? this.headerSvg.append("defs") 
+        : this.headerSvg.select("defs");
+    
+    const filter = defs.append("filter")
+        .attr("id", filterId)
+        .attr("x", "-50%")
+        .attr("y", "-50%")
+        .attr("width", "200%")
+        .attr("height", "200%");
+    
+    filter.append("feDropShadow")
+        .attr("dx", 0)
+        .attr("dy", 1)
+        .attr("stdDeviation", 1)
+        .attr("flood-opacity", 0.1);
+    
+    // Button background
+    const buttonRect = buttonG.append("rect")
+        .attr("width", buttonWidth)
+        .attr("height", buttonHeight)
+        .attr("rx", 12)
+        .attr("ry", 12)
+        .style("fill", isFloatBased ? "#fff7e6" : "#e6f4ff")
+        .style("stroke", isFloatBased ? "#faad14" : "#1890ff")
+        .style("stroke-width", 1.5)
+        .style("filter", hasTotalFloat ? `url(#${filterId})` : "none")
+        .style("opacity", hasTotalFloat ? 1 : 0.4);
+    
+    // Mode indicator pill with better spacing
+    const pillG = buttonG.append("g")
+        .attr("transform", `translate(8, ${buttonHeight/2})`); // Increased left padding
+    
+    // Adjusted pill dimensions for better spacing
+    const pillWidth = 100; // Increased from 80
+    const pillHeight = 16;
+    const pillX = isFloatBased ? pillWidth/2 : 0; // Adjusted positioning
+    
+    // Background track for the toggle
+    pillG.append("rect")
+        .attr("class", "mode-pill-bg")
+        .attr("x", 0)
+        .attr("y", -pillHeight/2)
+        .attr("width", pillWidth)
+        .attr("height", pillHeight)
+        .attr("rx", 8)
+        .attr("ry", 8)
+        .style("fill", "#e8e8e8")
+        .style("opacity", 0.8);
+    
+    // Sliding pill indicator
+    const slidingPill = pillG.append("rect")
+        .attr("class", "mode-pill")
+        .attr("x", pillX)
+        .attr("y", -pillHeight/2)
+        .attr("width", pillWidth/2)
+        .attr("height", pillHeight)
+        .attr("rx", 8)
+        .attr("ry", 8)
+        .style("fill", isFloatBased ? "#faad14" : "#1890ff")
+        .style("transition", "all 0.3s ease");
+    
+    // Mode labels with better positioning
+    const labelY = 0;
+    
+    // CPM label - positioned at 1/4 of pill width
+    pillG.append("text")
+        .attr("x", pillWidth/4)
+        .attr("y", labelY)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "central")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px") // Slightly larger
+        .style("font-weight", isFloatBased ? "400" : "600")
+        .style("fill", isFloatBased ? "#666" : "white")
+        .style("pointer-events", "none")
+        .style("letter-spacing", "0.5px") // Add slight letter spacing
+        .text("CPM");
+    
+    // Float label - positioned at 3/4 of pill width
+    pillG.append("text")
+        .attr("x", 3*pillWidth/4)
+        .attr("y", labelY)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "central")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px") // Slightly larger
+        .style("font-weight", isFloatBased ? "600" : "400")
+        .style("fill", isFloatBased ? "white" : "#666")
+        .style("pointer-events", "none")
+        .style("letter-spacing", "0.5px") // Add slight letter spacing
+        .text("Float");
+    
+    // Current mode text with adjusted position
+    buttonG.append("text")
+        .attr("x", 118) // Adjusted position due to wider pill
+        .attr("y", buttonHeight/2)
+        .attr("dominant-baseline", "central")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px")
+        .style("fill", "#333")
+        .style("pointer-events", "none")
+        .text(isFloatBased ? "Float-Based" : "Longest Path");
+    
+    // Tooltip
+    modeToggleGroup.append("title")
+        .text(hasTotalFloat 
+            ? `Current: ${isFloatBased ? 'Float-Based' : 'Longest Path (CPM)'}\nClick to switch modes`
+            : "Float-Based mode requires Task Total Float field");
+    
+    if (hasTotalFloat) {
+        modeToggleGroup
+            .on("mouseover", function() {
+                d3.select(this).select(".mode-button-container rect")
+                    .style("fill", isFloatBased ? "#fff1e6" : "#d9f0ff");
+            })
+            .on("mouseout", function() {
+                d3.select(this).select(".mode-button-container rect")
+                    .style("fill", isFloatBased ? "#fff7e6" : "#e6f4ff");
             });
-        }
         
-        // Tooltip
-        modeToggleGroup.append("title")
-            .text(hasTotalFloat 
-                ? `Mode: ${isFloatBased ? 'Float-Based' : 'Longest Path (CPM)'}\nClick to switch`
-                : "Float-Based mode requires Task Total Float field");
-        
-        if (hasTotalFloat) {
-            modeToggleGroup
-                .on("mouseover", function() {
-                    d3.select(this).select("rect")
-                        .style("fill", isFloatBased ? "#fff1e6" : "#d9f0ff");
-                })
-                .on("mouseout", function() {
-                    d3.select(this).select("rect")
-                        .style("fill", isFloatBased ? "#fff7e6" : "#e6f4ff");
-                });
-            
-            const self = this;
-            modeToggleGroup.on("click", function(event) {
-                if (event) event.stopPropagation();
-                self.toggleCriticalityMode();
-            });
-        }
-    }
-
-    private toggleCriticalityMode(): void {
-        try {
-            const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-            const newMode = currentMode === 'longestPath' ? 'floatBased' : 'longestPath';
-            
-            this.debugLog(`Toggling criticality mode from ${currentMode} to ${newMode}`);
-            
-            // Update the settings value
-            if (this.settings?.criticalityMode?.calculationMode) {
-                this.settings.criticalityMode.calculationMode.value = {
-                    value: newMode,
-                    displayName: newMode === 'longestPath' ? 'Longest Path (CPM)' : 'Float-Based'
-                };
-            }
-            
-            // Persist the new mode
-            this.host.persistProperties({
-                merge: [{
-                    objectName: "criticalityMode",
-                    properties: { calculationMode: newMode },
-                    selector: null
-                }]
-            });
-            
-            // Force a full update
-            this.forceFullUpdate = true;
-            
-            if (!this.lastUpdateOptions) {
-                console.error("Cannot trigger update - lastUpdateOptions is null during mode toggle.");
-                return;
-            }
-            
-            // Trigger update
-            this.update(this.lastUpdateOptions);
-            this.debugLog("Visual update triggered by mode toggle");
-            this.createOrUpdateVisualTitle();
-            
-        } catch (error) {
-            console.error("Error toggling criticality mode:", error);
-        }
-    }
-
-
-    private createFloatThresholdControl(): void {
-        this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
-
-        if (!this.showNearCritical) {
-            this.floatThresholdInput = null as any;
-            return;
-        }
-
-        // Ultra-compact control
-        const controlContainer = this.stickyHeaderContainer.append("div")
-            .attr("class", "float-threshold-wrapper")
-            .style("position", "absolute")
-            .style("right", "10px") // Move to right side
-            .style("top", "4px")
-            .style("display", "inline-flex")
-            .style("align-items", "center")
-            .style("gap", "4px")
-            .style("height", "22px")
-            .style("padding", "0 6px")
-            .style("background-color", "#ffffff")
-            .style("border", "1px solid #d0d0d0")
-            .style("border-radius", "4px");
-
-        // Icon for near-critical
-        controlContainer.append("div")
-            .style("width", "6px")
-            .style("height", "6px")
-            .style("background-color", "#F7941F")
-            .style("border-radius", "50%")
-            .attr("title", "Near Critical Threshold");
-
-        // Ultra-compact label
-        controlContainer.append("span")
-            .style("font-size", "10px")
-            .style("color", "#666")
-            .style("font-family", "Segoe UI, sans-serif")
-            .text("≤");
-
-        // Small input
-        this.floatThresholdInput = controlContainer.append("input")
-            .attr("type", "number")
-            .attr("min", "0")
-            .attr("step", "1")
-            .attr("value", this.floatThreshold)
-            .style("width", "30px")
-            .style("height", "16px")
-            .style("padding", "1px 2px")
-            .style("border", "1px solid #d9d9d9")
-            .style("border-radius", "2px")
-            .style("font-size", "10px")
-            .style("outline", "none")
-            .style("background-color", "white");
-
         const self = this;
-        this.floatThresholdInput.on("input", function() {
-            const value = parseFloat(this.value);
-            self.floatThreshold = isNaN(value) ? 0 : Math.max(0, value);
-            
-            self.host.persistProperties({
-                merge: [{
-                    objectName: "persistedState",
-                    properties: { floatThreshold: self.floatThreshold },
-                    selector: null
-                }]
-            });
-            
-            self.forceFullUpdate = true;
-            if (self.lastUpdateOptions) {
-                self.update(self.lastUpdateOptions);
-            }
+        modeToggleGroup.on("click", function(event) {
+            if (event) event.stopPropagation();
+            self.toggleCriticalityMode();
         });
     }
+}
+
+private toggleCriticalityMode(): void {
+    try {
+        const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+        const newMode = currentMode === 'longestPath' ? 'floatBased' : 'longestPath';
+        
+        this.debugLog(`Toggling criticality mode from ${currentMode} to ${newMode}`);
+        
+        // Reset float threshold when switching to Longest Path mode
+        if (newMode === 'longestPath' && this.floatThreshold > 0) {
+            this.debugLog(`Resetting float threshold from ${this.floatThreshold} to 0`);
+            this.floatThreshold = 0;
+            
+            // Persist the reset threshold
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "persistedState",
+                    properties: { floatThreshold: 0 },
+                    selector: null
+                }]
+            });
+        }
+        
+        // Update the settings value
+        if (this.settings?.criticalityMode?.calculationMode) {
+            this.settings.criticalityMode.calculationMode.value = {
+                value: newMode,
+                displayName: newMode === 'longestPath' ? 'Longest Path (CPM)' : 'Float-Based'
+            };
+        }
+        
+        // Persist the new mode
+        this.host.persistProperties({
+            merge: [{
+                objectName: "criticalityMode",
+                properties: { calculationMode: newMode },
+                selector: null
+            }]
+        });
+        
+        // Force a full update
+        this.forceFullUpdate = true;
+        
+        if (!this.lastUpdateOptions) {
+            console.error("Cannot trigger update - lastUpdateOptions is null during mode toggle.");
+            return;
+        }
+        
+        // Trigger update
+        this.update(this.lastUpdateOptions);
+        this.debugLog("Visual update triggered by mode toggle");
+        this.createOrUpdateVisualTitle();
+        
+    } catch (error) {
+        console.error("Error toggling criticality mode:", error);
+    }
+}
+
+private createFloatThresholdControl(): void {
+    this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
+
+    // Only show in float-based mode when near-critical is enabled
+    const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+    const isFloatBased = currentMode === 'floatBased';
+    
+    if (!this.showNearCritical || !isFloatBased) {
+        this.floatThresholdInput = null as any;
+        return;
+    }
+
+    // Enhanced control design
+    const controlContainer = this.stickyHeaderContainer.append("div")
+        .attr("class", "float-threshold-wrapper")
+        .style("position", "absolute")
+        .style("right", "10px")
+        .style("top", "4px") // CHANGED: First row (was "32px")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("gap", "8px")
+        .style("height", "28px")
+        .style("padding", "0 12px")
+        .style("background-color", "#ffffff")
+        .style("border", "1px solid #d0d0d0")
+        .style("border-radius", "14px")
+        .style("box-shadow", "0 1px 3px rgba(0,0,0,0.05)");
+
+    // Icon and label container
+    const labelContainer = controlContainer.append("div")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("gap", "6px");
+
+    // Near-critical indicator with gradient
+    const iconSize = 10;
+    const iconSvg = labelContainer.append("svg")
+        .attr("width", iconSize)
+        .attr("height", iconSize)
+        .attr("viewBox", `0 0 ${iconSize} ${iconSize}`);
+    
+    // Gradient definition
+    const gradientId = `near-critical-gradient-${Date.now()}`;
+    const gradient = iconSvg.append("defs")
+        .append("radialGradient")
+        .attr("id", gradientId);
+    
+    gradient.append("stop")
+        .attr("offset", "0%")
+        .attr("stop-color", "#FFB84D");
+    
+    gradient.append("stop")
+        .attr("offset", "100%")
+        .attr("stop-color", "#F7941F");
+    
+    iconSvg.append("circle")
+        .attr("cx", iconSize/2)
+        .attr("cy", iconSize/2)
+        .attr("r", iconSize/2)
+        .attr("fill", `url(#${gradientId})`);
+
+    // Descriptive label
+    labelContainer.append("span")
+        .style("font-size", "12px")
+        .style("color", "#333")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-weight", "500")
+        .text("Near-Critical ≤");
+
+    // Enhanced input field
+    this.floatThresholdInput = controlContainer.append("input")
+        .attr("type", "number")
+        .attr("min", "0")
+        .attr("step", "1") // CHANGED: From "0.5" to "1"
+        .attr("value", this.floatThreshold)
+        .style("width", "50px")
+        .style("height", "20px")
+        .style("padding", "2px 6px")
+        .style("border", "1px solid #d9d9d9")
+        .style("border-radius", "4px")
+        .style("font-size", "12px")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-weight", "500")
+        .style("text-align", "center")
+        .style("outline", "none")
+        .style("background-color", "white")
+        .style("transition", "border-color 0.2s ease");
+
+    // Unit label
+    controlContainer.append("span")
+        .style("font-size", "11px")
+        .style("color", "#666")
+        .style("font-family", "Segoe UI, sans-serif")
+        .text("days");
+
+    // Help icon with tooltip
+    const helpIcon = controlContainer.append("div")
+        .style("width", "16px")
+        .style("height", "16px")
+        .style("border-radius", "50%")
+        .style("background-color", "#f0f0f0")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("justify-content", "center")
+        .style("cursor", "help")
+        .style("font-size", "10px")
+        .style("color", "#666")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-weight", "600")
+        .text("?");
+
+    helpIcon.append("title")
+        .text("Tasks with Total Float ≤ this value will be highlighted as near-critical");
+
+    // Hover effects
+    this.floatThresholdInput
+        .on("focus", function() {
+            d3.select(this).style("border-color", "#40a9ff");
+        })
+        .on("blur", function() {
+            d3.select(this).style("border-color", "#d9d9d9");
+        });
+
+    // Input handler
+    const self = this;
+    this.floatThresholdInput.on("input", function() {
+        const value = parseFloat(this.value);
+        self.floatThreshold = isNaN(value) ? 0 : Math.max(0, value);
+        
+        // Visual feedback
+        d3.select(this)
+            .transition()
+            .duration(200)
+            .style("background-color", "#e6f7ff")
+            .transition()
+            .duration(200)
+            .style("background-color", "white");
+        
+        self.host.persistProperties({
+            merge: [{
+                objectName: "persistedState",
+                properties: { floatThreshold: self.floatThreshold },
+                selector: null
+            }]
+        });
+        
+        self.forceFullUpdate = true;
+        if (self.lastUpdateOptions) {
+            self.update(self.lastUpdateOptions);
+        }
+    });
+}
 
     private createOrUpdateVisualTitle(): void {
         if (!this.stickyHeaderContainer) return;
@@ -3694,6 +3853,7 @@ private async determineCriticalityMode(): Promise<void> {
         this.identifyLongestPathFromP6();
     }
 }
+
 private applyFloatBasedCriticality(): void {
     this.debugLog("Applying Float-Based criticality using Total Float for criticality and Task Free Float for tracing...");
     const startTime = performance.now();
@@ -3707,7 +3867,8 @@ private applyFloatBasedCriticality(): void {
             task.isCriticalByFloat = task.isCritical;
             
             // Near-critical determination based on Total Float
-            if (this.showNearCritical && !task.isCritical) {
+            // IMPORTANT: Only apply near-critical if threshold > 0
+            if (this.showNearCritical && !task.isCritical && this.floatThreshold > 0) {
                 task.isNearCritical = task.totalFloat > 0 && 
                                      task.totalFloat <= this.floatThreshold;
             } else {
@@ -4021,10 +4182,14 @@ private selectLongestChain(chains: Array<{
     return chains[0];
 }
 
-/**
- * Identifies near-critical tasks based on accumulated minimum float
- */
+
 private identifyNearCriticalTasks(): void {
+    // Only identify near-critical tasks if threshold > 0
+    if (this.floatThreshold <= 0) {
+        this.debugLog("Float threshold is 0, skipping near-critical identification");
+        return;
+    }
+    
     this.allTasksData.forEach(task => {
         if (task.isCritical) return;
         
@@ -5019,7 +5184,7 @@ private createTaskSelectionDropdown(): void {
     }
 
     const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
-    const dropdownWidth = 200; // Fixed width for compact design
+    const dropdownWidth = 200;
     const showSelectedTaskLabel = this.settings.taskSelection.showSelectedTaskLabel.value;
 
     // Show/hide dropdown based on settings
@@ -5032,49 +5197,60 @@ private createTaskSelectionDropdown(): void {
     // Remove existing input and list to recreate them
     this.dropdownContainer.selectAll("*").remove();
     
-    // IMPORTANT: Set the container positioning first
+    // Position in second row of header
     this.dropdownContainer
         .style("position", "absolute")
         .style("top", "32px")    // Second row in header
         .style("left", "8px")     // Left side positioning
-        .style("right", "auto")   // Clear any right positioning
-        .style("transform", "none") // Clear any transforms
+        .style("right", "auto")
+        .style("transform", "none")
         .style("z-index", "20");
     
-    // Create the input
+    // Create the input with enhanced styling
     this.dropdownInput = this.dropdownContainer.append("input")
         .attr("type", "text")
         .attr("class", "task-selection-input")
         .attr("placeholder", "Search for a task...")
         .style("width", `${dropdownWidth}px`)
-        .style("height", "20px")  // Compact height
-        .style("padding", "2px 6px")
+        .style("height", "24px")  // Match other controls
+        .style("padding", "4px 8px")
         .style("border", "1px solid #d0d0d0")
-        .style("border-radius", "4px")
+        .style("border-radius", "12px")
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px")
+        .style("font-size", "12px")
         .style("color", "#333")
-        .style("box-sizing", "border-box");
+        .style("box-sizing", "border-box")
+        .style("outline", "none")
+        .style("transition", "border-color 0.2s ease");
 
-    // Create dropdown list
+    // Add focus effects
+    this.dropdownInput
+        .on("focus", function() {
+            d3.select(this).style("border-color", "#40a9ff");
+        })
+        .on("blur", function() {
+            d3.select(this).style("border-color", "#d0d0d0");
+        });
+
+    // Create dropdown list with enhanced styling
     this.dropdownList = this.dropdownContainer.append("div")
         .attr("class", "task-selection-list")
         .style("position", "absolute")
         .style("top", "100%")
         .style("left", "0")
         .style("width", `${dropdownWidth}px`)
-        .style("max-height", "150px")  // Limit height to fit in header
+        .style("max-height", "200px")
+        .style("margin-top", "4px")
         .style("overflow-y", "auto")
         .style("background", "white")
         .style("border", "1px solid #d0d0d0")
-        .style("border-top", "none")
-        .style("border-radius", "0 0 4px 4px")
-        .style("box-shadow", "0 2px 5px rgba(0,0,0,0.1)")
+        .style("border-radius", "8px")
+        .style("box-shadow", "0 2px 8px rgba(0,0,0,0.1)")
         .style("display", "none")
         .style("z-index", "1000")
         .style("box-sizing", "border-box");
 
-    // Set up event handlers
+    // Rest of the method remains the same...
     const self = this;
     
     // Input event handlers
@@ -5090,7 +5266,7 @@ private createTaskSelectionDropdown(): void {
         })
         .on("focus", function() {
             self.dropdownList.style("display", "block");
-            self.populateTaskDropdown(); // Ensure dropdown is populated
+            self.populateTaskDropdown();
             
             // Disable pointer events on the trace toggle while dropdown is open
             self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
@@ -5265,54 +5441,142 @@ private createTraceModeToggle(): void {
     const toggleContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "trace-mode-toggle")
         .style("position", "absolute")
-        .style("top", "32px") // Second row
-        .style("left", "230px") // After dropdown
+        .style("top", "32px")
+        .style("left", "220px")
         .style("z-index", "20");
     
     const isDisabled = !this.selectedTaskId;
     
-    // Mini toggle buttons
-    const toggleButtons = toggleContainer.append("div")
+    // Enhanced toggle design
+    const toggleWrapper = toggleContainer.append("div")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("gap", "6px");
+    
+    // Label
+    toggleWrapper.append("span")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px")
+        .style("color", isDisabled ? "#999" : "#666")
+        .style("white-space", "nowrap")
+        .text("Trace:");
+    
+    // Toggle buttons container
+    const toggleButtons = toggleWrapper.append("div")
         .style("display", "flex")
         .style("border", "1px solid #d0d0d0")
-        .style("border-radius", "4px")
+        .style("border-radius", "12px")
         .style("overflow", "hidden")
         .style("opacity", isDisabled ? "0.5" : "1")
-        .style("height", "20px")
-        .style("background", "white");
+        .style("height", "24px")
+        .style("background", "white")
+        .style("box-shadow", "0 1px 2px rgba(0,0,0,0.05)");
     
-    // Backward Button (icon only)
+    // Backward Button with improved arrow
     const backwardButton = toggleButtons.append("div")
         .attr("class", "trace-mode-button backward")
-        .style("padding", "0 8px")
+        .style("padding", "0 12px")
         .style("cursor", isDisabled ? "not-allowed" : "pointer")
-        .style("background-color", this.traceMode === "backward" ? "#e6f7ff" : "#ffffff")
+        .style("background-color", this.traceMode === "backward" ? "#1890ff" : "#ffffff")
         .style("border-right", "1px solid #d0d0d0")
         .style("display", "flex")
         .style("align-items", "center")
-        .style("justify-content", "center")
-        .text("←")  // Changed from .html() to .text()
-        .style("font-size", "12px")
-        .style("color", this.traceMode === "backward" ? "#1890ff" : "#666")
-        .attr("title", "Trace Backward");
+        .style("gap", "4px")
+        .style("transition", "all 0.2s ease");
     
-    // Forward Button (icon only)
+    // Improved backward arrow using SVG
+    const backwardSvg = backwardButton.append("svg")
+        .attr("width", "14")
+        .attr("height", "14")
+        .attr("viewBox", "0 0 14 14")
+        .style("flex-shrink", "0");
+    
+    backwardSvg.append("path")
+        .attr("d", "M 9 3 L 5 7 L 9 11")
+        .attr("stroke", this.traceMode === "backward" ? "white" : "#666")
+        .attr("stroke-width", "2")
+        .attr("stroke-linecap", "round")
+        .attr("stroke-linejoin", "round")
+        .attr("fill", "none");
+    
+    backwardButton.append("span")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px")
+        .style("color", this.traceMode === "backward" ? "white" : "#666")
+        .style("font-weight", this.traceMode === "backward" ? "500" : "400")
+        .text("Back");
+    
+    // Forward Button with improved arrow
     const forwardButton = toggleButtons.append("div")
         .attr("class", "trace-mode-button forward")
-        .style("padding", "0 8px")
+        .style("padding", "0 12px")
         .style("cursor", isDisabled ? "not-allowed" : "pointer")
-        .style("background-color", this.traceMode === "forward" ? "#e6f7ff" : "#ffffff")
+        .style("background-color", this.traceMode === "forward" ? "#1890ff" : "#ffffff")
         .style("display", "flex")
         .style("align-items", "center")
-        .style("justify-content", "center")
-        .text("→")  // Changed from .html() to .text()
-        .style("font-size", "12px")
-        .style("color", this.traceMode === "forward" ? "#1890ff" : "#666")
-        .attr("title", "Trace Forward");
+        .style("gap", "4px")
+        .style("transition", "all 0.2s ease");
+    
+    forwardButton.append("span")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px")
+        .style("color", this.traceMode === "forward" ? "white" : "#666")
+        .style("font-weight", this.traceMode === "forward" ? "500" : "400")
+        .text("Forward");
+    
+    // Improved forward arrow using SVG
+    const forwardSvg = forwardButton.append("svg")
+        .attr("width", "14")
+        .attr("height", "14")
+        .attr("viewBox", "0 0 14 14")
+        .style("flex-shrink", "0");
+    
+    forwardSvg.append("path")
+        .attr("d", "M 5 3 L 9 7 L 5 11")
+        .attr("stroke", this.traceMode === "forward" ? "white" : "#666")
+        .attr("stroke-width", "2")
+        .attr("stroke-linecap", "round")
+        .attr("stroke-linejoin", "round")
+        .attr("fill", "none");
+    
+    // Tooltip based on mode
+    const tooltipText = isDisabled 
+        ? "Select a task to enable tracing"
+        : this.traceMode === "backward"
+            ? "Showing predecessors leading to selected task"
+            : "Showing successors from selected task";
+    
+    toggleContainer.append("title").text(tooltipText);
     
     if (!isDisabled) {
         const self = this;
         
+        // Hover effects
+        backwardButton
+            .on("mouseover", function() {
+                if (self.traceMode !== "backward") {
+                    d3.select(this).style("background-color", "#f0f0f0");
+                }
+            })
+            .on("mouseout", function() {
+                if (self.traceMode !== "backward") {
+                    d3.select(this).style("background-color", "#ffffff");
+                }
+            });
+        
+        forwardButton
+            .on("mouseover", function() {
+                if (self.traceMode !== "forward") {
+                    d3.select(this).style("background-color", "#f0f0f0");
+                }
+            })
+            .on("mouseout", function() {
+                if (self.traceMode !== "forward") {
+                    d3.select(this).style("background-color", "#ffffff");
+                }
+            });
+        
+        // Click handlers
         backwardButton.on("click", function() {
             if (self.traceMode !== "backward") {
                 self.traceMode = "backward";
@@ -5350,8 +5614,6 @@ private createTraceModeToggle(): void {
         });
     }
 }
-
-
 /**
  * Filters the dropdown items based on input text
  */
