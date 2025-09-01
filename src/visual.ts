@@ -2973,12 +2973,22 @@ private drawTasks(
             .filter(function() { return d3.select(this).attr("x") !== null; });
 
         // Add background rect using BBox
-        dateTextGroups.each((d: Task, i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
-            const group = d3.select(nodes[i] as SVGGElement);
-            const textElement = group.select<SVGTextElement>(".finish-date").node();
-            if (!textElement || textElement.getAttribute("x") === null || !textElement.textContent) {
-                group.remove(); return;
+dateTextGroups.each((d: Task, i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
+    const group = d3.select(nodes[i] as SVGGElement);
+    const textElement = group.select<SVGTextElement>(".finish-date").node();
+    
+    // Separate null checks to avoid accessing properties on null
+    if (!textElement) {
+        group.remove(); 
+        return;
+    }
+    
+            // Now safe to check other properties since textElement is not null
+            if (textElement.getAttribute("x") === null || !textElement.textContent || textElement.textContent.trim() === "") {
+                group.remove(); 
+                return;
             }
+            
             try {
                 const bbox = textElement.getBBox();
                 if (bbox && bbox.width > 0 && bbox.height > 0 && isFinite(bbox.x) && isFinite(bbox.y)) {
@@ -2992,7 +3002,9 @@ private drawTasks(
                         .style("fill", dateBackgroundColor)
                         .style("fill-opacity", dateBackgroundOpacity);
                 }
-            } catch (e) { console.warn(`Could not get BBox for date text on task ${d.internalId}`, e); }
+            } catch (e) { 
+                console.warn(`Could not get BBox for date text on task ${d.internalId}`, e); 
+            }
         });
     }
 
