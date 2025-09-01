@@ -1835,58 +1835,88 @@ private async updateInternal(options: VisualUpdateOptions) {
                 .style("fill", connectorColor);
     }
 
-    private setupTimeBasedSVGAndScales(
-        effectiveViewport: IViewport,
-        tasksToShow: Task[]
-    ): {
-        xScale: ScaleTime<number, number> | null,
-        yScale: ScaleBand<string> | null,
-        chartWidth: number,
-        calculatedChartHeight: number
-    } {
-        const taskHeight = this.settings.taskAppearance.taskHeight.value;
-        const taskPadding = this.settings.layoutSettings.taskPadding.value;
-        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-        const svgWidth = effectiveViewport.width;
+private setupTimeBasedSVGAndScales(
+    effectiveViewport: IViewport,
+    tasksToShow: Task[]
+): {
+    xScale: ScaleTime<number, number> | null,
+    yScale: ScaleBand<string> | null,
+    chartWidth: number,
+    calculatedChartHeight: number
+} {
+    const taskHeight = this.settings.taskAppearance.taskHeight.value;
+    const taskPadding = this.settings.layoutSettings.taskPadding.value;
+    const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+    const svgWidth = effectiveViewport.width;
 
-        const taskCount = tasksToShow.length;
-        const calculatedChartHeight = Math.max(50, taskCount * (taskHeight + taskPadding));
-        const chartWidth = Math.max(10, svgWidth - currentLeftMargin - this.margin.right);
+    const taskCount = tasksToShow.length;
+    const calculatedChartHeight = Math.max(50, taskCount * (taskHeight + taskPadding));
+    const chartWidth = Math.max(10, svgWidth - currentLeftMargin - this.margin.right);
 
-        const startTimestamps = tasksToShow.map(d => d.startDate?.getTime()).filter(t => t != null && !isNaN(t)) as number[];
-        const endTimestamps = tasksToShow.map(d => d.finishDate?.getTime()).filter(t => t != null && !isNaN(t)) as number[];
-
-        if (startTimestamps.length === 0 || endTimestamps.length === 0) {
-             console.warn("No valid Start/Finish dates found among tasks to plot. Cannot create time scale.");
-             return { xScale: null, yScale: null, chartWidth, calculatedChartHeight };
+    // Collect ALL date timestamps including baseline dates
+    const allTimestamps: number[] = [];
+    
+    tasksToShow.forEach(task => {
+        // Add regular start/finish dates
+        if (task.startDate && !isNaN(task.startDate.getTime())) {
+            allTimestamps.push(task.startDate.getTime());
         }
+        if (task.finishDate && !isNaN(task.finishDate.getTime())) {
+            allTimestamps.push(task.finishDate.getTime());
+        }
+        
+        // IMPORTANT: Also add baseline dates if they exist
+        if (task.baselineStartDate && !isNaN(task.baselineStartDate.getTime())) {
+            allTimestamps.push(task.baselineStartDate.getTime());
+        }
+        if (task.baselineFinishDate && !isNaN(task.baselineFinishDate.getTime())) {
+            allTimestamps.push(task.baselineFinishDate.getTime());
+        }
+    });
 
-        const minTimestamp = Math.min(...startTimestamps);
-        const maxTimestamp = Math.max(...endTimestamps);
+    // Filter out any invalid timestamps
+    const validTimestamps = allTimestamps.filter(t => t != null && !isNaN(t) && isFinite(t));
 
-        let domainMinDate: Date;
-        let domainMaxDate: Date;
-         if (minTimestamp > maxTimestamp) {
-             const midPoint = (minTimestamp + maxTimestamp) / 2;
-             const range = Math.max(86400000 * 7, Math.abs(maxTimestamp - minTimestamp) * 1.1);
-             domainMinDate = new Date(midPoint - range / 2);
-             domainMaxDate = new Date(midPoint + range / 2);
-         } else if (minTimestamp === maxTimestamp) {
-             const singleDate = new Date(minTimestamp);
-             domainMinDate = new Date(new Date(singleDate).setDate(singleDate.getDate() - 1));
-             domainMaxDate = new Date(new Date(singleDate).setDate(singleDate.getDate() + 1));
-         } else {
-             const domainPaddingMilliseconds = Math.max((maxTimestamp - minTimestamp) * 0.05, 86400000);
-             domainMinDate = new Date(minTimestamp - domainPaddingMilliseconds);
-             domainMaxDate = new Date(maxTimestamp + domainPaddingMilliseconds);
-         }
-
-        return this.createScales(
-            domainMinDate, domainMaxDate,
-            chartWidth, tasksToShow, calculatedChartHeight,
-            taskHeight, taskPadding
-        );
+    if (validTimestamps.length === 0) {
+        console.warn("No valid dates found among tasks to plot (including baseline dates). Cannot create time scale.");
+        return { xScale: null, yScale: null, chartWidth, calculatedChartHeight };
     }
+
+    const minTimestamp = Math.min(...validTimestamps);
+    const maxTimestamp = Math.max(...validTimestamps);
+
+    let domainMinDate: Date;
+    let domainMaxDate: Date;
+    
+    if (minTimestamp > maxTimestamp) {
+        const midPoint = (minTimestamp + maxTimestamp) / 2;
+        const range = Math.max(86400000 * 7, Math.abs(maxTimestamp - minTimestamp) * 1.1);
+        domainMinDate = new Date(midPoint - range / 2);
+        domainMaxDate = new Date(midPoint + range / 2);
+    } else if (minTimestamp === maxTimestamp) {
+        const singleDate = new Date(minTimestamp);
+        domainMinDate = new Date(new Date(singleDate).setDate(singleDate.getDate() - 1));
+        domainMaxDate = new Date(new Date(singleDate).setDate(singleDate.getDate() + 1));
+    } else {
+        // Add padding to ensure all dates (including baselines) are visible
+        const domainPaddingMilliseconds = Math.max((maxTimestamp - minTimestamp) * 0.05, 86400000);
+        domainMinDate = new Date(minTimestamp - domainPaddingMilliseconds);
+        domainMaxDate = new Date(maxTimestamp + domainPaddingMilliseconds);
+    }
+
+    // Log for debugging
+    this.debugLog(`X-axis domain calculation:
+        - Regular dates found: ${tasksToShow.filter(t => t.startDate || t.finishDate).length} tasks
+        - Baseline dates found: ${tasksToShow.filter(t => t.baselineStartDate || t.baselineFinishDate).length} tasks
+        - Total timestamps considered: ${validTimestamps.length}
+        - Domain: ${domainMinDate.toISOString()} to ${domainMaxDate.toISOString()}`);
+
+    return this.createScales(
+        domainMinDate, domainMaxDate,
+        chartWidth, tasksToShow, calculatedChartHeight,
+        taskHeight, taskPadding
+    );
+}
 
 private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number): void {
     this.allTasksToShow = [...tasks];
