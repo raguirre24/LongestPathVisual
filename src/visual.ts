@@ -170,490 +170,403 @@ export class Visual implements IVisual {
     private forceFullUpdate: boolean = false;
 
     private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
+    private tooltipClassName: string;
+    private isUpdating: boolean = false;
+    private scrollHandlerBackup: any = null;
 
-    constructor(options: VisualConstructorOptions) {
-            this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
-            this.target = options.element;
-            this.host = options.host;
-            this.formattingSettingsService = new FormattingSettingsService();
+constructor(options: VisualConstructorOptions) {
+    this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
+    this.target = options.element;
+    this.host = options.host;
+    this.formattingSettingsService = new FormattingSettingsService();
+
+    this.showAllTasksInternal = true;
+    this.isInitialLoad = true;
+    this.floatThreshold = 0;
+    this.showConnectorLinesInternal = true;
+    
+    // Generate unique tooltip class name
+    this.tooltipClassName = `critical-path-tooltip-${Date.now()}`;
+
+    // --- Overall wrapper ---
+    const visualWrapper = d3.select(this.target).append("div")
+        .attr("class", "visual-wrapper")
+        .style("height", "100%")
+        .style("width", "100%")
+        .style("overflow", "hidden");
+
+    // --- Sticky Header Container ---
+    this.stickyHeaderContainer = visualWrapper.append("div")
+        .attr("class", "sticky-header-container")
+        .style("position", "sticky")
+        .style("top", "0")
+        .style("left", "0")
+        .style("width", "100%")
+        .style("height", `${this.headerHeight}px`)
+        .style("z-index", "10")
+        .style("overflow", "hidden");
+
+    // --- SVG for Header Elements ---
+    this.headerSvg = this.stickyHeaderContainer.append("svg")
+        .attr("class", "header-svg")
+        .attr("width", "100%")
+        .attr("height", "100%");
+
+    // --- Group within header SVG for labels ---
+    this.headerGridLayer = this.headerSvg.append("g")
+        .attr("class", "header-grid-layer");
+
+    // --- Group for Toggle Button within header SVG ---
+    this.toggleButtonGroup = this.headerSvg.append("g")
+        .attr("class", "toggle-button-group")
+        .style("cursor", "pointer");
         
-            this.showAllTasksInternal = true;
-            this.isInitialLoad = true;
-            this.floatThreshold = 0; // Initialize float threshold to 0
-            this.showConnectorLinesInternal = true; // Initialize connector lines visibility
+    // --- Task Selection Dropdown ---
+    this.dropdownContainer = this.stickyHeaderContainer.append("div")
+        .attr("class", "task-selection-dropdown-container")
+        .style("position", "absolute")
+        .style("top", "10px")
+        .style("left", "150px")
+        .style("z-index", "20")
+        .style("display", "none");
+
+    this.dropdownInput = this.dropdownContainer.append("input")
+        .attr("type", "text")
+        .attr("class", "task-selection-input")
+        .attr("placeholder", "Search for a task...")
+        .style("width", "250px")
+        .style("padding", "5px 8px")
+        .style("border", "1px solid #ccc")
+        .style("border-radius", "4px")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "9px")
+        .style("color", "#333");
+
+    this.dropdownList = this.dropdownContainer.append("div")
+        .attr("class", "task-selection-list")
+        .style("position", "absolute")
+        .style("top", "100%")
+        .style("left", "0")
+        .style("max-height", "150px")
+        .style("overflow-y", "auto")
+        .style("width", "100%")
+        .style("background", "white")
+        .style("border", "1px solid #ccc")
+        .style("border-top", "none")
+        .style("border-radius", "0 0 4px 4px")
+        .style("box-shadow", "0 2px 5px rgba(0,0,0,0.1)")
+        .style("display", "none")
+        .style("z-index", "30")
+        .style("pointer-events", "auto")
+        .style("margin-bottom", "40px");
+    
+    // --- Create modern Float Threshold control ---
+    this.createFloatThresholdControl();
+
+    // --- Selected Task Label ---
+    this.selectedTaskLabel = this.stickyHeaderContainer.append("div")
+        .attr("class", "selected-task-label")
+        .style("position", "absolute")
+        .style("top", "10px")
+        .style("right", "15px")
+        .style("padding", "5px 10px")
+        .style("background-color", "rgba(255,255,255,0.8)")
+        .style("border", "1px solid #ccc")
+        .style("border-radius", "4px")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "9px")
+        .style("color", "#333")
+        .style("font-weight", "bold")
+        .style("display", "none");
+
+    // --- Scrollable Container for main chart content ---
+    this.scrollableContainer = visualWrapper.append("div")
+        .attr("class", "criticalPathContainer")
+        .style("height", `calc(100% - ${this.headerHeight}px)`)
+        .style("width", "100%")
+        .style("overflow-y", "auto")
+        .style("overflow-x", "hidden")
+        .style("padding-top", `0px`);
+
+    // --- Main SVG for the chart content ---
+    this.mainSvg = this.scrollableContainer.append("svg")
+        .classed("criticalPathVisual", true)
+        .style("display", "block");
+
+    // --- Group for chart content ---
+    this.mainGroup = this.mainSvg.append("g").classed("main-group", true);
+
+    // --- Layers within the main SVG ---
+    this.gridLayer = this.mainGroup.append("g").attr("class", "grid-layer");
+    this.arrowLayer = this.mainGroup.append("g").attr("class", "arrow-layer");
+    this.taskLayer = this.mainGroup.append("g").attr("class", "task-layer");
+
+    // --- Canvas layer for high-performance rendering ---
+    this.canvasElement = document.createElement('canvas');
+    this.canvasElement.style.position = 'absolute';
+    this.canvasElement.style.pointerEvents = 'auto';
+    this.canvasElement.className = 'canvas-layer';
+    this.canvasElement.style.display = 'none';
+    this.canvasElement.style.visibility = 'hidden';
+    
+    // Add canvas to the scrollable container, not the SVG
+    this.scrollableContainer.node()?.appendChild(this.canvasElement);
+    
+    // Create D3 selection for the canvas
+    this.canvasLayer = d3.select(this.canvasElement);
+
+    // --- Tooltip with improved styling ---
+    // Remove any existing tooltips from this instance
+    d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
+    
+    this.tooltipDiv = d3.select("body").append("div")
+        .attr("class", `critical-path-tooltip ${this.tooltipClassName}`)
+        .style("position", "absolute")
+        .style("visibility", "hidden")
+        .style("background-color", "white")
+        .style("border", "1px solid #ddd")
+        .style("border-radius", "5px")
+        .style("padding", "10px")
+        .style("box-shadow", "0 2px 10px rgba(0,0,0,0.2)")
+        .style("pointer-events", "none")
+        .style("z-index", "1000")
+        .style("max-width", "300px")
+        .style("font-size", "12px")
+        .style("line-height", "1.4")
+        .style("color", "#333");
+    
+    // Initialize trace mode
+    this.traceMode = "backward";
+    
+    // Create connector lines toggle button with modern styling
+    this.createConnectorLinesToggleButton();
+    
+    // Add canvas click handler using native element
+    d3.select(this.canvasElement).on("click", (event: MouseEvent) => {
+        if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
         
-            // --- Overall wrapper ---
-            const visualWrapper = d3.select(this.target).append("div")
-                .attr("class", "visual-wrapper")
-                .style("height", "100%")
-                .style("width", "100%")
-                .style("overflow", "hidden");
+        const coords = this.getCanvasMouseCoordinates(event);
+        const x = coords.x;
+        const y = coords.y;
         
-            // --- Sticky Header Container ---
-            this.stickyHeaderContainer = visualWrapper.append("div")
-                .attr("class", "sticky-header-container")
-                .style("position", "sticky")
-                .style("top", "0")
-                .style("left", "0")
-                .style("width", "100%")
-                .style("height", `${this.headerHeight}px`)
-                .style("z-index", "10")
-                .style("overflow", "hidden");
+        // Find clicked task
+        let clickedTask: Task | null = null;
         
-            // --- SVG for Header Elements ---
-            this.headerSvg = this.stickyHeaderContainer.append("svg")
-                .attr("class", "header-svg")
-                .attr("width", "100%")
-                .attr("height", "100%");
-        
-            // --- Group within header SVG for labels ---
-            this.headerGridLayer = this.headerSvg.append("g")
-                .attr("class", "header-grid-layer");
-        
-            // --- Group for Toggle Button within header SVG ---
-            this.toggleButtonGroup = this.headerSvg.append("g")
-                .attr("class", "toggle-button-group")
-                .style("cursor", "pointer");
-                
-            // --- Task Selection Dropdown ---
-            this.dropdownContainer = this.stickyHeaderContainer.append("div")
-                .attr("class", "task-selection-dropdown-container")
-                .style("position", "absolute")
-                .style("top", "10px")
-                .style("left", "150px")
-                .style("z-index", "20")
-                .style("display", "none");
-        
-            this.dropdownInput = this.dropdownContainer.append("input")
-                .attr("type", "text")
-                .attr("class", "task-selection-input")
-                .attr("placeholder", "Search for a task...")
-                .style("width", "250px")
-                .style("padding", "5px 8px")
-                .style("border", "1px solid #ccc")
-                .style("border-radius", "4px")
-                .style("font-family", "Segoe UI, sans-serif")
-                .style("font-size", "9px")
-                .style("color", "#333");
-        
-            this.dropdownList = this.dropdownContainer.append("div")
-                .attr("class", "task-selection-list")
-                .style("position", "absolute")
-                .style("top", "100%")
-                .style("left", "0")
-                .style("max-height", "150px")
-                .style("overflow-y", "auto")
-                .style("width", "100%")
-                .style("background", "white")
-                .style("border", "1px solid #ccc")
-                .style("border-top", "none")
-                .style("border-radius", "0 0 4px 4px")
-                .style("box-shadow", "0 2px 5px rgba(0,0,0,0.1)")
-                .style("display", "none")
-                .style("z-index", "30")
-                .style("pointer-events", "auto")
-                .style("margin-bottom", "40px");
+        for (const task of this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1)) {
+            const domainKey = task.yOrder?.toString() ?? '';
+            const yPosition = this.yScale(domainKey);
+            if (yPosition === undefined) continue;
             
-            // --- Create modern Float Threshold control ---
-            this.createFloatThresholdControl();
-        
-            // --- Selected Task Label ---
-            this.selectedTaskLabel = this.stickyHeaderContainer.append("div")
-                .attr("class", "selected-task-label")
-                .style("position", "absolute")
-                .style("top", "10px")
-                .style("right", "15px")
-                .style("padding", "5px 10px")
-                .style("background-color", "rgba(255,255,255,0.8)")
-                .style("border", "1px solid #ccc")
-                .style("border-radius", "4px")
-                .style("font-family", "Segoe UI, sans-serif")
-                .style("font-size", "9px")
-                .style("color", "#333")
-                .style("font-weight", "bold")
-                .style("display", "none");
-        
-            // --- Scrollable Container for main chart content ---
-            this.scrollableContainer = visualWrapper.append("div")
-                .attr("class", "criticalPathContainer")
-                .style("height", `calc(100% - ${this.headerHeight}px)`)
-                .style("width", "100%")
-                .style("overflow-y", "auto")
-                .style("overflow-x", "hidden")
-                .style("padding-top", `0px`);
-        
-            // --- Main SVG for the chart content ---
-            this.mainSvg = this.scrollableContainer.append("svg")
-                .classed("criticalPathVisual", true)
-                .style("display", "block");
-        
-            // --- Group for chart content ---
-            this.mainGroup = this.mainSvg.append("g").classed("main-group", true);
-        
-            // --- Layers within the main SVG ---
-            this.gridLayer = this.mainGroup.append("g").attr("class", "grid-layer");
-            this.arrowLayer = this.mainGroup.append("g").attr("class", "arrow-layer");
-            this.taskLayer = this.mainGroup.append("g").attr("class", "task-layer");
-        
-            // --- Canvas layer for high-performance rendering ---
-            // Create canvas as a native HTML element
-            this.canvasElement = document.createElement('canvas');
-            this.canvasElement.style.position = 'absolute';
-            this.canvasElement.style.pointerEvents = 'auto';
-            this.canvasElement.className = 'canvas-layer';
-            this.canvasElement.style.display = 'none';
+            const taskHeight = this.settings.taskAppearance.taskHeight.value;
             
-            // Add canvas to the scrollable container, not the SVG
-            this.scrollableContainer.node()?.appendChild(this.canvasElement);
-            
-            // Create D3 selection for the canvas
-            this.canvasLayer = d3.select(this.canvasElement);
+            // Check if click is within task bounds
+            if (y >= yPosition && y <= yPosition + taskHeight) {
+                if (task.startDate && task.finishDate) {
+                    const taskX = this.xScale(task.startDate);
+                    const taskWidth = this.xScale(task.finishDate) - taskX;
+                    
+                    if (x >= taskX && x <= taskX + taskWidth) {
+                        clickedTask = task;
+                        break;
+                    }
+                }
+            }
+        }
         
-            // --- Tooltip with improved styling ---
-            this.tooltipDiv = d3.select("body").select<HTMLDivElement>(".critical-path-tooltip");
-            if (this.tooltipDiv.empty()) {
-                this.tooltipDiv = d3.select("body").append("div")
-                    .attr("class", "critical-path-tooltip")
-                    .style("position", "absolute")
-                    .style("visibility", "hidden")
-                    .style("background-color", "white")
-                    .style("border", "1px solid #ddd")
-                    .style("border-radius", "5px")
-                    .style("padding", "10px")
-                    .style("box-shadow", "0 2px 10px rgba(0,0,0,0.2)")
-                    .style("pointer-events", "none")
-                    .style("z-index", "1000")
-                    .style("max-width", "300px")
-                    .style("font-size", "12px")
-                    .style("line-height", "1.4")
-                    .style("color", "#333");
+        // Handle task selection
+        if (clickedTask) {
+            if (this.selectedTaskId === clickedTask.internalId) {
+                this.selectTask(null, null);
+            } else {
+                this.selectTask(clickedTask.internalId, clickedTask.name);
             }
             
-            // Initialize trace mode
-            this.traceMode = "backward"; // Default mode
+            if (this.dropdownInput) {
+                this.dropdownInput.property("value", this.selectedTaskName || "");
+            }
+        }
+    });
+    
+    // Add canvas mousemove handler
+    d3.select(this.canvasElement).on("mousemove", (event: MouseEvent) => {
+        if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
+        
+        const showTooltips = this.settings.displayOptions.showTooltips.value;
+        if (!showTooltips) return;
+        
+        const coords = this.getCanvasMouseCoordinates(event);
+        const x = coords.x;
+        const y = coords.y;
+        
+        // Find task under mouse
+        let hoveredTask: Task | null = null;
+        
+        for (const task of this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1)) {
+            const domainKey = task.yOrder?.toString() ?? '';
+            const yPosition = this.yScale(domainKey);
+            if (yPosition === undefined) continue;
             
-            // Create connector lines toggle button with modern styling
-            this.createConnectorLinesToggleButton();
+            const taskHeight = this.settings.taskAppearance.taskHeight.value;
+            const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
             
-            // Add canvas click handler using native element
-            d3.select(this.canvasElement).on("click", (event: MouseEvent) => {
-                if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
-                
-                const rect = this.canvasElement.getBoundingClientRect();
-                const x = event.clientX - rect.left;
-                const y = event.clientY - rect.top;
-                
-                // Find clicked task
-                let clickedTask: Task | null = null;
-                
-                for (const task of this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1)) {
-                    const domainKey = task.yOrder?.toString() ?? '';
-                    const yPosition = this.yScale(domainKey);
-                    if (yPosition === undefined) continue;
-                    
-                    const taskHeight = this.settings.taskAppearance.taskHeight.value;
-                    
-                    // Check if click is within task bounds
-                    if (y >= yPosition && y <= yPosition + taskHeight) {
-                        if (task.startDate && task.finishDate) {
-                            const taskX = this.xScale(task.startDate);
-                            const taskWidth = this.xScale(task.finishDate) - taskX;
-                            
-                            if (x >= taskX && x <= taskX + taskWidth) {
-                                clickedTask = task;
-                                break;
-                            }
+            // Check if mouse is within task vertical bounds
+            if (y >= yPosition && y <= yPosition + taskHeight) {
+                if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+                    // Check milestone bounds
+                    const milestoneDate = task.startDate || task.finishDate;
+                    if (milestoneDate) {
+                        const milestoneX = this.xScale(milestoneDate);
+                        const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                        
+                        // Check if within diamond bounds (approximate as square for simplicity)
+                        if (x >= milestoneX - size/2 && x <= milestoneX + size/2) {
+                            hoveredTask = task;
+                            break;
                         }
                     }
-                }
-                
-                // Handle task selection
-                if (clickedTask) {
-                    if (this.selectedTaskId === clickedTask.internalId) {
-                        this.selectTask(null, null);
-                    } else {
-                        this.selectTask(clickedTask.internalId, clickedTask.name);
-                    }
-                    
-                    if (this.dropdownInput) {
-                        this.dropdownInput.property("value", this.selectedTaskName || "");
-                    }
-                }
-            });
-            
-            // Add canvas tooltip handler using native element
-            d3.select(this.canvasElement).on("mousemove", (event: MouseEvent) => {
-                if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
-                
-                const showTooltips = this.settings.displayOptions.showTooltips.value;
-                if (!showTooltips) return;
-                
-                const self = this;
-                const rect = this.canvasElement.getBoundingClientRect();
-                const x = event.clientX - rect.left;
-                const y = event.clientY - rect.top;
-                
-                // Find task under mouse
-                let hoveredTask: Task | null = null;
-                
-                for (const task of this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1)) {
-                    const domainKey = task.yOrder?.toString() ?? '';
-                    const yPosition = this.yScale(domainKey);
-                    if (yPosition === undefined) continue;
-                    
-                    const taskHeight = this.settings.taskAppearance.taskHeight.value;
-                    const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
-                    
-                    // Check if mouse is within task vertical bounds
-                    if (y >= yPosition && y <= yPosition + taskHeight) {
-                        if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-                            // Check milestone bounds
-                            const milestoneDate = task.startDate || task.finishDate;
-                            if (milestoneDate) {
-                                const milestoneX = this.xScale(milestoneDate);
-                                const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-                                
-                                // Check if within diamond bounds (approximate as square for simplicity)
-                                if (x >= milestoneX - size/2 && x <= milestoneX + size/2) {
-                                    hoveredTask = task;
-                                    break;
-                                }
-                            }
-                        } else {
-                            // Check regular task bounds
-                            if (task.startDate && task.finishDate) {
-                                const taskX = this.xScale(task.startDate);
-                                const taskWidth = this.xScale(task.finishDate) - taskX;
-                                
-                                if (x >= taskX && x <= taskX + taskWidth) {
-                                    hoveredTask = task;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Show or hide tooltip
-                if (hoveredTask) {
-                    // Show tooltip
-                    const tooltip = this.tooltipDiv;
-                    if (!tooltip) return;
-                    
-                    tooltip.selectAll("*").remove();
-                    tooltip.style("visibility", "visible");
-                    
-                    // Standard Fields
-                    tooltip.append("div").append("strong").text("Task: ")
-                        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                        .append("span").text(hoveredTask.name || "");
-                        
-                    tooltip.append("div").append("strong").text("Start Date: ")
-                        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                        .append("span").text(this.formatDate(hoveredTask.startDate));
-                        
-                    tooltip.append("div").append("strong").text("Finish Date: ")
-                        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                        .append("span").text(this.formatDate(hoveredTask.finishDate));
-                    
-                    // CPM Info
-                    const cpmInfo = tooltip.append("div")
-                        .classed("tooltip-cpm-info", true)
-                        .style("margin-top", "8px")
-                        .style("border-top", "1px solid #eee")
-                        .style("padding-top", "8px");
-                    
-                    const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
-                    const selectionHighlightColor = "#8A2BE2";
-                    
-                    cpmInfo.append("div").append("strong").style("color", "#555").text("Status: ")
-                        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                        .append("span")
-                        .style("color", function() {
-                            if (hoveredTask.internalId === self.selectedTaskId) return selectionHighlightColor;
-                            if (hoveredTask.isCritical) return criticalColor;
-                            if (hoveredTask.isNearCritical) return "#F7941F";
-                            return "inherit";
-                        })
-                        .text(function() {
-                            if (hoveredTask.internalId === self.selectedTaskId) return "Selected";
-                            if (hoveredTask.isCritical) return "On Longest Path";
-                            if (hoveredTask.isNearCritical) return "Near Longest Path";
-                            return "Not on Longest Path";
-                        });
-                        
-                    cpmInfo.append("div").append("strong").text("Rem. Duration: ")
-                        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                        .append("span").text(`${hoveredTask.duration} (work days)`);
-                        
-                    
-                    // Custom Tooltip Fields
-                    if (hoveredTask.tooltipData && hoveredTask.tooltipData.size > 0) {
-                        const customInfo = tooltip.append("div")
-                            .classed("tooltip-custom-info", true)
-                            .style("margin-top", "8px")
-                            .style("border-top", "1px solid #eee")
-                            .style("padding-top", "8px");
-                            
-                        customInfo.append("div")
-                            .style("font-weight", "bold")
-                            .style("margin-bottom", "4px")
-                            .text("Additional Information:");
-                        
-                        hoveredTask.tooltipData.forEach((value, key) => {
-                            let formattedValue = "";
-                            if (value instanceof Date) {
-                                formattedValue = this.formatDate(value);
-                            } else if (typeof value === 'number') {
-                                formattedValue = value.toLocaleString();
-                            } else {
-                                formattedValue = String(value);
-                            }
-                            
-                            customInfo.append("div")
-                                .append("strong").text(`${key}: `)
-                                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                                .append("span").text(formattedValue);
-                        });
-                    }
-                    
-                    // User Float Threshold Info
-                    if (this.showNearCritical && this.floatThreshold > 0) {
-                        tooltip.append("div")
-                            .style("margin-top", "8px")
-                            .style("font-style", "italic")
-                            .style("font-size", "10px")
-                            .style("color", "#666")
-                            .text(`Near Longest PathThreshold: ${this.floatThreshold}`);
-                    }
-                    
-                    // Add selection hint
-                    tooltip.append("div")
-                        .style("margin-top", "8px")
-                        .style("font-style", "italic")
-                        .style("font-size", "10px")
-                        .style("color", "#666")
-                        .text(`Click to ${this.selectedTaskId === hoveredTask.internalId ? "deselect" : "select"} this task`);
-                    
-                    // Position the tooltip
-                    this.positionTooltip(tooltip.node(), event);
-                    
-                    // Change cursor to pointer
-                    d3.select(this.canvasElement).style("cursor", "pointer");
                 } else {
-                    // Hide tooltip
-                    if (this.tooltipDiv) {
-                        this.tooltipDiv.style("visibility", "hidden");
+                    // Check regular task bounds
+                    if (task.startDate && task.finishDate) {
+                        const taskX = this.xScale(task.startDate);
+                        const taskWidth = this.xScale(task.finishDate) - taskX;
+                        
+                        if (x >= taskX && x <= taskX + taskWidth) {
+                            hoveredTask = task;
+                            break;
+                        }
                     }
-                    // Reset cursor
-                    d3.select(this.canvasElement).style("cursor", "default");
                 }
-            });
-            
-            // Add mouseout handler
-            d3.select(this.canvasElement).on("mouseout", () => {
-                if (this.tooltipDiv) {
-                    this.tooltipDiv.style("visibility", "hidden");
-                }
-                d3.select(this.canvasElement).style("cursor", "default");
-            });
-        }
-
-    private determineUpdateType(options: VisualUpdateOptions): UpdateType {
-        // CHECK FOR FORCED FULL UPDATE FIRST
-        if (this.forceFullUpdate) {
-            this.forceFullUpdate = false; // Reset the flag
-            this.debugLog("Force full update requested by toggle/control");
-            return UpdateType.Full;
-        }
-        
-        // Check if this is the first update
-        if (!this.lastUpdateOptions) {
-            return UpdateType.Full;
-        }
-
-        // *** FIX START: Utilize Power BI Update Type Flags for robust detection ***
-        let dataChanged = false;
-        let settingsChanged = false;
-        let viewportChanged = false;
-
-        // Check flags provided by Power BI (options.type is a bitmask).
-        // Use bitwise AND (&) to check if the specific flag is set.
-        if (options.type & VisualUpdateType.Data) {
-            dataChanged = true;
-            this.debugLog("Data change detected via PBI flags (e.g., external filter).");
-        }
-        if (options.type & VisualUpdateType.Resize) {
-            viewportChanged = true;
-        }
-        // Style (4) and ViewMode often indicate property pane changes or mode switches.
-        if ((options.type & VisualUpdateType.Style) || 
-            (options.type & VisualUpdateType.ViewMode)) {
-             settingsChanged = true;
-        }
-        // *** FIX END ***
-
-        // Fallback manual checks for redundancy (optional, but safe)
-        if (!dataChanged) {
-            const currentDataView = options.dataViews?.[0];
-            const lastDataView = this.lastUpdateOptions.dataViews?.[0];
-            
-            if (currentDataView && lastDataView) {
-                const currentRowCount = currentDataView.table?.rows?.length || 0;
-                const lastRowCount = lastDataView.table?.rows?.length || 0;
-                if (currentRowCount !== lastRowCount) {
-                    dataChanged = true;
-                    this.debugLog("Data change detected via row count mismatch.");
-                }
-            } else if (currentDataView !== lastDataView) {
-                dataChanged = true;
             }
         }
+        
+        // Show or hide tooltip
+        if (hoveredTask) {
+            this.showTaskTooltip(hoveredTask, event);
+            d3.select(this.canvasElement).style("cursor", "pointer");
+        } else {
+            if (this.tooltipDiv) {
+                this.tooltipDiv.style("visibility", "hidden");
+            }
+            d3.select(this.canvasElement).style("cursor", "default");
+        }
+    });
+    
+    // Add mouseout handler
+    d3.select(this.canvasElement).on("mouseout", () => {
+        if (this.tooltipDiv) {
+            this.tooltipDiv.style("visibility", "hidden");
+        }
+        d3.select(this.canvasElement).style("cursor", "default");
+    });
+}
 
-        // Ensure viewportChanged captures manual comparison if flag was missed
-        if (!viewportChanged) {
-            viewportChanged = this.lastViewport ? 
-                (options.viewport.width !== this.lastViewport.width || 
-                options.viewport.height !== this.lastViewport.height) : true;
-        }
-        
-        // Check if viewport changed significantly (likely focus mode)
-        let isSignificantViewportChange = false;
-        if (this.lastViewport && viewportChanged) {
-            // Use || 1 to prevent division by zero if lastViewport width/height was 0
-            const widthChangeRatio = Math.abs(options.viewport.width - this.lastViewport.width) / (this.lastViewport.width || 1);
-            const heightChangeRatio = Math.abs(options.viewport.height - this.lastViewport.height) / (this.lastViewport.height || 1);
-            isSignificantViewportChange = widthChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD || 
-                                        heightChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD;
-        }
-        
-        // Determine final update type based on prioritized flags
-        if (dataChanged) {
-            // Data changes always require a full update (reprocessing and scroll reset).
-            return UpdateType.Full;
-        } else if (isSignificantViewportChange) {
-            this.debugLog("Significant viewport change detected - treating as full update");
-            return UpdateType.Full;
-        } else if (viewportChanged && !dataChanged && !settingsChanged) {
-            return UpdateType.ViewportOnly;
-        } else if (settingsChanged && !dataChanged) { 
-            // SettingsOnly assumes we don't need to reprocess data, just redraw.
-            return UpdateType.SettingsOnly;
-        }
-        
-        // If multiple minor flags are set (e.g. settings and minor viewport change), default to a full update for safety.
-        if (settingsChanged || viewportChanged) {
-            return UpdateType.Full;
-        }
-
-        return UpdateType.Full; // Default to full update if unclear
+private determineUpdateType(options: VisualUpdateOptions): UpdateType {
+    // Store and reset flag immediately to prevent race conditions
+    const wasForced = this.forceFullUpdate;
+    this.forceFullUpdate = false;
+    
+    if (wasForced) {
+        this.debugLog("Force full update requested");
+        return UpdateType.Full;
+    }
+    
+    // Check if this is the first update
+    if (!this.lastUpdateOptions) {
+        return UpdateType.Full;
     }
 
-    public destroy(): void {
-        this.tooltipDiv?.remove();
-        this.applyTaskFilter([]);
-        this.debugLog("Critical Path Visual destroyed.");
+    // Use Power BI Update Type Flags for robust detection
+    let dataChanged = false;
+    let settingsChanged = false;
+    let viewportChanged = false;
+
+    // Check flags provided by Power BI (options.type is a bitmask)
+    if (options.type & VisualUpdateType.Data) {
+        dataChanged = true;
+        this.debugLog("Data change detected via PBI flags (e.g., external filter).");
     }
+    if (options.type & VisualUpdateType.Resize) {
+        viewportChanged = true;
+    }
+    if ((options.type & VisualUpdateType.Style) || 
+        (options.type & VisualUpdateType.ViewMode)) {
+         settingsChanged = true;
+    }
+
+    // Fallback manual checks for redundancy
+    if (!dataChanged) {
+        const currentDataView = options.dataViews?.[0];
+        const lastDataView = this.lastUpdateOptions.dataViews?.[0];
+        
+        if (currentDataView && lastDataView) {
+            const currentRowCount = currentDataView.table?.rows?.length || 0;
+            const lastRowCount = lastDataView.table?.rows?.length || 0;
+            if (currentRowCount !== lastRowCount) {
+                dataChanged = true;
+                this.debugLog("Data change detected via row count mismatch.");
+            }
+        } else if (currentDataView !== lastDataView) {
+            dataChanged = true;
+        }
+    }
+
+    // Ensure viewportChanged captures manual comparison if flag was missed
+    if (!viewportChanged) {
+        viewportChanged = this.lastViewport ? 
+            (options.viewport.width !== this.lastViewport.width || 
+            options.viewport.height !== this.lastViewport.height) : true;
+    }
+    
+    // Check if viewport changed significantly (likely focus mode)
+    let isSignificantViewportChange = false;
+    if (this.lastViewport && viewportChanged) {
+        const widthChangeRatio = Math.abs(options.viewport.width - this.lastViewport.width) / (this.lastViewport.width || 1);
+        const heightChangeRatio = Math.abs(options.viewport.height - this.lastViewport.height) / (this.lastViewport.height || 1);
+        isSignificantViewportChange = widthChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD || 
+                                    heightChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD;
+    }
+    
+    // Determine final update type based on prioritized flags
+    if (dataChanged) {
+        return UpdateType.Full;
+    } else if (isSignificantViewportChange) {
+        this.debugLog("Significant viewport change detected - treating as full update");
+        return UpdateType.Full;
+    } else if (viewportChanged && !dataChanged && !settingsChanged) {
+        return UpdateType.ViewportOnly;
+    } else if (settingsChanged && !dataChanged) { 
+        return UpdateType.SettingsOnly;
+    }
+    
+    // If multiple minor flags are set, default to a full update for safety
+    if (settingsChanged || viewportChanged) {
+        return UpdateType.Full;
+    }
+
+    return UpdateType.Full;
+}
+
+public destroy(): void {
+    // Remove this instance's tooltip
+    d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
+    
+    // Clear any scroll listeners
+    if (this.scrollListener && this.scrollableContainer) {
+        this.scrollableContainer.on("scroll", null);
+        this.scrollListener = null;
+    }
+    
+    // Clear any timeouts
+    if (this.scrollThrottleTimeout) {
+        clearTimeout(this.scrollThrottleTimeout);
+        this.scrollThrottleTimeout = null;
+    }
+    
+    // Apply empty filter
+    this.applyTaskFilter([]);
+    
+    this.debugLog("Critical Path Visual destroyed.");
+}
 
     private toggleTaskDisplayInternal(): void {
         try {
@@ -684,82 +597,84 @@ export class Visual implements IVisual {
         }
     }
 
-    private createOrUpdateToggleButton(viewportWidth: number): void {
-        if (!this.toggleButtonGroup || !this.headerSvg) return;
+private createOrUpdateToggleButton(viewportWidth: number): void {
+    if (!this.toggleButtonGroup || !this.headerSvg) return;
 
-        this.toggleButtonGroup.selectAll("*").remove();
+    // Remove all event handlers before clearing
+    this.toggleButtonGroup.selectAll("*")
+        .on("click", null)
+        .on("mouseover", null)
+        .on("mouseout", null);
+        
+    this.toggleButtonGroup.selectAll("*").remove();
 
-        const buttonWidth = 120; // Reduced from 160
-        const buttonHeight = 22; // Reduced from 28
-        const buttonPadding = { left: 8, top: 4 };
-        const buttonX = buttonPadding.left;
-        const buttonY = buttonPadding.top;
+    const buttonWidth = 120;
+    const buttonHeight = 22;
+    const buttonPadding = { left: 8, top: 4 };
+    const buttonX = buttonPadding.left;
+    const buttonY = buttonPadding.top;
 
-        this.toggleButtonGroup
-            .attr("transform", `translate(${buttonX}, ${buttonY})`);
+    this.toggleButtonGroup
+        .attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-        // Create more subtle button
-        const buttonRect = this.toggleButtonGroup.append("rect")
-            .attr("width", buttonWidth)
-            .attr("height", buttonHeight)
-            .attr("rx", 4)
-            .attr("ry", 4)
-            .style("fill", "#ffffff")
-            .style("stroke", "#d0d0d0")
-            .style("stroke-width", 1);
+    const buttonRect = this.toggleButtonGroup.append("rect")
+        .attr("width", buttonWidth)
+        .attr("height", buttonHeight)
+        .attr("rx", 4)
+        .attr("ry", 4)
+        .style("fill", "#ffffff")
+        .style("stroke", "#d0d0d0")
+        .style("stroke-width", 1);
 
-        // Smaller icon
-        const iconPadding = 8;
-        this.toggleButtonGroup.append("path")
-            .attr("d", this.showAllTasksInternal 
-                ? "M2,0 L5,-2 L8,0 Z" // Smaller triangle
-                : "M1,-2 L6,-2 M1,0 L8,0 M1,2 L7,2") // Smaller lines
-            .attr("transform", `translate(${iconPadding}, ${buttonHeight/2})`)
-            .attr("stroke", this.showAllTasksInternal ? "#dc3545" : "#28a745")
-            .attr("stroke-width", 1.2)
-            .attr("fill", this.showAllTasksInternal ? "#dc3545" : "none")
-            .attr("stroke-linecap", "round")
-            .style("pointer-events", "none");
+    const iconPadding = 8;
+    this.toggleButtonGroup.append("path")
+        .attr("d", this.showAllTasksInternal 
+            ? "M2,0 L5,-2 L8,0 Z"
+            : "M1,-2 L6,-2 M1,0 L8,0 M1,2 L7,2")
+        .attr("transform", `translate(${iconPadding}, ${buttonHeight/2})`)
+        .attr("stroke", this.showAllTasksInternal ? "#dc3545" : "#28a745")
+        .attr("stroke-width", 1.2)
+        .attr("fill", this.showAllTasksInternal ? "#dc3545" : "none")
+        .attr("stroke-linecap", "round")
+        .style("pointer-events", "none");
 
-        // Smaller text
-        this.toggleButtonGroup.append("text")
-            .attr("x", buttonWidth / 2 + 4)
-            .attr("y", buttonHeight / 2)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", "11px") // Reduced from 12px
-            .style("fill", "#333")
-            .style("font-weight", "400")
-            .style("pointer-events", "none")
-            .text(this.showAllTasksInternal ? "Show Critical" : "Show All");
+    this.toggleButtonGroup.append("text")
+        .attr("x", buttonWidth / 2 + 4)
+        .attr("y", buttonHeight / 2)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "central")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px")
+        .style("fill", "#333")
+        .style("font-weight", "400")
+        .style("pointer-events", "none")
+        .text(this.showAllTasksInternal ? "Show Critical" : "Show All");
 
-        // Subtle hover effect
-        this.toggleButtonGroup
-            .on("mouseover", function() { 
-                d3.select(this).select("rect")
-                    .style("fill", "#f8f9fa")
-                    .style("stroke", "#999"); 
-            })
-            .on("mouseout", function() { 
-                d3.select(this).select("rect")
-                    .style("fill", "#ffffff")
-                    .style("stroke", "#d0d0d0"); 
-            });
-
-        const clickOverlay = this.toggleButtonGroup.append("rect")
-            .attr("width", buttonWidth)
-            .attr("height", buttonHeight)
-            .attr("rx", 4).attr("ry", 4)
-            .style("fill", "transparent")
-            .style("cursor", "pointer");
-
-        const self = this;
-        clickOverlay.on("click", function(event) {
-            if (event) event.stopPropagation();
-            self.toggleTaskDisplayInternal();
+    this.toggleButtonGroup
+        .on("mouseover", function() { 
+            d3.select(this).select("rect")
+                .style("fill", "#f8f9fa")
+                .style("stroke", "#999"); 
+        })
+        .on("mouseout", function() { 
+            d3.select(this).select("rect")
+                .style("fill", "#ffffff")
+                .style("stroke", "#d0d0d0"); 
         });
-    }
+
+    const clickOverlay = this.toggleButtonGroup.append("rect")
+        .attr("width", buttonWidth)
+        .attr("height", buttonHeight)
+        .attr("rx", 4).attr("ry", 4)
+        .style("fill", "transparent")
+        .style("cursor", "pointer");
+
+    const self = this;
+    clickOverlay.on("click", function(event) {
+        if (event) event.stopPropagation();
+        self.toggleTaskDisplayInternal();
+    });
+}
 
     private createConnectorLinesToggleButton(viewportWidth?: number): void {
         if (!this.headerSvg) return;
@@ -1179,16 +1094,33 @@ export class Visual implements IVisual {
 private async updateInternal(options: VisualUpdateOptions) {
     this.debugLog("--- Visual Update Start ---");
     this.renderStartTime = performance.now();
+    
+    // Prevent concurrent updates
+    if (this.isUpdating) {
+        this.debugLog("Update already in progress, skipping");
+        return;
+    }
+    
+    this.isUpdating = true;
 
     try {
         // Determine update type for optimization
         const updateType = this.determineUpdateType(options);
         this.debugLog(`Update type detected: ${updateType}`);
         
-        if (updateType === UpdateType.Full && this.scrollableContainer && this.scrollableContainer.node()) {
-            if (this.scrollableContainer.node().scrollTop > 0) {
+        // Handle scroll reset for full updates
+        if (updateType === UpdateType.Full && this.scrollableContainer?.node()) {
+            // Temporarily disable scroll handler
+            this.scrollHandlerBackup = this.scrollListener;
+            if (this.scrollListener) {
+                this.scrollableContainer.on("scroll", null);
+            }
+            
+            // Reset scroll position
+            const node = this.scrollableContainer.node();
+            if (node.scrollTop > 0) {
                 this.debugLog("EARLY SCROLL RESET: Full update detected, resetting scrollTop to 0.");
-                this.scrollableContainer.node().scrollTop = 0;
+                node.scrollTop = 0;
             }
         }
         
@@ -1249,14 +1181,10 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.margin.left = this.settings.layoutSettings.leftMargin.value;
 
         this.clearVisual();
-        this.createOrUpdateToggleButton(viewportWidth);
-        this.createModeToggleButton(viewportWidth);
-        this.createConnectorLinesToggleButton(viewportWidth);
-        this.createOrUpdateVisualTitle();
+        this.updateHeaderElements(viewportWidth);
         this.createFloatThresholdControl();
         this.createTaskSelectionDropdown();
         this.createTraceModeToggle();
-        this.drawHeaderDivider(viewportWidth);
 
         if (!this.validateDataView(dataView)) {
             const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
@@ -1271,6 +1199,13 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         // Transform data
         this.transformDataOptimized(dataView);
+        
+        // Validate selected task after data transformation
+        if (this.selectedTaskId && !this.taskIdToTask.has(this.selectedTaskId)) {
+            this.debugLog(`Selected task ${this.selectedTaskId} no longer exists in data`);
+            this.selectTask(null, null);
+        }
+        
         if (this.allTasksData.length === 0) {
             this.displayMessage("No valid task data found to display."); 
             return;
@@ -1450,7 +1385,7 @@ private async updateInternal(options: VisualUpdateOptions) {
         // Update toggle button text
         if (this.toggleButtonGroup) {
             this.toggleButtonGroup.select("text")
-                .text(this.showAllTasksInternal ? "Show Critical" : "Show All Tasks");
+                .text(this.showAllTasksInternal ? "Show Critical" : "Show All");
         }
 
         const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
@@ -1551,6 +1486,20 @@ private async updateInternal(options: VisualUpdateOptions) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         this.displayMessage(`Error: ${errorMessage}`);
         this.isInitialLoad = true;
+        this.forceFullUpdate = false; // Ensure flag is reset on error
+    } finally {
+        this.isUpdating = false;
+        
+        // Re-enable scroll handler after update completes
+        if (this.scrollHandlerBackup && this.scrollableContainer) {
+            // Use setTimeout to ensure DOM updates are complete
+            setTimeout(() => {
+                if (this.scrollableContainer && this.scrollHandlerBackup) {
+                    this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
+                    this.scrollHandlerBackup = null;
+                }
+            }, 0);
+        }
     }
     this.debugLog("--- Visual Update End ---");
 }
@@ -1780,37 +1729,216 @@ private async updateInternal(options: VisualUpdateOptions) {
         );
     }
 
-    private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number): void {
-        this.allTasksToShow = [...tasks];
-        this.taskTotalCount = tasks.length;
-        this.taskElementHeight = taskHeight + taskPadding;
+private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number): void {
+    this.allTasksToShow = [...tasks];
+    this.taskTotalCount = tasks.length;
+    this.taskElementHeight = taskHeight + taskPadding;
+    
+    // Create a placeholder container with proper height to enable scrolling
+    const totalContentHeight = this.taskTotalCount * this.taskElementHeight;
+    
+    // Set full height for scrolling
+    this.mainSvg
+        .attr("height", totalContentHeight + this.margin.top + this.margin.bottom);
+    
+    // Remove any existing scroll listener properly
+    if (this.scrollListener) {
+        this.scrollableContainer.on("scroll", null);
+        this.scrollListener = null;
+    }
+    
+    // Setup scroll handler with throttling
+    const self = this;
+    this.scrollListener = function() {
+        if (!self.scrollThrottleTimeout) {
+            self.scrollThrottleTimeout = setTimeout(() => {
+                self.scrollThrottleTimeout = null;
+                self.handleScroll();
+            }, 50); // Throttle to 20fps
+        }
+    };
+    
+    this.scrollableContainer.on("scroll", this.scrollListener);
+    
+    // Calculate initial visible range
+    this.calculateVisibleTasks();
+}
+
+// Add this helper method for canvas mouse coordinates
+private getCanvasMouseCoordinates(event: MouseEvent): { x: number, y: number } {
+    if (!this.canvasElement) return { x: 0, y: 0 };
+    
+    const rect = this.canvasElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    
+    // Account for DPR only if canvas is scaled
+    const scaleX = this.canvasElement.width / rect.width;
+    const scaleY = this.canvasElement.height / rect.height;
+    
+    return {
+        x: (event.clientX - rect.left) * scaleX / dpr,
+        y: (event.clientY - rect.top) * scaleY / dpr
+    };
+}
+
+// Add this helper method for showing tooltips
+private showTaskTooltip(task: Task, event: MouseEvent): void {
+    const tooltip = this.tooltipDiv;
+    if (!tooltip || !task) return;
+    
+    tooltip.selectAll("*").remove();
+    tooltip.style("visibility", "visible");
+    
+    // Standard Fields
+    tooltip.append("div").append("strong").text("Task: ")
+        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
+        .append("span").text(task.name || "");
         
-        // Create a placeholder container with proper height to enable scrolling
-        const totalContentHeight = this.taskTotalCount * this.taskElementHeight;
+    tooltip.append("div").append("strong").text("Start Date: ")
+        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
+        .append("span").text(this.formatDate(task.startDate));
         
-        // Set full height for scrolling
-        this.mainSvg
-            .attr("height", totalContentHeight + this.margin.top + this.margin.bottom);
-        
-        // Remove any existing scroll listener
-        if (this.scrollListener) {
-            this.scrollableContainer.on("scroll", null);
+    tooltip.append("div").append("strong").text("Finish Date: ")
+        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
+        .append("span").text(this.formatDate(task.finishDate));
+    
+    // Mode-specific Info
+    const modeInfo = tooltip.append("div")
+        .classed("tooltip-mode-info", true)
+        .style("margin-top", "8px")
+        .style("border-top", "1px solid #eee")
+        .style("padding-top", "8px");
+
+    // Display mode
+    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+    const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
+    const selectionHighlightColor = "#8A2BE2";
+    
+    modeInfo.append("div")
+        .style("font-size", "10px")
+        .style("font-style", "italic")
+        .style("color", "#666")
+        .text(`Mode: ${mode === 'floatBased' ? 'Float-Based' : 'Longest Path (CPM)'}`);
+
+    // Status
+    modeInfo.append("div").append("strong").style("color", "#555").text("Status: ")
+        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
+        .append("span")
+        .style("color", function() {
+            if (task.internalId === this.selectedTaskId) return selectionHighlightColor;
+            if (task.isCritical) return criticalColor;
+            if (task.isNearCritical) return "#F7941F";
+            return "inherit";
+        }.bind(this))
+        .text(function() {
+            if (task.internalId === this.selectedTaskId) return "Selected";
+            if (task.isCritical) return mode === 'floatBased' ? "Critical (Float ≤ 0)" : "On Longest Path";
+            if (task.isNearCritical) return "Near Critical";
+            return mode === 'floatBased' ? "Non-Critical" : "Not on Longest Path";
+        }.bind(this));
+
+    // Show float values in Float-Based mode
+    if (mode === 'floatBased') {
+        if (task.userProvidedTotalFloat !== undefined) {
+            modeInfo.append("div").append("strong").text("Total Float: ")
+                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
+                .append("span")
+                .style("color", task.userProvidedTotalFloat <= 0 ? criticalColor : "inherit")
+                .text(task.userProvidedTotalFloat.toFixed(2) + " days");
         }
         
-        // Setup scroll handler with throttling
-        const self = this;
-        this.scrollListener = this.scrollableContainer.on("scroll", function() {
-            if (!self.scrollThrottleTimeout) {
-                self.scrollThrottleTimeout = setTimeout(() => {
-                    self.scrollThrottleTimeout = null;
-                    self.handleScroll();
-                }, 50); // Throttle to 20fps
-            }
-        });
-        
-        // Calculate initial visible range
-        this.calculateVisibleTasks();
+        if (task.taskFreeFloat !== undefined) {
+            modeInfo.append("div").append("strong").text("Task Free Float: ")
+                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
+                .append("span").text(task.taskFreeFloat.toFixed(2) + " days");
+        }
     }
+
+    // Duration (only for Longest Path mode)
+    if (mode === 'longestPath') {
+        modeInfo.append("div").append("strong").text("Rem. Duration: ")
+            .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
+            .append("span").text(`${task.duration} (work days)`);
+    }
+    
+    // Custom Tooltip Fields
+    if (task.tooltipData && task.tooltipData.size > 0) {
+        const customInfo = tooltip.append("div")
+            .classed("tooltip-custom-info", true)
+            .style("margin-top", "8px")
+            .style("border-top", "1px solid #eee")
+            .style("padding-top", "8px");
+            
+        customInfo.append("div")
+            .style("font-weight", "bold")
+            .style("margin-bottom", "4px")
+            .text("Additional Information:");
+        
+        task.tooltipData.forEach((value, key) => {
+            let formattedValue = "";
+            if (value instanceof Date) {
+                formattedValue = this.formatDate(value);
+            } else if (typeof value === 'number') {
+                formattedValue = value.toLocaleString();
+            } else {
+                formattedValue = String(value);
+            }
+            
+            customInfo.append("div")
+                .append("strong").text(`${key}: `)
+                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
+                .append("span").text(formattedValue);
+        });
+    }
+
+    // User Float Threshold Info
+    if (this.showNearCritical && this.floatThreshold > 0) {
+        tooltip.append("div")
+            .style("margin-top", "8px")
+            .style("font-style", "italic")
+            .style("font-size", "10px")
+            .style("color", "#666")
+            .text(`Near Critical Threshold: ${this.floatThreshold}`);
+    }
+
+    // Add selection hint
+    tooltip.append("div")
+        .style("margin-top", "8px")
+        .style("font-style", "italic")
+        .style("font-size", "10px")
+        .style("color", "#666")
+        .text(`Click to ${this.selectedTaskId === task.internalId ? "deselect" : "select"} this task`);
+
+    // Position the tooltip
+    this.positionTooltip(tooltip.node(), event);
+}
+
+// Add this helper method for header updates
+private updateHeaderElements(viewportWidth: number): void {
+    // Check if elements need updating
+    const currentToggleText = this.toggleButtonGroup?.select("text").text();
+    const expectedToggleText = this.showAllTasksInternal ? "Show Critical" : "Show All";
+    
+    if (currentToggleText !== expectedToggleText) {
+        this.createOrUpdateToggleButton(viewportWidth);
+    }
+    
+    // Only redraw divider if width changed significantly
+    const dividerLine = this.headerSvg?.select(".divider-line");
+    if (dividerLine && !dividerLine.empty()) {
+        const currentX2 = parseFloat(dividerLine.attr("x2"));
+        if (Math.abs(currentX2 - viewportWidth) > 1) {
+            dividerLine.attr("x2", viewportWidth);
+        }
+    } else {
+        this.drawHeaderDivider(viewportWidth);
+    }
+    
+    // Update other header elements as needed
+    this.createModeToggleButton(viewportWidth);
+    this.createConnectorLinesToggleButton(viewportWidth);
+    this.createOrUpdateVisualTitle();
+}
 
     private calculateVisibleTasks(): void {
         if (!this.scrollableContainer || !this.scrollableContainer.node()) return;
@@ -1846,79 +1974,75 @@ private async updateInternal(options: VisualUpdateOptions) {
         }
     }
     
-    private redrawVisibleTasks(): void {
-        if (!this.xScale || !this.yScale || !this.allTasksToShow) {
-            console.warn("Cannot redraw: Missing scales or task data");
-            return;
+private redrawVisibleTasks(): void {
+    if (!this.xScale || !this.yScale || !this.allTasksToShow) {
+        console.warn("Cannot redraw: Missing scales or task data");
+        return;
+    }
+    
+    const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+    const shouldUseCanvas = visibleTasks.length > this.CANVAS_THRESHOLD;
+    
+    // Only switch rendering mode if it actually changed
+    if (shouldUseCanvas !== this.useCanvasRendering) {
+        this.useCanvasRendering = shouldUseCanvas;
+        
+        // Hide both layers during transition
+        if (this.canvasElement) this.canvasElement.style.visibility = 'hidden';
+        this.taskLayer?.style("visibility", "hidden");
+        this.arrowLayer?.style("visibility", "hidden");
+        
+        // Clear the previous renderer
+        if (this.useCanvasRendering) {
+            this.taskLayer?.selectAll("*").remove();
+            this.arrowLayer?.selectAll("*").remove();
+        } else {
+            if (this.canvasContext && this.canvasElement) {
+                this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+            }
         }
-        
-        const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
-        
-        // Clear existing SVG elements (but keep grid lines)
+    } else {
+        // Just clear existing elements
         this.arrowLayer?.selectAll("*").remove();
         this.taskLayer?.selectAll("*").remove();
+    }
+    
+    if (this.useCanvasRendering) {
+        // --- Canvas Rendering Path ---
+        this.taskLayer.style("display", "none");
+        this.arrowLayer.style("display", "none");
         
-        // Determine rendering mode
-        this.useCanvasRendering = visibleTasks.length > this.CANVAS_THRESHOLD;
-        
-        if (this.useCanvasRendering) {
-            // --- Canvas Rendering Path ---
-            this.taskLayer.style("display", "none");
-            this.arrowLayer.style("display", "none");
-            
-            // Position the canvas element
-            if (this.canvasElement) {
-                this.canvasElement.style.display = 'block';
-                this.canvasElement.style.left = `${this.margin.left}px`;
-                this.canvasElement.style.top = `${this.margin.top}px`;
-            }
+        // Position the canvas element
+        if (this.canvasElement) {
+            this.canvasElement.style.display = 'block';
+            this.canvasElement.style.visibility = 'visible';
+            this.canvasElement.style.left = `${this.margin.left}px`;
+            this.canvasElement.style.top = `${this.margin.top}px`;
+        }
 
-            const chartWidth = this.xScale.range()[1];
-            const chartHeight = this.yScale.range()[1];
+        const chartWidth = this.xScale.range()[1];
+        const chartHeight = this.yScale.range()[1];
 
-            // Use the new helper to size, clear, and scale the canvas
-            if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
-                // Draw tasks on the prepared canvas
-                this.drawTasksCanvas(
-                    visibleTasks, 
-                    this.xScale, 
-                    this.yScale,
-                    this.settings.taskAppearance.taskColor.value.value,
-                    this.settings.taskAppearance.milestoneColor.value.value,
-                    this.settings.taskAppearance.criticalPathColor.value.value,
-                    this.settings.textAndLabels.labelColor.value.value,
-                    this.settings.textAndLabels.showDuration.value,
-                    this.settings.taskAppearance.taskHeight.value,
-                    this.settings.textAndLabels.dateBackgroundColor.value.value,
-                    1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
-                );
-                
-                if (this.showConnectorLinesInternal) {
-                    // Draw arrows on the prepared canvas
-                    this.drawArrowsCanvas(
-                        visibleTasks,
-                        this.xScale,
-                        this.yScale,
-                        this.settings.taskAppearance.criticalPathColor.value.value,
-                        this.settings.connectorLines.connectorColor.value.value,
-                        this.settings.connectorLines.connectorWidth.value,
-                        this.settings.connectorLines.criticalConnectorWidth.value,
-                        this.settings.taskAppearance.taskHeight.value,
-                        this.settings.taskAppearance.milestoneSize.value,
-                    );
-                }
-            }
-        } else {
-            // --- SVG Rendering Path ---
-            if (this.canvasElement) {
-                this.canvasElement.style.display = 'none';
-            }
-            this.taskLayer.style("display", "block");
-            this.arrowLayer.style("display", "block");
+        // Use the new helper to size, clear, and scale the canvas
+        if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
+            // Draw tasks on the prepared canvas
+            this.drawTasksCanvas(
+                visibleTasks, 
+                this.xScale, 
+                this.yScale,
+                this.settings.taskAppearance.taskColor.value.value,
+                this.settings.taskAppearance.milestoneColor.value.value,
+                this.settings.taskAppearance.criticalPathColor.value.value,
+                this.settings.textAndLabels.labelColor.value.value,
+                this.settings.textAndLabels.showDuration.value,
+                this.settings.taskAppearance.taskHeight.value,
+                this.settings.textAndLabels.dateBackgroundColor.value.value,
+                1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
+            );
             
-            // Draw arrows first so they appear behind tasks
             if (this.showConnectorLinesInternal) {
-                this.drawArrows(
+                // Draw arrows on the prepared canvas
+                this.drawArrowsCanvas(
                     visibleTasks,
                     this.xScale,
                     this.yScale,
@@ -1930,35 +2054,60 @@ private async updateInternal(options: VisualUpdateOptions) {
                     this.settings.taskAppearance.milestoneSize.value,
                 );
             }
-            
-            this.drawTasks(
+        }
+    } else {
+        // --- SVG Rendering Path ---
+        if (this.canvasElement) {
+            this.canvasElement.style.display = 'none';
+        }
+        this.taskLayer.style("display", "block");
+        this.taskLayer.style("visibility", "visible");
+        this.arrowLayer.style("display", "block");
+        this.arrowLayer.style("visibility", "visible");
+        
+        // Draw arrows first so they appear behind tasks
+        if (this.showConnectorLinesInternal) {
+            this.drawArrows(
                 visibleTasks,
                 this.xScale,
                 this.yScale,
-                this.settings.taskAppearance.taskColor.value.value,
-                this.settings.taskAppearance.milestoneColor.value.value,
                 this.settings.taskAppearance.criticalPathColor.value.value,
-                this.settings.textAndLabels.labelColor.value.value,
-                this.settings.textAndLabels.showDuration.value,
+                this.settings.connectorLines.connectorColor.value.value,
+                this.settings.connectorLines.connectorWidth.value,
+                this.settings.connectorLines.criticalConnectorWidth.value,
                 this.settings.taskAppearance.taskHeight.value,
-                this.settings.textAndLabels.dateBackgroundColor.value.value,
-                1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
+                this.settings.taskAppearance.milestoneSize.value,
             );
         }
         
-        // Redraw project end line if needed
-        if (this.settings.projectEndLine.show.value) {
-            this.drawProjectEndLine(
-                this.xScale.range()[1], 
-                this.xScale, 
-                visibleTasks, 
-                this.allTasksToShow, 
-                this.yScale.range()[1], 
-                this.gridLayer, 
-                this.headerGridLayer
-            );
-        }
+        this.drawTasks(
+            visibleTasks,
+            this.xScale,
+            this.yScale,
+            this.settings.taskAppearance.taskColor.value.value,
+            this.settings.taskAppearance.milestoneColor.value.value,
+            this.settings.taskAppearance.criticalPathColor.value.value,
+            this.settings.textAndLabels.labelColor.value.value,
+            this.settings.textAndLabels.showDuration.value,
+            this.settings.taskAppearance.taskHeight.value,
+            this.settings.textAndLabels.dateBackgroundColor.value.value,
+            1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
+        );
     }
+    
+    // Redraw project end line if needed
+    if (this.settings.projectEndLine.show.value) {
+        this.drawProjectEndLine(
+            this.xScale.range()[1], 
+            this.xScale, 
+            visibleTasks, 
+            this.allTasksToShow, 
+            this.yScale.range()[1], 
+            this.gridLayer, 
+            this.headerGridLayer
+        );
+    }
+}
     
     private performRedrawVisibleTasks(): void {
             // Clear existing task elements
@@ -2890,181 +3039,183 @@ private drawTasksCanvas(
     
     const ctx = this.canvasContext;
     
-    // Save context state before drawing. The clearing is now handled by _setupCanvasForDrawing.
+    // Save context state before drawing
     ctx.save();
     
-    const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
-    const generalFontSize = this.settings.textAndLabels.fontSize.value;
-    const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-    const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
-    const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-    const nearCriticalColor = "#F7941F";
-    const showBaseline = this.settings.taskAppearance.showBaseline.value;
-    const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
-    const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
-    const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
-    
-    // Set font for measurements
-    ctx.font = `${taskNameFontSize}pt Segoe UI, sans-serif`;
-    
-    // Draw each task
-    tasks.forEach((task: Task) => {
-        const domainKey = task.yOrder?.toString() ?? '';
-        const yPosition = yScale(domainKey);
-        if (yPosition === undefined || isNaN(yPosition)) return;
-
-        // --- Draw Baseline Bar on Canvas ---
-        if (showBaseline && task.baselineStartDate && task.baselineFinishDate && task.baselineFinishDate >= task.baselineStartDate) {
-            const x_base = xScale(task.baselineStartDate);
-            const width_base = Math.max(1, xScale(task.baselineFinishDate) - x_base);
-            const y_base = yPosition + taskHeight + baselineOffset;
-
-            ctx.fillStyle = baselineColor;
-            ctx.fillRect(x_base, y_base, width_base, baselineHeight);
-        }
+    try {
+        const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
+        const generalFontSize = this.settings.textAndLabels.fontSize.value;
+        const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+        const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
+        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        const nearCriticalColor = "#F7941F";
+        const showBaseline = this.settings.taskAppearance.showBaseline.value;
+        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
+        const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
         
-        // Determine task color
-        let fillColor = taskColor;
-        if (task.internalId === this.selectedTaskId) {
-            fillColor = "#8A2BE2"; // Selection purple
-        } else if (task.isCritical) {
-            fillColor = criticalColor;
-        } else if (task.isNearCritical) {
-            fillColor = nearCriticalColor;
-        }
+        // Set font for measurements
+        ctx.font = `${taskNameFontSize}pt Segoe UI, sans-serif`;
         
-        // Draw task or milestone
-        if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-            // Draw milestone diamond
-            const milestoneDate = task.startDate || task.finishDate;
-            if (milestoneDate) {
-                const x = xScale(milestoneDate);
-                const y = yPosition + taskHeight / 2;
-                const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-                
-                ctx.beginPath();
-                ctx.moveTo(x, y - size / 2);
-                ctx.lineTo(x + size / 2, y);
-                ctx.lineTo(x, y + size / 2);
-                ctx.lineTo(x - size / 2, y);
-                ctx.closePath();
-                
-                ctx.fillStyle = fillColor;
-                ctx.fill();
-                ctx.strokeStyle = task.internalId === this.selectedTaskId ? fillColor : "#000";
-                ctx.lineWidth = task.internalId === this.selectedTaskId ? 2.5 : 1;
-                ctx.stroke();
+        // Draw each task
+        tasks.forEach((task: Task) => {
+            const domainKey = task.yOrder?.toString() ?? '';
+            const yPosition = yScale(domainKey);
+            if (yPosition === undefined || isNaN(yPosition)) return;
+
+            // --- Draw Baseline Bar on Canvas ---
+            if (showBaseline && task.baselineStartDate && task.baselineFinishDate && task.baselineFinishDate >= task.baselineStartDate) {
+                const x_base = xScale(task.baselineStartDate);
+                const width_base = Math.max(1, xScale(task.baselineFinishDate) - x_base);
+                const y_base = yPosition + taskHeight + baselineOffset;
+
+                ctx.fillStyle = baselineColor;
+                ctx.fillRect(x_base, y_base, width_base, baselineHeight);
             }
-        } else {
-            // Draw regular task bar
-            if (task.startDate && task.finishDate) {
-                const x = xScale(task.startDate);
-                const width = Math.max(1, xScale(task.finishDate) - x);
-                const y = yPosition;
-                const radius = Math.min(3, taskHeight * 0.1);
-                
-                // Draw rounded rectangle
-                ctx.beginPath();
-                ctx.moveTo(x + radius, y);
-                ctx.lineTo(x + width - radius, y);
-                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                ctx.lineTo(x + width, y + taskHeight - radius);
-                ctx.quadraticCurveTo(x + width, y + taskHeight, x + width - radius, y + taskHeight);
-                ctx.lineTo(x + radius, y + taskHeight);
-                ctx.quadraticCurveTo(x, y + taskHeight, x, y + taskHeight - radius);
-                ctx.lineTo(x, y + radius);
-                ctx.quadraticCurveTo(x, y, x + radius, y);
-                ctx.closePath();
-                
-                ctx.fillStyle = fillColor;
-                ctx.fill();
-                
-                if (task.internalId === this.selectedTaskId) {
-                    ctx.strokeStyle = fillColor;
-                    ctx.lineWidth = 2.5;
+            
+            // Determine task color
+            let fillColor = taskColor;
+            if (task.internalId === this.selectedTaskId) {
+                fillColor = "#8A2BE2"; // Selection purple
+            } else if (task.isCritical) {
+                fillColor = criticalColor;
+            } else if (task.isNearCritical) {
+                fillColor = nearCriticalColor;
+            }
+            
+            // Draw task or milestone
+            if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+                // Draw milestone diamond
+                const milestoneDate = task.startDate || task.finishDate;
+                if (milestoneDate) {
+                    const x = xScale(milestoneDate);
+                    const y = yPosition + taskHeight / 2;
+                    const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(x, y - size / 2);
+                    ctx.lineTo(x + size / 2, y);
+                    ctx.lineTo(x, y + size / 2);
+                    ctx.lineTo(x - size / 2, y);
+                    ctx.closePath();
+                    
+                    ctx.fillStyle = fillColor;
+                    ctx.fill();
+                    ctx.strokeStyle = task.internalId === this.selectedTaskId ? fillColor : "#000";
+                    ctx.lineWidth = task.internalId === this.selectedTaskId ? 2.5 : 1;
                     ctx.stroke();
                 }
-                
-                // Draw duration text if enabled
-                if (showDuration && task.duration > 0) {
-                    const durationText = `${Math.round(task.duration)}d`;
-                    ctx.font = `${Math.max(7, generalFontSize * 0.8)}pt Segoe UI, sans-serif`;
-                    ctx.fillStyle = "white";
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "middle";
-                    const centerX = x + width / 2;
-                    const centerY = y + taskHeight / 2;
+            } else {
+                // Draw regular task bar
+                if (task.startDate && task.finishDate) {
+                    const x = xScale(task.startDate);
+                    const width = Math.max(1, xScale(task.finishDate) - x);
+                    const y = yPosition;
+                    const radius = Math.min(3, taskHeight * 0.1);
                     
-                    // Only draw if text fits
-                    const textWidth = ctx.measureText(durationText).width;
-                    if (textWidth < width - 4) {
-                        ctx.fillText(durationText, centerX, centerY);
+                    // Draw rounded rectangle
+                    ctx.beginPath();
+                    ctx.moveTo(x + radius, y);
+                    ctx.lineTo(x + width - radius, y);
+                    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                    ctx.lineTo(x + width, y + taskHeight - radius);
+                    ctx.quadraticCurveTo(x + width, y + taskHeight, x + width - radius, y + taskHeight);
+                    ctx.lineTo(x + radius, y + taskHeight);
+                    ctx.quadraticCurveTo(x, y + taskHeight, x, y + taskHeight - radius);
+                    ctx.lineTo(x, y + radius);
+                    ctx.quadraticCurveTo(x, y, x + radius, y);
+                    ctx.closePath();
+                    
+                    ctx.fillStyle = fillColor;
+                    ctx.fill();
+                    
+                    if (task.internalId === this.selectedTaskId) {
+                        ctx.strokeStyle = fillColor;
+                        ctx.lineWidth = 2.5;
+                        ctx.stroke();
                     }
                     
-                    // Reset font for task names
-                    ctx.font = `${taskNameFontSize}pt Segoe UI, sans-serif`;
+                    // Draw duration text if enabled
+                    if (showDuration && task.duration > 0) {
+                        const durationText = `${Math.round(task.duration)}d`;
+                        ctx.font = `${Math.max(7, generalFontSize * 0.8)}pt Segoe UI, sans-serif`;
+                        ctx.fillStyle = "white";
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        const centerX = x + width / 2;
+                        const centerY = y + taskHeight / 2;
+                        
+                        // Only draw if text fits
+                        const textWidth = ctx.measureText(durationText).width;
+                        if (textWidth < width - 4) {
+                            ctx.fillText(durationText, centerX, centerY);
+                        }
+                        
+                        // Reset font for task names
+                        ctx.font = `${taskNameFontSize}pt Segoe UI, sans-serif`;
+                    }
                 }
             }
-        }
-        
-        // Draw task name
-        const labelX = -currentLeftMargin + this.labelPaddingLeft;
-        const labelY = yPosition + taskHeight / 2;
-        
-        ctx.font = `${taskNameFontSize}pt Segoe UI, sans-serif`;
-        ctx.fillStyle = task.internalId === this.selectedTaskId ? "#8A2BE2" : labelColor;
-        ctx.textAlign = "start";
-        ctx.textBaseline = "middle";
-        
-        // Simple text truncation for canvas
-        const maxWidth = currentLeftMargin - this.labelPaddingLeft - 5;
-        let taskName = task.name || "";
-        const metrics = ctx.measureText(taskName);
-        
-        if (metrics.width > maxWidth) {
-            // Truncate with ellipsis
-            while (taskName.length > 0 && ctx.measureText(taskName + "...").width > maxWidth) {
-                taskName = taskName.slice(0, -1);
-            }
-            taskName += "...";
-        }
-        
-        ctx.fillText(taskName, labelX, labelY);
-        
-        // Draw finish date if enabled
-        if (showFinishDates && task.finishDate) {
-            const dateText = this.formatDate(task.finishDate);
-            const dateX = task.type === 'TT_Mile' || task.type === 'TT_FinMile'
-                ? xScale(task.startDate || task.finishDate) + milestoneSizeSetting / 2 + this.dateLabelOffset
-                : xScale(task.finishDate) + this.dateLabelOffset;
-                
-            ctx.font = `${Math.max(8, generalFontSize * 0.85)}pt Segoe UI, sans-serif`;
-            ctx.fillStyle = labelColor;
+            
+            // Draw task name
+            const labelX = -currentLeftMargin + this.labelPaddingLeft;
+            const labelY = yPosition + taskHeight / 2;
+            
+            ctx.font = `${taskNameFontSize}pt Segoe UI, sans-serif`;
+            ctx.fillStyle = task.internalId === this.selectedTaskId ? "#8A2BE2" : labelColor;
             ctx.textAlign = "start";
             ctx.textBaseline = "middle";
             
-            // Draw background rectangle
-            const textMetrics = ctx.measureText(dateText);
-            const bgPadding = this.dateBackgroundPadding;
+            // Simple text truncation for canvas
+            const maxWidth = currentLeftMargin - this.labelPaddingLeft - 5;
+            let taskName = task.name || "";
+            const metrics = ctx.measureText(taskName);
             
-            ctx.fillStyle = dateBackgroundColor;
-            ctx.globalAlpha = dateBackgroundOpacity;
-            ctx.fillRect(
-                dateX - bgPadding.horizontal,
-                labelY - textMetrics.actualBoundingBoxAscent - bgPadding.vertical,
-                textMetrics.width + bgPadding.horizontal * 2,
-                textMetrics.actualBoundingBoxAscent + textMetrics.actualBoundingBoxDescent + bgPadding.vertical * 2
-            );
-            ctx.globalAlpha = 1.0;
+            if (metrics.width > maxWidth) {
+                // Truncate with ellipsis
+                while (taskName.length > 0 && ctx.measureText(taskName + "...").width > maxWidth) {
+                    taskName = taskName.slice(0, -1);
+                }
+                taskName += "...";
+            }
             
-            // Draw date text
-            ctx.fillStyle = labelColor;
-            ctx.fillText(dateText, dateX, labelY);
-        }
-    });
-    
-    // Restore context state
-    ctx.restore();
+            ctx.fillText(taskName, labelX, labelY);
+            
+            // Draw finish date if enabled
+            if (showFinishDates && task.finishDate) {
+                const dateText = this.formatDate(task.finishDate);
+                const dateX = task.type === 'TT_Mile' || task.type === 'TT_FinMile'
+                    ? xScale(task.startDate || task.finishDate) + milestoneSizeSetting / 2 + this.dateLabelOffset
+                    : xScale(task.finishDate) + this.dateLabelOffset;
+                    
+                ctx.font = `${Math.max(8, generalFontSize * 0.85)}pt Segoe UI, sans-serif`;
+                ctx.fillStyle = labelColor;
+                ctx.textAlign = "start";
+                ctx.textBaseline = "middle";
+                
+                // Draw background rectangle
+                const textMetrics = ctx.measureText(dateText);
+                const bgPadding = this.dateBackgroundPadding;
+                
+                ctx.fillStyle = dateBackgroundColor;
+                ctx.globalAlpha = dateBackgroundOpacity;
+                ctx.fillRect(
+                    dateX - bgPadding.horizontal,
+                    labelY - textMetrics.actualBoundingBoxAscent - bgPadding.vertical,
+                    textMetrics.width + bgPadding.horizontal * 2,
+                    textMetrics.actualBoundingBoxAscent + textMetrics.actualBoundingBoxDescent + bgPadding.vertical * 2
+                );
+                ctx.globalAlpha = 1.0;
+                
+                // Draw date text
+                ctx.fillStyle = labelColor;
+                ctx.fillText(dateText, dateX, labelY);
+            }
+        });
+    } finally {
+        // Always restore context state
+        ctx.restore();
+    }
 }
 
 /**
@@ -3109,21 +3260,24 @@ private _setupCanvasForDrawing(chartWidth: number, chartHeight: number): boolean
 }
 
 private drawArrowsCanvas(
-        tasks: Task[],
-        xScale: ScaleTime<number, number>,
-        yScale: ScaleBand<string>,
-        criticalColor: string,
-        connectorColor: string,
-        connectorWidth: number,
-        criticalConnectorWidth: number,
-        taskHeight: number,
-        milestoneSizeSetting: number
-    ): void {
-        // Use the class property instead of getting from D3 selection
-        if (!this.canvasContext || !this.canvasElement) return;
-        
-        const ctx = this.canvasContext;
-        
+    tasks: Task[],
+    xScale: ScaleTime<number, number>,
+    yScale: ScaleBand<string>,
+    criticalColor: string,
+    connectorColor: string,
+    connectorWidth: number,
+    criticalConnectorWidth: number,
+    taskHeight: number,
+    milestoneSizeSetting: number
+): void {
+    if (!this.canvasContext || !this.canvasElement) return;
+    
+    const ctx = this.canvasContext;
+    
+    // Save context state
+    ctx.save();
+    
+    try {
         const connectionEndPadding = 0;
         const elbowOffset = this.settings.connectorLines.elbowOffset.value;
         
@@ -3247,7 +3401,11 @@ private drawArrowsCanvas(
             
             ctx.stroke();
         });
+    } finally {
+        // Always restore context state
+        ctx.restore();
     }
+}
 
 /** 
  * Positions the tooltip intelligently to prevent it from being cut off at screen edges

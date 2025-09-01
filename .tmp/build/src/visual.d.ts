@@ -73,6 +73,9 @@ export declare class Visual implements IVisual {
     private readonly VIEWPORT_CHANGE_THRESHOLD;
     private forceFullUpdate;
     private visualTitle;
+    private tooltipClassName;
+    private isUpdating;
+    private scrollHandlerBackup;
     constructor(options: VisualConstructorOptions);
     private determineUpdateType;
     destroy(): void;
@@ -93,6 +96,9 @@ export declare class Visual implements IVisual {
     private createArrowheadMarkers;
     private setupTimeBasedSVGAndScales;
     private setupVirtualScroll;
+    private getCanvasMouseCoordinates;
+    private showTaskTooltip;
+    private updateHeaderElements;
     private calculateVisibleTasks;
     private handleScroll;
     private redrawVisibleTasks;
