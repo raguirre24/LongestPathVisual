@@ -568,7 +568,7 @@ public destroy(): void {
     this.debugLog("Critical Path Visual destroyed.");
 }
 
-    private toggleTaskDisplayInternal(): void {
+private toggleTaskDisplayInternal(): void {
         try {
             this.debugLog("Internal Toggle method called!");
             this.showAllTasksInternal = !this.showAllTasksInternal;
@@ -577,7 +577,8 @@ public destroy(): void {
             // Update button text if button exists
             const buttonElement = this.headerSvg?.select(".toggle-button-group")?.select("text");
             if (buttonElement?.node()) {
-                buttonElement.text(this.showAllTasksInternal ? "Show Longest Path" : "Show All Tasks");
+                // FIX: Use consistent text strings
+                buttonElement.text(this.showAllTasksInternal ? "Show Critical" : "Show All");
             } else {
                 console.warn("ToggleButtonGroup not found when trying to update text.");
             }
@@ -1340,7 +1341,8 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.margin.left = this.settings.layoutSettings.leftMargin.value;
 
         this.clearVisual();
-        this.updateHeaderElements(viewportWidth);
+        // This call now correctly handles the button creation/update
+        this.updateHeaderElements(viewportWidth); 
         this.createFloatThresholdControl();
         this.createTaskSelectionDropdown();
         this.createTraceModeToggle();
@@ -1541,11 +1543,14 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         this.debugLog(`Tasks to consider for display (after filtering): ${tasksToConsider.length}`);
 
+        // FIX: Removed the redundant manual update of the toggle button text here.
+        /*
         // Update toggle button text
         if (this.toggleButtonGroup) {
             this.toggleButtonGroup.select("text")
                 .text(this.showAllTasksInternal ? "Show Critical" : "Show All");
         }
+        */
 
         const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
         const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
@@ -2102,12 +2107,22 @@ private showTaskTooltip(task: Task, event: MouseEvent): void {
     this.positionTooltip(tooltip.node(), event);
 }
 
-// Add this helper method for header updates
 private updateHeaderElements(viewportWidth: number): void {
     // Check if elements need updating
-    const currentToggleText = this.toggleButtonGroup?.select("text").text();
+
+    // FIX: Safely get the current text.
+    // Initialize currentToggleText as empty.
+    let currentToggleText = "";
+    const textSelection = this.toggleButtonGroup?.select("text");
+    
+    // Check if the selection exists AND is not empty before attempting to read its text content.
+    if (textSelection && !textSelection.empty()) {
+        currentToggleText = textSelection.text();
+    }
+    
     const expectedToggleText = this.showAllTasksInternal ? "Show Critical" : "Show All";
     
+    // If the text doesn't match (which it won't on initial load, as currentToggleText will be ""), the button is created/updated.
     if (currentToggleText !== expectedToggleText) {
         this.createOrUpdateToggleButton(viewportWidth);
     }
