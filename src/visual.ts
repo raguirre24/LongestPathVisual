@@ -204,7 +204,7 @@ constructor(options: VisualConstructorOptions) {
         .style("width", "100%")
         .style("height", `${this.headerHeight}px`)
         .style("z-index", "10")
-        .style("overflow", "hidden");
+        .style("overflow", "visible");
 
     // --- SVG for Header Elements ---
     this.headerSvg = this.stickyHeaderContainer.append("svg")
@@ -5455,7 +5455,7 @@ private populateTaskDropdown(): void {
             .style("cursor", "pointer")
             .style("border-bottom", "1px solid #f5f5f5")
             .style("white-space", "nowrap")
-            .style("overflow", "hidden")
+            .style("overflow", "visible")
             .style("text-overflow", "ellipsis")
             .style("font-size", "11px")
             .style("font-family", "Segoe UI, sans-serif")
