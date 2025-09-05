@@ -110,6 +110,7 @@ export class Visual implements IVisual {
 
     // --- State properties remain the same ---
     private showAllTasksInternal: boolean = true;
+    private showBaselineInternal: boolean = true;
     private isInitialLoad: boolean = true;
 
     // Debug flag to control verbose logging
@@ -174,6 +175,19 @@ export class Visual implements IVisual {
     private isUpdating: boolean = false;
     private scrollHandlerBackup: any = null;
 
+    private updateDebounceTimeout: any = null;
+    private pendingUpdate: VisualUpdateOptions | null = null;
+    private readonly UPDATE_DEBOUNCE_MS = 100;
+    private renderState: {
+    isRendering: boolean;
+    lastRenderMode: 'canvas' | 'svg' | null;
+    lastTaskCount: number;
+} = {
+    isRendering: false,
+    lastRenderMode: null,
+    lastTaskCount: 0
+};
+
 constructor(options: VisualConstructorOptions) {
     this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
     this.target = options.element;
@@ -181,6 +195,8 @@ constructor(options: VisualConstructorOptions) {
     this.formattingSettingsService = new FormattingSettingsService();
 
     this.showAllTasksInternal = true;
+    // Initialize baseline internal state. Will be synced in first update.
+    this.showBaselineInternal = true; 
     this.isInitialLoad = true;
     this.floatThreshold = 0;
     this.showConnectorLinesInternal = true;
@@ -308,12 +324,25 @@ constructor(options: VisualConstructorOptions) {
     this.canvasElement.className = 'canvas-layer';
     this.canvasElement.style.display = 'none';
     this.canvasElement.style.visibility = 'hidden';
-    
-    // Add canvas to the scrollable container, not the SVG
+
+    // Critical rendering optimizations for published mode
+    this.canvasElement.style.imageRendering = '-webkit-optimize-contrast';
+    this.canvasElement.style.imageRendering = 'crisp-edges';
+    (this.canvasElement.style as any).msInterpolationMode = 'nearest-neighbor';
+    this.canvasElement.style.transform = 'translate3d(0,0,0)'; // Force GPU layer
+    this.canvasElement.style.backfaceVisibility = 'hidden';
+    this.canvasElement.style.webkitBackfaceVisibility = 'hidden';
+    this.canvasElement.style.willChange = 'transform';
+    this.canvasElement.style.perspective = '1000px';
+
+    // Add canvas to the scrollable container
     this.scrollableContainer.node()?.appendChild(this.canvasElement);
-    
+
     // Create D3 selection for the canvas
     this.canvasLayer = d3.select(this.canvasElement);
+
+    // Apply publish mode optimizations
+    this.applyPublishModeOptimizations();
 
     // --- Tooltip with improved styling ---
     // Remove any existing tooltips from this instance
@@ -460,93 +489,247 @@ constructor(options: VisualConstructorOptions) {
     });
 }
 
-private determineUpdateType(options: VisualUpdateOptions): UpdateType {
-    // Store and reset flag immediately to prevent race conditions
-    const wasForced = this.forceFullUpdate;
-    this.forceFullUpdate = false;
+private forceCanvasRefresh(): void {
+    this.debugLog("Forcing canvas refresh");
     
-    if (wasForced) {
-        this.debugLog("Force full update requested");
-        return UpdateType.Full;
+    // Reset viewport indices to force recalculation
+    this.viewportStartIndex = 0;
+    this.viewportEndIndex = 0;
+    
+    // Clear canvas if it exists
+    if (this.canvasElement && this.canvasContext) {
+        this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
     }
     
-    // Check if this is the first update
-    if (!this.lastUpdateOptions) {
-        return UpdateType.Full;
+    // Clear SVG elements
+    if (this.taskLayer) {
+        this.taskLayer.selectAll("*").remove();
     }
-
-    // Use Power BI Update Type Flags for robust detection
-    let dataChanged = false;
-    let settingsChanged = false;
-    let viewportChanged = false;
-
-    // Check flags provided by Power BI (options.type is a bitmask)
-    if (options.type & VisualUpdateType.Data) {
-        dataChanged = true;
-        this.debugLog("Data change detected via PBI flags (e.g., external filter).");
+    if (this.arrowLayer) {
+        this.arrowLayer.selectAll("*").remove();
     }
-    if (options.type & VisualUpdateType.Resize) {
-        viewportChanged = true;
-    }
-    if ((options.type & VisualUpdateType.Style) || 
-        (options.type & VisualUpdateType.ViewMode)) {
-         settingsChanged = true;
-    }
-
-    // Fallback manual checks for redundancy
-    if (!dataChanged) {
-        const currentDataView = options.dataViews?.[0];
-        const lastDataView = this.lastUpdateOptions.dataViews?.[0];
+    
+    // Recalculate visible tasks immediately if we have the data
+    if (this.scrollableContainer?.node() && this.allTasksToShow?.length > 0) {
+        this.calculateVisibleTasks();
         
-        if (currentDataView && lastDataView) {
-            const currentRowCount = currentDataView.table?.rows?.length || 0;
-            const lastRowCount = lastDataView.table?.rows?.length || 0;
-            if (currentRowCount !== lastRowCount) {
-                dataChanged = true;
-                this.debugLog("Data change detected via row count mismatch.");
-            }
-        } else if (currentDataView !== lastDataView) {
-            dataChanged = true;
+        // Force immediate redraw if we have scales
+        if (this.xScale && this.yScale) {
+            requestAnimationFrame(() => {
+                this.redrawVisibleTasks();
+            });
         }
     }
+}
 
-    // Ensure viewportChanged captures manual comparison if flag was missed
-    if (!viewportChanged) {
-        viewportChanged = this.lastViewport ? 
-            (options.viewport.width !== this.lastViewport.width || 
-            options.viewport.height !== this.lastViewport.height) : true;
+private debouncedUpdate(): void {
+    if (this.updateDebounceTimeout) {
+        clearTimeout(this.updateDebounceTimeout);
     }
     
-    // Check if viewport changed significantly (likely focus mode)
-    let isSignificantViewportChange = false;
-    if (this.lastViewport && viewportChanged) {
-        const widthChangeRatio = Math.abs(options.viewport.width - this.lastViewport.width) / (this.lastViewport.width || 1);
-        const heightChangeRatio = Math.abs(options.viewport.height - this.lastViewport.height) / (this.lastViewport.height || 1);
-        isSignificantViewportChange = widthChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD || 
-                                    heightChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD;
-    }
-    
-    // Determine final update type based on prioritized flags
-    if (dataChanged) {
-        return UpdateType.Full;
-    } else if (isSignificantViewportChange) {
-        this.debugLog("Significant viewport change detected - treating as full update");
-        return UpdateType.Full;
-    } else if (viewportChanged && !dataChanged && !settingsChanged) {
-        return UpdateType.ViewportOnly;
-    } else if (settingsChanged && !dataChanged) { 
-        return UpdateType.SettingsOnly;
-    }
-    
-    // If multiple minor flags are set, default to a full update for safety
-    if (settingsChanged || viewportChanged) {
-        return UpdateType.Full;
-    }
+    this.updateDebounceTimeout = setTimeout(() => {
+        if (this.pendingUpdate) {
+            const options = this.pendingUpdate;
+            this.pendingUpdate = null;
+            this.update(options);
+        }
+        this.updateDebounceTimeout = null;
+    }, this.UPDATE_DEBOUNCE_MS);
+}
 
-    return UpdateType.Full;
+private requestUpdate(forceFullUpdate: boolean = false): void {
+    if (!this.lastUpdateOptions) {
+        console.error("Cannot trigger update - lastUpdateOptions is null.");
+        return;
+    }
+    
+    if (forceFullUpdate) {
+        this.forceFullUpdate = true;
+    }
+    
+    this.pendingUpdate = this.lastUpdateOptions;
+    this.debouncedUpdate();
+}
+
+private applyPublishModeOptimizations(): void {
+    // Detect if we're in Power BI Service (iframe context)
+    const isInIframe = window.self !== window.top;
+    
+    if (isInIframe || window.location.hostname.includes('powerbi.com')) {
+        // Apply global CSS fixes for Power BI Service
+        const styleId = 'critical-path-publish-fixes';
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+                .criticalPathVisual {
+                    -webkit-font-smoothing: antialiased !important;
+                    -moz-osx-font-smoothing: grayscale !important;
+                    text-rendering: optimizeLegibility !important;
+                }
+                .criticalPathVisual text {
+                    text-rendering: geometricPrecision !important;
+                    shape-rendering: crispEdges !important;
+                }
+                .criticalPathVisual .canvas-layer {
+                    image-rendering: -webkit-optimize-contrast !important;
+                    image-rendering: crisp-edges !important;
+                    -ms-interpolation-mode: nearest-neighbor !important;
+                    transform: translateZ(0) !important;
+                    backface-visibility: hidden !important;
+                    -webkit-backface-visibility: hidden !important;
+                    perspective: 1000px !important;
+                }
+                .visual-wrapper {
+                    transform: translateZ(0) !important;
+                    will-change: transform !important;
+                }
+                .sticky-header-container {
+                    transform: translateZ(0) !important;
+                    -webkit-transform: translateZ(0) !important;
+                }
+                svg rect, svg path, svg line {
+                    shape-rendering: crispEdges !important;
+                    vector-effect: non-scaling-stroke !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        // Force a specific zoom level reset if possible
+        if (this.target) {
+            this.target.style.zoom = '1';
+            (this.target.style as any).imageRendering = '-webkit-optimize-contrast';
+        }
+    }
+}
+
+private setupSVGRenderingHints(): void {
+    // Set rendering hints for all SVG elements
+    if (this.mainSvg) {
+        this.mainSvg
+            .attr("shape-rendering", "crispEdges")
+            .attr("text-rendering", "optimizeLegibility");
+    }
+    
+    if (this.headerSvg) {
+        this.headerSvg
+            .attr("shape-rendering", "crispEdges")
+            .attr("text-rendering", "optimizeLegibility");
+    }
+    
+    // Apply to groups
+    [this.mainGroup, this.gridLayer, this.arrowLayer, this.taskLayer, 
+     this.headerGridLayer, this.toggleButtonGroup].forEach(group => {
+        if (group) {
+            group.attr("shape-rendering", "geometricPrecision");
+        }
+    });
+}
+
+private determineUpdateType(options: VisualUpdateOptions): UpdateType {
+    // Store and reset flag immediately with try-finally for safety
+    const wasForced = this.forceFullUpdate;
+    try {
+        this.forceFullUpdate = false;
+        
+        if (wasForced) {
+            this.debugLog("Force full update requested");
+            return UpdateType.Full;
+        }
+        
+        // Check if this is the first update
+        if (!this.lastUpdateOptions) {
+            return UpdateType.Full;
+        }
+
+        // Use Power BI Update Type Flags for robust detection
+        let dataChanged = false;
+        let settingsChanged = false;
+        let viewportChanged = false;
+
+        // Check flags provided by Power BI (options.type is a bitmask)
+        if (options.type & VisualUpdateType.Data) {
+            dataChanged = true;
+            this.debugLog("Data change detected via PBI flags (e.g., external filter).");
+        }
+        if (options.type & VisualUpdateType.Resize) {
+            viewportChanged = true;
+        }
+        if ((options.type & VisualUpdateType.Style) || 
+            (options.type & VisualUpdateType.ViewMode)) {
+             settingsChanged = true;
+        }
+
+        // Fallback manual checks for redundancy
+        if (!dataChanged) {
+            const currentDataView = options.dataViews?.[0];
+            const lastDataView = this.lastUpdateOptions.dataViews?.[0];
+            
+            if (currentDataView && lastDataView) {
+                const currentRowCount = currentDataView.table?.rows?.length || 0;
+                const lastRowCount = lastDataView.table?.rows?.length || 0;
+                if (currentRowCount !== lastRowCount) {
+                    dataChanged = true;
+                    this.debugLog("Data change detected via row count mismatch.");
+                }
+            } else if (currentDataView !== lastDataView) {
+                dataChanged = true;
+            }
+        }
+
+        // Ensure viewportChanged captures manual comparison if flag was missed
+        if (!viewportChanged) {
+            viewportChanged = this.lastViewport ? 
+                (options.viewport.width !== this.lastViewport.width || 
+                options.viewport.height !== this.lastViewport.height) : true;
+        }
+        
+        // Check if viewport changed significantly (likely focus mode)
+        let isSignificantViewportChange = false;
+        if (this.lastViewport && viewportChanged) {
+            const widthChangeRatio = Math.abs(options.viewport.width - this.lastViewport.width) / (this.lastViewport.width || 1);
+            const heightChangeRatio = Math.abs(options.viewport.height - this.lastViewport.height) / (this.lastViewport.height || 1);
+            isSignificantViewportChange = widthChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD || 
+                                        heightChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD;
+        }
+        
+        // Determine final update type based on prioritized flags
+        if (dataChanged) {
+            return UpdateType.Full;
+        } else if (isSignificantViewportChange) {
+            this.debugLog("Significant viewport change detected - treating as full update");
+            return UpdateType.Full;
+        } else if (viewportChanged && !dataChanged && !settingsChanged) {
+            return UpdateType.ViewportOnly;
+        } else if (settingsChanged && !dataChanged) { 
+            return UpdateType.SettingsOnly;
+        }
+        
+        // If multiple minor flags are set, default to a full update for safety
+        if (settingsChanged || viewportChanged) {
+            return UpdateType.Full;
+        }
+
+        return UpdateType.Full;
+    } finally {
+        // Ensure flag is always reset even if error occurs
+        this.forceFullUpdate = false;
+    }
 }
 
 public destroy(): void {
+    // Clear all timeouts
+    if (this.updateDebounceTimeout) {
+        clearTimeout(this.updateDebounceTimeout);
+        this.updateDebounceTimeout = null;
+    }
+    
+    if (this.scrollThrottleTimeout) {
+        clearTimeout(this.scrollThrottleTimeout);
+        this.scrollThrottleTimeout = null;
+    }
+    
     // Remove this instance's tooltip
     d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
     
@@ -556,47 +739,91 @@ public destroy(): void {
         this.scrollListener = null;
     }
     
-    // Clear any timeouts
-    if (this.scrollThrottleTimeout) {
-        clearTimeout(this.scrollThrottleTimeout);
-        this.scrollThrottleTimeout = null;
-    }
+    // Clear pending updates
+    this.pendingUpdate = null;
     
     // Apply empty filter
     this.applyTaskFilter([]);
+    
+    // Remove any global styles added
+    const styleId = 'critical-path-publish-fixes';
+    const styleElement = document.getElementById(styleId);
+    if (styleElement) {
+        styleElement.remove();
+    }
     
     this.debugLog("Critical Path Visual destroyed.");
 }
 
 private toggleTaskDisplayInternal(): void {
-        try {
-            this.debugLog("Internal Toggle method called!");
-            this.showAllTasksInternal = !this.showAllTasksInternal;
-            this.debugLog("New showAllTasksInternal value:", this.showAllTasksInternal);
-            
-            // Update button text if button exists
-            const buttonElement = this.headerSvg?.select(".toggle-button-group")?.select("text");
-            if (buttonElement?.node()) {
-                // FIX: Use consistent text strings
-                buttonElement.text(this.showAllTasksInternal ? "Show Critical" : "Show All");
-            } else {
-                console.warn("ToggleButtonGroup not found when trying to update text.");
-            }
-            
-            if (!this.lastUpdateOptions) {
-                console.error("Cannot trigger update - lastUpdateOptions is null during internal toggle.");
-                return;
-            }
-            
-            // ADDED: Force a full update for toggle changes
-            this.forceFullUpdate = true;
-            
-            this.update(this.lastUpdateOptions);
-            this.debugLog("Visual update triggered by internal toggle");
-        } catch (error) {
-            console.error("Error in internal toggle method:", error);
+    try {
+        this.debugLog("Internal Toggle method called!");
+        this.showAllTasksInternal = !this.showAllTasksInternal;
+        this.debugLog("New showAllTasksInternal value:", this.showAllTasksInternal);
+        
+        // Update button text immediately for responsive feedback
+        const buttonElement = this.headerSvg?.select(".toggle-button-group")?.select("text");
+        if (buttonElement?.node()) {
+            buttonElement.text(this.showAllTasksInternal ? "Show Critical" : "Show All");
         }
+        
+        // Persist state
+        this.host.persistProperties({
+            merge: [{
+                objectName: "displayOptions",
+                properties: { showAllTasks: this.showAllTasksInternal },
+                selector: null
+            }]
+        });
+        
+        // Force canvas refresh before update
+        this.forceCanvasRefresh();
+        
+        // Force full update
+        this.forceFullUpdate = true;
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+        
+        this.debugLog("Visual update triggered by internal toggle");
+    } catch (error) {
+        console.error("Error in internal toggle method:", error);
     }
+}
+
+// NEW METHOD
+private toggleBaselineDisplayInternal(): void {
+    try {
+        this.debugLog("Baseline Toggle method called!");
+        this.showBaselineInternal = !this.showBaselineInternal;
+        this.debugLog("New showBaselineInternal value:", this.showBaselineInternal);
+
+        // Update button appearance immediately
+        this.createOrUpdateBaselineToggleButton(this.lastUpdateOptions?.viewport.width || 800);
+
+        // Persist the state back to the formatting pane setting so it's saved with the report
+        // and the format pane toggle stays in sync.
+        this.host.persistProperties({
+            merge: [{
+                objectName: "taskAppearance",
+                properties: { showBaseline: this.showBaselineInternal },
+                selector: null
+            }]
+        });
+
+        // Toggling baseline can affect the X-axis scale if baseline dates are outside the range 
+        // of actual dates (because setupTimeBasedSVGAndScales now depends on showBaselineInternal).
+        // Therefore, a full update is required to recalculate scales.
+        this.forceFullUpdate = true;
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+        
+        this.debugLog("Visual update triggered by baseline toggle");
+    } catch (error) {
+        console.error("Error in baseline toggle method:", error);
+    }
+}
 
 private createOrUpdateToggleButton(viewportWidth: number): void {
     if (!this.toggleButtonGroup || !this.headerSvg) return;
@@ -677,7 +904,97 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
     });
 }
 
-    private createConnectorLinesToggleButton(viewportWidth?: number): void {
+// NEW METHOD
+private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
+    if (!this.headerSvg) return;
+
+    this.headerSvg.selectAll(".baseline-toggle-group").remove();
+
+    // Check if the baseline fields are available in the data roles
+    const dataView = this.lastUpdateOptions?.dataViews?.[0];
+    const hasBaselineStart = dataView ? this.hasDataRole(dataView, 'baselineStartDate') : false;
+    const hasBaselineFinish = dataView ? this.hasDataRole(dataView, 'baselineFinishDate') : false;
+    const isAvailable = hasBaselineStart && hasBaselineFinish;
+
+    const baselineToggleGroup = this.headerSvg.append("g")
+        .attr("class", "baseline-toggle-group")
+        .style("cursor", isAvailable ? "pointer" : "not-allowed");
+
+    const buttonWidth = 110;
+    const buttonHeight = 24;
+    // Position after the Mode Toggle Button (which starts at 136 and is 220 wide)
+    const buttonX = 136 + 220 + 8; // 364px
+    const buttonY = 4;
+
+    baselineToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+    // Styling similar to the Mode Toggle but distinct
+    const buttonRect = baselineToggleGroup.append("rect")
+        .attr("width", buttonWidth)
+        .attr("height", buttonHeight)
+        .attr("rx", 12)
+        .attr("ry", 12)
+        .style("fill", this.showBaselineInternal ? "#f8f9fa" : "#ffffff") 
+        .style("stroke", "#ced4da")
+        .style("stroke-width", 1.5)
+        .style("opacity", isAvailable ? 1 : 0.4);
+
+    // Icon representing a baseline
+    const iconX = 12;
+    const iconY = buttonHeight / 2;
+    
+    // Main bar icon
+    baselineToggleGroup.append("rect")
+        .attr("x", iconX)
+        .attr("y", iconY - 5)
+        .attr("width", 14)
+        .attr("height", 5)
+        .attr("rx", 1)
+        .attr("fill", this.showBaselineInternal ? "#0078D4" : "#6c757d"); // Use primary task color or gray
+
+    // Baseline bar icon
+    baselineToggleGroup.append("rect")
+        .attr("x", iconX)
+        .attr("y", iconY + 2)
+        .attr("width", 14)
+        .attr("height", 3)
+        .attr("rx", 1)
+        .attr("fill", this.showBaselineInternal ? "#8A8A8A" : "#adb5bd"); // Use baseline color or light gray
+
+
+    baselineToggleGroup.append("text")
+        .attr("x", iconX + 22)
+        .attr("y", buttonHeight / 2)
+        .attr("dominant-baseline", "central")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px")
+        .style("fill", "#333")
+        .style("font-weight", this.showBaselineInternal ? "600" : "400")
+        .style("pointer-events", "none")
+        .text(this.showBaselineInternal ? "Hide Baseline" : "Show Baseline");
+
+    // Tooltip
+    baselineToggleGroup.append("title")
+        .text(isAvailable ? (this.showBaselineInternal ? "Hide baseline bars" : "Show baseline bars") : "Requires Baseline Start/Finish fields");
+
+    if (isAvailable) {
+        const self = this;
+        baselineToggleGroup
+            .on("mouseover", function() {
+                d3.select(this).select("rect").style("fill", self.showBaselineInternal ? "#e9ecef" : "#f1f3f5");
+            })
+            .on("mouseout", function() {
+                d3.select(this).select("rect").style("fill", self.showBaselineInternal ? "#f8f9fa" : "#ffffff");
+            });
+
+        baselineToggleGroup.on("click", function(event) {
+            if (event) event.stopPropagation();
+            self.toggleBaselineDisplayInternal();
+        });
+    }
+}
+
+private createConnectorLinesToggleButton(viewportWidth?: number): void {
         if (!this.headerSvg) return;
         
         this.headerSvg.selectAll(".connector-toggle-group").remove();
@@ -691,7 +1008,8 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         
         // Icon-only button
         const buttonSize = 22;
-        const buttonX = 240; // After filter toggle
+        // UPDATED POSITION: Move this button after the new Baseline toggle (X=364, W=110) + 8px gap
+        const buttonX = 364 + 110 + 8; // 482px
         const buttonY = 4;
         
         connectorToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
@@ -719,6 +1037,7 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
             .text(this.showConnectorLinesInternal ? "Hide connector lines" : "Show connector lines");
         
         // Hover effect
+        const self = this;
         connectorToggleGroup
             .on("mouseover", function() { 
                 d3.select(this).select("rect").style("fill", "#f8f9fa");
@@ -728,7 +1047,7 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
                     .style("fill", self.showConnectorLinesInternal ? "#ffffff" : "#f5f5f5");
             });
         
-        const self = this;
+        //const self = this;
         connectorToggleGroup.on("click", function(event) {
             if (event) event.stopPropagation();
             self.toggleConnectorLinesDisplay();
@@ -904,17 +1223,13 @@ private toggleCriticalityMode(): void {
             this.debugLog(`Resetting float threshold from ${this.floatThreshold} to 0`);
             this.floatThreshold = 0;
             
-            // Persist the reset threshold
-            this.host.persistProperties({
-                merge: [{
-                    objectName: "persistedState",
-                    properties: { floatThreshold: 0 },
-                    selector: null
-                }]
-            });
+            // Update float threshold input if it exists
+            if (this.floatThresholdInput) {
+                this.floatThresholdInput.property("value", "0");
+            }
         }
         
-        // Update the settings value
+        // Update the settings value locally
         if (this.settings?.criticalityMode?.calculationMode) {
             this.settings.criticalityMode.calculationMode.value = {
                 value: newMode,
@@ -922,27 +1237,38 @@ private toggleCriticalityMode(): void {
             };
         }
         
-        // Persist the new mode
-        this.host.persistProperties({
-            merge: [{
-                objectName: "criticalityMode",
-                properties: { calculationMode: newMode },
+        // Single batch persist
+        const properties: any[] = [{
+            objectName: "criticalityMode",
+            properties: { calculationMode: newMode },
+            selector: null
+        }];
+        
+        if (newMode === 'longestPath') {
+            properties.push({
+                objectName: "persistedState",
+                properties: { floatThreshold: 0 },
                 selector: null
-            }]
-        });
-        
-        // Force a full update
-        this.forceFullUpdate = true;
-        
-        if (!this.lastUpdateOptions) {
-            console.error("Cannot trigger update - lastUpdateOptions is null during mode toggle.");
-            return;
+            });
         }
         
-        // Trigger update
-        this.update(this.lastUpdateOptions);
-        this.debugLog("Visual update triggered by mode toggle");
+        this.host.persistProperties({ merge: properties });
+        
+        // Update UI elements
+        this.createModeToggleButton(this.lastUpdateOptions?.viewport.width || 800);
+        this.createFloatThresholdControl();
         this.createOrUpdateVisualTitle();
+        
+        // CRITICAL FIX: Force canvas refresh
+        this.forceCanvasRefresh();
+        
+        // Request update
+        this.forceFullUpdate = true;
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+        
+        this.debugLog("Visual update triggered by mode toggle");
         
     } catch (error) {
         console.error("Error toggling criticality mode:", error);
@@ -1074,9 +1400,14 @@ private createFloatThresholdControl(): void {
 
     // Input handler
     const self = this;
+    // Add debounce for float threshold
+    let floatThresholdTimeout: any = null;
     this.floatThresholdInput.on("input", function() {
-        const value = parseFloat(this.value);
-        self.floatThreshold = isNaN(value) ? 0 : Math.max(0, value);
+        const value = parseFloat((this as HTMLInputElement).value);
+        const newThreshold = isNaN(value) ? 0 : Math.max(0, value);
+        
+        // Update local value immediately for UI feedback
+        self.floatThreshold = newThreshold;
         
         // Visual feedback
         d3.select(this)
@@ -1087,18 +1418,22 @@ private createFloatThresholdControl(): void {
             .duration(200)
             .style("background-color", "white");
         
-        self.host.persistProperties({
-            merge: [{
-                objectName: "persistedState",
-                properties: { floatThreshold: self.floatThreshold },
-                selector: null
-            }]
-        });
-        
-        self.forceFullUpdate = true;
-        if (self.lastUpdateOptions) {
-            self.update(self.lastUpdateOptions);
+        // Debounce the actual update
+        if (floatThresholdTimeout) {
+            clearTimeout(floatThresholdTimeout);
         }
+        
+        floatThresholdTimeout = setTimeout(() => {
+            self.host.persistProperties({
+                merge: [{
+                    objectName: "persistedState",
+                    properties: { floatThreshold: self.floatThreshold },
+                    selector: null
+                }]
+            });
+            
+            self.requestUpdate(true);
+        }, 500); // Wait 500ms after user stops typing
     });
 }
 
@@ -1220,32 +1555,37 @@ private createFloatThresholdControl(): void {
             .remove();
     }
 
-    private toggleConnectorLinesDisplay(): void {
-        try {
-            this.debugLog("Connector Lines Toggle method called!");
-            this.showConnectorLinesInternal = !this.showConnectorLinesInternal;
-            this.debugLog("New showConnectorLinesInternal value:", this.showConnectorLinesInternal);
+private toggleConnectorLinesDisplay(): void {
+    try {
+        this.debugLog("Connector Lines Toggle method called!");
+        this.showConnectorLinesInternal = !this.showConnectorLinesInternal;
+        this.debugLog("New showConnectorLinesInternal value:", this.showConnectorLinesInternal);
 
-            // Only update the button text if the button is visible
-            if (this.settings?.connectorLines?.showConnectorToggle?.value) {
-                this.headerSvg.select(".connector-toggle-group").select("text")
-                    .text(this.showConnectorLinesInternal ? "Hide Connector Lines" : "Show Connector Lines");
+        // Update visual immediately without full redraw
+        if (this.showConnectorLinesInternal) {
+            // Show connectors
+            if (this.useCanvasRendering) {
+                this.redrawVisibleTasks();
+            } else {
+                this.arrowLayer?.style("visibility", "visible");
             }
-
-            if (!this.lastUpdateOptions) {
-                console.error("Cannot trigger update - lastUpdateOptions is null during connector toggle.");
-                return;
+        } else {
+            // Hide connectors
+            if (this.useCanvasRendering) {
+                this.redrawVisibleTasks();
+            } else {
+                this.arrowLayer?.style("visibility", "hidden");
             }
-            
-            // ADDED: Force a full update for toggle changes
-            this.forceFullUpdate = true;
-            
-            this.update(this.lastUpdateOptions);
-            this.debugLog("Visual update triggered by connector toggle");
-        } catch (error) {
-            console.error("Error in connector toggle method:", error);
         }
+        
+        // Update button appearance
+        this.createConnectorLinesToggleButton();
+        
+        this.debugLog("Connector lines toggled without full update");
+    } catch (error) {
+        console.error("Error in connector toggle method:", error);
     }
+}
 
     public update(options: VisualUpdateOptions) {
         void this.updateInternal(options);
@@ -1268,19 +1608,29 @@ private async updateInternal(options: VisualUpdateOptions) {
         const updateType = this.determineUpdateType(options);
         this.debugLog(`Update type detected: ${updateType}`);
         
-        // Handle scroll reset for full updates
+        // Handle scroll reset for full updates with proper state management
         if (updateType === UpdateType.Full && this.scrollableContainer?.node()) {
-            // Temporarily disable scroll handler
-            this.scrollHandlerBackup = this.scrollListener;
-            if (this.scrollListener) {
-                this.scrollableContainer.on("scroll", null);
-            }
-            
-            // Reset scroll position
             const node = this.scrollableContainer.node();
-            if (node.scrollTop > 0) {
-                this.debugLog("EARLY SCROLL RESET: Full update detected, resetting scrollTop to 0.");
+            
+            // Only reset scroll if we're not in the middle of a user scroll
+            if (!this.scrollThrottleTimeout && node.scrollTop > 0) {
+                // Temporarily remove scroll listener
+                if (this.scrollListener) {
+                    this.scrollableContainer.on("scroll", null);
+                    this.scrollHandlerBackup = this.scrollListener;
+                }
+                
+                // Reset scroll position
+                this.debugLog("Resetting scroll position for full update");
                 node.scrollTop = 0;
+                
+                // Re-enable scroll listener after render completes
+                requestAnimationFrame(() => {
+                    if (this.scrollHandlerBackup && this.scrollableContainer) {
+                        this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
+                        this.scrollHandlerBackup = null;
+                    }
+                });
             }
         }
         
@@ -1316,12 +1666,21 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
 
+        // Sync internal baseline toggle state with the formatting pane setting.
+        // Do this on every update to catch changes made in the format pane.
+        if (this.settings?.taskAppearance?.showBaseline !== undefined) {
+            this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
+        }
+
         this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
+
+        this.applyPublishModeOptimizations();
 
         if (this.isInitialLoad) {
             if (this.settings?.displayOptions?.showAllTasks !== undefined) {
                 this.showAllTasksInternal = this.settings.displayOptions.showAllTasks.value;
             }
+            // Note: Baseline state is handled above, outside isInitialLoad
             if (this.settings?.persistedState?.selectedTaskId !== undefined) {
                 this.selectedTaskId = this.settings.persistedState.selectedTaskId.value || null;
             }
@@ -1668,15 +2027,14 @@ private async updateInternal(options: VisualUpdateOptions) {
     this.debugLog("--- Visual Update End ---");
 }
 
-    private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
+private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing viewport-only update");
         const viewportWidth = options.viewport.width;
         const viewportHeight = options.viewport.height;
         
         // Update buttons and header elements
-        this.createOrUpdateToggleButton(viewportWidth);
-        this.drawHeaderDivider(viewportWidth);
-        this.createConnectorLinesToggleButton(viewportWidth);
+        // Use the centralized function which now includes the baseline toggle
+        this.updateHeaderElements(viewportWidth);
         
         // Recalculate chart dimensions
         const chartWidth = Math.max(10, viewportWidth - this.settings.layoutSettings.leftMargin.value - this.margin.right);
@@ -1720,7 +2078,7 @@ private async updateInternal(options: VisualUpdateOptions) {
                                         this.yScale.range()[1]);
         }
         
-        if (showVertGridLines && this.xScale) {
+        if (showVertGridLines && this.xScale && this.yScale) {
             this.drawVerticalGridLines(this.xScale, this.yScale.range()[1], 
                                       this.gridLayer, this.headerGridLayer);
         }
@@ -1740,46 +2098,74 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.debugLog("--- Visual Update End (Viewport Only) ---");
     }
 
-    private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
+private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing settings-only update");
         
         // Update settings
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(
             VisualSettings, options.dataViews[0]);
         
-        // Only redraw visual elements, not data processing
-        const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
-        
+        // Sync internal states when settings change via the pane
+        if (this.settings?.taskAppearance?.showBaseline !== undefined) {
+            this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
+        }
+
         // Clear and redraw with new settings
         this.clearVisual();
-        this.createOrUpdateToggleButton(options.viewport.width);
-        this.drawHeaderDivider(options.viewport.width);
-        this.createConnectorLinesToggleButton(options.viewport.width);
+        // Use the centralized function which includes all header elements
+        this.updateHeaderElements(options.viewport.width);
         
         // Redraw with updated settings
+        // We must recalculate scales here because a setting change (like baseline toggle via format pane)
+        // might affect the X-axis domain or Y-axis layout (task height/padding).
         if (this.xScale && this.yScale) {
-            this.drawVisualElements(
-                visibleTasks,
-                this.xScale,
-                this.yScale,
-                this.xScale.range()[1],
-                this.yScale.range()[1]
+             // Recalculate scales
+             const scaleSetupResult = this.setupTimeBasedSVGAndScales(
+                options.viewport,
+                this.allTasksToShow // Use all tasks for scale calculation
             );
+            this.xScale = scaleSetupResult.xScale;
+            this.yScale = scaleSetupResult.yScale; 
+            const chartWidth = scaleSetupResult.chartWidth;
+            const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
+
+            // Update taskElementHeight as it might have changed
+            const taskHeight = this.settings.taskAppearance.taskHeight.value;
+            const taskPadding = this.settings.layoutSettings.taskPadding.value;
+            this.taskElementHeight = taskHeight + taskPadding;
+
+            // Recalculate visible tasks in case layout changed
+            this.calculateVisibleTasks();
+            const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+            
+            // Ensure scales are valid before drawing
+            if (this.xScale && this.yScale) {
+                this.drawVisualElements(
+                    visibleTasks,
+                    this.xScale,
+                    this.yScale,
+                    chartWidth,
+                    calculatedChartHeight
+                );
+            }
         }
         
         this.debugLog("--- Visual Update End (Settings Only) ---");
     }
 
-    private clearVisual(): void {
+private clearVisual(): void {
             this.gridLayer?.selectAll("*").remove();
             this.arrowLayer?.selectAll("*").remove();
             this.taskLayer?.selectAll("*").remove();
             this.mainSvg?.select("defs").remove();
         
             this.headerGridLayer?.selectAll("*").remove();
+
+            /* MODIFICATION: Stop removing persistent header elements. They will be updated in place.
             this.headerSvg?.selectAll(".divider-line").remove();
             this.headerSvg?.selectAll(".connector-toggle-group").remove(); // Clear connector toggle
             this.stickyHeaderContainer?.selectAll(".visual-title").remove();
+            */
         
             this.mainSvg?.selectAll(".message-text").remove();
             this.headerSvg?.selectAll(".message-text").remove();
@@ -1791,18 +2177,29 @@ private async updateInternal(options: VisualUpdateOptions) {
             }
         }
 
-    private drawHeaderDivider(viewportWidth: number): void {
+private drawHeaderDivider(viewportWidth: number): void {
         if (!this.headerSvg) return;
-        this.headerSvg.append("line")
+
+        /* MODIFICATION: Use D3 update pattern instead of always appending */
+        
+        const lineData = [viewportWidth];
+        // Select the existing line (if any) and bind the data
+        const lineSelection = this.headerSvg.selectAll<SVGLineElement, number>(".divider-line")
+            .data(lineData);
+
+        // Enter + Update pattern
+        lineSelection.enter()
+            .append("line")
             .attr("class", "divider-line")
             .attr("x1", 0)
-            .attr("y1", this.headerHeight - 1) // Will now be at 59px
-            .attr("x2", viewportWidth)
+            .attr("y1", this.headerHeight - 1)
             .attr("y2", this.headerHeight - 1)
             .attr("stroke", "#e0e0e0") // Lighter color
-            .attr("stroke-width", 1);
+            .attr("stroke-width", 1)
+            .merge(lineSelection as any) // Merge enter selection with the update selection (Casting to any if needed due to D3 type definitions)
+            .attr("x2", d => d); // Update the width (x2)
     }
-
+    
     private createArrowheadMarkers(
         targetSvg: Selection<SVGSVGElement, unknown, null, undefined>,
         arrowSize: number,
@@ -1861,6 +2258,9 @@ private setupTimeBasedSVGAndScales(
     // Collect ALL date timestamps including baseline dates
     const allTimestamps: number[] = [];
     
+    // NEW: Check if baseline should be included based on the internal toggle state
+    const includeBaselineInScale = this.showBaselineInternal;
+
     tasksToShow.forEach(task => {
         // Add regular start/finish dates
         if (task.startDate && !isNaN(task.startDate.getTime())) {
@@ -1870,12 +2270,14 @@ private setupTimeBasedSVGAndScales(
             allTimestamps.push(task.finishDate.getTime());
         }
         
-        // IMPORTANT: Also add baseline dates if they exist
-        if (task.baselineStartDate && !isNaN(task.baselineStartDate.getTime())) {
-            allTimestamps.push(task.baselineStartDate.getTime());
-        }
-        if (task.baselineFinishDate && !isNaN(task.baselineFinishDate.getTime())) {
-            allTimestamps.push(task.baselineFinishDate.getTime());
+        // IMPORTANT: Only add baseline dates if they exist AND the toggle is ON
+        if (includeBaselineInScale) {
+            if (task.baselineStartDate && !isNaN(task.baselineStartDate.getTime())) {
+                allTimestamps.push(task.baselineStartDate.getTime());
+            }
+            if (task.baselineFinishDate && !isNaN(task.baselineFinishDate.getTime())) {
+                allTimestamps.push(task.baselineFinishDate.getTime());
+            }
         }
     });
 
@@ -1883,7 +2285,7 @@ private setupTimeBasedSVGAndScales(
     const validTimestamps = allTimestamps.filter(t => t != null && !isNaN(t) && isFinite(t));
 
     if (validTimestamps.length === 0) {
-        console.warn("No valid dates found among tasks to plot (including baseline dates). Cannot create time scale.");
+        console.warn("No valid dates found among tasks to plot (including baseline dates if enabled). Cannot create time scale.");
         return { xScale: null, yScale: null, chartWidth, calculatedChartHeight };
     }
 
@@ -1912,7 +2314,7 @@ private setupTimeBasedSVGAndScales(
     // Log for debugging
     this.debugLog(`X-axis domain calculation:
         - Regular dates found: ${tasksToShow.filter(t => t.startDate || t.finishDate).length} tasks
-        - Baseline dates found: ${tasksToShow.filter(t => t.baselineStartDate || t.baselineFinishDate).length} tasks
+        - Baseline dates included: ${includeBaselineInScale}
         - Total timestamps considered: ${validTimestamps.length}
         - Domain: ${domainMinDate.toISOString()} to ${domainMaxDate.toISOString()}`);
 
@@ -1954,8 +2356,15 @@ private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: numbe
     
     this.scrollableContainer.on("scroll", this.scrollListener);
     
-    // Calculate initial visible range
+    // CRITICAL: Calculate initial visible range
     this.calculateVisibleTasks();
+    
+    // CRITICAL: Force immediate initial render
+    if (this.xScale && this.yScale && this.allTasksToShow.length > 0) {
+        requestAnimationFrame(() => {
+            this.redrawVisibleTasks();
+        });
+    }
 }
 
 // Add this helper method for canvas mouse coordinates
@@ -1963,15 +2372,12 @@ private getCanvasMouseCoordinates(event: MouseEvent): { x: number, y: number } {
     if (!this.canvasElement) return { x: 0, y: 0 };
     
     const rect = this.canvasElement.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
     
-    // Account for DPR only if canvas is scaled
-    const scaleX = this.canvasElement.width / rect.width;
-    const scaleY = this.canvasElement.height / rect.height;
-    
+    // Simply convert from page coordinates to canvas coordinates
+    // No need to account for DPR here as we're working in CSS pixels
     return {
-        x: (event.clientX - rect.left) * scaleX / dpr,
-        y: (event.clientY - rect.top) * scaleY / dpr
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
     };
 }
 
@@ -2140,6 +2546,7 @@ private updateHeaderElements(viewportWidth: number): void {
     
     // Update other header elements as needed
     this.createModeToggleButton(viewportWidth);
+    this.createOrUpdateBaselineToggleButton(viewportWidth); // NEW: Add this call
     this.createConnectorLinesToggleButton(viewportWidth);
     this.createOrUpdateVisualTitle();
 }
@@ -2166,17 +2573,37 @@ private updateHeaderElements(viewportWidth: number): void {
         this.debugLog(`Viewport: ${this.viewportStartIndex} - ${this.viewportEndIndex} of ${this.taskTotalCount}`);
     }
     
-    private handleScroll(): void {
-        const oldStart = this.viewportStartIndex;
-        const oldEnd = this.viewportEndIndex;
-        
-        this.calculateVisibleTasks();
-        
-        // Only redraw if the visible range has changed
-        if (oldStart !== this.viewportStartIndex || oldEnd !== this.viewportEndIndex) {
-            this.redrawVisibleTasks();
-        }
+private handleScroll(): void {
+    const oldStart = this.viewportStartIndex;
+    const oldEnd = this.viewportEndIndex;
+    
+    this.calculateVisibleTasks();
+    
+    // Only redraw if the visible range has changed OR if canvas is empty
+    const canvasNeedsRedraw = this.canvasElement && 
+                             this.canvasContext && 
+                             this.useCanvasRendering &&
+                             !this.canvasHasContent();
+    
+    if (oldStart !== this.viewportStartIndex || 
+        oldEnd !== this.viewportEndIndex || 
+        canvasNeedsRedraw) {
+        this.redrawVisibleTasks();
     }
+}
+
+// Add this helper method
+private canvasHasContent(): boolean {
+    if (!this.canvasElement || !this.canvasContext) return false;
+    
+    // Check if canvas has any non-transparent pixels
+    try {
+        const imageData = this.canvasContext.getImageData(0, 0, 1, 1);
+        return imageData.data[3] > 0; // Check alpha channel
+    } catch {
+        return false;
+    }
+}
     
 private redrawVisibleTasks(): void {
     if (!this.xScale || !this.yScale || !this.allTasksToShow) {
@@ -2210,25 +2637,44 @@ private redrawVisibleTasks(): void {
         this.arrowLayer?.selectAll("*").remove();
         this.taskLayer?.selectAll("*").remove();
     }
+
+    // MODIFICATION: Prepare for Gridline redraw
+    const showHorzGridLines = this.settings.gridLines.showGridLines.value;
+    const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+    const chartWidth = this.xScale.range()[1];
+    const chartHeight = this.yScale.range()[1];
+
+    // MODIFICATION: Always clear stale SVG gridlines before redrawing in either mode.
+    if (showHorzGridLines) {
+        this.gridLayer?.selectAll(".grid-line.horizontal").remove();
+    }
     
     if (this.useCanvasRendering) {
         // --- Canvas Rendering Path ---
         this.taskLayer.style("display", "none");
         this.arrowLayer.style("display", "none");
         
-        // Position the canvas element
+        // Position the canvas element with pixel-perfect positioning
         if (this.canvasElement) {
+            const leftMargin = Math.round(this.margin.left);
+            const topMargin = Math.round(this.margin.top);
+            
             this.canvasElement.style.display = 'block';
             this.canvasElement.style.visibility = 'visible';
-            this.canvasElement.style.left = `${this.margin.left}px`;
-            this.canvasElement.style.top = `${this.margin.top}px`;
+            this.canvasElement.style.left = `${leftMargin}px`;
+            this.canvasElement.style.top = `${topMargin}px`;
+            this.canvasElement.style.imageRendering = 'auto';
+            this.canvasElement.style.transform = 'translateZ(0)'; // Force GPU acceleration
         }
-
-        const chartWidth = this.xScale.range()[1];
-        const chartHeight = this.yScale.range()[1];
 
         // Use the new helper to size, clear, and scale the canvas
         if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
+
+            // MODIFICATION: Draw Gridlines on Canvas
+            if (showHorzGridLines) {
+                this.drawHorizontalGridLinesCanvas(visibleTasks, this.yScale, chartWidth, currentLeftMargin);
+            }
+
             // Draw tasks on the prepared canvas
             this.drawTasksCanvas(
                 visibleTasks, 
@@ -2269,6 +2715,14 @@ private redrawVisibleTasks(): void {
         this.arrowLayer.style("display", "block");
         this.arrowLayer.style("visibility", "visible");
         
+        // Apply SVG rendering hints
+        this.setupSVGRenderingHints();
+
+        // MODIFICATION: Draw Gridlines on SVG
+        if (showHorzGridLines) {
+            this.drawHorizontalGridLines(visibleTasks, this.yScale, chartWidth, currentLeftMargin, chartHeight);
+        }
+        
         // Draw arrows first so they appear behind tasks
         if (this.showConnectorLinesInternal) {
             this.drawArrows(
@@ -2299,7 +2753,7 @@ private redrawVisibleTasks(): void {
         );
     }
     
-    // Redraw project end line if needed
+    // Redraw project end line if needed (Always SVG)
     if (this.settings.projectEndLine.show.value) {
         this.drawProjectEndLine(
             this.xScale.range()[1], 
@@ -2312,127 +2766,49 @@ private redrawVisibleTasks(): void {
         );
     }
 }
-    
-    private performRedrawVisibleTasks(): void {
-            // Clear existing task elements
-            this.taskLayer?.selectAll("*").remove();
-            this.arrowLayer?.selectAll("*").remove();
-            
-            // Get visible subset of tasks
-            const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
-            
-            // Only redraw horizontal grid lines for visible tasks
-            if (this.settings.gridLines.showGridLines.value) {
-                this.gridLayer?.selectAll(".grid-line.horizontal").remove();
-                this.drawHorizontalGridLines(
-                    visibleTasks,
-                    this.yScale!,
-                    this.xScale!.range()[1],
-                    this.settings.layoutSettings.leftMargin.value,
-                    this.yScale!.range()[1]
-                );
-            }
-            
-            // Only draw visible tasks
-            if (this.xScale && this.yScale) {
-                // NEW: Check if we should use canvas
-                this.useCanvasRendering = visibleTasks.length > this.CANVAS_THRESHOLD;
-                
-            if (this.useCanvasRendering) {
-                // Canvas rendering
-                this.taskLayer.style("display", "none");
-                this.arrowLayer.style("display", "none");
-                
-                if (this.canvasElement) {
-                    this.canvasElement.style.display = 'block';
-                    this.canvasElement.style.left = `${this.margin.left}px`;
-                    this.canvasElement.style.top = `${this.margin.top}px`;
-                    this.canvasElement.width = this.xScale.range()[1];
-                    this.canvasElement.height = this.yScale.range()[1];
-                    
-                    this.canvasContext = this.canvasElement.getContext('2d');
-                }
-                    
-                    // Draw on canvas
-                    this.drawTasksCanvas(
-                        visibleTasks, 
-                        this.xScale, 
-                        this.yScale,
-                        this.settings.taskAppearance.taskColor.value.value,
-                        this.settings.taskAppearance.milestoneColor.value.value,
-                        this.settings.taskAppearance.criticalPathColor.value.value,
-                        this.settings.textAndLabels.labelColor.value.value,
-                        this.settings.textAndLabels.showDuration.value,
-                        this.settings.taskAppearance.taskHeight.value,
-                        this.settings.textAndLabels.dateBackgroundColor.value.value,
-                        1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
-                    );
-                    
-                    if (this.showConnectorLinesInternal) {
-                        this.drawArrowsCanvas(
-                            visibleTasks,
-                            this.xScale,
-                            this.yScale,
-                            this.settings.taskAppearance.criticalPathColor.value.value,
-                            this.settings.connectorLines.connectorColor.value.value,
-                            this.settings.connectorLines.connectorWidth.value,
-                            this.settings.connectorLines.criticalConnectorWidth.value,
-                            this.settings.taskAppearance.taskHeight.value,
-                            this.settings.taskAppearance.milestoneSize.value,
-                        );
-                    }
-                } else {
-                    // SVG rendering
-                    this.canvasLayer.style("display", "none");
-                    this.taskLayer.style("display", "block");
-                    this.arrowLayer.style("display", "block");
-                    
-                    // Draw arrows first so they appear behind tasks
-                    if (this.showConnectorLinesInternal) {
-                        this.drawArrows(
-                            visibleTasks,
-                            this.xScale,
-                            this.yScale,
-                            this.settings.taskAppearance.criticalPathColor.value.value,
-                            this.settings.connectorLines.connectorColor.value.value,
-                            this.settings.connectorLines.connectorWidth.value,
-                            this.settings.connectorLines.criticalConnectorWidth.value,
-                            this.settings.taskAppearance.taskHeight.value,
-                            this.settings.taskAppearance.milestoneSize.value,
-                        );
-                    }
-                    
-                    // Draw tasks
-                    this.drawTasks(
-                        visibleTasks, 
-                        this.xScale, 
-                        this.yScale,
-                        this.settings.taskAppearance.taskColor.value.value,
-                        this.settings.taskAppearance.milestoneColor.value.value,
-                        this.settings.taskAppearance.criticalPathColor.value.value,
-                        this.settings.textAndLabels.labelColor.value.value,
-                        this.settings.textAndLabels.showDuration.value,
-                        this.settings.taskAppearance.taskHeight.value,
-                        this.settings.textAndLabels.dateBackgroundColor.value.value,
-                        1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
-                    );
-                }
-                
-                // Draw project end line if enabled, using all tasks for calculation
-                if (this.settings.projectEndLine.show.value) {
-                    this.drawProjectEndLine(
-                        this.xScale.range()[1],
-                        this.xScale,
-                        visibleTasks,
-                        this.allTasksToShow,
-                        this.yScale.range()[1],
-                        this.gridLayer!,
-                        this.headerGridLayer!
-                    );
-                }
-            }
+
+private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number): void {
+        if (!this.canvasContext) return;
+        const ctx = this.canvasContext;
+        ctx.save();
+
+        const settings = this.settings.gridLines;
+        const lineColor = settings.gridLineColor.value.value;
+        const lineWidth = settings.gridLineWidth.value;
+        const style = settings.gridLineStyle.value.value;
+
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = lineWidth;
+
+        // Configure line dash style
+        switch (style) {
+            case "dashed": ctx.setLineDash([4, 3]); break;
+            case "dotted": ctx.setLineDash([1, 2]); break;
+            default: ctx.setLineDash([]); break;
         }
 
+        // Define the horizontal span
+        const x1 = -currentLeftMargin;
+        const x2 = chartWidth;
+
+        // MODIFICATION: Fix boundary logic. Use all visible tasks, but filter out the very first task (yOrder 0).
+        const lineData = tasks.filter(t => t.yOrder !== undefined && t.yOrder > 0);
+
+        lineData.forEach(task => {
+            const yPos = yScale(task.yOrder?.toString() ?? '');
+            if (yPos !== undefined && !isNaN(yPos)) {
+                // Ensure pixel alignment for crisp lines
+                const alignedY = Math.round(yPos);
+                ctx.beginPath();
+                ctx.moveTo(x1, alignedY);
+                ctx.lineTo(x2, alignedY);
+                ctx.stroke();
+            }
+        });
+
+        ctx.restore();
+    }
+    
     private createScales(
         domainMin: Date, domainMax: Date, chartWidth: number, tasksToShow: Task[],
         calculatedChartHeight: number, taskHeight: number, taskPadding: number
@@ -2470,122 +2846,149 @@ private redrawVisibleTasks(): void {
         return { xScale, yScale, chartWidth, calculatedChartHeight };
     }
 
-    private drawVisualElements(
-        tasksToShow: Task[],
-        xScale: ScaleTime<number, number>,
-        yScale: ScaleBand<string>,
-        chartWidth: number,
-        chartHeight: number
-    ): void {
-        if (this.scrollThrottleTimeout !== null) {
-            this.debugLog("Skipping full redraw during active scroll");
-            return;
+private drawVisualElements(
+    tasksToShow: Task[],
+    xScale: ScaleTime<number, number>,
+    yScale: ScaleBand<string>,
+    chartWidth: number,
+    chartHeight: number
+): void {
+    if (this.scrollThrottleTimeout !== null) {
+        this.debugLog("Skipping full redraw during active scroll");
+        return;
+    }
+    
+    if (!(this.gridLayer?.node() && this.taskLayer?.node() && this.arrowLayer?.node() && 
+            xScale && yScale && yScale.bandwidth())) {
+        console.error("Cannot draw elements: Missing main layers or invalid scales/bandwidth.");
+        this.displayMessage("Error during drawing setup.");
+        return;
+    }
+    
+    if (!this.headerGridLayer?.node()) {
+        console.error("Cannot draw header elements: Missing header layer.");
+        this.displayMessage("Error during drawing setup.");
+        return;
+    }
+    
+    const taskColor = this.settings.taskAppearance.taskColor.value.value;
+    const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
+    const milestoneColor = this.settings.taskAppearance.milestoneColor.value.value;
+    const labelColor = this.settings.textAndLabels.labelColor.value.value;
+    const taskHeight = this.settings.taskAppearance.taskHeight.value;
+    const connectorColor = this.settings.connectorLines.connectorColor.value.value;
+    const connectorWidth = this.settings.connectorLines.connectorWidth.value;
+    const criticalConnectorWidth = this.settings.connectorLines.criticalConnectorWidth.value;
+    const dateBgColor = this.settings.textAndLabels.dateBackgroundColor.value.value;
+    const dateBgTransparency = this.settings.textAndLabels.dateBackgroundTransparency.value;
+    const dateBgOpacity = 1 - (dateBgTransparency / 100);
+    const showHorzGridLines = this.settings.gridLines.showGridLines.value;
+    const showVertGridLines = this.settings.verticalGridLines.show.value;
+    const showDuration = this.settings.textAndLabels.showDuration.value;
+    const showProjectEndLine = this.settings.projectEndLine.show.value;
+    // MODIFICATION: Ensure currentLeftMargin is defined here for conditional use.
+    const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+    
+    // Decide whether to use Canvas or SVG based on task count
+    this.useCanvasRendering = tasksToShow.length > this.CANVAS_THRESHOLD;
+    this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${tasksToShow.length} tasks`);
+    
+    /* MODIFICATION: Remove the unconditional SVG draw. It is handled conditionally below.
+    if (showHorzGridLines) {
+        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        this.drawHorizontalGridLines(tasksToShow, yScale, chartWidth, currentLeftMargin, chartHeight);
+    }
+    */
+
+    if (showVertGridLines) {
+        // Vertical gridlines are always drawn in SVG (as they align with the SVG header)
+        this.drawVerticalGridLines(xScale, chartHeight, this.gridLayer, this.headerGridLayer);
+    }
+    
+    if (this.useCanvasRendering) {
+        // --- Canvas Rendering Path ---
+        this.taskLayer.style("display", "none");
+        this.arrowLayer.style("display", "none");
+        
+        // Position the canvas element and ensure it's visible
+        if (this.canvasElement) {
+            this.canvasElement.style.display = 'block';
+            this.canvasElement.style.visibility = 'visible'; // CRITICAL: Ensure visibility
+            this.canvasElement.style.left = `${this.margin.left}px`;
+            this.canvasElement.style.top = `${this.margin.top}px`;
+            this.canvasElement.style.pointerEvents = 'auto'; // Ensure interactions work
+            this.canvasElement.style.zIndex = '1'; // Ensure it's above other elements
         }
         
-        if (!(this.gridLayer?.node() && this.taskLayer?.node() && this.arrowLayer?.node() && 
-                xScale && yScale && yScale.bandwidth())) {
-            console.error("Cannot draw elements: Missing main layers or invalid scales/bandwidth.");
-            this.displayMessage("Error during drawing setup.");
-            return;
-        }
-        
-        if (!this.headerGridLayer?.node()) {
-            console.error("Cannot draw header elements: Missing header layer.");
-            this.displayMessage("Error during drawing setup.");
-            return;
-        }
-        
-        const taskColor = this.settings.taskAppearance.taskColor.value.value;
-        const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
-        const milestoneColor = this.settings.taskAppearance.milestoneColor.value.value;
-        const labelColor = this.settings.textAndLabels.labelColor.value.value;
-        const taskHeight = this.settings.taskAppearance.taskHeight.value;
-        const connectorColor = this.settings.connectorLines.connectorColor.value.value;
-        const connectorWidth = this.settings.connectorLines.connectorWidth.value;
-        const criticalConnectorWidth = this.settings.connectorLines.criticalConnectorWidth.value;
-        const dateBgColor = this.settings.textAndLabels.dateBackgroundColor.value.value;
-        const dateBgTransparency = this.settings.textAndLabels.dateBackgroundTransparency.value;
-        const dateBgOpacity = 1 - (dateBgTransparency / 100);
-        const showHorzGridLines = this.settings.gridLines.showGridLines.value;
-        const showVertGridLines = this.settings.verticalGridLines.show.value;
-        const showDuration = this.settings.textAndLabels.showDuration.value;
-        const showProjectEndLine = this.settings.projectEndLine.show.value;
-        
-        // Decide whether to use Canvas or SVG based on task count
-        this.useCanvasRendering = tasksToShow.length > this.CANVAS_THRESHOLD;
-        this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${tasksToShow.length} tasks`);
-        
-        if (showHorzGridLines) {
-            const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-            this.drawHorizontalGridLines(tasksToShow, yScale, chartWidth, currentLeftMargin, chartHeight);
-        }
-        if (showVertGridLines) {
-            this.drawVerticalGridLines(xScale, chartHeight, this.gridLayer, this.headerGridLayer);
-        }
-        
-        if (this.useCanvasRendering) {
-            // --- Canvas Rendering Path ---
-            this.taskLayer.style("display", "none");
-            this.arrowLayer.style("display", "none");
-            
-            // Position the canvas element
-            if (this.canvasElement) {
-                this.canvasElement.style.display = 'block';
-                this.canvasElement.style.left = `${this.margin.left}px`;
-                this.canvasElement.style.top = `${this.margin.top}px`;
+        // Use the new helper to size, clear, and scale the canvas
+        if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
+
+            // MODIFICATION: Draw horizontal gridlines on Canvas
+            if (showHorzGridLines) {
+                this.drawHorizontalGridLinesCanvas(tasksToShow, yScale, chartWidth, currentLeftMargin);
             }
-            
-            // Use the new helper to size, clear, and scale the canvas
-            if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
-                // Draw tasks on the prepared canvas
-                this.drawTasksCanvas(
-                    tasksToShow, xScale, yScale,
-                    taskColor, milestoneColor, criticalColor,
-                    labelColor, showDuration, taskHeight,
-                    dateBgColor, dateBgOpacity
-                );
-                
-                // Draw arrows on the prepared canvas if needed
-                if (this.showConnectorLinesInternal) {
-                    this.drawArrowsCanvas(
-                        tasksToShow, xScale, yScale,
-                        criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
-                        taskHeight, this.settings.taskAppearance.milestoneSize.value
-                    );
-                }
-            }
-        } else {
-            // --- SVG Rendering Path ---
-            if (this.canvasElement) {
-                this.canvasElement.style.display = 'none';
-            }
-            this.taskLayer.style("display", "block");
-            this.arrowLayer.style("display", "block");
-            
-            // Draw arrows first so they appear behind tasks
-            if (this.showConnectorLinesInternal) {
-                this.drawArrows(
-                    tasksToShow, xScale, yScale,
-                    criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
-                    taskHeight, this.settings.taskAppearance.milestoneSize.value
-                );
-            }
-            
-            this.drawTasks(
+
+            // Draw tasks on the prepared canvas
+            this.drawTasksCanvas(
                 tasksToShow, xScale, yScale,
                 taskColor, milestoneColor, criticalColor,
                 labelColor, showDuration, taskHeight,
                 dateBgColor, dateBgOpacity
             );
+            
+            // Draw arrows on the prepared canvas if needed
+            if (this.showConnectorLinesInternal) {
+                this.drawArrowsCanvas(
+                    tasksToShow, xScale, yScale,
+                    criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
+                    taskHeight, this.settings.taskAppearance.milestoneSize.value
+                );
+            }
+        }
+    } else {
+        // --- SVG Rendering Path ---
+        if (this.canvasElement) {
+            this.canvasElement.style.display = 'none';
+            this.canvasElement.style.visibility = 'hidden';
+        }
+        this.taskLayer.style("display", "block");
+        this.taskLayer.style("visibility", "visible");
+        this.arrowLayer.style("display", "block");
+        this.arrowLayer.style("visibility", "visible");
+        
+        // Apply SVG rendering hints
+        this.setupSVGRenderingHints();
+
+        // MODIFICATION: Draw horizontal gridlines on SVG
+        if (showHorzGridLines) {
+            this.drawHorizontalGridLines(tasksToShow, yScale, chartWidth, currentLeftMargin, chartHeight);
         }
         
-        if (showProjectEndLine) {
-            this.drawProjectEndLine(chartWidth, xScale, tasksToShow, this.allTasksToShow, chartHeight, 
-                                    this.gridLayer, this.headerGridLayer);
+        // Draw arrows first so they appear behind tasks
+        if (this.showConnectorLinesInternal) {
+            this.drawArrows(
+                tasksToShow, xScale, yScale,
+                criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
+                taskHeight, this.settings.taskAppearance.milestoneSize.value
+            );
         }
+        
+        this.drawTasks(
+            tasksToShow, xScale, yScale,
+            taskColor, milestoneColor, criticalColor,
+            labelColor, showDuration, taskHeight,
+            dateBgColor, dateBgOpacity
+        );
     }
+    
+    if (showProjectEndLine) {
+        // Project end line is always drawn in SVG
+        this.drawProjectEndLine(chartWidth, xScale, tasksToShow, this.allTasksToShow, chartHeight, 
+                                this.gridLayer, this.headerGridLayer);
+    }
+}
 
-    private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
+private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
         if (!this.gridLayer?.node() || !yScale) { console.warn("Skipping horizontal grid lines: Missing layer or Y scale."); return; }
         this.gridLayer.selectAll(".grid-line.horizontal").remove();
 
@@ -2596,7 +2999,10 @@ private redrawVisibleTasks(): void {
         let lineDashArray = "none";
          switch (style) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; break; }
 
-        const lineData = tasks.slice(1);
+        // MODIFICATION: Fix boundary logic. Use filter instead of slice(1).
+        // const lineData = tasks.slice(1);
+        const lineData = tasks.filter(t => t.yOrder !== undefined && t.yOrder > 0);
+
 
         this.gridLayer.selectAll(".grid-line.horizontal")
             .data(lineData, (d: Task) => d.internalId)
@@ -2778,7 +3184,8 @@ private drawTasks(
     const allTaskGroups = enterGroups.merge(taskGroupsSelection);
 
     // --- Draw Baseline Bars ---
-    const showBaseline = this.settings.taskAppearance.showBaseline.value;
+    // Use the internal state which is synced with the setting (either via format pane or header toggle)
+    const showBaseline = this.showBaselineInternal;
     if (showBaseline) {
         const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
         const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
@@ -3258,6 +3665,9 @@ private drawTasksCanvas(
     // Save context state before drawing
     ctx.save();
     
+    // Apply consistent line width for pixel-perfect rendering
+    ctx.lineWidth = Math.round(window.devicePixelRatio) / window.devicePixelRatio;
+    
     try {
         const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
         const generalFontSize = this.settings.textAndLabels.fontSize.value;
@@ -3265,13 +3675,27 @@ private drawTasksCanvas(
         const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         const nearCriticalColor = "#F7941F";
-        const showBaseline = this.settings.taskAppearance.showBaseline.value;
+        // Use the internal state which is synced with the setting
+        const showBaseline = this.showBaselineInternal;
         const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
         const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
         const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
         
-        // Set font for measurements
-        ctx.font = `${taskNameFontSize}pt Segoe UI, sans-serif`;
+        // Calculate pixel-perfect font sizes
+        const baseFontSize = 13; // Base pixel size for 10pt
+        const taskNamePixelSize = Math.round((taskNameFontSize / 10) * baseFontSize);
+        const generalPixelSize = Math.round((generalFontSize / 10) * baseFontSize);
+        
+        // Use web-safe font stack with fallbacks
+        const fontFamily = '"Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif';
+        
+        // Set initial font with subpixel antialiasing
+        ctx.font = `${taskNamePixelSize}px ${fontFamily}`;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'start';
+        
+        // Force text rendering mode
+        (ctx as any).textRendering = 'optimizeLegibility';
         
         // Draw each task
         tasks.forEach((task: Task) => {
@@ -3279,65 +3703,71 @@ private drawTasksCanvas(
             const yPosition = yScale(domainKey);
             if (yPosition === undefined || isNaN(yPosition)) return;
 
+            // Use pixel-aligned coordinates
+            const yPos = Math.round(yPosition);
+
             // --- Draw Baseline Bar on Canvas ---
             if (showBaseline && task.baselineStartDate && task.baselineFinishDate && task.baselineFinishDate >= task.baselineStartDate) {
-                const x_base = xScale(task.baselineStartDate);
-                const width_base = Math.max(1, xScale(task.baselineFinishDate) - x_base);
-                const y_base = yPosition + taskHeight + baselineOffset;
+                const x_base = Math.round(xScale(task.baselineStartDate));
+                const width_base = Math.round(Math.max(1, xScale(task.baselineFinishDate) - x_base));
+                const y_base = Math.round(yPos + taskHeight + baselineOffset);
 
                 ctx.fillStyle = baselineColor;
-                ctx.fillRect(x_base, y_base, width_base, baselineHeight);
+                ctx.fillRect(x_base, y_base, width_base, Math.round(baselineHeight));
             }
             
             // Determine task color
             let fillColor = taskColor;
             if (task.internalId === this.selectedTaskId) {
-                fillColor = "#8A2BE2"; // Selection purple
+                fillColor = "#8A2BE2";
             } else if (task.isCritical) {
                 fillColor = criticalColor;
             } else if (task.isNearCritical) {
                 fillColor = nearCriticalColor;
             }
             
-            // Draw task or milestone
+            // Draw task or milestone with pixel alignment
             if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
                 // Draw milestone diamond
                 const milestoneDate = task.startDate || task.finishDate;
                 if (milestoneDate) {
-                    const x = xScale(milestoneDate);
-                    const y = yPosition + taskHeight / 2;
-                    const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                    const x = Math.round(xScale(milestoneDate));
+                    const y = Math.round(yPos + taskHeight / 2);
+                    const size = Math.round(Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9)));
+                    const halfSize = size / 2;
                     
                     ctx.beginPath();
-                    ctx.moveTo(x, y - size / 2);
-                    ctx.lineTo(x + size / 2, y);
-                    ctx.lineTo(x, y + size / 2);
-                    ctx.lineTo(x - size / 2, y);
+                    ctx.moveTo(x, y - halfSize);
+                    ctx.lineTo(x + halfSize, y);
+                    ctx.lineTo(x, y + halfSize);
+                    ctx.lineTo(x - halfSize, y);
                     ctx.closePath();
                     
                     ctx.fillStyle = fillColor;
                     ctx.fill();
+                    
                     ctx.strokeStyle = task.internalId === this.selectedTaskId ? fillColor : "#000";
-                    ctx.lineWidth = task.internalId === this.selectedTaskId ? 2.5 : 1;
+                    ctx.lineWidth = task.internalId === this.selectedTaskId ? 2 : 1;
                     ctx.stroke();
                 }
             } else {
-                // Draw regular task bar
+                // Draw regular task bar with pixel-perfect positioning
                 if (task.startDate && task.finishDate) {
-                    const x = xScale(task.startDate);
-                    const width = Math.max(1, xScale(task.finishDate) - x);
-                    const y = yPosition;
-                    const radius = Math.min(3, taskHeight * 0.1);
+                    const x = Math.round(xScale(task.startDate));
+                    const width = Math.round(Math.max(1, xScale(task.finishDate) - xScale(task.startDate)));
+                    const y = Math.round(yPos);
+                    const height = Math.round(taskHeight);
+                    const radius = Math.min(3, Math.round(height * 0.1));
                     
-                    // Draw rounded rectangle
+                    // Draw crisp rounded rectangle
                     ctx.beginPath();
                     ctx.moveTo(x + radius, y);
                     ctx.lineTo(x + width - radius, y);
                     ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                    ctx.lineTo(x + width, y + taskHeight - radius);
-                    ctx.quadraticCurveTo(x + width, y + taskHeight, x + width - radius, y + taskHeight);
-                    ctx.lineTo(x + radius, y + taskHeight);
-                    ctx.quadraticCurveTo(x, y + taskHeight, x, y + taskHeight - radius);
+                    ctx.lineTo(x + width, y + height - radius);
+                    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                    ctx.lineTo(x + radius, y + height);
+                    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
                     ctx.lineTo(x, y + radius);
                     ctx.quadraticCurveTo(x, y, x + radius, y);
                     ctx.closePath();
@@ -3347,89 +3777,96 @@ private drawTasksCanvas(
                     
                     if (task.internalId === this.selectedTaskId) {
                         ctx.strokeStyle = fillColor;
-                        ctx.lineWidth = 2.5;
+                        ctx.lineWidth = 2;
                         ctx.stroke();
                     }
                     
                     // Draw duration text if enabled
-                    if (showDuration && task.duration > 0) {
+                    if (showDuration && task.duration > 0 && width > 20) {
                         const durationText = `${Math.round(task.duration)}d`;
-                        ctx.font = `${Math.max(7, generalFontSize * 0.8)}pt Segoe UI, sans-serif`;
+                        const durationFontSize = Math.round((Math.max(7, generalFontSize * 0.8) / 10) * baseFontSize);
+                        
+                        ctx.save();
+                        ctx.font = `bold ${durationFontSize}px ${fontFamily}`;
                         ctx.fillStyle = "white";
                         ctx.textAlign = "center";
                         ctx.textBaseline = "middle";
-                        const centerX = x + width / 2;
-                        const centerY = y + taskHeight / 2;
                         
-                        // Only draw if text fits
+                        const centerX = Math.round(x + width / 2);
+                        const centerY = Math.round(y + height / 2);
+                        
                         const textWidth = ctx.measureText(durationText).width;
                         if (textWidth < width - 4) {
                             ctx.fillText(durationText, centerX, centerY);
                         }
-                        
-                        // Reset font for task names
-                        ctx.font = `${taskNameFontSize}pt Segoe UI, sans-serif`;
+                        ctx.restore();
                     }
                 }
             }
             
-            // Draw task name
-            const labelX = -currentLeftMargin + this.labelPaddingLeft;
-            const labelY = yPosition + taskHeight / 2;
+            // Draw task name with improved clarity
+            const labelX = Math.round(-currentLeftMargin + this.labelPaddingLeft);
+            const labelY = Math.round(yPos + taskHeight / 2);
             
-            ctx.font = `${taskNameFontSize}pt Segoe UI, sans-serif`;
+            ctx.font = `${taskNamePixelSize}px ${fontFamily}`;
             ctx.fillStyle = task.internalId === this.selectedTaskId ? "#8A2BE2" : labelColor;
             ctx.textAlign = "start";
             ctx.textBaseline = "middle";
             
-            // Simple text truncation for canvas
-            const maxWidth = currentLeftMargin - this.labelPaddingLeft - 5;
+            // Text truncation
+            const maxWidth = Math.round(currentLeftMargin - this.labelPaddingLeft - 5);
             let taskName = task.name || "";
             const metrics = ctx.measureText(taskName);
             
             if (metrics.width > maxWidth) {
-                // Truncate with ellipsis
                 while (taskName.length > 0 && ctx.measureText(taskName + "...").width > maxWidth) {
                     taskName = taskName.slice(0, -1);
                 }
                 taskName += "...";
             }
             
+            // Draw with pixel alignment
             ctx.fillText(taskName, labelX, labelY);
             
             // Draw finish date if enabled
             if (showFinishDates && task.finishDate) {
                 const dateText = this.formatDate(task.finishDate);
-                const dateX = task.type === 'TT_Mile' || task.type === 'TT_FinMile'
+                const dateX = Math.round(task.type === 'TT_Mile' || task.type === 'TT_FinMile'
                     ? xScale(task.startDate || task.finishDate) + milestoneSizeSetting / 2 + this.dateLabelOffset
-                    : xScale(task.finishDate) + this.dateLabelOffset;
+                    : xScale(task.finishDate) + this.dateLabelOffset);
                     
-                ctx.font = `${Math.max(8, generalFontSize * 0.85)}pt Segoe UI, sans-serif`;
+                const dateFontSize = Math.round((Math.max(8, generalFontSize * 0.85) / 10) * baseFontSize);
+                
+                ctx.save();
+                ctx.font = `${dateFontSize}px ${fontFamily}`;
+                
+                // Measure text for background
+                const textMetrics = ctx.measureText(dateText);
+                const bgPadding = this.dateBackgroundPadding;
+                const textHeight = dateFontSize;
+                
+                // Draw background
+                ctx.fillStyle = dateBackgroundColor;
+                ctx.globalAlpha = dateBackgroundOpacity;
+                
+                const bgX = Math.round(dateX - bgPadding.horizontal);
+                const bgY = Math.round(labelY - textHeight/2 - bgPadding.vertical);
+                const bgWidth = Math.round(textMetrics.width + bgPadding.horizontal * 2);
+                const bgHeight = Math.round(textHeight + bgPadding.vertical * 2);
+                
+                ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
+                ctx.globalAlpha = 1.0;
+                
+                // Draw text
                 ctx.fillStyle = labelColor;
                 ctx.textAlign = "start";
                 ctx.textBaseline = "middle";
-                
-                // Draw background rectangle
-                const textMetrics = ctx.measureText(dateText);
-                const bgPadding = this.dateBackgroundPadding;
-                
-                ctx.fillStyle = dateBackgroundColor;
-                ctx.globalAlpha = dateBackgroundOpacity;
-                ctx.fillRect(
-                    dateX - bgPadding.horizontal,
-                    labelY - textMetrics.actualBoundingBoxAscent - bgPadding.vertical,
-                    textMetrics.width + bgPadding.horizontal * 2,
-                    textMetrics.actualBoundingBoxAscent + textMetrics.actualBoundingBoxDescent + bgPadding.vertical * 2
-                );
-                ctx.globalAlpha = 1.0;
-                
-                // Draw date text
-                ctx.fillStyle = labelColor;
                 ctx.fillText(dateText, dateX, labelY);
+                
+                ctx.restore();
             }
         });
     } finally {
-        // Always restore context state
         ctx.restore();
     }
 }
@@ -3446,32 +3883,57 @@ private _setupCanvasForDrawing(chartWidth: number, chartHeight: number): boolean
         return false;
     }
 
-    // Get the device pixel ratio, defaulting to 1.
-    const dpr = window.devicePixelRatio || 1;
+    // Get all possible pixel ratios for better cross-browser support
+    const ctx = this.canvasElement.getContext('2d');
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const backingStoreRatio = (ctx as any).webkitBackingStorePixelRatio ||
+                             (ctx as any).mozBackingStorePixelRatio ||
+                             (ctx as any).msBackingStorePixelRatio ||
+                             (ctx as any).oBackingStorePixelRatio ||
+                             (ctx as any).backingStorePixelRatio || 1;
+    
+    // Calculate the actual ratio we should use
+    const ratio = devicePixelRatio / backingStoreRatio;
 
-    // Set the CSS display size of the canvas.
-    this.canvasElement.style.width = `${chartWidth}px`;
-    this.canvasElement.style.height = `${chartHeight}px`;
+    // Round dimensions to avoid subpixel rendering
+    const displayWidth = Math.round(chartWidth);
+    const displayHeight = Math.round(chartHeight);
+    const canvasWidth = Math.round(displayWidth * ratio);
+    const canvasHeight = Math.round(displayHeight * ratio);
 
-    // Set the actual backing store size of the canvas to match the device's resolution.
-    this.canvasElement.width = Math.round(chartWidth * dpr);
-    this.canvasElement.height = Math.round(chartHeight * dpr);
+    // Set the CSS display size of the canvas
+    this.canvasElement.style.width = `${displayWidth}px`;
+    this.canvasElement.style.height = `${displayHeight}px`;
 
-    this.canvasContext = this.canvasElement.getContext('2d');
+    // Set the actual backing store size
+    this.canvasElement.width = canvasWidth;
+    this.canvasElement.height = canvasHeight;
+
+    // Get fresh context with optimized settings
+    this.canvasContext = this.canvasElement.getContext('2d', {
+        alpha: false,
+        desynchronized: false, // Changed to false for better stability in iframes
+        willReadFrequently: false
+    });
+    
     if (!this.canvasContext) {
         console.error("Failed to get 2D context from canvas.");
         return false;
     }
 
-    // Reset any previous transformations and clear the canvas completely.
-    this.canvasContext.setTransform(1, 0, 0, 1, 0, 0);
-    this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
-
-    // Scale the context so that all drawing commands are in CSS pixels.
-    // This makes drawing logic simpler, as you don't need to multiply every coordinate by dpr.
-    this.canvasContext.scale(dpr, dpr);
+    // Reset and scale the context
+    this.canvasContext.setTransform(ratio, 0, 0, ratio, 0, 0);
     
-    this.debugLog(`Canvas setup: DPR=${dpr}, Display=${chartWidth}x${chartHeight}, Actual=${this.canvasElement.width}x${this.canvasElement.height}`);
+    // Set rendering quality hints
+    this.canvasContext.imageSmoothingEnabled = false; // Disable for crisper text
+    this.canvasContext.imageSmoothingQuality = 'high';
+    
+    // Additional rendering hints for text
+    (this.canvasContext as any).textRendering = 'optimizeLegibility';
+    (this.canvasContext as any).webkitFontSmoothing = 'antialiased';
+    (this.canvasContext as any).mozOsxFontSmoothing = 'grayscale';
+    
+    this.debugLog(`Canvas setup: Ratio=${ratio}, Display=${displayWidth}x${displayHeight}, Canvas=${canvasWidth}x${canvasHeight}`);
     return true;
 }
 
@@ -5645,13 +6107,17 @@ private createTraceModeToggle(): void {
                     }]
                 });
                 self.createTraceModeToggle();
+                
+                // Force canvas refresh
+                self.forceCanvasRefresh();
+                
                 self.forceFullUpdate = true;
                 if (self.lastUpdateOptions) {
                     self.update(self.lastUpdateOptions);
                 }
             }
         });
-        
+
         forwardButton.on("click", function() {
             if (self.traceMode !== "forward") {
                 self.traceMode = "forward";
@@ -5663,6 +6129,10 @@ private createTraceModeToggle(): void {
                     }]
                 });
                 self.createTraceModeToggle();
+                
+                // Force canvas refresh
+                self.forceCanvasRefresh();
+                
                 self.forceFullUpdate = true;
                 if (self.lastUpdateOptions) {
                     self.update(self.lastUpdateOptions);
@@ -5716,33 +6186,29 @@ private filterTaskDropdown(searchText: string = ""): void {
     }
 }
 
-/**
- * Handles task selection and triggers recalculation
- */
 private selectTask(taskId: string | null, taskName: string | null): void {
     // If same task clicked again, deselect it
-    if (this.selectedTaskId === taskId) {
+    if (this.selectedTaskId === taskId && taskId !== null) {
         taskId = null;
         taskName = null;
+    }
+    
+    const taskChanged = this.selectedTaskId !== taskId;
+    
+    if (!taskChanged) {
+        return; // No change, no update needed
     }
     
     this.selectedTaskId = taskId;
     this.selectedTaskName = taskName;
 
+    // Batch UI updates
     this.createOrUpdateVisualTitle();
-    
-    // Persist the selected task
-    this.host.persistProperties({
-        merge: [{
-            objectName: "persistedState",
-            properties: { selectedTaskId: this.selectedTaskId || "" },
-            selector: null
-        }]
-    });
+    this.createTraceModeToggle();
     
     // Update dropdown if exists
-    if (!taskId && this.dropdownInput) {
-        this.dropdownInput.property("value", "");
+    if (this.dropdownInput) {
+        this.dropdownInput.property("value", taskName || "");
     }
     
     // Update selected task label
@@ -5756,18 +6222,27 @@ private selectTask(taskId: string | null, taskName: string | null): void {
         }
     }
     
-    // Update trace mode toggle
-    this.createTraceModeToggle();
+    // Persist the selected task
+    this.host.persistProperties({
+        merge: [{
+            objectName: "persistedState",
+            properties: { selectedTaskId: this.selectedTaskId || "" },
+            selector: null
+        }]
+    });
     
-    // Ensure selected task is visible
+    // Force canvas refresh before update
+    this.forceCanvasRefresh();
+    
+    // Ensure selected task is visible if needed
     if (taskId) {
-        this.ensureTaskVisible(taskId);
+        requestAnimationFrame(() => {
+            this.ensureTaskVisible(taskId);
+        });
     }
     
-    // ADDED: Force a full update for task selection change
+    // Force full update
     this.forceFullUpdate = true;
-    
-    // Trigger update
     if (this.lastUpdateOptions) {
         this.update(this.lastUpdateOptions);
     }

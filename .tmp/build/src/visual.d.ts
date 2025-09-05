@@ -33,6 +33,7 @@ export declare class Visual implements IVisual {
     private showConnectorLinesInternal;
     private connectorToggleGroup;
     private showAllTasksInternal;
+    private showBaselineInternal;
     private isInitialLoad;
     private debug;
     private margin;
@@ -76,11 +77,22 @@ export declare class Visual implements IVisual {
     private tooltipClassName;
     private isUpdating;
     private scrollHandlerBackup;
+    private updateDebounceTimeout;
+    private pendingUpdate;
+    private readonly UPDATE_DEBOUNCE_MS;
+    private renderState;
     constructor(options: VisualConstructorOptions);
+    private forceCanvasRefresh;
+    private debouncedUpdate;
+    private requestUpdate;
+    private applyPublishModeOptimizations;
+    private setupSVGRenderingHints;
     private determineUpdateType;
     destroy(): void;
     private toggleTaskDisplayInternal;
+    private toggleBaselineDisplayInternal;
     private createOrUpdateToggleButton;
+    private createOrUpdateBaselineToggleButton;
     private createConnectorLinesToggleButton;
     private createModeToggleButton;
     private toggleCriticalityMode;
@@ -101,8 +113,9 @@ export declare class Visual implements IVisual {
     private updateHeaderElements;
     private calculateVisibleTasks;
     private handleScroll;
+    private canvasHasContent;
     private redrawVisibleTasks;
-    private performRedrawVisibleTasks;
+    private drawHorizontalGridLinesCanvas;
     private createScales;
     private drawVisualElements;
     private drawHorizontalGridLines;
@@ -198,9 +211,6 @@ export declare class Visual implements IVisual {
      * Filters the dropdown items based on input text
      */
     private filterTaskDropdown;
-    /**
-     * Handles task selection and triggers recalculation
-     */
     private selectTask;
     private ensureTaskVisible;
     getFormattingModel(): powerbi.visuals.FormattingModel;
