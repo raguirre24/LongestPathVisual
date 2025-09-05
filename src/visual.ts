@@ -47,6 +47,8 @@ interface Task {
     finishDate?: Date | null;
     baselineStartDate?: Date | null;
     baselineFinishDate?: Date | null;
+    previousUpdateStartDate?: Date | null;
+    previousUpdateFinishDate?: Date | null;
     yOrder?: number;
     tooltipData?: Map<string, PrimitiveValue>;
 }
@@ -111,6 +113,7 @@ export class Visual implements IVisual {
     // --- State properties remain the same ---
     private showAllTasksInternal: boolean = true;
     private showBaselineInternal: boolean = true;
+    private showPreviousUpdateInternal: boolean = true;
     private isInitialLoad: boolean = true;
 
     // Debug flag to control verbose logging
@@ -197,6 +200,7 @@ constructor(options: VisualConstructorOptions) {
     this.showAllTasksInternal = true;
     // Initialize baseline internal state. Will be synced in first update.
     this.showBaselineInternal = true; 
+    this.showPreviousUpdateInternal = true;
     this.isInitialLoad = true;
     this.floatThreshold = 0;
     this.showConnectorLinesInternal = true;
@@ -791,7 +795,6 @@ private toggleTaskDisplayInternal(): void {
     }
 }
 
-// NEW METHOD
 private toggleBaselineDisplayInternal(): void {
     try {
         this.debugLog("Baseline Toggle method called!");
@@ -822,6 +825,36 @@ private toggleBaselineDisplayInternal(): void {
         this.debugLog("Visual update triggered by baseline toggle");
     } catch (error) {
         console.error("Error in baseline toggle method:", error);
+    }
+}
+
+private togglePreviousUpdateDisplayInternal(): void {
+    try {
+        this.debugLog("Previous Update Toggle method called!");
+        this.showPreviousUpdateInternal = !this.showPreviousUpdateInternal;
+        this.debugLog("New showPreviousUpdateInternal value:", this.showPreviousUpdateInternal);
+
+        // Update button appearance immediately
+        this.createOrUpdatePreviousUpdateToggleButton(this.lastUpdateOptions?.viewport.width || 800);
+
+        // Persist the state
+        this.host.persistProperties({
+            merge: [{
+                objectName: "taskAppearance",
+                properties: { showPreviousUpdate: this.showPreviousUpdateInternal },
+                selector: null
+            }]
+        });
+
+        // Force full update as scales may need recalculation
+        this.forceFullUpdate = true;
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+        
+        this.debugLog("Visual update triggered by previous update toggle");
+    } catch (error) {
+        console.error("Error in previous update toggle method:", error);
     }
 }
 
@@ -904,7 +937,6 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
     });
 }
 
-// NEW METHOD
 private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
     if (!this.headerSvg) return;
 
@@ -994,6 +1026,104 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
     }
 }
 
+private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
+    if (!this.headerSvg) return;
+
+    this.headerSvg.selectAll(".previous-update-toggle-group").remove();
+
+    // Check if the previous update fields are available in the data roles
+    const dataView = this.lastUpdateOptions?.dataViews?.[0];
+    const hasPreviousUpdateStart = dataView ? this.hasDataRole(dataView, 'previousUpdateStartDate') : false;
+    const hasPreviousUpdateFinish = dataView ? this.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
+    const isAvailable = hasPreviousUpdateStart && hasPreviousUpdateFinish;
+
+    const previousUpdateToggleGroup = this.headerSvg.append("g")
+        .attr("class", "previous-update-toggle-group")
+        .style("cursor", isAvailable ? "pointer" : "not-allowed");
+
+    const buttonWidth = 130;
+    const buttonHeight = 24;
+    // Position after the Baseline Toggle Button (which starts at 364 and is 110 wide)
+    const buttonX = 364 + 110 + 8; // 482px
+    const buttonY = 4;
+
+    previousUpdateToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+    const buttonRect = previousUpdateToggleGroup.append("rect")
+        .attr("width", buttonWidth)
+        .attr("height", buttonHeight)
+        .attr("rx", 12)
+        .attr("ry", 12)
+        .style("fill", this.showPreviousUpdateInternal ? "#fffbf0" : "#ffffff") 
+        .style("stroke", "#daa520")
+        .style("stroke-width", 1.5)
+        .style("opacity", isAvailable ? 1 : 0.4);
+
+    // Icon representing previous update (stacked bars)
+    const iconX = 12;
+    const iconY = buttonHeight / 2;
+    
+    // Main bar icon
+    previousUpdateToggleGroup.append("rect")
+        .attr("x", iconX)
+        .attr("y", iconY - 7)
+        .attr("width", 14)
+        .attr("height", 4)
+        .attr("rx", 1)
+        .attr("fill", this.showPreviousUpdateInternal ? "#0078D4" : "#6c757d");
+
+    // Baseline bar icon
+    previousUpdateToggleGroup.append("rect")
+        .attr("x", iconX)
+        .attr("y", iconY - 1)
+        .attr("width", 14)
+        .attr("height", 3)
+        .attr("rx", 1)
+        .attr("fill", this.showPreviousUpdateInternal ? "#8A8A8A" : "#adb5bd");
+
+    // Previous update bar icon
+    previousUpdateToggleGroup.append("rect")
+        .attr("x", iconX)
+        .attr("y", iconY + 4)
+        .attr("width", 14)
+        .attr("height", 3)
+        .attr("rx", 1)
+        .attr("fill", this.showPreviousUpdateInternal ? "#B8860B" : "#d4af37");
+
+    previousUpdateToggleGroup.append("text")
+        .attr("x", iconX + 22)
+        .attr("y", buttonHeight / 2)
+        .attr("dominant-baseline", "central")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px")
+        .style("fill", "#333")
+        .style("font-weight", this.showPreviousUpdateInternal ? "600" : "400")
+        .style("pointer-events", "none")
+        .text(this.showPreviousUpdateInternal ? "Hide Prev Update" : "Show Prev Update");
+
+    // Tooltip
+    previousUpdateToggleGroup.append("title")
+        .text(isAvailable ? 
+            (this.showPreviousUpdateInternal ? "Hide previous update bars" : "Show previous update bars") : 
+            "Requires Previous Update Start/Finish fields");
+
+    if (isAvailable) {
+        const self = this;
+        previousUpdateToggleGroup
+            .on("mouseover", function() {
+                d3.select(this).select("rect").style("fill", self.showPreviousUpdateInternal ? "#fff5e6" : "#fffaf0");
+            })
+            .on("mouseout", function() {
+                d3.select(this).select("rect").style("fill", self.showPreviousUpdateInternal ? "#fffbf0" : "#ffffff");
+            });
+
+        previousUpdateToggleGroup.on("click", function(event) {
+            if (event) event.stopPropagation();
+            self.togglePreviousUpdateDisplayInternal();
+        });
+    }
+}
+
 private createConnectorLinesToggleButton(viewportWidth?: number): void {
         if (!this.headerSvg) return;
         
@@ -1009,7 +1139,7 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
         // Icon-only button
         const buttonSize = 22;
         // UPDATED POSITION: Move this button after the new Baseline toggle (X=364, W=110) + 8px gap
-        const buttonX = 364 + 110 + 8; // 482px
+        const buttonX = 482 + 130 + 8; // 620px
         const buttonY = 4;
         
         connectorToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
@@ -1671,6 +1801,9 @@ private async updateInternal(options: VisualUpdateOptions) {
         if (this.settings?.taskAppearance?.showBaseline !== undefined) {
             this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
         }
+        if (this.settings?.taskAppearance?.showPreviousUpdate !== undefined) {
+            this.showPreviousUpdateInternal = this.settings.taskAppearance.showPreviousUpdate.value;
+        }
 
         this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
 
@@ -2260,6 +2393,7 @@ private setupTimeBasedSVGAndScales(
     
     // NEW: Check if baseline should be included based on the internal toggle state
     const includeBaselineInScale = this.showBaselineInternal;
+    const includePreviousUpdateInScale = this.showPreviousUpdateInternal;
 
     tasksToShow.forEach(task => {
         // Add regular start/finish dates
@@ -2277,6 +2411,16 @@ private setupTimeBasedSVGAndScales(
             }
             if (task.baselineFinishDate && !isNaN(task.baselineFinishDate.getTime())) {
                 allTimestamps.push(task.baselineFinishDate.getTime());
+            }
+        }
+
+        // Add previous update dates if toggle is ON
+        if (includePreviousUpdateInScale) {
+            if (task.previousUpdateStartDate && !isNaN(task.previousUpdateStartDate.getTime())) {
+                allTimestamps.push(task.previousUpdateStartDate.getTime());
+            }
+            if (task.previousUpdateFinishDate && !isNaN(task.previousUpdateFinishDate.getTime())) {
+                allTimestamps.push(task.previousUpdateFinishDate.getTime());
             }
         }
     });
@@ -2546,7 +2690,8 @@ private updateHeaderElements(viewportWidth: number): void {
     
     // Update other header elements as needed
     this.createModeToggleButton(viewportWidth);
-    this.createOrUpdateBaselineToggleButton(viewportWidth); // NEW: Add this call
+    this.createOrUpdateBaselineToggleButton(viewportWidth);
+    this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
     this.createConnectorLinesToggleButton(viewportWidth);
     this.createOrUpdateVisualTitle();
 }
@@ -3212,6 +3357,45 @@ private drawTasks(
     } else {
         allTaskGroups.selectAll(".baseline-bar").remove(); // Ensure bars are hidden
     }
+
+    // --- Draw Previous Update Bars ---
+    const showPreviousUpdate = this.showPreviousUpdateInternal;
+    if (showPreviousUpdate) {
+        const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+        const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
+        const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
+        
+        // Calculate Y position based on what's visible
+        let previousUpdateY = taskHeight;
+        if (showBaseline) {
+            const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
+            const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
+            previousUpdateY = taskHeight + baselineOffset + baselineHeight + previousUpdateOffset;
+        } else {
+            previousUpdateY = taskHeight + previousUpdateOffset;
+        }
+
+        allTaskGroups.selectAll(".previous-update-bar").remove();
+
+        allTaskGroups.filter((d: Task) =>
+            d.previousUpdateStartDate instanceof Date && !isNaN(d.previousUpdateStartDate.getTime()) &&
+            d.previousUpdateFinishDate instanceof Date && !isNaN(d.previousUpdateFinishDate.getTime()) &&
+            d.previousUpdateFinishDate >= d.previousUpdateStartDate
+        )
+        .append("rect")
+            .attr("class", "previous-update-bar")
+            .attr("x", (d: Task) => xScale(d.previousUpdateStartDate!))
+            .attr("y", previousUpdateY)
+            .attr("width", (d: Task) => {
+                const startPos = xScale(d.previousUpdateStartDate!);
+                const finishPos = xScale(d.previousUpdateFinishDate!);
+                return Math.max(this.minTaskWidthPixels, finishPos - startPos);
+            })
+            .attr("height", previousUpdateHeight)
+            .style("fill", previousUpdateColor);
+    } else {
+        allTaskGroups.selectAll(".previous-update-bar").remove();
+    }
     
     // --- Draw Task Bars ---
     // First remove any existing bars to redraw them (simpler than updating positions)
@@ -3675,11 +3859,18 @@ private drawTasksCanvas(
         const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         const nearCriticalColor = "#F7941F";
-        // Use the internal state which is synced with the setting
+        
+        // Baseline settings
         const showBaseline = this.showBaselineInternal;
         const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
         const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
         const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
+        
+        // Previous Update settings
+        const showPreviousUpdate = this.showPreviousUpdateInternal;
+        const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+        const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
+        const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
         
         // Calculate pixel-perfect font sizes
         const baseFontSize = 13; // Base pixel size for 10pt
@@ -3707,13 +3898,34 @@ private drawTasksCanvas(
             const yPos = Math.round(yPosition);
 
             // --- Draw Baseline Bar on Canvas ---
-            if (showBaseline && task.baselineStartDate && task.baselineFinishDate && task.baselineFinishDate >= task.baselineStartDate) {
+            if (showBaseline && task.baselineStartDate && task.baselineFinishDate && 
+                task.baselineFinishDate >= task.baselineStartDate) {
                 const x_base = Math.round(xScale(task.baselineStartDate));
                 const width_base = Math.round(Math.max(1, xScale(task.baselineFinishDate) - x_base));
                 const y_base = Math.round(yPos + taskHeight + baselineOffset);
 
                 ctx.fillStyle = baselineColor;
                 ctx.fillRect(x_base, y_base, width_base, Math.round(baselineHeight));
+            }
+            
+            // --- Draw Previous Update Bar on Canvas ---
+            if (showPreviousUpdate && task.previousUpdateStartDate && task.previousUpdateFinishDate && 
+                task.previousUpdateFinishDate >= task.previousUpdateStartDate) {
+                // Calculate Y position for previous update bar
+                let y_prev: number;
+                if (showBaseline) {
+                    // Position below baseline bar
+                    y_prev = Math.round(yPos + taskHeight + baselineOffset + baselineHeight + previousUpdateOffset);
+                } else {
+                    // Position directly below main task bar
+                    y_prev = Math.round(yPos + taskHeight + previousUpdateOffset);
+                }
+                
+                const x_prev = Math.round(xScale(task.previousUpdateStartDate));
+                const width_prev = Math.round(Math.max(1, xScale(task.previousUpdateFinishDate) - x_prev));
+
+                ctx.fillStyle = previousUpdateColor;
+                ctx.fillRect(x_prev, y_prev, width_prev, Math.round(previousUpdateHeight));
             }
             
             // Determine task color
@@ -5071,6 +5283,8 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
     const taskFreeFloatIdx = this.getColumnIndex(dataView, 'taskFreeFloat');
     const baselineStartDateIdx = this.getColumnIndex(dataView, 'baselineStartDate');
     const baselineFinishDateIdx = this.getColumnIndex(dataView, 'baselineFinishDate');
+    const previousUpdateStartDateIdx = this.getColumnIndex(dataView, 'previousUpdateStartDate');
+    const previousUpdateFinishDateIdx = this.getColumnIndex(dataView, 'previousUpdateFinishDate');
     
     // Extract task properties
     const taskName = (nameIdx !== -1 && row[nameIdx] != null) 
@@ -5127,6 +5341,14 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
     const baselineFinishDate = (baselineFinishDateIdx !== -1 && row[baselineFinishDateIdx] != null) 
         ? this.parseDate(row[baselineFinishDateIdx]) 
         : null;
+
+    // Parse previous update dates
+    const previousUpdateStartDate = (previousUpdateStartDateIdx !== -1 && row[previousUpdateStartDateIdx] != null) 
+        ? this.parseDate(row[previousUpdateStartDateIdx]) 
+        : null;
+    const previousUpdateFinishDate = (previousUpdateFinishDateIdx !== -1 && row[previousUpdateFinishDateIdx] != null) 
+        ? this.parseDate(row[previousUpdateFinishDateIdx]) 
+        : null;
     
     // Get tooltip data
     const tooltipData = this.extractTooltipData(row, dataView);
@@ -5157,6 +5379,8 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         finishDate: finishDate,
         baselineStartDate: baselineStartDate,
         baselineFinishDate: baselineFinishDate,
+        previousUpdateStartDate: previousUpdateStartDate,
+        previousUpdateFinishDate: previousUpdateFinishDate,
         tooltipData: tooltipData
     };
     

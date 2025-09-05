@@ -14,6 +14,10 @@ declare class TaskAppearanceCard extends Card {
     baselineColor: formattingSettings.ColorPicker;
     baselineHeight: formattingSettings.NumUpDown;
     baselineOffset: formattingSettings.NumUpDown;
+    showPreviousUpdate: formattingSettings.ToggleSwitch;
+    previousUpdateColor: formattingSettings.ColorPicker;
+    previousUpdateHeight: formattingSettings.NumUpDown;
+    previousUpdateOffset: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 declare class ConnectorLinesCard extends Card {

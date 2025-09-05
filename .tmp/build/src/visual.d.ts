@@ -34,6 +34,7 @@ export declare class Visual implements IVisual {
     private connectorToggleGroup;
     private showAllTasksInternal;
     private showBaselineInternal;
+    private showPreviousUpdateInternal;
     private isInitialLoad;
     private debug;
     private margin;
@@ -91,8 +92,10 @@ export declare class Visual implements IVisual {
     destroy(): void;
     private toggleTaskDisplayInternal;
     private toggleBaselineDisplayInternal;
+    private togglePreviousUpdateDisplayInternal;
     private createOrUpdateToggleButton;
     private createOrUpdateBaselineToggleButton;
+    private createOrUpdatePreviousUpdateToggleButton;
     private createConnectorLinesToggleButton;
     private createModeToggleButton;
     private toggleCriticalityMode;

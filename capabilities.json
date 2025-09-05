@@ -50,6 +50,18 @@
             "description": "Original/Baseline finish date for plotting the baseline bar"
         },
         {
+            "name": "previousUpdateStartDate",
+            "displayName": "Previous Update Start Date",
+            "kind": "GroupingOrMeasure",
+            "description": "Start date from the previous update/snapshot for comparison"
+        },
+        {
+            "name": "previousUpdateFinishDate",
+            "displayName": "Previous Update Finish Date",
+            "kind": "GroupingOrMeasure",
+            "description": "Finish date from the previous update/snapshot for comparison"
+        },
+        {
             "name": "taskName",
             "kind": "Grouping",
             "displayName": "Task Name",
@@ -98,7 +110,25 @@
                 "showBaseline": { "displayName": "Show Baseline", "description": "Display baseline bars below the main task bars", "type": { "bool": true } },
                 "baselineColor": { "displayName": "Baseline Color", "type": { "fill": { "solid": { "color": true } } } },
                 "baselineHeight": { "displayName": "Baseline Height (px)", "type": { "numeric": true } },
-                "baselineOffset": { "displayName": "Baseline Vertical Offset (px)", "description": "Distance between the main task bar and the baseline bar", "type": { "numeric": true } }
+                "baselineOffset": { "displayName": "Baseline Vertical Offset (px)", "description": "Distance between the main task bar and the baseline bar", "type": { "numeric": true } },
+                "showPreviousUpdate": { 
+                "displayName": "Show Previous Update", 
+                "description": "Display previous update bars below the baseline bars", 
+                "type": { "bool": true } 
+                },
+                "previousUpdateColor": { 
+                    "displayName": "Previous Update Color", 
+                    "type": { "fill": { "solid": { "color": true } } } 
+                },
+                "previousUpdateHeight": { 
+                    "displayName": "Previous Update Height (px)", 
+                    "type": { "numeric": true } 
+                },
+                "previousUpdateOffset": { 
+                    "displayName": "Previous Update Vertical Offset (px)", 
+                    "description": "Distance between the baseline bar and the previous update bar", 
+                    "type": { "numeric": true } 
+                }
             }
         },
         "connectorLines": {
@@ -247,6 +277,8 @@
                         { "bind": { "to": "finishDate" } },
                         { "bind": { "to": "baselineStartDate" } },
                         { "bind": { "to": "baselineFinishDate" } },
+                        { "bind": { "to": "previousUpdateStartDate" } },
+                        { "bind": { "to": "previousUpdateFinishDate" } },
                         { "bind": { "to": "taskName" } },
                         { "bind": { "to": "taskType" } },
                         { "bind": { "to": "predecessorId" } },

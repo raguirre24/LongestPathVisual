@@ -61,11 +61,42 @@ class TaskAppearanceCard extends Card {
             maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
         }
     });
+    showPreviousUpdate = new ToggleSwitch({
+    name: "showPreviousUpdate",
+    displayName: "Show Previous Update",
+    description: "Display previous update bars below the baseline bars",
+    value: true 
+    });
+    previousUpdateColor = new ColorPicker({
+        name: "previousUpdateColor",
+        displayName: "Previous Update Color",
+        value: { value: "#B8860B" } // A golden/amber color to differentiate from baseline
+    });
+    previousUpdateHeight = new NumUpDown({
+        name: "previousUpdateHeight",
+        displayName: "Previous Update Height (px)",
+        value: 3, 
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
+    });
+    previousUpdateOffset = new NumUpDown({
+        name: "previousUpdateOffset",
+        displayName: "Previous Update Vertical Offset (px)",
+        description: "Distance between the baseline bar and the previous update bar",
+        value: 2,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
+    });
 
     slices: Slice[] = [ 
         this.taskColor, this.criticalPathColor, this.milestoneColor, 
         this.taskHeight, this.milestoneSize,
-        this.showBaseline, this.baselineColor, this.baselineHeight, this.baselineOffset
+        this.showBaseline, this.baselineColor, this.baselineHeight, this.baselineOffset,
+        this.showPreviousUpdate, this.previousUpdateColor, this.previousUpdateHeight, this.previousUpdateOffset
     ];
  }
 
