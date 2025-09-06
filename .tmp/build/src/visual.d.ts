@@ -96,6 +96,7 @@ export declare class Visual implements IVisual {
     private createOrUpdateToggleButton;
     private createOrUpdateBaselineToggleButton;
     private createOrUpdatePreviousUpdateToggleButton;
+    private lightenColor;
     private createConnectorLinesToggleButton;
     private createModeToggleButton;
     private toggleCriticalityMode;

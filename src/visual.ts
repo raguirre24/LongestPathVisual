@@ -948,6 +948,12 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
     const hasBaselineFinish = dataView ? this.hasDataRole(dataView, 'baselineFinishDate') : false;
     const isAvailable = hasBaselineStart && hasBaselineFinish;
 
+    // Get colors from settings
+    const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+    const lightBaselineColor = this.lightenColor(baselineColor, 0.85);
+    const hoverBaselineColor = this.lightenColor(baselineColor, 0.7);
+    const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+
     const baselineToggleGroup = this.headerSvg.append("g")
         .attr("class", "baseline-toggle-group")
         .style("cursor", isAvailable ? "pointer" : "not-allowed");
@@ -960,39 +966,47 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
 
     baselineToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    // Styling similar to the Mode Toggle but distinct
+    // Styling using baseline color from settings
     const buttonRect = baselineToggleGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
         .attr("rx", 12)
         .attr("ry", 12)
-        .style("fill", this.showBaselineInternal ? "#f8f9fa" : "#ffffff") 
-        .style("stroke", "#ced4da")
+        .style("fill", this.showBaselineInternal ? lightBaselineColor : "#ffffff") 
+        .style("stroke", baselineColor) // Use actual baseline color
         .style("stroke-width", 1.5)
         .style("opacity", isAvailable ? 1 : 0.4);
 
-    // Icon representing a baseline
+    // Icon representing the correct stacking order (Main -> Previous Update -> Baseline)
     const iconX = 12;
     const iconY = buttonHeight / 2;
     
-    // Main bar icon
+    // Main bar icon (top)
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
-        .attr("y", iconY - 5)
+        .attr("y", iconY - 7)
         .attr("width", 14)
-        .attr("height", 5)
+        .attr("height", 4)
         .attr("rx", 1)
-        .attr("fill", this.showBaselineInternal ? "#0078D4" : "#6c757d"); // Use primary task color or gray
+        .attr("fill", this.showBaselineInternal ? "#0078D4" : "#6c757d");
 
-    // Baseline bar icon
+    // Previous update bar icon (middle)
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
-        .attr("y", iconY + 2)
+        .attr("y", iconY - 1) // Middle position
         .attr("width", 14)
         .attr("height", 3)
         .attr("rx", 1)
-        .attr("fill", this.showBaselineInternal ? "#8A8A8A" : "#adb5bd"); // Use baseline color or light gray
+        .attr("fill", this.showBaselineInternal ? previousUpdateColor : "#adb5bd"); // Use actual previous update color
 
+    // Baseline bar icon (bottom) - this is the one this toggle controls
+    baselineToggleGroup.append("rect")
+        .attr("x", iconX)
+        .attr("y", iconY + 4) // Bottom position
+        .attr("width", 14)
+        .attr("height", 3)
+        .attr("rx", 1)
+        .attr("fill", this.showBaselineInternal ? baselineColor : "#adb5bd"); // Use actual baseline color
 
     baselineToggleGroup.append("text")
         .attr("x", iconX + 22)
@@ -1013,10 +1027,10 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         const self = this;
         baselineToggleGroup
             .on("mouseover", function() {
-                d3.select(this).select("rect").style("fill", self.showBaselineInternal ? "#e9ecef" : "#f1f3f5");
+                d3.select(this).select("rect").style("fill", self.showBaselineInternal ? hoverBaselineColor : "#f1f3f5");
             })
             .on("mouseout", function() {
-                d3.select(this).select("rect").style("fill", self.showBaselineInternal ? "#f8f9fa" : "#ffffff");
+                d3.select(this).select("rect").style("fill", self.showBaselineInternal ? lightBaselineColor : "#ffffff");
             });
 
         baselineToggleGroup.on("click", function(event) {
@@ -1037,6 +1051,14 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
     const hasPreviousUpdateFinish = dataView ? this.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
     const isAvailable = hasPreviousUpdateStart && hasPreviousUpdateFinish;
 
+    // Get the previous update color from settings
+    const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+    const lightPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.85);
+    const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.7);
+
+    // Get baseline color for the icon (since it shows the stacking order)
+    const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+
     const previousUpdateToggleGroup = this.headerSvg.append("g")
         .attr("class", "previous-update-toggle-group")
         .style("cursor", isAvailable ? "pointer" : "not-allowed");
@@ -1054,16 +1076,16 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("height", buttonHeight)
         .attr("rx", 12)
         .attr("ry", 12)
-        .style("fill", this.showPreviousUpdateInternal ? "#fffbf0" : "#ffffff") 
-        .style("stroke", "#daa520")
+        .style("fill", this.showPreviousUpdateInternal ? lightPreviousUpdateColor : "#ffffff") 
+        .style("stroke", previousUpdateColor) // Use actual previous update color
         .style("stroke-width", 1.5)
         .style("opacity", isAvailable ? 1 : 0.4);
 
-    // Icon representing previous update (stacked bars)
+    // Icon representing the new stacking order (Main -> Previous Update -> Baseline)
     const iconX = 12;
     const iconY = buttonHeight / 2;
     
-    // Main bar icon
+    // Main bar icon (top)
     previousUpdateToggleGroup.append("rect")
         .attr("x", iconX)
         .attr("y", iconY - 7)
@@ -1072,23 +1094,23 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("rx", 1)
         .attr("fill", this.showPreviousUpdateInternal ? "#0078D4" : "#6c757d");
 
-    // Baseline bar icon
+    // Previous update bar icon (middle - directly below main bar)
     previousUpdateToggleGroup.append("rect")
         .attr("x", iconX)
-        .attr("y", iconY - 1)
+        .attr("y", iconY - 1) // Middle position
         .attr("width", 14)
         .attr("height", 3)
         .attr("rx", 1)
-        .attr("fill", this.showPreviousUpdateInternal ? "#8A8A8A" : "#adb5bd");
+        .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : "#adb5bd"); // Use actual previous update color
 
-    // Previous update bar icon
+    // Baseline bar icon (bottom)
     previousUpdateToggleGroup.append("rect")
         .attr("x", iconX)
-        .attr("y", iconY + 4)
+        .attr("y", iconY + 4) // Bottom position
         .attr("width", 14)
         .attr("height", 3)
         .attr("rx", 1)
-        .attr("fill", this.showPreviousUpdateInternal ? "#B8860B" : "#d4af37");
+        .attr("fill", this.showPreviousUpdateInternal ? baselineColor : "#adb5bd"); // Use actual baseline color
 
     previousUpdateToggleGroup.append("text")
         .attr("x", iconX + 22)
@@ -1111,10 +1133,10 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         const self = this;
         previousUpdateToggleGroup
             .on("mouseover", function() {
-                d3.select(this).select("rect").style("fill", self.showPreviousUpdateInternal ? "#fff5e6" : "#fffaf0");
+                d3.select(this).select("rect").style("fill", self.showPreviousUpdateInternal ? hoverPreviousUpdateColor : "#fffaf0");
             })
             .on("mouseout", function() {
-                d3.select(this).select("rect").style("fill", self.showPreviousUpdateInternal ? "#fffbf0" : "#ffffff");
+                d3.select(this).select("rect").style("fill", self.showPreviousUpdateInternal ? lightPreviousUpdateColor : "#ffffff");
             });
 
         previousUpdateToggleGroup.on("click", function(event) {
@@ -1122,6 +1144,22 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
             self.togglePreviousUpdateDisplayInternal();
         });
     }
+}
+
+private lightenColor(color: string, factor: number): string {
+    // Convert hex to RGB
+    const hex = color.replace('#', '');
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+    
+    // Lighten by blending with white
+    const newR = Math.round(r + (255 - r) * factor);
+    const newG = Math.round(g + (255 - g) * factor);
+    const newB = Math.round(b + (255 - b) * factor);
+    
+    // Convert back to hex
+    return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
 }
 
 private createConnectorLinesToggleButton(viewportWidth?: number): void {
@@ -3328,52 +3366,12 @@ private drawTasks(
     // Merge enter and existing selections
     const allTaskGroups = enterGroups.merge(taskGroupsSelection);
 
-    // --- Draw Baseline Bars ---
-    // Use the internal state which is synced with the setting (either via format pane or header toggle)
-    const showBaseline = this.showBaselineInternal;
-    if (showBaseline) {
-        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
-        const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
-        const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
-
-        allTaskGroups.selectAll(".baseline-bar").remove(); // Clear old bars
-
-        allTaskGroups.filter((d: Task) =>
-            d.baselineStartDate instanceof Date && !isNaN(d.baselineStartDate.getTime()) &&
-            d.baselineFinishDate instanceof Date && !isNaN(d.baselineFinishDate.getTime()) &&
-            d.baselineFinishDate >= d.baselineStartDate
-        )
-        .append("rect")
-            .attr("class", "baseline-bar")
-            .attr("x", (d: Task) => xScale(d.baselineStartDate!))
-            .attr("y", taskHeight + baselineOffset)
-            .attr("width", (d: Task) => {
-                const startPos = xScale(d.baselineStartDate!);
-                const finishPos = xScale(d.baselineFinishDate!);
-                return Math.max(this.minTaskWidthPixels, finishPos - startPos);
-            })
-            .attr("height", baselineHeight)
-            .style("fill", baselineColor);
-    } else {
-        allTaskGroups.selectAll(".baseline-bar").remove(); // Ensure bars are hidden
-    }
-
-    // --- Draw Previous Update Bars ---
+    // --- Draw Previous Update Bars FIRST (directly below task bar) ---
     const showPreviousUpdate = this.showPreviousUpdateInternal;
     if (showPreviousUpdate) {
         const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
         const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
         const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
-        
-        // Calculate Y position based on what's visible
-        let previousUpdateY = taskHeight;
-        if (showBaseline) {
-            const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
-            const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
-            previousUpdateY = taskHeight + baselineOffset + baselineHeight + previousUpdateOffset;
-        } else {
-            previousUpdateY = taskHeight + previousUpdateOffset;
-        }
 
         allTaskGroups.selectAll(".previous-update-bar").remove();
 
@@ -3385,7 +3383,7 @@ private drawTasks(
         .append("rect")
             .attr("class", "previous-update-bar")
             .attr("x", (d: Task) => xScale(d.previousUpdateStartDate!))
-            .attr("y", previousUpdateY)
+            .attr("y", taskHeight + previousUpdateOffset) // Directly below task bar
             .attr("width", (d: Task) => {
                 const startPos = xScale(d.previousUpdateStartDate!);
                 const finishPos = xScale(d.previousUpdateFinishDate!);
@@ -3395,6 +3393,45 @@ private drawTasks(
             .style("fill", previousUpdateColor);
     } else {
         allTaskGroups.selectAll(".previous-update-bar").remove();
+    }
+
+    // --- Draw Baseline Bars SECOND (below previous update bars) ---
+    const showBaseline = this.showBaselineInternal;
+    if (showBaseline) {
+        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
+        const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
+        
+        // Calculate Y position based on what's visible above
+        let baselineY = taskHeight;
+        if (showPreviousUpdate) {
+            const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
+            const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
+            baselineY = taskHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset;
+        } else {
+            baselineY = taskHeight + baselineOffset;
+        }
+
+        allTaskGroups.selectAll(".baseline-bar").remove();
+
+        allTaskGroups.filter((d: Task) =>
+            d.baselineStartDate instanceof Date && !isNaN(d.baselineStartDate.getTime()) &&
+            d.baselineFinishDate instanceof Date && !isNaN(d.baselineFinishDate.getTime()) &&
+            d.baselineFinishDate >= d.baselineStartDate
+        )
+        .append("rect")
+            .attr("class", "baseline-bar")
+            .attr("x", (d: Task) => xScale(d.baselineStartDate!))
+            .attr("y", baselineY)
+            .attr("width", (d: Task) => {
+                const startPos = xScale(d.baselineStartDate!);
+                const finishPos = xScale(d.baselineFinishDate!);
+                return Math.max(this.minTaskWidthPixels, finishPos - startPos);
+            })
+            .attr("height", baselineHeight)
+            .style("fill", baselineColor);
+    } else {
+        allTaskGroups.selectAll(".baseline-bar").remove();
     }
     
     // --- Draw Task Bars ---
@@ -3579,16 +3616,16 @@ private drawTasks(
             .filter(function() { return d3.select(this).attr("x") !== null; });
 
         // Add background rect using BBox
-dateTextGroups.each((d: Task, i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
-    const group = d3.select(nodes[i] as SVGGElement);
-    const textElement = group.select<SVGTextElement>(".finish-date").node();
-    
-    // Separate null checks to avoid accessing properties on null
-    if (!textElement) {
-        group.remove(); 
-        return;
-    }
-    
+        dateTextGroups.each((d: Task, i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
+            const group = d3.select(nodes[i] as SVGGElement);
+            const textElement = group.select<SVGTextElement>(".finish-date").node();
+            
+            // Separate null checks to avoid accessing properties on null
+            if (!textElement) {
+                group.remove(); 
+                return;
+            }
+            
             // Now safe to check other properties since textElement is not null
             if (textElement.getAttribute("x") === null || !textElement.textContent || textElement.textContent.trim() === "") {
                 group.remove(); 
@@ -3860,17 +3897,17 @@ private drawTasksCanvas(
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         const nearCriticalColor = "#F7941F";
         
-        // Baseline settings
-        const showBaseline = this.showBaselineInternal;
-        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
-        const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
-        const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
-        
         // Previous Update settings
         const showPreviousUpdate = this.showPreviousUpdateInternal;
         const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
         const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
         const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
+        
+        // Baseline settings
+        const showBaseline = this.showBaselineInternal;
+        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
+        const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
         
         // Calculate pixel-perfect font sizes
         const baseFontSize = 13; // Base pixel size for 10pt
@@ -3897,35 +3934,35 @@ private drawTasksCanvas(
             // Use pixel-aligned coordinates
             const yPos = Math.round(yPosition);
 
-            // --- Draw Baseline Bar on Canvas ---
-            if (showBaseline && task.baselineStartDate && task.baselineFinishDate && 
-                task.baselineFinishDate >= task.baselineStartDate) {
-                const x_base = Math.round(xScale(task.baselineStartDate));
-                const width_base = Math.round(Math.max(1, xScale(task.baselineFinishDate) - x_base));
-                const y_base = Math.round(yPos + taskHeight + baselineOffset);
-
-                ctx.fillStyle = baselineColor;
-                ctx.fillRect(x_base, y_base, width_base, Math.round(baselineHeight));
-            }
-            
-            // --- Draw Previous Update Bar on Canvas ---
+            // --- Draw Previous Update Bar on Canvas FIRST (directly below task bar) ---
             if (showPreviousUpdate && task.previousUpdateStartDate && task.previousUpdateFinishDate && 
                 task.previousUpdateFinishDate >= task.previousUpdateStartDate) {
-                // Calculate Y position for previous update bar
-                let y_prev: number;
-                if (showBaseline) {
-                    // Position below baseline bar
-                    y_prev = Math.round(yPos + taskHeight + baselineOffset + baselineHeight + previousUpdateOffset);
-                } else {
-                    // Position directly below main task bar
-                    y_prev = Math.round(yPos + taskHeight + previousUpdateOffset);
-                }
-                
                 const x_prev = Math.round(xScale(task.previousUpdateStartDate));
                 const width_prev = Math.round(Math.max(1, xScale(task.previousUpdateFinishDate) - x_prev));
+                const y_prev = Math.round(yPos + taskHeight + previousUpdateOffset); // Directly below task bar
 
                 ctx.fillStyle = previousUpdateColor;
                 ctx.fillRect(x_prev, y_prev, width_prev, Math.round(previousUpdateHeight));
+            }
+
+            // --- Draw Baseline Bar on Canvas SECOND (below previous update bar) ---
+            if (showBaseline && task.baselineStartDate && task.baselineFinishDate && 
+                task.baselineFinishDate >= task.baselineStartDate) {
+                // Calculate Y position based on what's above
+                let y_base: number;
+                if (showPreviousUpdate) {
+                    // Position below previous update bar
+                    y_base = Math.round(yPos + taskHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset);
+                } else {
+                    // Position directly below main task bar
+                    y_base = Math.round(yPos + taskHeight + baselineOffset);
+                }
+                
+                const x_base = Math.round(xScale(task.baselineStartDate));
+                const width_base = Math.round(Math.max(1, xScale(task.baselineFinishDate) - x_base));
+
+                ctx.fillStyle = baselineColor;
+                ctx.fillRect(x_base, y_base, width_base, Math.round(baselineHeight));
             }
             
             // Determine task color

@@ -40,7 +40,7 @@ class TaskAppearanceCard extends Card {
     baselineColor = new ColorPicker({
         name: "baselineColor",
         displayName: "Baseline Color",
-        value: { value: "#8A8A8A" } // A neutral gray
+        value: { value: "#2E8B57" } // A neutral gray
     });
     baselineHeight = new NumUpDown({
         name: "baselineHeight",
@@ -70,7 +70,7 @@ class TaskAppearanceCard extends Card {
     previousUpdateColor = new ColorPicker({
         name: "previousUpdateColor",
         displayName: "Previous Update Color",
-        value: { value: "#B8860B" } // A golden/amber color to differentiate from baseline
+        value: { value: "#9400D3" } // A golden/amber color to differentiate from baseline
     });
     previousUpdateHeight = new NumUpDown({
         name: "previousUpdateHeight",
