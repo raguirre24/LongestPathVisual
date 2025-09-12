@@ -1763,7 +1763,6 @@ private async updateInternal(options: VisualUpdateOptions) {
     this.debugLog("--- Visual Update Start ---");
     this.renderStartTime = performance.now();
     
-    // Prevent concurrent updates
     if (this.isUpdating) {
         this.debugLog("Update already in progress, skipping");
         return;
@@ -1772,27 +1771,21 @@ private async updateInternal(options: VisualUpdateOptions) {
     this.isUpdating = true;
 
     try {
-        // Determine update type for optimization
         const updateType = this.determineUpdateType(options);
         this.debugLog(`Update type detected: ${updateType}`);
         
-        // Handle scroll reset for full updates with proper state management
         if (updateType === UpdateType.Full && this.scrollableContainer?.node()) {
             const node = this.scrollableContainer.node();
             
-            // Only reset scroll if we're not in the middle of a user scroll
             if (!this.scrollThrottleTimeout && node.scrollTop > 0) {
-                // Temporarily remove scroll listener
                 if (this.scrollListener) {
                     this.scrollableContainer.on("scroll", null);
                     this.scrollHandlerBackup = this.scrollListener;
                 }
                 
-                // Reset scroll position
                 this.debugLog("Resetting scroll position for full update");
                 node.scrollTop = 0;
                 
-                // Re-enable scroll listener after render completes
                 requestAnimationFrame(() => {
                     if (this.scrollHandlerBackup && this.scrollableContainer) {
                         this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
@@ -1802,22 +1795,18 @@ private async updateInternal(options: VisualUpdateOptions) {
             }
         }
         
-        // Store current viewport for comparison
         this.lastViewport = options.viewport;
         
-        // Handle viewport-only updates efficiently
         if (updateType === UpdateType.ViewportOnly && this.allTasksData.length > 0) {
             this.handleViewportOnlyUpdate(options);
             return;
         }
         
-        // Handle settings-only updates efficiently
         if (updateType === UpdateType.SettingsOnly && this.allTasksData.length > 0) {
             this.handleSettingsOnlyUpdate(options);
             return;
         }
         
-        // Continue with normal update for other types
         this.lastUpdateOptions = options;
 
         if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
@@ -1834,11 +1823,11 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
 
-        // Sync internal baseline toggle state with the formatting pane setting.
-        // Do this on every update to catch changes made in the format pane.
         if (this.settings?.taskAppearance?.showBaseline !== undefined) {
             this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
         }
+
+        // FIX: Load the saved state for the "Show Prev Update" toggle on every update.
         if (this.settings?.taskAppearance?.showPreviousUpdate !== undefined) {
             this.showPreviousUpdateInternal = this.settings.taskAppearance.showPreviousUpdate.value;
         }
@@ -1851,7 +1840,7 @@ private async updateInternal(options: VisualUpdateOptions) {
             if (this.settings?.displayOptions?.showAllTasks !== undefined) {
                 this.showAllTasksInternal = this.settings.displayOptions.showAllTasks.value;
             }
-            // Note: Baseline state is handled above, outside isInitialLoad
+
             if (this.settings?.persistedState?.selectedTaskId !== undefined) {
                 this.selectedTaskId = this.settings.persistedState.selectedTaskId.value || null;
             }
@@ -1871,7 +1860,6 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.margin.left = this.settings.layoutSettings.leftMargin.value;
 
         this.clearVisual();
-        // This call now correctly handles the button creation/update
         this.updateHeaderElements(viewportWidth); 
         this.createFloatThresholdControl();
         this.createTaskSelectionDropdown();
@@ -1887,11 +1875,9 @@ private async updateInternal(options: VisualUpdateOptions) {
             return;
         }
         this.debugLog("Data roles validated.");
-
-        // Transform data
+        
         this.transformDataOptimized(dataView);
         
-        // Validate selected task after data transformation
         if (this.selectedTaskId && !this.taskIdToTask.has(this.selectedTaskId)) {
             this.debugLog(`Selected task ${this.selectedTaskId} no longer exists in data`);
             this.selectTask(null, null);
@@ -1903,16 +1889,13 @@ private async updateInternal(options: VisualUpdateOptions) {
         }
         this.debugLog(`Transformed ${this.allTasksData.length} tasks.`);
 
-        // Restore selected task name after data is loaded
         if (this.selectedTaskId) {
             const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
             this.selectedTaskName = selectedTask ? selectedTask.name || null : null;
         }
 
-        // Create or update the task selection dropdown
         this.createTaskSelectionDropdown();
 
-        // Populate input with the persisted task name if available
         if (this.dropdownInput) {
             if (this.selectedTaskId) {
                 this.dropdownInput.property("value", this.selectedTaskName || "");
@@ -1934,153 +1917,84 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.populateTaskDropdown();
         this.createTraceModeToggle();
         
-        // Enable task selection flag
         const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
-        
-        // Get criticality mode
         const mode = this.settings.criticalityMode.calculationMode.value.value;
         
-        // Task-specific path calculation if task selected
         let tasksInPathToTarget = new Set<string>();
         let tasksInPathFromTarget = new Set<string>();
 
         if (enableTaskSelection && this.selectedTaskId) {
-            // Get the trace mode from settings or UI toggle
             const traceModeFromSettings = this.settings.taskSelection.traceMode.value.value;
             const effectiveTraceMode = this.traceMode || traceModeFromSettings;
             
             if (mode === "floatBased") {
-                // Float-Based mode with task selection
                 this.applyFloatBasedCriticality();
                 
                 if (effectiveTraceMode === "forward") {
                     tasksInPathFromTarget = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
-                    this.debugLog(`Float-Based: Identified ${tasksInPathFromTarget.size} tasks forward from ${this.selectedTaskId}`);
                 } else {
                     tasksInPathToTarget = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
-                    this.debugLog(`Float-Based: Identified ${tasksInPathToTarget.size} tasks backward to ${this.selectedTaskId}`);
                 }
-            } else {
-                // P6 Longest Path mode with task selection
-                if (effectiveTraceMode === "forward") {
-                    this.calculateCPMFromTask(this.selectedTaskId);
-                    tasksInPathFromTarget = this.identifyDrivingSuccessorTasks(this.selectedTaskId);
-                    this.debugLog(`P6: Identified ${tasksInPathFromTarget.size} tasks in driving path from ${this.selectedTaskId}`);
-                } else {
-                    this.calculateCPMToTask(this.selectedTaskId);
-                    tasksInPathToTarget = this.identifyDrivingPredecessorTasks(this.selectedTaskId);
-                    this.debugLog(`P6: Identified ${tasksInPathToTarget.size} tasks in driving path to ${this.selectedTaskId}`);
+            } else { // Longest Path Mode
+                if (this.showAllTasksInternal) {
+                    this.debugLog(`Longest Path 'Show All' is active: Performing full structural trace.`);
+                    if (effectiveTraceMode === "forward") {
+                        tasksInPathFromTarget = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
+                    } else {
+                        tasksInPathToTarget = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
+                    }
+                     if (effectiveTraceMode === "forward") {
+                        this.calculateCPMFromTask(this.selectedTaskId);
+                     } else {
+                        this.calculateCPMToTask(this.selectedTaskId);
+                     }
+                } else { // Show Critical
+                    this.debugLog(`Longest Path 'Show Critical' is active: Tracing driving path.`);
+                    if (effectiveTraceMode === "forward") {
+                        this.calculateCPMFromTask(this.selectedTaskId);
+                    } else {
+                        this.calculateCPMToTask(this.selectedTaskId);
+                    }
                 }
             }
-        } else {
-            // No task selected - use appropriate criticality determination
+        } else { // No task selected
             if (mode === "floatBased") {
-                // Apply Float-Based criticality
                 this.applyFloatBasedCriticality();
-                this.debugLog(`Float-Based criticality applied. Found ${this.allTasksData.filter(t => t.isCritical).length} critical tasks.`);
             } else {
-                // Use P6 reflective approach for Longest Path
                 this.identifyLongestPathFromP6();
-                this.debugLog(`P6 longest path identified. Found ${this.allTasksData.filter(t => t.isCritical).length} critical tasks.`);
             }
         }
 
-        // --- Filtering/Limiting/Sorting logic ---
-        this.debugLog(`Filtering tasks based on internal state: showAllTasksInternal = ${this.showAllTasksInternal}`);
-
-        // Sort tasks by early start (or start date for P6)
         const tasksSortedByES = this.allTasksData
             .filter(task => task.startDate instanceof Date && !isNaN(task.startDate.getTime()))
             .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
             
-        // Get critical path tasks AND near-critical tasks
-        const criticalPathTasks = tasksSortedByES.filter(task => task.isCritical);
-        const nearCriticalTasks = tasksSortedByES.filter(task => task.isNearCritical);
         const criticalAndNearCriticalTasks = tasksSortedByES.filter(task => task.isCritical || task.isNearCritical);
 
-        // Handle task selection with showAllTasksInternal state
         let tasksToConsider: Task[] = [];
 
         if (enableTaskSelection && this.selectedTaskId) {
-            // Get the trace mode from settings or UI toggle
-            const traceModeFromSettings = this.settings.taskSelection.traceMode.value.value;
-            const effectiveTraceMode = this.traceMode || traceModeFromSettings;
+            const effectiveTraceMode = this.traceMode || this.settings.taskSelection.traceMode.value.value;
             
-            if (mode === "floatBased") {
-                // FLOAT-BASED MODE WITH TASK SELECTION
-                if (effectiveTraceMode === "forward") {
-                    // Forward tracing in Float-Based mode
-                    if (this.showAllTasksInternal) {
-                        // Show all successor tasks
-                        tasksToConsider = tasksSortedByES.filter(task => 
-                            tasksInPathFromTarget.has(task.internalId));
-                    } else {
-                        // Show only critical/near-critical tasks that are also in the forward path
-                        tasksToConsider = tasksSortedByES.filter(task => 
-                            tasksInPathFromTarget.has(task.internalId) && 
-                            (task.isCritical || task.isNearCritical));
-                    }
-                } else {
-                    // Backward tracing in Float-Based mode
-                    if (this.showAllTasksInternal) {
-                        // Show all predecessor tasks
-                        tasksToConsider = tasksSortedByES.filter(task => 
-                            tasksInPathToTarget.has(task.internalId));
-                    } else {
-                        // Show only critical/near-critical tasks that are also in the backward path
-                        tasksToConsider = tasksSortedByES.filter(task => 
-                            tasksInPathToTarget.has(task.internalId) && 
-                            (task.isCritical || task.isNearCritical));
-                    }
-                }
-                
-                // Always include the selected task itself
-                const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
-                if (selectedTask && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
-                    tasksToConsider.push(selectedTask);
-                }
-                
+            const path = effectiveTraceMode === 'forward' ? tasksInPathFromTarget : tasksInPathToTarget;
+            
+            if (this.showAllTasksInternal) {
+                tasksToConsider = tasksSortedByES.filter(task => path.has(task.internalId));
             } else {
-                // P6 LONGEST PATH MODE WITH TASK SELECTION
-                if (effectiveTraceMode === "forward") {
-                    // Handle forward tracing
-                    if (this.showAllTasksInternal) {
-                        // "Show All Tasks" mode + task selected = all successor tasks
-                        tasksToConsider = tasksSortedByES.filter(task => 
-                            tasksInPathFromTarget.has(task.internalId));
-                    } else {
-                        // "Show Critical Only" mode + task selected = critical path from target
-                        tasksToConsider = criticalAndNearCriticalTasks;
-                    }
-                } else {
-                    // Handle backward tracing
-                    if (this.showAllTasksInternal) {
-                        // "Show All Tasks" mode + task selected = all predecessor tasks
-                        tasksToConsider = tasksSortedByES.filter(task => 
-                            tasksInPathToTarget.has(task.internalId));
-                    } else {
-                        // "Show Critical Only" mode + task selected = critical path to target
-                        tasksToConsider = criticalAndNearCriticalTasks;
-                    }
+                if (mode === 'floatBased') {
+                     tasksToConsider = tasksSortedByES.filter(task => path.has(task.internalId) && (task.isCritical || task.isNearCritical));
+                } else { // Longest Path
+                    tasksToConsider = criticalAndNearCriticalTasks;
                 }
             }
+            
+            const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
+            if (selectedTask && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
+                tasksToConsider.push(selectedTask);
+            }
         } else {
-            // No task selected, use standard toggle behavior
-            tasksToConsider = this.showAllTasksInternal
-                ? tasksSortedByES
-                : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : tasksSortedByES;
+            tasksToConsider = this.showAllTasksInternal ? tasksSortedByES : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : tasksSortedByES;
         }
-
-        this.debugLog(`Tasks to consider for display (after filtering): ${tasksToConsider.length}`);
-
-        // FIX: Removed the redundant manual update of the toggle button text here.
-        /*
-        // Update toggle button text
-        if (this.toggleButtonGroup) {
-            this.toggleButtonGroup.select("text")
-                .text(this.showAllTasksInternal ? "Show Critical" : "Show All");
-        }
-        */
 
         const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
         const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
@@ -2088,46 +2002,27 @@ private async updateInternal(options: VisualUpdateOptions) {
             this.displayMessage("No tasks to display after filtering/limiting."); 
             return;
         }
-        this.debugLog(`Tasks after limiting to ${maxTasksToShowSetting}: ${limitedTasks.length}`);
 
-        // Final check for valid dates required for plotting
         const tasksToPlot = limitedTasks.filter(task =>
             task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
             task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
             task.finishDate >= task.startDate
         );
         if (tasksToPlot.length === 0) {
-            if (limitedTasks.length > 0) {
-                this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
-                console.warn("Update aborted: All limited tasks filtered out due to invalid dates.");
-            } else {
-                this.displayMessage("No tasks with valid dates to display.");
-                console.warn("Update aborted: No tasks with valid dates.");
-            }
+            this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
             return;
         }
-        if (tasksToPlot.length < limitedTasks.length) {
-            console.warn(`Filtered out ${limitedTasks.length - tasksToPlot.length} tasks due to missing/invalid Start/Finish dates.`);
-        }
-        this.debugLog(`Tasks ready for plotting (with valid dates): ${tasksToPlot.length}`);
 
         tasksToPlot.sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
         tasksToPlot.forEach((task, index) => { task.yOrder = index; });
         const tasksToShow = tasksToPlot;
-        this.debugLog("Assigned yOrder to tasks for plotting.");
         this.applyTaskFilter(tasksToShow.map(t => t.id));
 
-        // --- Calculate dimensions and scales ---
         const taskHeight = this.settings.taskAppearance.taskHeight.value;
         const taskPadding = this.settings.layoutSettings.taskPadding.value;
-        const taskCount = tasksToShow.length;
-        const chartContentHeight = Math.max(50, taskCount * (taskHeight + taskPadding));
-        const totalSvgHeight = chartContentHeight + this.margin.top + this.margin.bottom;
+        const totalSvgHeight = Math.max(50, tasksToShow.length * (taskHeight + taskPadding)) + this.margin.top + this.margin.bottom;
 
-        const scaleSetupResult = this.setupTimeBasedSVGAndScales(
-            { width: viewportWidth, height: totalSvgHeight },
-            tasksToShow
-        );
+        const scaleSetupResult = this.setupTimeBasedSVGAndScales({ width: viewportWidth, height: totalSvgHeight }, tasksToShow);
         this.xScale = scaleSetupResult.xScale;
         this.yScale = scaleSetupResult.yScale;
         const chartWidth = scaleSetupResult.chartWidth;
@@ -2137,56 +2032,38 @@ private async updateInternal(options: VisualUpdateOptions) {
             this.displayMessage("Could not create time/band scale. Check Start/Finish dates."); 
             return;
         }
-        this.debugLog(`Chart width: ${chartWidth}, Calculated chart height (used by yScale): ${calculatedChartHeight}`);
 
-        // --- Set SVG dimensions ---
-        this.mainSvg.attr("width", viewportWidth);
-        this.mainSvg.attr("height", totalSvgHeight);
+        this.mainSvg.attr("width", viewportWidth).attr("height", totalSvgHeight);
         this.headerSvg.attr("width", viewportWidth);
 
-        // --- Apply transforms ---
         this.mainGroup.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
         this.headerGridLayer.attr("transform", `translate(${this.margin.left}, 0)`);
 
-        // --- Scrolling logic ---
         const availableContentHeight = viewportHeight - this.headerHeight;
-        if (totalSvgHeight > availableContentHeight && taskCount > 1) {
-            this.debugLog("Enabling vertical scroll.");
-            this.scrollableContainer.style("height", `${availableContentHeight}px`)
-                                .style("overflow-y", "scroll");
+        if (totalSvgHeight > availableContentHeight && tasksToShow.length > 1) {
+            this.scrollableContainer.style("height", `${availableContentHeight}px`).style("overflow-y", "scroll");
         } else {
-            this.debugLog("Disabling vertical scroll.");
-            this.scrollableContainer.style("height", `${Math.min(totalSvgHeight, availableContentHeight)}px`)
-                                .style("overflow-y", "hidden");
+            this.scrollableContainer.style("height", `${Math.min(totalSvgHeight, availableContentHeight)}px`).style("overflow-y", "hidden");
         }
 
-        // Setup virtual scrolling
-        this.debugLog("Setting up virtual scrolling...");
         this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding);
 
-        // Get only visible tasks for first draw
         const visibleTasks = tasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
-        this.debugLog(`Drawing ${visibleTasks.length} of ${tasksToShow.length} tasks initially visible`);
-
-        this.debugLog("Drawing visual elements...");
         this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
         
         const renderEndTime = performance.now();
         this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
-        this.debugLog("Drawing complete.");
 
     } catch (error) {
         console.error("--- ERROR during visual update ---", error);
         const errorMessage = error instanceof Error ? error.message : String(error);
         this.displayMessage(`Error: ${errorMessage}`);
         this.isInitialLoad = true;
-        this.forceFullUpdate = false; // Ensure flag is reset on error
+        this.forceFullUpdate = false;
     } finally {
         this.isUpdating = false;
         
-        // Re-enable scroll handler after update completes
         if (this.scrollHandlerBackup && this.scrollableContainer) {
-            // Use setTimeout to ensure DOM updates are complete
             setTimeout(() => {
                 if (this.scrollableContainer && this.scrollHandlerBackup) {
                     this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
@@ -4861,12 +4738,14 @@ private findProjectFinishTask(): Task | null {
 private findAllDrivingChainsToTask(targetTaskId: string): Array<{
     tasks: Set<string>,
     relationships: Relationship[],
-    totalDuration: number
+    totalDuration: number,
+    startingTask: Task | null // MODIFICATION: Added startingTask to the return type
 }> {
     const chains: Array<{
         tasks: Set<string>,
         relationships: Relationship[],
-        totalDuration: number
+        totalDuration: number,
+        startingTask: Task | null // MODIFICATION: Added startingTask to the return type
     }> = [];
     
     const visited = new Set<string>();
@@ -4904,7 +4783,8 @@ private findAllDrivingChainsToTask(targetTaskId: string): Array<{
             chains.push({
                 tasks: chainTasks,
                 relationships: chainRels,
-                totalDuration: totalDuration
+                totalDuration: totalDuration,
+                startingTask: task // MODIFICATION: Capture the starting task of the chain
             });
         } else {
             for (const rel of drivingPreds) {
@@ -4925,7 +4805,8 @@ private findAllDrivingChainsToTask(targetTaskId: string): Array<{
             chains.push({
                 tasks: new Set([targetTaskId]),
                 relationships: [],
-                totalDuration: task.duration
+                totalDuration: task.duration,
+                startingTask: task // MODIFICATION: Capture the starting task
             });
         }
     }
@@ -5104,32 +4985,50 @@ private calculateCPMToTask(targetTaskId: string | null): void {
     
     // Find all driving chains to the target
     const chains = this.findAllDrivingChainsToTask(targetTaskId);
-    const longestChain = this.selectLongestChain(chains);
     
-    if (longestChain) {
-        longestChain.tasks.forEach(taskId => {
-            const task = this.taskIdToTask.get(taskId);
-            if (task) {
-                task.isCritical = true;
-                task.isCriticalByFloat = true;
-                task.totalFloat = 0;
-            }
+    // MODIFICATION START: Instead of just selecting the longest chain,
+    // we now select the chain that starts on the earliest date.
+    // Duration is used as a tie-breaker.
+    if (chains.length > 0) {
+        chains.sort((a, b) => {
+            const aDate = a.startingTask?.startDate?.getTime() ?? Infinity;
+            const bDate = b.startingTask?.startDate?.getTime() ?? Infinity;
+
+            if (aDate < bDate) return -1;
+            if (aDate > bDate) return 1;
+
+            // If dates are the same, use duration as a tie-breaker (longest wins)
+            return b.totalDuration - a.totalDuration;
         });
+
+        const bestChain = chains[0]; // The best chain is now the first one after sorting
         
-        longestChain.relationships.forEach(rel => {
-            rel.isCritical = true;
-        });
+        if (bestChain) {
+            bestChain.tasks.forEach(taskId => {
+                const task = this.taskIdToTask.get(taskId);
+                if (task) {
+                    task.isCritical = true;
+                    task.isCriticalByFloat = true;
+                    task.totalFloat = 0;
+                }
+            });
+            
+            bestChain.relationships.forEach(rel => {
+                rel.isCritical = true;
+            });
+
+            this.debugLog(`P6 path to ${targetTaskId} with ${bestChain.tasks.size} tasks, starting on ${this.formatDate(bestChain.startingTask?.startDate)}`);
+        }
     }
-    
+    // MODIFICATION END
+
     // Always mark target task as critical
     targetTask.isCritical = true;
     targetTask.isCriticalByFloat = true;
-    
-    this.debugLog(`P6 path to ${targetTaskId} with ${longestChain?.tasks.size || 0} tasks`);
 }
 
 private calculateCPMFromTask(sourceTaskId: string | null): void {
-    this.debugLog(`Calculating P6 driving path from task: ${sourceTaskId || "None"}`);
+    this.debugLog(`Calculating driving path from task: ${sourceTaskId || "None"} to the latest finish date.`);
     
     if (!sourceTaskId) {
         this.identifyLongestPathFromP6();
@@ -5151,68 +5050,98 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
         task.isNearCritical = false;
         task.totalFloat = Infinity;
     });
-    
-    // Identify driving relationships
+
+    // First, identify all driving relationships in the schedule.
     this.identifyDrivingRelationships();
-    
-    // Find longest driving chain from source
-    const visited = new Set<string>();
-    let longestForwardChain: {
+
+    const completedChains: Array<{
         tasks: Set<string>,
         relationships: Relationship[],
-        totalDuration: number
-    } | null = null;
-    
-    const findForwardChains = (taskId: string, currentChain: Set<string>, currentRels: Relationship[], currentDuration: number) => {
-        if (visited.has(taskId)) return;
+        totalDuration: number,
+        endingTask: Task
+    }> = [];
+
+    // This recursive function now finds all DRIVING forward paths.
+    const findForwardChains = (taskId: string, currentChain: Set<string>, currentRels: Relationship[], currentDuration: number, visitedInPath: Set<string>) => {
         
+        if (visitedInPath.has(taskId)) {
+            return; // Prevent cycles
+        }
+        visitedInPath.add(taskId);
+
         const task = this.taskIdToTask.get(taskId);
         if (!task) return;
         
         currentChain.add(taskId);
         currentDuration += task.duration;
         
+        // KEY CHANGE: We now filter to follow ONLY driving relationships forward.
         const drivingSuccs = this.relationships.filter(rel => 
             rel.predecessorId === taskId && (rel as any).isDriving
         );
         
         if (drivingSuccs.length === 0) {
-            if (!longestForwardChain || currentDuration > longestForwardChain.totalDuration) {
-                longestForwardChain = {
-                    tasks: new Set(currentChain),
-                    relationships: [...currentRels],
-                    totalDuration: currentDuration
-                };
-            }
+            // This is the end of a driving chain. Record it.
+            completedChains.push({
+                tasks: new Set(currentChain),
+                relationships: [...currentRels],
+                totalDuration: currentDuration,
+                endingTask: task
+            });
         } else {
             for (const rel of drivingSuccs) {
                 currentRels.push(rel);
-                findForwardChains(rel.successorId, currentChain, currentRels, currentDuration);
-                currentRels.pop();
+                findForwardChains(rel.successorId, currentChain, currentRels, currentDuration, visitedInPath);
+                currentRels.pop(); // Backtrack relationship
             }
         }
         
-        currentChain.delete(taskId);
+        currentChain.delete(taskId); // Backtrack task
+        visitedInPath.delete(taskId); // Backtrack visited for other branches
     };
     
-    findForwardChains(sourceTaskId, new Set(), [], 0);
-    
-    if (longestForwardChain) {
-        longestForwardChain.tasks.forEach(taskId => {
-            const task = this.taskIdToTask.get(taskId);
-            if (task) {
-                task.isCritical = true;
-                task.isCriticalByFloat = true;
-                task.totalFloat = 0;
-            }
+    // Start the search from the user-selected source task.
+    findForwardChains(sourceTaskId, new Set(), [], 0, new Set());
+
+    if (completedChains.length > 0) {
+        // Sort the completed driving chains to find the best one.
+        // Primary sort: latest finish date (descending).
+        // Secondary sort: longest duration (descending).
+        completedChains.sort((a, b) => {
+            const aDate = a.endingTask?.finishDate?.getTime() ?? -Infinity;
+            const bDate = b.endingTask?.finishDate?.getTime() ?? -Infinity;
+
+            if (aDate > bDate) return -1;
+            if (aDate < bDate) return 1;
+
+            // If dates are the same, use duration as a tie-breaker.
+            return b.totalDuration - a.totalDuration;
         });
+
+        const bestChain = completedChains[0];
         
-        longestForwardChain.relationships.forEach(rel => {
-            rel.isCritical = true;
-        });
+        if (bestChain) {
+            // Mark only the tasks and relationships in the single best path as critical.
+            bestChain.tasks.forEach(taskId => {
+                const task = this.taskIdToTask.get(taskId);
+                if (task) {
+                    task.isCritical = true;
+                    task.isCriticalByFloat = true;
+                    task.totalFloat = 0;
+                }
+            });
+            
+            bestChain.relationships.forEach(rel => {
+                rel.isCritical = true;
+            });
+
+            this.debugLog(`P6 path from ${sourceTaskId} with ${bestChain.tasks.size} tasks, ending on latest date ${this.formatDate(bestChain.endingTask?.finishDate)}`);
+        }
+    } else {
+         // If no forward driving path, the selected task itself is the critical path.
+         sourceTask.isCritical = true;
+         sourceTask.isCriticalByFloat = true;
     }
-    
-    this.debugLog(`P6 path from ${sourceTaskId} with ${longestForwardChain?.tasks.size || 0} tasks`);
 }
 
 private identifyPredecessorTasksFloatBased(targetTaskId: string): Set<string> {
