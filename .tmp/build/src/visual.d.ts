@@ -101,7 +101,6 @@ export declare class Visual implements IVisual {
     private createModeToggleButton;
     private toggleCriticalityMode;
     private createFloatThresholdControl;
-    private createOrUpdateVisualTitle;
     private toggleConnectorLinesDisplay;
     update(options: VisualUpdateOptions): void;
     private updateInternal;

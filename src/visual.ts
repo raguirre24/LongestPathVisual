@@ -1327,7 +1327,7 @@ private createModeToggleButton(viewportWidth: number): void {
         .style("fill", isFloatBased ? "#666" : "white")
         .style("pointer-events", "none")
         .style("letter-spacing", "0.5px") // Add slight letter spacing
-        .text("CPM");
+        .text("LP");
     
     // Float label - positioned at 3/4 of pill width
     pillG.append("text")
@@ -1357,7 +1357,7 @@ private createModeToggleButton(viewportWidth: number): void {
     // Tooltip
     modeToggleGroup.append("title")
         .text(hasTotalFloat 
-            ? `Current: ${isFloatBased ? 'Float-Based' : 'Longest Path (CPM)'}\nClick to switch modes`
+            ? `Current: ${isFloatBased ? 'Float-Based' : 'Longest Path'}\nClick to switch modes`
             : "Float-Based mode requires Task Total Float field");
     
     if (hasTotalFloat) {
@@ -1401,7 +1401,7 @@ private toggleCriticalityMode(): void {
         if (this.settings?.criticalityMode?.calculationMode) {
             this.settings.criticalityMode.calculationMode.value = {
                 value: newMode,
-                displayName: newMode === 'longestPath' ? 'Longest Path (CPM)' : 'Float-Based'
+                displayName: newMode === 'longestPath' ? 'Longest Path' : 'Float-Based'
             };
         }
         
@@ -1425,7 +1425,6 @@ private toggleCriticalityMode(): void {
         // Update UI elements
         this.createModeToggleButton(this.lastUpdateOptions?.viewport.width || 800);
         this.createFloatThresholdControl();
-        this.createOrUpdateVisualTitle();
         
         // CRITICAL FIX: Force canvas refresh
         this.forceCanvasRefresh();
@@ -1605,124 +1604,6 @@ private createFloatThresholdControl(): void {
     });
 }
 
-    private createOrUpdateVisualTitle(): void {
-        if (!this.stickyHeaderContainer) return;
-
-        // Configuration constants for better readability and maintenance
-        const CONFIG = {
-            COLORS: {
-                floatBased: "#faad14",
-                longestPath: "#1890ff",
-                textPrimary: "#333",
-                textSecondary: "#666"
-            },
-            TOOLTIPS: {
-                floatBased: "Mode: Float-Based. Criticality is determined by the 'Task Total Float' field.",
-                longestPath: "Mode: Longest Path (CPM). Criticality is calculated to find the longest sequence of tasks."
-            }
-        };
-
-        // Prepare data for the D3 data-join pattern
-        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-        const isFloatBased = mode === 'floatBased';
-        const titleData = [{
-            mode,
-            displayName: isFloatBased ? 'Float-Based Critical Path' : 'Longest Path (CPM)',
-            color: isFloatBased ? CONFIG.COLORS.floatBased : CONFIG.COLORS.longestPath,
-            tooltip: isFloatBased ? CONFIG.TOOLTIPS.floatBased : CONFIG.TOOLTIPS.longestPath,
-            selectedTaskName: (this.selectedTaskId && this.selectedTaskName) ? this.selectedTaskName : null
-        }];
-
-        // Use the D3 data-join pattern for efficient updates
-        const titleSelection = this.stickyHeaderContainer.selectAll<HTMLDivElement, typeof titleData[0]>(".visual-title")
-            .data(titleData);
-
-        // --- ENTER: Create the title's structure the first time ---
-        const titleEnter = titleSelection.enter().append("div")
-            .attr("class", "visual-title")
-            .style("position", "absolute")
-            .style("top", "4px")
-            .style("left", "50%")
-            .style("transform", "translateX(-50%)")
-            .style("z-index", "15")
-            // MODIFICATION 1: Use a vertical layout for title and subtitle
-            .style("display", "flex")
-            .style("flex-direction", "column")
-            .style("align-items", "center")
-            .style("gap", "2px") // Adds a small space between title and subtitle
-            .style("pointer-events", "none")
-            .style("max-width", "60%");
-
-        // New container for the top row to keep the icon and mode name together
-        const topRowEnter = titleEnter.append("div")
-            .attr("class", "title-top-row")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("gap", "6px");
-
-        topRowEnter.append("div").attr("class", "mode-icon");
-        topRowEnter.append("span").attr("class", "mode-name");
-
-        // Container for the subtitle (selected task)
-        const subtitleEnter = titleEnter.append("div")
-            .attr("class", "title-subtitle")
-            .style("text-align", "center");
-
-        // The span for the task name, which will be populated on update
-        subtitleEnter.append("span")
-            .attr("class", "selected-task-name")
-            .style("white-space", "nowrap")
-            .style("overflow", "hidden")
-            .style("text-overflow", "ellipsis")
-            .style("display", "inline-block"); // Required for truncation to work
-
-        // --- UPDATE: Merge enter and update selections to apply dynamic styles ---
-        const titleUpdate = titleEnter.merge(titleSelection);
-        
-        titleUpdate
-            .attr("title", d => d.tooltip)
-            .transition().duration(200)
-            .style("opacity", 1);
-            
-        // Update the top row elements
-        const topRowUpdate = titleUpdate.select(".title-top-row");
-        
-        topRowUpdate.select(".mode-icon")
-            .style("width", "8px")
-            .style("height", "8px")
-            .style("border-radius", "50%")
-            .style("flex-shrink", "0")
-            .style("background-color", d => d.color);
-
-        topRowUpdate.select(".mode-name")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", "13px")
-            .style("font-weight", "600")
-            .style("color", CONFIG.COLORS.textPrimary)
-            .text(d => d.displayName);
-            
-        // Update the subtitle section
-        const subtitleUpdate = titleUpdate.select<HTMLDivElement>(".title-subtitle");
-        
-        subtitleUpdate
-            .style("display", d => d.selectedTaskName ? "block" : "none");
-            
-        subtitleUpdate.select(".selected-task-name")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", "11px")
-            .style("color", CONFIG.COLORS.textSecondary)
-            .style("font-weight", "normal")
-            .style("max-width", "600px")
-            .attr("title", d => d.selectedTaskName) // Full name on hover
-            .text(d => d.selectedTaskName ? `Tracing: ${d.selectedTaskName}` : "");
-
-        // --- EXIT ---
-        titleSelection.exit()
-            .transition().duration(200)
-            .style("opacity", 0)
-            .remove();
-    }
-
 private toggleConnectorLinesDisplay(): void {
     try {
         this.debugLog("Connector Lines Toggle method called!");
@@ -1810,6 +1691,7 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.lastUpdateOptions = options;
 
         if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
+            this.applyTaskFilter([]); // ← FIX #1: Clear filter on invalid options
             this.displayMessage("Required options not available."); 
             return;
         }
@@ -1827,7 +1709,6 @@ private async updateInternal(options: VisualUpdateOptions) {
             this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
         }
 
-        // FIX: Load the saved state for the "Show Prev Update" toggle on every update.
         if (this.settings?.taskAppearance?.showPreviousUpdate !== undefined) {
             this.showPreviousUpdateInternal = this.settings.taskAppearance.showPreviousUpdate.value;
         }
@@ -1866,6 +1747,7 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.createTraceModeToggle();
 
         if (!this.validateDataView(dataView)) {
+            this.applyTaskFilter([]); // ← FIX #2: Clear filter on validation failure
             const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
             if (mode === 'floatBased') {
                 this.displayMessage("Float-Based mode requires: Task ID, Task Total Float, Start Date, Finish Date.");
@@ -1884,6 +1766,7 @@ private async updateInternal(options: VisualUpdateOptions) {
         }
         
         if (this.allTasksData.length === 0) {
+            this.applyTaskFilter([]); // ← FIX #3: Clear filter when no data
             this.displayMessage("No valid task data found to display."); 
             return;
         }
@@ -1891,11 +1774,10 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         if (this.selectedTaskId) {
             const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
-            this.selectedTaskName = selectedTask ? selectedTask.name || null : null;
+            this.selectedTaskName = (selectedTask && selectedTask.name) || null;
         }
 
         this.createTaskSelectionDropdown();
-
         if (this.dropdownInput) {
             if (this.selectedTaskId) {
                 this.dropdownInput.property("value", this.selectedTaskName || "");
@@ -1903,7 +1785,7 @@ private async updateInternal(options: VisualUpdateOptions) {
                 this.dropdownInput.property("value", "");
             }
         }
-
+        
         if (this.selectedTaskLabel) {
             if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
                 this.selectedTaskLabel
@@ -1916,89 +1798,97 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         this.populateTaskDropdown();
         this.createTraceModeToggle();
-        
+
         const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
         const mode = this.settings.criticalityMode.calculationMode.value.value;
-        
-        let tasksInPathToTarget = new Set<string>();
-        let tasksInPathFromTarget = new Set<string>();
+
+        let predecessorTaskSet = new Set<string>();
+        let successorTaskSet = new Set<string>();
 
         if (enableTaskSelection && this.selectedTaskId) {
-            const traceModeFromSettings = this.settings.taskSelection.traceMode.value.value;
-            const effectiveTraceMode = this.traceMode || traceModeFromSettings;
-            
-            if (mode === "floatBased") {
+            const traceModeSetting = this.settings.taskSelection.traceMode.value.value;
+            const effectiveTraceMode = this.traceMode || traceModeSetting;
+
+            if (mode === 'floatBased') {
                 this.applyFloatBasedCriticality();
                 
-                if (effectiveTraceMode === "forward") {
-                    tasksInPathFromTarget = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
+                if (effectiveTraceMode === 'forward') {
+                    successorTaskSet = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
                 } else {
-                    tasksInPathToTarget = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
+                    predecessorTaskSet = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
                 }
-            } else { // Longest Path Mode
+            } else {
                 if (this.showAllTasksInternal) {
-                    this.debugLog(`Longest Path 'Show All' is active: Performing full structural trace.`);
-                    if (effectiveTraceMode === "forward") {
-                        tasksInPathFromTarget = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
+                    this.debugLog("Longest Path 'Show All' is active: Performing full structural trace.");
+                    if (effectiveTraceMode === 'forward') {
+                        successorTaskSet = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
                     } else {
-                        tasksInPathToTarget = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
+                        predecessorTaskSet = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
                     }
-                     if (effectiveTraceMode === "forward") {
+
+                    if (effectiveTraceMode === 'forward') {
                         this.calculateCPMFromTask(this.selectedTaskId);
-                     } else {
+                    } else {
                         this.calculateCPMToTask(this.selectedTaskId);
-                     }
-                } else { // Show Critical
-                    this.debugLog(`Longest Path 'Show Critical' is active: Tracing driving path.`);
-                    if (effectiveTraceMode === "forward") {
+                    }
+                } else {
+                    this.debugLog("Longest Path 'Show Critical' is active: Tracing driving path.");
+                    if (effectiveTraceMode === 'forward') {
                         this.calculateCPMFromTask(this.selectedTaskId);
                     } else {
                         this.calculateCPMToTask(this.selectedTaskId);
                     }
                 }
             }
-        } else { // No task selected
-            if (mode === "floatBased") {
+        } else {
+            if (mode === 'floatBased') {
                 this.applyFloatBasedCriticality();
             } else {
                 this.identifyLongestPathFromP6();
             }
         }
 
-        const tasksSortedByES = this.allTasksData
+        const tasksSortedByStartDate = this.allTasksData
             .filter(task => task.startDate instanceof Date && !isNaN(task.startDate.getTime()))
             .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-            
-        const criticalAndNearCriticalTasks = tasksSortedByES.filter(task => task.isCritical || task.isNearCritical);
+
+        const criticalAndNearCriticalTasks = tasksSortedByStartDate.filter(task => 
+            task.isCritical || task.isNearCritical
+        );
 
         let tasksToConsider: Task[] = [];
-
+        
         if (enableTaskSelection && this.selectedTaskId) {
             const effectiveTraceMode = this.traceMode || this.settings.taskSelection.traceMode.value.value;
-            
-            const path = effectiveTraceMode === 'forward' ? tasksInPathFromTarget : tasksInPathToTarget;
-            
+            const relevantTaskSet = effectiveTraceMode === 'forward' ? successorTaskSet : predecessorTaskSet;
+
             if (this.showAllTasksInternal) {
-                tasksToConsider = tasksSortedByES.filter(task => path.has(task.internalId));
+                tasksToConsider = tasksSortedByStartDate.filter(task => relevantTaskSet.has(task.internalId));
             } else {
                 if (mode === 'floatBased') {
-                     tasksToConsider = tasksSortedByES.filter(task => path.has(task.internalId) && (task.isCritical || task.isNearCritical));
-                } else { // Longest Path
+                    tasksToConsider = tasksSortedByStartDate.filter(task => 
+                        relevantTaskSet.has(task.internalId) && (task.isCritical || task.isNearCritical)
+                    );
+                } else {
                     tasksToConsider = criticalAndNearCriticalTasks;
                 }
             }
-            
+
             const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
             if (selectedTask && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
                 tasksToConsider.push(selectedTask);
             }
         } else {
-            tasksToConsider = this.showAllTasksInternal ? tasksSortedByES : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : tasksSortedByES;
+            tasksToConsider = this.showAllTasksInternal 
+                ? tasksSortedByStartDate 
+                : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : tasksSortedByStartDate;
         }
 
         const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
         const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
+        
         if (limitedTasks.length === 0) {
+            this.applyTaskFilter([]); // ← FIX #4: Clear filter when no tasks after limiting
             this.displayMessage("No tasks to display after filtering/limiting."); 
             return;
         }
@@ -2008,7 +1898,9 @@ private async updateInternal(options: VisualUpdateOptions) {
             task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
             task.finishDate >= task.startDate
         );
+        
         if (tasksToPlot.length === 0) {
+            this.applyTaskFilter([]); // ← FIX #5: Clear filter when no valid dates
             this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
             return;
         }
@@ -2016,6 +1908,8 @@ private async updateInternal(options: VisualUpdateOptions) {
         tasksToPlot.sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
         tasksToPlot.forEach((task, index) => { task.yOrder = index; });
         const tasksToShow = tasksToPlot;
+        
+        // ✅ CORRECT: Apply filter with valid tasks
         this.applyTaskFilter(tasksToShow.map(t => t.id));
 
         const taskHeight = this.settings.taskAppearance.taskHeight.value;
@@ -2029,6 +1923,7 @@ private async updateInternal(options: VisualUpdateOptions) {
         const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
 
         if (!this.xScale || !this.yScale) {
+            this.applyTaskFilter([]); // ← FIX #6: Clear filter when scale creation fails
             this.displayMessage("Could not create time/band scale. Check Start/Finish dates."); 
             return;
         }
@@ -2057,22 +1952,13 @@ private async updateInternal(options: VisualUpdateOptions) {
     } catch (error) {
         console.error("--- ERROR during visual update ---", error);
         const errorMessage = error instanceof Error ? error.message : String(error);
-        this.displayMessage(`Error: ${errorMessage}`);
-        this.isInitialLoad = true;
-        this.forceFullUpdate = false;
+        
+        // ← FIX #7: Clear filter on unexpected errors
+        this.applyTaskFilter([]);
+        this.displayMessage(`Error updating visual: ${errorMessage}`);
     } finally {
         this.isUpdating = false;
-        
-        if (this.scrollHandlerBackup && this.scrollableContainer) {
-            setTimeout(() => {
-                if (this.scrollableContainer && this.scrollHandlerBackup) {
-                    this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
-                    this.scrollHandlerBackup = null;
-                }
-            }, 0);
-        }
     }
-    this.debugLog("--- Visual Update End ---");
 }
 
 private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
@@ -2477,7 +2363,7 @@ private showTaskTooltip(task: Task, event: MouseEvent): void {
         .style("font-size", "10px")
         .style("font-style", "italic")
         .style("color", "#666")
-        .text(`Mode: ${mode === 'floatBased' ? 'Float-Based' : 'Longest Path (CPM)'}`);
+        .text(`Mode: ${mode === 'floatBased' ? 'Float-Based' : 'Longest Path'}`);
 
     // Status
     modeInfo.append("div").append("strong").style("color", "#555").text("Status: ")
@@ -2608,7 +2494,6 @@ private updateHeaderElements(viewportWidth: number): void {
     this.createOrUpdateBaselineToggleButton(viewportWidth);
     this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
     this.createConnectorLinesToggleButton(viewportWidth);
-    this.createOrUpdateVisualTitle();
 }
 
     private calculateVisibleTasks(): void {
@@ -3609,7 +3494,7 @@ private drawTasks(
                         .style("font-size", "10px")
                         .style("font-style", "italic")
                         .style("color", "#666")
-                        .text(`Mode: ${mode === 'floatBased' ? 'Float-Based' : 'Longest Path (CPM)'}`);
+                        .text(`Mode: ${mode === 'floatBased' ? 'Float-Based' : 'Longest Path'}`);
 
                     // Status
                     modeInfo.append("div").append("strong").style("color", "#555").text("Status: ")
@@ -5853,38 +5738,40 @@ private validateDataView(dataView: DataView): boolean {
         this.host.applyJsonFilter(filter, "general", "filter", action);
     }
 
-    private displayMessage(message: string): void {
-        this.debugLog("Displaying Message:", message);
-        const containerNode = this.scrollableContainer?.node();
-        if (!containerNode || !this.mainSvg || !this.headerSvg) {
-            console.error("Cannot display message, containers or svgs not ready.");
-            return;
-        }
-        this.clearVisual();
-
-        const width = containerNode?.clientWidth || 300;
-        const height = containerNode?.clientHeight || Math.max(100, this.target.clientHeight - this.headerHeight); // Ensure min height
-
-        this.mainSvg.attr("width", width).attr("height", height);
-        this.mainGroup?.attr("transform", null);
-
-        this.mainSvg.append("text")
-            .attr("class", "message-text")
-            .attr("x", width / 2)
-            .attr("y", height / 2)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "middle")
-            .style("fill", "#777777")
-            .style("font-size", "14px")
-            .style("font-weight", "bold")
-            .text(message);
-
-        // Redraw button and divider in header even when showing message
-        const viewportWidth = this.lastUpdateOptions?.viewport.width || width;
-        this.createOrUpdateToggleButton(viewportWidth);
-        this.createOrUpdateVisualTitle();
-        this.drawHeaderDivider(viewportWidth);
+private displayMessage(message: string): void {
+    this.debugLog("Displaying Message:", message);
+    
+    // Clear any active cross-filters when showing error messages
+    this.applyTaskFilter([]); // ← ADDED THIS LINE FOR EXTRA SAFETY
+    
+    const containerNode = this.scrollableContainer?.node();
+    if (!containerNode || !this.mainSvg || !this.headerSvg) {
+        console.error("Cannot display message, containers or svgs not ready.");
+        return;
     }
+    this.clearVisual();
+
+    const width = containerNode?.clientWidth || 300;
+    const height = containerNode?.clientHeight || Math.max(100, this.target.clientHeight - this.headerHeight);
+
+    this.mainSvg.attr("width", width).attr("height", height);
+    this.mainGroup?.attr("transform", null);
+
+    this.mainSvg.append("text")
+        .attr("class", "message-text")
+        .attr("x", width / 2)
+        .attr("y", height / 2)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "middle")
+        .style("fill", "#777777")
+        .style("font-size", "14px")
+        .style("font-weight", "bold")
+        .text(message);
+
+    const viewportWidth = this.lastUpdateOptions?.viewport.width || width;
+    this.createOrUpdateToggleButton(viewportWidth);
+    this.drawHeaderDivider(viewportWidth);
+}
 
 private createTaskSelectionDropdown(): void {
     if (!this.dropdownContainer || !this.selectedTaskLabel) {
@@ -5893,7 +5780,7 @@ private createTaskSelectionDropdown(): void {
     }
 
     const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
-    const dropdownWidth = 200;
+    const dropdownWidth = 350;
     const showSelectedTaskLabel = this.settings.taskSelection.showSelectedTaskLabel.value;
 
     // Show/hide dropdown based on settings
@@ -5926,7 +5813,7 @@ private createTaskSelectionDropdown(): void {
         .style("border", "1px solid #d0d0d0")
         .style("border-radius", "12px")
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "12px")
+        .style("font-size", "10px")
         .style("color", "#333")
         .style("box-sizing", "border-box")
         .style("outline", "none")
@@ -5948,7 +5835,7 @@ private createTaskSelectionDropdown(): void {
         .style("top", "100%")
         .style("left", "0")
         .style("width", `${dropdownWidth}px`)
-        .style("max-height", "200px")
+        .style("max-height", "400px")
         .style("margin-top", "4px")
         .style("overflow-y", "auto")
         .style("background", "white")
@@ -6071,7 +5958,7 @@ private populateTaskDropdown(): void {
         .style("color", "#666")
         .style("font-style", "italic")
         .style("border-bottom", "1px solid #eee")
-        .style("font-size", "11px")
+        .style("font-size", "10px")
         .style("font-family", "Segoe UI, sans-serif")
         .style("background-color", "white")
         .text("× Clear Selection");
@@ -6109,7 +5996,7 @@ private populateTaskDropdown(): void {
             .style("white-space", "nowrap")
             .style("overflow", "visible")
             .style("text-overflow", "ellipsis")
-            .style("font-size", "11px")
+            .style("font-size", "10px")
             .style("font-family", "Segoe UI, sans-serif")
             .style("background-color", task.internalId === self.selectedTaskId ? "#f0f0f0" : "white")
             .style("font-weight", task.internalId === self.selectedTaskId ? "600" : "normal")
@@ -6151,7 +6038,7 @@ private createTraceModeToggle(): void {
         .attr("class", "trace-mode-toggle")
         .style("position", "absolute")
         .style("top", "32px")
-        .style("left", "220px")
+        .style("left", "370px")
         .style("z-index", "20");
     
     const isDisabled = !this.selectedTaskId;
@@ -6393,7 +6280,6 @@ private selectTask(taskId: string | null, taskName: string | null): void {
     this.selectedTaskName = taskName;
 
     // Batch UI updates
-    this.createOrUpdateVisualTitle();
     this.createTraceModeToggle();
     
     // Update dropdown if exists
