@@ -24,6 +24,14 @@ const lineStyleItems: powerbi.IEnumMember[] = [
 
 class TaskAppearanceCard extends Card {
     name: string = "taskAppearance"; displayName: string = "Task Appearance";
+
+    useColorblindSafePalette = new ToggleSwitch({
+        name: "useColorblindSafePalette",
+        displayName: "Use Colorblind-Safe Colors",
+        description: "Switch to colorblind-friendly color palette (Blue/Orange/Green)",
+        value: false
+    });
+
     taskColor = new ColorPicker({ name: "taskColor", displayName: "Non-Critical Task Color", value: { value: "#0078D4" } }); // Blue color for non-critical tasks
     criticalPathColor = new ColorPicker({ name: "criticalPathColor", displayName: "Longest Path Color", value: { value: "#E81123" } });
     milestoneColor = new ColorPicker({ name: "milestoneColor", displayName: "Milestone Color", value: { value: "#555555" } });
@@ -92,8 +100,9 @@ class TaskAppearanceCard extends Card {
         }
     });
 
-    slices: Slice[] = [ 
-        this.taskColor, this.criticalPathColor, this.milestoneColor, 
+    slices: Slice[] = [
+        this.useColorblindSafePalette,
+        this.taskColor, this.criticalPathColor, this.milestoneColor,
         this.taskHeight, this.milestoneSize,
         this.showBaseline, this.baselineColor, this.baselineHeight, this.baselineOffset,
         this.showPreviousUpdate, this.previousUpdateColor, this.previousUpdateHeight, this.previousUpdateOffset
@@ -343,31 +352,31 @@ class PersistedStateCard extends Card {
 }
 
 export class VisualSettings extends Model {
-    // Keep existing cards
+    // Cards ordered by priority and logical flow
+    criticalityMode = new CriticalityModeCard();
+    taskSelection = new TaskSelectionCard();
     taskAppearance = new TaskAppearanceCard();
     connectorLines = new ConnectorLinesCard();
-    textAndLabels = new TextAndLabelsCard();
     layoutSettings = new LayoutSettingsCard();
+    textAndLabels = new TextAndLabelsCard();
     gridLines = new HorizontalGridLinesCard();
     verticalGridLines = new VerticalGridLinesCard();
     projectEndLine = new ProjectEndLineCard();
     displayOptions = new DisplayOptionsCard();
-    criticalityMode = new CriticalityModeCard();  // ADD THIS LINE
-    taskSelection = new TaskSelectionCard();
     persistedState = new PersistedStateCard();
 
-    // Update the cards array
+    // Update the cards array - ordered by importance and workflow
     cards: Card[] = [
-        this.taskAppearance,
-        this.connectorLines,
-        this.textAndLabels,
-        this.layoutSettings,
-        this.gridLines,
-        this.verticalGridLines,
-        this.projectEndLine,
-        this.displayOptions,
-        this.criticalityMode,  // ADD THIS LINE
-        this.taskSelection,
-        this.persistedState
+        this.criticalityMode,      // 1. Most important - calculation mode
+        this.taskSelection,        // 2. Task selection and tracing
+        this.taskAppearance,       // 3. Visual styling
+        this.connectorLines,       // 4. Relationship lines
+        this.layoutSettings,       // 5. Layout controls
+        this.textAndLabels,        // 6. Text styling
+        this.gridLines,            // 7. Horizontal grid
+        this.verticalGridLines,    // 8. Vertical grid
+        this.projectEndLine,       // 9. Project end marker
+        this.displayOptions,       // 10. Advanced options
+        this.persistedState        // 11. Hidden state
     ];
 }

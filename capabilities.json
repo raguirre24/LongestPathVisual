@@ -102,6 +102,7 @@
         "taskAppearance": {
             "displayName": "Task Appearance",
             "properties": {
+                "useColorblindSafePalette": { "displayName": "Use Colorblind-Safe Colors", "description": "Switch to colorblind-friendly color palette", "type": { "bool": true } },
                 "taskColor": { "displayName": "Non-Critical Task Color", "type": { "fill": { "solid": { "color": true } } } },
                 "criticalPathColor": { "displayName": "Longest Path Color", "type": { "fill": { "solid": { "color": true } } } },
                 "milestoneColor": { "displayName": "Milestone Color", "type": { "fill": { "solid": { "color": true } } } },
@@ -294,7 +295,7 @@
     "supportsHighlight": true,
     "sorting": { "default": {} },
     "supportsLandingPage": false,
-    "supportsKeyboardFocus": false,
+    "supportsKeyboardFocus": true,
     "supportsMultiVisualSelection": true,
     "supportsEmptyDataView": false,
     "suppressDefaultTitle": false

@@ -94,7 +94,7 @@ export class Visual implements IVisual {
     private canvasElement: HTMLCanvasElement | null = null;
     private canvasContext: CanvasRenderingContext2D | null = null;
     private useCanvasRendering: boolean = false;
-    private CANVAS_THRESHOLD: number = 500; // Switch to canvas when more than 500 tasks
+    private CANVAS_THRESHOLD: number = 400; // Switch to canvas when more than 400 tasks (optimized for better performance)
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
 
     // --- Data properties remain the same ---
@@ -1750,9 +1750,9 @@ private async updateInternal(options: VisualUpdateOptions) {
             this.applyTaskFilter([]); // ← FIX #2: Clear filter on validation failure
             const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
             if (mode === 'floatBased') {
-                this.displayMessage("Float-Based mode requires: Task ID, Task Total Float, Start Date, Finish Date.");
+                this.displayMessage("Missing required fields for Float-Based mode: Task ID, Task Total Float, Start Date, and Finish Date are required.", 'error');
             } else {
-                this.displayMessage("Longest Path mode requires: Task ID, Duration, Start Date, Finish Date.");
+                this.displayMessage("Missing required fields for Longest Path mode: Task ID, Duration, Start Date, and Finish Date are required.", 'error');
             }
             return;
         }
@@ -1767,7 +1767,7 @@ private async updateInternal(options: VisualUpdateOptions) {
         
         if (this.allTasksData.length === 0) {
             this.applyTaskFilter([]); // ← FIX #3: Clear filter when no data
-            this.displayMessage("No valid task data found to display."); 
+            this.displayMessage("No valid task data found. Please check that your data contains tasks with the required fields.", 'info');
             return;
         }
         this.debugLog(`Transformed ${this.allTasksData.length} tasks.`);
@@ -2133,7 +2133,165 @@ private drawHeaderDivider(viewportWidth: number): void {
             .merge(lineSelection as any) // Merge enter selection with the update selection (Casting to any if needed due to D3 type definitions)
             .attr("x2", d => d); // Update the width (x2)
     }
-    
+
+/**
+ * Creates a legend panel showing task types and colors
+ * @param viewportWidth - Width of the viewport for positioning
+ */
+private createLegendPanel(viewportWidth: number): void {
+    if (!this.headerSvg) return;
+
+    this.headerSvg.selectAll(".legend-group").remove();
+
+    const colors = this.getTaskColors();
+    const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+    const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+
+    const legendGroup = this.headerSvg.append("g")
+        .attr("class", "legend-group");
+
+    // Position legend in bottom-left of header
+    const legendX = 8;
+    const legendY = 35;
+    const itemSpacing = 80;
+
+    legendGroup.attr("transform", `translate(${legendX}, ${legendY})`);
+
+    // Title
+    legendGroup.append("text")
+        .attr("x", 0)
+        .attr("y", 0)
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "10px")
+        .style("font-weight", "600")
+        .style("fill", "#666")
+        .text("Legend:");
+
+    const legendItems = [
+        { label: "Non-Critical", color: colors.taskColor, type: "bar" },
+        { label: "Critical Path", color: colors.criticalColor, type: "bar" },
+        { label: "Milestone", color: colors.milestoneColor, type: "diamond" },
+        { label: "Baseline", color: baselineColor, type: "thin-bar" },
+        { label: "Previous", color: previousUpdateColor, type: "thin-bar" }
+    ];
+
+    legendItems.forEach((item, index) => {
+        const itemGroup = legendGroup.append("g")
+            .attr("transform", `translate(${index * itemSpacing + 45}, 0)`);
+
+        if (item.type === "bar") {
+            // Task bar
+            itemGroup.append("rect")
+                .attr("x", 0)
+                .attr("y", -5)
+                .attr("width", 14)
+                .attr("height", 6)
+                .attr("rx", 1)
+                .attr("fill", item.color)
+                .attr("stroke", "#333")
+                .attr("stroke-width", 0.5);
+        } else if (item.type === "diamond") {
+            // Milestone diamond
+            itemGroup.append("path")
+                .attr("d", "M 7,- 5 L 14,1 L 7,7 L 0,1 Z")
+                .attr("fill", item.color)
+                .attr("stroke", "#333")
+                .attr("stroke-width", 0.5)
+                .attr("transform", "translate(0, -5)");
+        } else if (item.type === "thin-bar") {
+            // Baseline/Previous update thin bar
+            itemGroup.append("rect")
+                .attr("x", 0)
+                .attr("y", -2)
+                .attr("width", 14)
+                .attr("height", 3)
+                .attr("rx", 1)
+                .attr("fill", item.color);
+        }
+
+        // Label
+        itemGroup.append("text")
+            .attr("x", 18)
+            .attr("y", 1)
+            .attr("dominant-baseline", "middle")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "9px")
+            .style("fill", "#555")
+            .text(item.label);
+    });
+}
+
+/**
+ * Creates a help/info button in the header
+ * @param viewportWidth - Width of the viewport for positioning
+ */
+private createHelpButton(viewportWidth: number): void {
+    if (!this.headerSvg) return;
+
+    this.headerSvg.selectAll(".help-button-group").remove();
+
+    const helpButtonGroup = this.headerSvg.append("g")
+        .attr("class", "help-button-group")
+        .style("cursor", "pointer");
+
+    // Position in top-right corner
+    const buttonSize = 20;
+    const buttonX = viewportWidth - buttonSize - 10;
+    const buttonY = 6;
+
+    helpButtonGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+    // Button circle
+    helpButtonGroup.append("circle")
+        .attr("cx", buttonSize / 2)
+        .attr("cy", buttonSize / 2)
+        .attr("r", buttonSize / 2)
+        .style("fill", "#ffffff")
+        .style("stroke", "#1976D2")
+        .style("stroke-width", 1.5);
+
+    // "?" text
+    helpButtonGroup.append("text")
+        .attr("x", buttonSize / 2)
+        .attr("y", buttonSize / 2)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "central")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "13px")
+        .style("font-weight", "bold")
+        .style("fill", "#1976D2")
+        .style("pointer-events", "none")
+        .text("?");
+
+    // Tooltip with helpful information
+    helpButtonGroup.append("title")
+        .text("Quick Help:\n\n" +
+              "• Select a task from dropdown to trace critical path\n" +
+              "• Toggle between Longest Path (CPM) and Float-Based modes\n" +
+              "• Use Show/Hide buttons to compare baselines\n" +
+              "• Red bars = Critical Path | Blue bars = Non-critical\n" +
+              "• ◆ = Milestone | ▬ = Task\n\n" +
+              "Tip: Enable 'Colorblind-Safe Colors' in Task Appearance settings");
+
+    // Hover effect
+    helpButtonGroup
+        .on("mouseover", function() {
+            d3.select(this).select("circle")
+                .style("fill", "#e3f2fd");
+        })
+        .on("mouseout", function() {
+            d3.select(this).select("circle")
+                .style("fill", "#ffffff");
+        });
+
+    // Click handler - could open more detailed help modal in future
+    helpButtonGroup.on("click", function(event) {
+        if (event) event.stopPropagation();
+        // For now, tooltip on hover provides help
+        // Could expand to show modal with detailed help in future
+    });
+}
+
     private createArrowheadMarkers(
         targetSvg: Selection<SVGSVGElement, unknown, null, undefined>,
         arrowSize: number,
@@ -2488,12 +2646,14 @@ private updateHeaderElements(viewportWidth: number): void {
     } else {
         this.drawHeaderDivider(viewportWidth);
     }
-    
+
     // Update other header elements as needed
     this.createModeToggleButton(viewportWidth);
     this.createOrUpdateBaselineToggleButton(viewportWidth);
     this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
     this.createConnectorLinesToggleButton(viewportWidth);
+    this.createLegendPanel(viewportWidth);
+    this.createHelpButton(viewportWidth);
 }
 
     private calculateVisibleTasks(): void {
@@ -2791,6 +2951,30 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         return { xScale, yScale, chartWidth, calculatedChartHeight };
     }
 
+/**
+ * Get task colors with colorblind-safe palette option
+ * @returns Object with taskColor, criticalColor, and milestoneColor
+ */
+private getTaskColors(): { taskColor: string; criticalColor: string; milestoneColor: string } {
+    const useColorblindSafe = this.settings?.taskAppearance?.useColorblindSafePalette?.value || false;
+
+    if (useColorblindSafe) {
+        // Colorblind-safe palette (Deuteranopia/Protanopia friendly)
+        return {
+            taskColor: "#0173B2",      // Blue - for non-critical tasks
+            criticalColor: "#DE8F05",  // Orange - for critical path
+            milestoneColor: "#029E73"  // Teal/Green - for milestones
+        };
+    } else {
+        // User-defined colors from settings
+        return {
+            taskColor: this.settings.taskAppearance.taskColor.value.value,
+            criticalColor: this.settings.taskAppearance.criticalPathColor.value.value,
+            milestoneColor: this.settings.taskAppearance.milestoneColor.value.value
+        };
+    }
+}
+
 private drawVisualElements(
     tasksToShow: Task[],
     xScale: ScaleTime<number, number>,
@@ -2815,10 +2999,12 @@ private drawVisualElements(
         this.displayMessage("Error during drawing setup.");
         return;
     }
-    
-    const taskColor = this.settings.taskAppearance.taskColor.value.value;
-    const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
-    const milestoneColor = this.settings.taskAppearance.milestoneColor.value.value;
+
+    // Get colors with colorblind-safe option support
+    const colors = this.getTaskColors();
+    const taskColor = colors.taskColor;
+    const criticalColor = colors.criticalColor;
+    const milestoneColor = colors.milestoneColor;
     const labelColor = this.settings.textAndLabels.labelColor.value.value;
     const taskHeight = this.settings.taskAppearance.taskHeight.value;
     const connectorColor = this.settings.connectorLines.connectorColor.value.value;
@@ -5527,6 +5713,109 @@ private validateDataView(dataView: DataView): boolean {
     return isValid;
 }
 
+/**
+ * Validates data quality and returns warnings array
+ * @returns Array of warning messages about data quality issues
+ */
+private validateDataQuality(): string[] {
+    const warnings: string[] = [];
+
+    if (this.allTasksData.length === 0) {
+        return warnings;
+    }
+
+    // Check for tasks missing dates
+    const tasksWithoutDates = this.allTasksData.filter(t => !t.startDate || !t.finishDate);
+    if (tasksWithoutDates.length > 0) {
+        warnings.push(`⚠️ ${tasksWithoutDates.length} task(s) missing start or finish dates`);
+    }
+
+    // Check for negative durations
+    const negativeDurations = this.allTasksData.filter(t => t.duration < 0);
+    if (negativeDurations.length > 0) {
+        warnings.push(`⚠️ ${negativeDurations.length} task(s) have negative durations`);
+    }
+
+    // Check for tasks with finish before start
+    const invalidDateRanges = this.allTasksData.filter(t => {
+        if (!t.startDate || !t.finishDate) return false;
+        return t.finishDate < t.startDate;
+    });
+    if (invalidDateRanges.length > 0) {
+        warnings.push(`⚠️ ${invalidDateRanges.length} task(s) have finish date before start date`);
+    }
+
+    // Check for orphaned relationships (predecessors that don't exist)
+    const allTaskIds = new Set(this.allTasksData.map(t => String(t.id)));
+    let orphanedRelationships = 0;
+    this.allTasksData.forEach(task => {
+        task.predecessorIds.forEach(predId => {
+            if (!allTaskIds.has(String(predId))) {
+                orphanedRelationships++;
+            }
+        });
+    });
+    if (orphanedRelationships > 0) {
+        warnings.push(`⚠️ ${orphanedRelationships} relationship(s) reference non-existent tasks`);
+    }
+
+    // Check for circular dependencies (simplified check)
+    if (this.hasCircularDependencies()) {
+        warnings.push(`⚠️ Circular dependencies detected in task relationships`);
+    }
+
+    // Check for tasks with excessive float
+    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+    if (mode === 'floatBased') {
+        const excessiveFloat = this.allTasksData.filter(t =>
+            t.userProvidedTotalFloat !== undefined && t.userProvidedTotalFloat > 365
+        );
+        if (excessiveFloat.length > 0) {
+            warnings.push(`⚠️ ${excessiveFloat.length} task(s) have float > 365 days (check data)`);
+        }
+    }
+
+    return warnings;
+}
+
+/**
+ * Simple circular dependency check
+ * @returns true if circular dependencies detected
+ */
+private hasCircularDependencies(): boolean {
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+
+    const hasCycle = (taskId: string): boolean => {
+        if (!visited.has(taskId)) {
+            visited.add(taskId);
+            recursionStack.add(taskId);
+
+            const task = this.taskIdToTask.get(taskId);
+            if (task) {
+                for (const predId of task.predecessorIds) {
+                    const predIdStr = String(predId);
+                    if (!visited.has(predIdStr) && hasCycle(predIdStr)) {
+                        return true;
+                    } else if (recursionStack.has(predIdStr)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        recursionStack.delete(taskId);
+        return false;
+    };
+
+    for (const task of this.allTasksData) {
+        if (hasCycle(String(task.id))) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
     private hasDataRole(dataView: DataView, roleName: string): boolean {
         if (!dataView?.metadata?.columns) return false;
         return dataView.metadata.columns.some(column => column.roles?.[roleName]);
@@ -5738,12 +6027,17 @@ private validateDataView(dataView: DataView): boolean {
         this.host.applyJsonFilter(filter, "general", "filter", action);
     }
 
-private displayMessage(message: string): void {
-    this.debugLog("Displaying Message:", message);
-    
+/**
+ * Displays a message in the visual with optional type styling
+ * @param message - The message to display
+ * @param type - Message type: 'error', 'warning', or 'info'
+ */
+private displayMessage(message: string, type: 'error' | 'warning' | 'info' = 'error'): void {
+    this.debugLog("Displaying Message:", message, "Type:", type);
+
     // Clear any active cross-filters when showing error messages
     this.applyTaskFilter([]); // ← ADDED THIS LINE FOR EXTRA SAFETY
-    
+
     const containerNode = this.scrollableContainer?.node();
     if (!containerNode || !this.mainSvg || !this.headerSvg) {
         console.error("Cannot display message, containers or svgs not ready.");
@@ -5757,13 +6051,45 @@ private displayMessage(message: string): void {
     this.mainSvg.attr("width", width).attr("height", height);
     this.mainGroup?.attr("transform", null);
 
-    this.mainSvg.append("text")
-        .attr("class", "message-text")
+    // Determine color and icon based on message type
+    let messageColor = "#777777";
+    let icon = "ℹ️";
+
+    switch(type) {
+        case 'error':
+            messageColor = "#D32F2F"; // Red for errors
+            icon = "❌";
+            break;
+        case 'warning':
+            messageColor = "#F57C00"; // Orange for warnings
+            icon = "⚠️";
+            break;
+        case 'info':
+            messageColor = "#1976D2"; // Blue for info
+            icon = "ℹ️";
+            break;
+    }
+
+    // Add icon and message
+    const messageGroup = this.mainSvg.append("g")
+        .attr("class", "message-group");
+
+    messageGroup.append("text")
+        .attr("class", "message-icon")
         .attr("x", width / 2)
-        .attr("y", height / 2)
+        .attr("y", height / 2 - 20)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "middle")
-        .style("fill", "#777777")
+        .style("font-size", "32px")
+        .text(icon);
+
+    messageGroup.append("text")
+        .attr("class", "message-text")
+        .attr("x", width / 2)
+        .attr("y", height / 2 + 15)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "middle")
+        .style("fill", messageColor)
         .style("font-size", "14px")
         .style("font-weight", "bold")
         .text(message);
@@ -5771,6 +6097,8 @@ private displayMessage(message: string): void {
     const viewportWidth = this.lastUpdateOptions?.viewport.width || width;
     this.createOrUpdateToggleButton(viewportWidth);
     this.drawHeaderDivider(viewportWidth);
+    this.createLegendPanel(viewportWidth);
+    this.createHelpButton(viewportWidth);
 }
 
 private createTaskSelectionDropdown(): void {
@@ -5986,6 +6314,12 @@ private populateTaskDropdown(): void {
     // Create dropdown items for tasks
     sortedTasks.forEach(task => {
         const taskName = task.name || `Task ${task.internalId}`;
+
+        // Determine icons
+        const isMilestone = task.type === "TT_Mile" || task.type === "TT_FinMile";
+        const taskIcon = isMilestone ? "◆" : "▬";
+        const criticalIndicator = task.isCritical ? " 🔴" : "";
+
         const item = this.dropdownList.append("div")
             .attr("class", "dropdown-item")
             .attr("data-task-id", task.internalId)
@@ -6000,7 +6334,7 @@ private populateTaskDropdown(): void {
             .style("font-family", "Segoe UI, sans-serif")
             .style("background-color", task.internalId === self.selectedTaskId ? "#f0f0f0" : "white")
             .style("font-weight", task.internalId === self.selectedTaskId ? "600" : "normal")
-            .text(taskName);
+            .html(`<span style="color: #888; margin-right: 4px;">${taskIcon}</span>${taskName}${criticalIndicator}`);
         
         // Add hover effects
         item.on("mouseover", function() {
