@@ -5342,7 +5342,8 @@ private transformDataOptimized(dataView: DataView): void {
         relationships: Array<{
             predId: string,
             relType: string,
-            lag: number | null
+            lag: number | null,
+            freeFloat: number | null
         }>
     }>();
 
