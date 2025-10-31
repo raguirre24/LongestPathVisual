@@ -4512,37 +4512,54 @@ private identifyLongestPathFromP6(): void {
  * Identifies which relationships are driving based on minimum float
  */
 private identifyDrivingRelationships(): void {
-    // First, calculate relationship float for all relationships
+    // First, determine relationship float for all relationships
+    // Use provided free float if available, otherwise calculate it
     this.relationships.forEach(rel => {
         const pred = this.taskIdToTask.get(rel.predecessorId);
         const succ = this.taskIdToTask.get(rel.successorId);
-        
-        if (!pred || !succ || !pred.startDate || !pred.finishDate || 
-            !succ.startDate || !succ.finishDate) {
+
+        if (!pred || !succ) {
             (rel as any).relationshipFloat = Infinity;
             (rel as any).isDriving = false;
             rel.isCritical = false;
             return;
         }
-        
-        const relType = rel.type || 'FS';
-        const lag = rel.lag || 0;
-        
-        // Get dates in days since epoch
-        const predStart = pred.startDate.getTime() / 86400000;
-        const predFinish = pred.finishDate.getTime() / 86400000;
-        const succStart = succ.startDate.getTime() / 86400000;
-        const succFinish = succ.finishDate.getTime() / 86400000;
-        
-        let relFloat = 0;
-        
-        switch (relType) {
-            case 'FS': relFloat = succStart - (predFinish + lag); break;
-            case 'SS': relFloat = succStart - (predStart + lag); break;
-            case 'FF': relFloat = succFinish - (predFinish + lag); break;
-            case 'SF': relFloat = succFinish - (predStart + lag); break;
+
+        let relFloat: number;
+
+        // Use provided free float if available
+        if (rel.freeFloat !== null && rel.freeFloat !== undefined) {
+            relFloat = rel.freeFloat;
+            this.debugLog(`Using provided free float ${relFloat} for relationship ${rel.predecessorId} -> ${rel.successorId}`);
+        } else {
+            // Calculate relationship float if not provided
+            if (!pred.startDate || !pred.finishDate ||
+                !succ.startDate || !succ.finishDate) {
+                (rel as any).relationshipFloat = Infinity;
+                (rel as any).isDriving = false;
+                rel.isCritical = false;
+                return;
+            }
+
+            const relType = rel.type || 'FS';
+            const lag = rel.lag || 0;
+
+            // Get dates in days since epoch
+            const predStart = pred.startDate.getTime() / 86400000;
+            const predFinish = pred.finishDate.getTime() / 86400000;
+            const succStart = succ.startDate.getTime() / 86400000;
+            const succFinish = succ.finishDate.getTime() / 86400000;
+
+            relFloat = 0;
+
+            switch (relType) {
+                case 'FS': relFloat = succStart - (predFinish + lag); break;
+                case 'SS': relFloat = succStart - (predStart + lag); break;
+                case 'FF': relFloat = succFinish - (predFinish + lag); break;
+                case 'SF': relFloat = succFinish - (predStart + lag); break;
+            }
         }
-        
+
         (rel as any).relationshipFloat = relFloat;
         (rel as any).isDriving = false;
         rel.isCritical = false;
@@ -5310,6 +5327,7 @@ private transformDataOptimized(dataView: DataView): void {
     const predIdIdx = this.getColumnIndex(dataView, 'predecessorId');
     const relTypeIdx = this.getColumnIndex(dataView, 'relationshipType');
     const relLagIdx = this.getColumnIndex(dataView, 'relationshipLag');
+    const relFreeFloatIdx = this.getColumnIndex(dataView, 'relationshipFreeFloat');
 
     if (idIdx === -1) {
         console.error("Data transformation failed: Missing Task ID column.");
@@ -5369,13 +5387,23 @@ private transformDataOptimized(dataView: DataView): void {
                     }
                 }
 
+                // Extract relationship free float if provided
+                let relFreeFloat: number | null = null;
+                if (relFreeFloatIdx !== -1 && row[relFreeFloatIdx] != null) {
+                    const parsedFreeFloat = Number(row[relFreeFloatIdx]);
+                    if (!isNaN(parsedFreeFloat) && isFinite(parsedFreeFloat)) {
+                        relFreeFloat = parsedFreeFloat;
+                    }
+                }
+
                 // Check if this relationship already exists
                 const existingRel = taskData.relationships.find(r => r.predId === predId);
                 if (!existingRel) {
                     taskData.relationships.push({
                         predId: predId,
                         relType: relType,
-                        lag: relLag
+                        lag: relLag,
+                        freeFloat: relFreeFloat
                     });
                 }
             }
@@ -5418,12 +5446,12 @@ private transformDataOptimized(dataView: DataView): void {
             }
             successorMap.get(rel.predId)!.push(task);
             
-            // Create relationship object (simplified - no free float)
+            // Create relationship object with free float from data if available
             const relationship: Relationship = {
                 predecessorId: rel.predId,
                 successorId: taskId,
                 type: rel.relType,
-                freeFloat: null,  // No longer used
+                freeFloat: rel.freeFloat,  // Use provided free float or null
                 lag: rel.lag,
                 isCritical: false
             };

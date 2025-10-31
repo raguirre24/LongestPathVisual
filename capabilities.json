@@ -92,6 +92,12 @@
             "description": "Lag or lead time (negative lag) for relationship in work days"
         },
         {
+            "name": "relationshipFreeFloat",
+            "kind": "Measure",
+            "displayName": "Relationship Free Float",
+            "description": "Pre-calculated free float for each relationship (optional - will calculate if not provided)"
+        },
+        {
             "name": "tooltip",
             "kind": "Grouping",
             "displayName": "Tooltip",
@@ -284,6 +290,7 @@
                         { "bind": { "to": "predecessorId" } },
                         { "bind": { "to": "relationshipType" } },
                         { "bind": { "to": "relationshipLag" } },
+                        { "bind": { "to": "relationshipFreeFloat" } },
                         { "bind": { "to": "tooltip" } }
                     ],
                     "dataReductionAlgorithm": { "top": { "count": 60000 } }
