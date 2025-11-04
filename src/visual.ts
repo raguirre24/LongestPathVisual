@@ -280,8 +280,7 @@ export class Visual implements IVisual {
         colors: new Map()
     };
 
-    // Phase 2: CPM memoization
-    private cpmMemo: Map<string, number> = new Map();
+    // Phase 2: CPM memoization - REMOVED (never populated, only cleared)
 
 constructor(options: VisualConstructorOptions) {
     this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
@@ -830,7 +829,6 @@ public destroy(): void {
     this.renderCache.taskPositions.clear();
     this.renderCache.relationshipPaths.clear();
     this.renderCache.colors.clear();
-    this.cpmMemo.clear();
 
     // Remove this instance's tooltip
     d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
@@ -1410,8 +1408,7 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
                 d3.select(this).select("rect")
                     .style("fill", self.showConnectorLinesInternal ? "#ffffff" : "#f5f5f5");
             });
-        
-        //const self = this;
+
         connectorToggleGroup.on("click", function(event) {
             if (event) event.stopPropagation();
             self.toggleConnectorLinesDisplay();
@@ -4652,8 +4649,7 @@ private identifyLongestPathFromP6(): void {
         return;
     }
 
-    // Phase 2: Clear CPM memoization cache for fresh calculation
-    this.cpmMemo.clear();
+    // Phase 2: CPM memoization cache was removed (never actually used)
 
     // Phase 1: Reset criticality flags - use for...of instead of forEach
     for (const task of this.allTasksData) {
@@ -5835,7 +5831,7 @@ private validateDataView(dataView: DataView): boolean {
 
 
         if (!date) {
-            // console.warn(`Could not parse date value: "${String(dateValue)}" (Type: ${typeof dateValue}).`);
+            // Date parsing failed, but already warned above if needed
         }
         return date;
     }
