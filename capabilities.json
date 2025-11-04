@@ -233,6 +233,7 @@
             "properties": {
                 "showTooltips": { "displayName": "Show Tooltips", "type": { "bool": true } },
                 "showNearCritical": { "displayName": "Highlight Near Longest Path", "type": { "bool": true } },
+                "enableDebugMode": { "displayName": "Enable Debug Mode", "description": "Show detailed debug logging in browser console (for development)", "type": { "bool": true } },
                 "showAllTasks": { "type": { "bool": true } }
             }
         },

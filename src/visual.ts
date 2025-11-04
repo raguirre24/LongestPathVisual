@@ -184,8 +184,10 @@ export class Visual implements IVisual {
     private showPreviousUpdateInternal: boolean = true;
     private isInitialLoad: boolean = true;
 
-    // Debug flag to control verbose logging
-    private debug: boolean = false;
+    // Debug getter - reads from settings dynamically
+    private get debug(): boolean {
+        return this.formattingSettings?.displayOptions?.enableDebugMode?.value ?? false;
+    }
 
     // --- Configuration/Constants ---
     private margin = { top: 10, right: 100, bottom: 40, left: 280 };
@@ -634,7 +636,7 @@ private debouncedUpdate(): void {
 
 private requestUpdate(forceFullUpdate: boolean = false): void {
     if (!this.lastUpdateOptions) {
-        console.error("Cannot trigger update - lastUpdateOptions is null.");
+        if (this.debug) console.error("Cannot trigger update - lastUpdateOptions is null.");
         return;
     }
     
@@ -985,7 +987,7 @@ private toggleTaskDisplayInternal(): void {
         
         this.debugLog("Visual update triggered by internal toggle");
     } catch (error) {
-        console.error("Error in internal toggle method:", error);
+        if (this.debug) console.error("Error in internal toggle method:", error);
     }
 }
 
@@ -1018,7 +1020,7 @@ private toggleBaselineDisplayInternal(): void {
         
         this.debugLog("Visual update triggered by baseline toggle");
     } catch (error) {
-        console.error("Error in baseline toggle method:", error);
+        if (this.debug) console.error("Error in baseline toggle method:", error);
     }
 }
 
@@ -1048,7 +1050,7 @@ private togglePreviousUpdateDisplayInternal(): void {
         
         this.debugLog("Visual update triggered by previous update toggle");
     } catch (error) {
-        console.error("Error in previous update toggle method:", error);
+        if (this.debug) console.error("Error in previous update toggle method:", error);
     }
 }
 
@@ -1631,7 +1633,7 @@ private toggleCriticalityMode(): void {
         this.debugLog("Visual update triggered by mode toggle");
         
     } catch (error) {
-        console.error("Error toggling criticality mode:", error);
+        if (this.debug) console.error("Error toggling criticality mode:", error);
     }
 }
 
@@ -1825,7 +1827,7 @@ private toggleConnectorLinesDisplay(): void {
         
         this.debugLog("Connector lines toggled without full update");
     } catch (error) {
-        console.error("Error in connector toggle method:", error);
+        if (this.debug) console.error("Error in connector toggle method:", error);
     }
 }
 
@@ -2146,7 +2148,7 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
 
     } catch (error) {
-        console.error("--- ERROR during visual update ---", error);
+        if (this.debug) console.error("--- ERROR during visual update ---", error);
         const errorMessage = error instanceof Error ? error.message : String(error);
         
         // ← FIX #7: Clear filter on unexpected errors
@@ -2426,7 +2428,7 @@ private setupTimeBasedSVGAndScales(
     const validTimestamps = allTimestamps.filter(t => t != null && !isNaN(t) && isFinite(t));
 
     if (validTimestamps.length === 0) {
-        console.warn("No valid dates found among tasks to plot (including baseline dates if enabled). Cannot create time scale.");
+        if (this.debug) console.warn("No valid dates found among tasks to plot (including baseline dates if enabled). Cannot create time scale.");
         return { xScale: null, yScale: null, chartWidth, calculatedChartHeight };
     }
 
@@ -2748,7 +2750,7 @@ private canvasHasContent(): boolean {
     
 private redrawVisibleTasks(): void {
     if (!this.xScale || !this.yScale || !this.allTasksToShow) {
-        console.warn("Cannot redraw: Missing scales or task data");
+        if (this.debug) console.warn("Cannot redraw: Missing scales or task data");
         return;
     }
     
@@ -2960,7 +2962,7 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         calculatedChartHeight: number
      } {
         if (domainMin.getTime() >= domainMax.getTime()) {
-             console.warn("Invalid date domain for time scale (Min >= Max).");
+             if (this.debug) console.warn("Invalid date domain for time scale (Min >= Max).");
              return { xScale: null, yScale: null, chartWidth, calculatedChartHeight };
         }
 
@@ -3001,13 +3003,13 @@ private drawVisualElements(
     
     if (!(this.gridLayer?.node() && this.taskLayer?.node() && this.arrowLayer?.node() && 
             xScale && yScale && yScale.bandwidth())) {
-        console.error("Cannot draw elements: Missing main layers or invalid scales/bandwidth.");
+        if (this.debug) console.error("Cannot draw elements: Missing main layers or invalid scales/bandwidth.");
         this.displayMessage("Error during drawing setup.");
         return;
     }
     
     if (!this.headerGridLayer?.node()) {
-        console.error("Cannot draw header elements: Missing header layer.");
+        if (this.debug) console.error("Cannot draw header elements: Missing header layer.");
         this.displayMessage("Error during drawing setup.");
         return;
     }
@@ -3167,7 +3169,7 @@ private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartW
         headerLayer: Selection<SVGGElement, unknown, null, undefined>
     ): void {
         if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale?.ticks) {
-            console.warn("Skipping vertical grid lines: Missing layers or invalid X scale.");
+            if (this.debug) console.warn("Skipping vertical grid lines: Missing layers or invalid X scale.");
             return;
         }
     
@@ -3208,7 +3210,7 @@ private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartW
              if (minSpacingPx >= estimatedLabelWidthPx) break;
              tickInterval++;
              if (tickInterval > maxInterval) {
-                 console.warn(`Month label spacing tight even at max interval ${maxInterval}.`);
+                 if (this.debug) console.warn(`Month label spacing tight even at max interval ${maxInterval}.`);
                  try { monthTicks = xScale.ticks(timeMonth.every(maxInterval)); }
                  catch(e) { console.error("Error generating final ticks:", e); monthTicks = []; }
                  break;
@@ -3264,7 +3266,7 @@ private drawTasks(
     dateBackgroundOpacity: number
 ): void {
     if (!this.taskLayer?.node() || !xScale || !yScale || !yScale.bandwidth()) {
-        console.error("Cannot draw tasks: Missing task layer or invalid scales/bandwidth.");
+        if (this.debug) console.error("Cannot draw tasks: Missing task layer or invalid scales/bandwidth.");
         return;
     }
 
@@ -3301,7 +3303,7 @@ private drawTasks(
             const domainKey = d.yOrder?.toString() ?? '';
             const yPosition = yScale(domainKey);
             if (yPosition === undefined || isNaN(yPosition)) {
-                console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
+                if (this.debug) console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
                 return null; // Use null to filter later
             }
             return `translate(0, ${yPosition})`;
@@ -3315,7 +3317,7 @@ private drawTasks(
         const domainKey = d.yOrder?.toString() ?? '';
         const yPosition = yScale(domainKey);
         if (yPosition === undefined || isNaN(yPosition)) {
-            console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
+            if (this.debug) console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
             return null;
         }
         return `translate(0, ${yPosition})`;
@@ -3515,7 +3517,7 @@ private drawTasks(
                         }
                     }
                 } catch (e) {
-                    console.warn("Could not get computed text length for wrapping:", e);
+                    if (this.debug) console.warn("Could not get computed text length for wrapping:", e);
                     tspan.text(line.join(" "));
                     break;
                 }
@@ -3604,7 +3606,7 @@ private drawTasks(
                         .style("fill-opacity", dateBackgroundOpacity);
                 }
             } catch (e) { 
-                console.warn(`Could not get BBox for date text on task ${d.internalId}`, e); 
+                if (this.debug) console.warn(`Could not get BBox for date text on task ${d.internalId}`, e); 
             }
         });
     }
@@ -4124,7 +4126,7 @@ private _setupCanvasForDrawing(chartWidth: number, chartHeight: number): boolean
     });
     
     if (!this.canvasContext) {
-        console.error("Failed to get 2D context from canvas.");
+        if (this.debug) console.error("Failed to get 2D context from canvas.");
         return false;
     }
 
@@ -4356,7 +4358,7 @@ private drawArrowsCanvas(
         }
 
         if (!this.arrowLayer?.node() || !xScale || !yScale) {
-            console.warn("Skipping arrow drawing: Missing layer or invalid scales.");
+            if (this.debug) console.warn("Skipping arrow drawing: Missing layer or invalid scales.");
             return;
         }
         this.arrowLayer.selectAll(".relationship-arrow").remove();
@@ -4666,7 +4668,7 @@ private identifyLongestPathFromP6(): void {
     // Step 2: Find the project finish
     const projectFinishTask = this.findProjectFinishTask();
     if (!projectFinishTask) {
-        console.warn("Could not identify project finish task");
+        if (this.debug) console.warn("Could not identify project finish task");
         return;
     }
 
@@ -5067,7 +5069,7 @@ private calculateCPMToTask(targetTaskId: string | null): void {
     
     const targetTask = this.taskIdToTask.get(targetTaskId);
     if (!targetTask) {
-        console.warn(`Target task ${targetTaskId} not found.`);
+        if (this.debug) console.warn(`Target task ${targetTaskId} not found.`);
         this.identifyLongestPathFromP6();
         return;
     }
@@ -5138,7 +5140,7 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
     
     const sourceTask = this.taskIdToTask.get(sourceTaskId);
     if (!sourceTask) {
-        console.warn(`Source task ${sourceTaskId} not found.`);
+        if (this.debug) console.warn(`Source task ${sourceTaskId} not found.`);
         this.identifyLongestPathFromP6();
         return;
     }
@@ -5499,7 +5501,7 @@ private transformDataOptimized(dataView: DataView): void {
     this.relationshipIndex.clear();
 
     if (!dataView.table?.rows || !dataView.metadata?.columns) {
-        console.error("Data transformation failed: No table data or columns found.");
+        if (this.debug) console.error("Data transformation failed: No table data or columns found.");
         return;
     }
     
@@ -5529,7 +5531,7 @@ private transformDataOptimized(dataView: DataView): void {
     const relFreeFloatIdx = this.getColumnIndex(dataView, 'relationshipFreeFloat');
 
     if (idIdx === -1) {
-        console.error("Data transformation failed: Missing Task ID column.");
+        if (this.debug) console.error("Data transformation failed: Missing Task ID column.");
         this.displayMessage("Missing essential data fields.");
         return;
     }
@@ -5551,7 +5553,7 @@ private transformDataOptimized(dataView: DataView): void {
         const row = rows[rowIndex];
         const taskId = this.extractTaskId(row);
         if (!taskId) {
-            console.warn(`Skipping row ${rowIndex}: Invalid or missing Task ID.`);
+            if (this.debug) console.warn(`Skipping row ${rowIndex}: Invalid or missing Task ID.`);
             continue;
         }
 
@@ -5720,7 +5722,7 @@ private transformDataOptimized(dataView: DataView): void {
 
 private validateDataView(dataView: DataView): boolean {
     if (!dataView?.table?.rows || !dataView.metadata?.columns) {
-        console.warn("validateDataView: Missing table/rows or metadata/columns.");
+        if (this.debug) console.warn("validateDataView: Missing table/rows or metadata/columns.");
         return false;
     }
     
@@ -5736,30 +5738,30 @@ private validateDataView(dataView: DataView): boolean {
 
     let isValid = true;
     if (!hasId) { 
-        console.warn("validateDataView: Missing 'taskId' data role."); 
+        if (this.debug) console.warn("validateDataView: Missing 'taskId' data role."); 
         isValid = false; 
     }
     
     if (mode === 'floatBased') {
         // Float-Based mode: BOTH total float and task free float are required
         if (!hasTotalFloat) { 
-            console.warn("validateDataView: Float-Based mode requires 'taskTotalFloat' data role for criticality."); 
+            if (this.debug) console.warn("validateDataView: Float-Based mode requires 'taskTotalFloat' data role for criticality."); 
             isValid = false; 
         }
     } else {
         // Longest Path mode: duration is required
         if (!hasDuration) { 
-            console.warn("validateDataView: Longest Path mode requires 'duration' data role (needed for CPM)."); 
+            if (this.debug) console.warn("validateDataView: Longest Path mode requires 'duration' data role (needed for CPM)."); 
             isValid = false; 
         }
     }
     
     if (!hasStartDate) { 
-        console.warn("validateDataView: Missing 'startDate' data role (needed for plotting)."); 
+        if (this.debug) console.warn("validateDataView: Missing 'startDate' data role (needed for plotting)."); 
         isValid = false; 
     }
     if (!hasFinishDate) { 
-        console.warn("validateDataView: Missing 'finishDate' data role (needed for plotting)."); 
+        if (this.debug) console.warn("validateDataView: Missing 'finishDate' data role (needed for plotting)."); 
         isValid = false; 
     }
 
@@ -5826,7 +5828,7 @@ private validateDataView(dataView: DataView): boolean {
             }
         } catch (e) {
              date = null; // Ensure date is null on any parsing error
-             console.warn(`Error parsing date value: "${String(dateValue)}"`, e);
+             if (this.debug) console.warn(`Error parsing date value: "${String(dateValue)}"`, e);
         }
 
 
@@ -5846,7 +5848,7 @@ private validateDataView(dataView: DataView): boolean {
             const year = date.getFullYear();
             return `${day}/${month}/${year}`; // Example: DD/MM/YYYY
         } catch (e) {
-            console.error("Error formatting date:", e);
+            if (this.debug) console.error("Error formatting date:", e);
             return "Invalid Date";
         }
     }
@@ -5985,7 +5987,7 @@ private displayMessage(message: string): void {
     
     const containerNode = this.scrollableContainer?.node();
     if (!containerNode || !this.mainSvg || !this.headerSvg) {
-        console.error("Cannot display message, containers or svgs not ready.");
+        if (this.debug) console.error("Cannot display message, containers or svgs not ready.");
         return;
     }
     this.clearVisual();
@@ -6014,7 +6016,7 @@ private displayMessage(message: string): void {
 
 private createTaskSelectionDropdown(): void {
     if (!this.dropdownContainer || !this.selectedTaskLabel) {
-        console.warn("Dropdown elements not ready.");
+        if (this.debug) console.warn("Dropdown elements not ready.");
         return;
     }
 
@@ -6161,12 +6163,12 @@ private createTaskSelectionDropdown(): void {
  */
 private populateTaskDropdown(): void {
     if (!this.dropdownList) {
-        console.warn("Dropdown list not initialized");
+        if (this.debug) console.warn("Dropdown list not initialized");
         return;
     }
     
     if (this.allTasksData.length === 0) {
-        console.warn("No tasks available to populate dropdown");
+        if (this.debug) console.warn("No tasks available to populate dropdown");
         // Show "No tasks available" message
         this.dropdownList.selectAll("*").remove();
         this.dropdownList.append("div")
@@ -6587,7 +6589,7 @@ private ensureTaskVisible(taskId: string): void {
     public getFormattingModel(): powerbi.visuals.FormattingModel {
         this.debugLog("getFormattingModel called");
         if (!this.formattingSettingsService) {
-             console.error("FormattingSettingsService not initialized before getFormattingModel call.");
+             if (this.debug) console.error("FormattingSettingsService not initialized before getFormattingModel call.");
              return { cards: [] };
         }
         // Ensure settings are populated if called before first update (might happen in PBI service)

@@ -230,6 +230,13 @@ class DisplayOptionsCard extends Card {
         value: true
     });
 
+    enableDebugMode = new ToggleSwitch({
+        name: "enableDebugMode",
+        displayName: "Enable Debug Mode",
+        description: "Show detailed debug logging in browser console (for development)",
+        value: false
+    });
+
     // Hidden property used only for persisting the toggle state
     showAllTasks = new ToggleSwitch({
         name: "showAllTasks",
@@ -240,7 +247,7 @@ class DisplayOptionsCard extends Card {
     });
 
     // Include hidden slice so formatting service reads persisted value
-    slices: Slice[] = [this.showTooltips, this.showNearCritical, this.showAllTasks];
+    slices: Slice[] = [this.showTooltips, this.showNearCritical, this.enableDebugMode, this.showAllTasks];
 }
 
 class CriticalityModeCard extends Card {
