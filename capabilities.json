@@ -261,6 +261,26 @@
                 }
             }
         },
+        "drivingPathSelection": {
+            "displayName": "Driving Path Selection",
+            "properties": {
+                "enableMultiPathToggle": {
+                    "displayName": "Enable Multi-Path Toggle",
+                    "description": "Allow toggling between all driving paths of equal or near-equal duration",
+                    "type": { "bool": true }
+                },
+                "selectedPathIndex": {
+                    "displayName": "Selected Path",
+                    "description": "Index of the currently selected driving path (1-based)",
+                    "type": { "numeric": true }
+                },
+                "showPathInfo": {
+                    "displayName": "Show Path Information",
+                    "description": "Display path count and duration in the visual",
+                    "type": { "bool": true }
+                }
+            }
+        },
         "persistedState": {
             "displayName": "Persisted State",
             "properties": {

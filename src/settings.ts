@@ -315,6 +315,38 @@ class TaskSelectionCard extends Card {
         this.traceMode
     ];
 }
+class DrivingPathSelectionCard extends Card {
+    name: string = "drivingPathSelection";
+    displayName: string = "Driving Path Selection";
+
+    enableMultiPathToggle = new ToggleSwitch({
+        name: "enableMultiPathToggle",
+        displayName: "Enable Multi-Path Toggle",
+        description: "Allow toggling between all driving paths of equal or near-equal duration",
+        value: true
+    });
+
+    selectedPathIndex = new NumUpDown({
+        name: "selectedPathIndex",
+        displayName: "Selected Path",
+        description: "Index of the currently selected driving path (1-based)",
+        value: 1,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
+        }
+    });
+
+    showPathInfo = new ToggleSwitch({
+        name: "showPathInfo",
+        displayName: "Show Path Information",
+        description: "Display path count and duration in the visual",
+        value: true
+    });
+
+    slices: Slice[] = [this.enableMultiPathToggle, this.selectedPathIndex, this.showPathInfo];
+}
+
 class PersistedStateCard extends Card {
     name: string = "persistedState";
     displayName: string = "Persisted State";
@@ -352,7 +384,8 @@ export class VisualSettings extends Model {
     verticalGridLines = new VerticalGridLinesCard();
     projectEndLine = new ProjectEndLineCard();
     displayOptions = new DisplayOptionsCard();
-    criticalityMode = new CriticalityModeCard();  // ADD THIS LINE
+    criticalityMode = new CriticalityModeCard();
+    drivingPathSelection = new DrivingPathSelectionCard();
     taskSelection = new TaskSelectionCard();
     persistedState = new PersistedStateCard();
 
@@ -366,7 +399,8 @@ export class VisualSettings extends Model {
         this.verticalGridLines,
         this.projectEndLine,
         this.displayOptions,
-        this.criticalityMode,  // ADD THIS LINE
+        this.criticalityMode,
+        this.drivingPathSelection,
         this.taskSelection,
         this.persistedState
     ];

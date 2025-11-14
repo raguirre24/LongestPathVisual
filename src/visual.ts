@@ -210,6 +210,7 @@ export class Visual implements IVisual {
     private dropdownInput: Selection<HTMLInputElement, unknown, null, undefined>;
     private dropdownList: Selection<HTMLDivElement, unknown, null, undefined>;
     private selectedTaskLabel: Selection<HTMLDivElement, unknown, null, undefined>;
+    private pathInfoLabel: Selection<HTMLDivElement, unknown, null, undefined>;
 
     private traceMode: string = "backward"; // Default to "backward"
 
@@ -237,6 +238,15 @@ export class Visual implements IVisual {
     private predecessorIndex: Map<string, Set<string>> = new Map(); // taskId -> Set of tasks that have this as predecessor
 
     private relationshipIndex: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by successorId
+
+    // Multi-path support: store all driving chains
+    private allDrivingChains: Array<{
+        tasks: Set<string>,
+        relationships: Relationship[],
+        totalDuration: number,
+        startingTask: Task | null
+    }> = [];
+    private selectedPathIndex: number = 0; // 0-based index into allDrivingChains
 
     private readonly VIEWPORT_CHANGE_THRESHOLD = 0.3; // 30% change triggers full recalculation
     private forceFullUpdate: boolean = false;
@@ -390,6 +400,27 @@ constructor(options: VisualConstructorOptions) {
         .style("color", "#333")
         .style("font-weight", "bold")
         .style("display", "none");
+
+    // --- Driving Path Info Label ---
+    this.pathInfoLabel = this.stickyHeaderContainer.append("div")
+        .attr("class", "path-info-label")
+        .style("position", "absolute")
+        .style("top", "4px")
+        .style("right", "10px")
+        .style("height", "28px")
+        .style("padding", "0 12px")
+        .style("display", "none")
+        .style("align-items", "center")
+        .style("gap", "8px")
+        .style("background-color", "#ffffff")
+        .style("border", "1px solid #0078D4")
+        .style("border-radius", "14px")
+        .style("box-shadow", "0 1px 3px rgba(0,0,0,0.05)")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "12px")
+        .style("color", "#0078D4")
+        .style("font-weight", "500")
+        .style("white-space", "nowrap");
 
     // --- Scrollable Container for main chart content ---
     this.scrollableContainer = visualWrapper.append("div")
@@ -2233,14 +2264,44 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
 
 private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing settings-only update");
-        
+
+        // Store old settings to detect changes
+        const oldSelectedPathIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value;
+        const oldMultiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value;
+        const oldShowPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value;
+
         // Update settings
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(
             VisualSettings, options.dataViews[0]);
-        
+
+        // Check if driving path selection changed
+        const newSelectedPathIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value;
+        const newMultiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value;
+        const newShowPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value;
+
+        this.debugLog(`[Settings Update] Old path index: ${oldSelectedPathIndex}, New: ${newSelectedPathIndex}`);
+        this.debugLog(`[Settings Update] Old multi-path: ${oldMultiPathEnabled}, New: ${newMultiPathEnabled}`);
+        this.debugLog(`[Settings Update] Old show info: ${oldShowPathInfo}, New: ${newShowPathInfo}`);
+
+        const drivingPathChanged = oldSelectedPathIndex !== newSelectedPathIndex ||
+                                   oldMultiPathEnabled !== newMultiPathEnabled ||
+                                   oldShowPathInfo !== newShowPathInfo;
+
         // Sync internal states when settings change via the pane
         if (this.settings?.taskAppearance?.showBaseline !== undefined) {
             this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
+        }
+
+        // If driving path selection changed, recalculate criticality
+        if (drivingPathChanged) {
+            this.debugLog("Driving path selection changed, recalculating...");
+            const mode = this.settings?.criticalityMode?.calculationMode?.value?.value ?? 'longestPath';
+            if (mode === 'longestPath') {
+                this.identifyLongestPathFromP6();
+            } else {
+                // Just update the label visibility (will hide it)
+                this.updatePathInfoLabel();
+            }
         }
 
         // Clear and redraw with new settings
@@ -4586,7 +4647,10 @@ private async determineCriticalityMode(): Promise<void> {
 private applyFloatBasedCriticality(): void {
     this.debugLog("Applying Float-Based criticality using Total Float for criticality and Task Free Float for tracing...");
     const startTime = performance.now();
-    
+
+    // Clear driving chains since we're not in Longest Path mode
+    this.allDrivingChains = [];
+
     // Apply task criticality based on TOTAL FLOAT (not Task Free Float)
     this.allTasksData.forEach(task => {
         // Use Total Float for criticality determination (as before)
@@ -4630,7 +4694,10 @@ private applyFloatBasedCriticality(): void {
     const endTime = performance.now();
     const criticalCount = this.allTasksData.filter(t => t.isCritical).length;
     const nearCriticalCount = this.allTasksData.filter(t => t.isNearCritical).length;
-    
+
+    // Update path info display (will hide it since we're in Float-based mode)
+    this.updatePathInfoLabel();
+
     this.debugLog(`Float-Based criticality applied in ${endTime - startTime}ms.`);
     this.debugLog(`Critical tasks (Total Float ≤ 0): ${criticalCount}, Near-critical tasks: ${nearCriticalCount}`);
 }
@@ -4679,12 +4746,15 @@ private identifyLongestPathFromP6(): void {
     // Step 3: Find all driving chains to the project finish
     const drivingChains = this.findAllDrivingChainsToTask(projectFinishTask.internalId);
 
-    // Step 4: Select the longest chain
-    const longestChain = this.selectLongestChain(drivingChains);
+    // Step 4: Sort chains by duration and store all of them
+    this.allDrivingChains = this.sortAndStoreDrivingChains(drivingChains);
 
-    if (longestChain) {
-        // Phase 1: Mark tasks in the longest chain as critical - use for...of
-        for (const taskId of longestChain.tasks) {
+    // Step 5: Get the selected chain based on user preference
+    const selectedChain = this.getSelectedDrivingChain();
+
+    if (selectedChain) {
+        // Phase 1: Mark tasks in the selected chain as critical - use for...of
+        for (const taskId of selectedChain.tasks) {
             const task = this.taskIdToTask.get(taskId);
             if (task) {
                 task.isCritical = true;
@@ -4693,19 +4763,22 @@ private identifyLongestPathFromP6(): void {
             }
         }
 
-        // Phase 1: Mark relationships in the longest chain as critical - use for...of
-        for (const rel of longestChain.relationships) {
+        // Phase 1: Mark relationships in the selected chain as critical - use for...of
+        for (const rel of selectedChain.relationships) {
             rel.isCritical = true;
         }
 
-        this.debugLog(`Longest path: ${longestChain.tasks.size} tasks, duration ${longestChain.totalDuration}`);
+        this.debugLog(`Selected driving path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}: ${selectedChain.tasks.size} tasks, duration ${selectedChain.totalDuration}`);
     }
     
     // Apply near-critical logic if enabled
     if (this.showNearCritical && this.floatThreshold > 0) {
         this.identifyNearCriticalTasks();
     }
-    
+
+    // Update path info display
+    this.updatePathInfoLabel();
+
     const endTime = performance.now();
     this.debugLog(`P6 longest path completed in ${endTime - startTime}ms`);
 }
@@ -4934,6 +5007,251 @@ private selectLongestChain(chains: Array<{
     if (chains.length === 0) return null;
     chains.sort((a, b) => b.totalDuration - a.totalDuration);
     return chains[0];
+}
+
+/**
+ * Sorts driving chains by duration (descending) and stores them for multi-path toggle
+ */
+private sortAndStoreDrivingChains(chains: Array<{
+    tasks: Set<string>,
+    relationships: Relationship[],
+    totalDuration: number,
+    startingTask: Task | null
+}>): Array<{
+    tasks: Set<string>,
+    relationships: Relationship[],
+    totalDuration: number,
+    startingTask: Task | null
+}> {
+    if (chains.length === 0) return [];
+
+    // Sort by duration descending
+    const sortedChains = [...chains].sort((a, b) => b.totalDuration - a.totalDuration);
+
+    this.debugLog(`Found ${sortedChains.length} driving paths to project finish`);
+
+    // Log details about each path for debugging
+    sortedChains.forEach((chain, index) => {
+        this.debugLog(`  Path ${index + 1}: ${chain.tasks.size} tasks, ${chain.totalDuration.toFixed(1)} days`);
+    });
+
+    return sortedChains;
+}
+
+/**
+ * Gets the currently selected driving chain based on settings
+ */
+private getSelectedDrivingChain(): {
+    tasks: Set<string>,
+    relationships: Relationship[],
+    totalDuration: number,
+    startingTask: Task | null
+} | null {
+    if (this.allDrivingChains.length === 0) return null;
+
+    // Get the selected path index from settings (1-based)
+    const settingsIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value ?? 1;
+    this.debugLog(`[Path Selection] Settings index: ${settingsIndex}, Total chains: ${this.allDrivingChains.length}`);
+
+    // Convert to 0-based and clamp to valid range
+    this.selectedPathIndex = Math.max(0, Math.min(settingsIndex - 1, this.allDrivingChains.length - 1));
+
+    // If multi-path toggle is disabled, always return the longest path (index 0)
+    const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
+    this.debugLog(`[Path Selection] Multi-path enabled: ${multiPathEnabled}, Final index: ${this.selectedPathIndex}`);
+
+    if (!multiPathEnabled) {
+        this.selectedPathIndex = 0;
+    }
+
+    return this.allDrivingChains[this.selectedPathIndex];
+}
+
+/**
+ * Updates the path information label display with interactive navigation
+ */
+private updatePathInfoLabel(): void {
+    if (!this.pathInfoLabel) return;
+
+    // Check if multi-path display is enabled
+    const showPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value ?? true;
+    const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
+
+    // Only show if enabled and in Longest Path mode with multiple paths
+    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value ?? 'longestPath';
+    const hasMultiplePaths = this.allDrivingChains.length > 1;
+
+    if (!showPathInfo || mode !== 'longestPath' || !hasMultiplePaths || !multiPathEnabled) {
+        this.pathInfoLabel.style("display", "none");
+        return;
+    }
+
+    // Get current chain info
+    const currentChain = this.allDrivingChains[this.selectedPathIndex];
+    if (!currentChain) {
+        this.pathInfoLabel.style("display", "none");
+        return;
+    }
+
+    // Clear existing content
+    this.pathInfoLabel.selectAll("*").remove();
+
+    // Format the display info
+    const pathNumber = this.selectedPathIndex + 1;
+    const totalPaths = this.allDrivingChains.length;
+    const duration = currentChain.totalDuration.toFixed(1);
+    const taskCount = currentChain.tasks.size;
+
+    // Previous button
+    const prevButton = this.pathInfoLabel.append("div")
+        .style("cursor", "pointer")
+        .style("padding", "4px 8px")
+        .style("border-radius", "4px")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("justify-content", "center")
+        .style("transition", "background-color 0.2s")
+        .style("user-select", "none")
+        .text("◀")
+        .on("mouseover", function() {
+            d3.select(this).style("background-color", "rgba(0, 120, 212, 0.1)");
+        })
+        .on("mouseout", function() {
+            d3.select(this).style("background-color", "transparent");
+        });
+
+    const self = this;
+    prevButton.on("click", function(event) {
+        event.stopPropagation();
+        self.navigateToPreviousPath();
+    });
+
+    // Path info text container
+    const infoContainer = this.pathInfoLabel.append("div")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("gap", "6px")
+        .style("padding", "0 4px");
+
+    infoContainer.append("span")
+        .style("font-weight", "600")
+        .text(`Path ${pathNumber}/${totalPaths}`);
+
+    infoContainer.append("span")
+        .style("color", "#666")
+        .text("•");
+
+    infoContainer.append("span")
+        .text(`${taskCount} tasks`);
+
+    infoContainer.append("span")
+        .style("color", "#666")
+        .text("•");
+
+    infoContainer.append("span")
+        .text(`${duration} days`);
+
+    // Next button
+    const nextButton = this.pathInfoLabel.append("div")
+        .style("cursor", "pointer")
+        .style("padding", "4px 8px")
+        .style("border-radius", "4px")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("justify-content", "center")
+        .style("transition", "background-color 0.2s")
+        .style("user-select", "none")
+        .text("▶")
+        .on("mouseover", function() {
+            d3.select(this).style("background-color", "rgba(0, 120, 212, 0.1)");
+        })
+        .on("mouseout", function() {
+            d3.select(this).style("background-color", "transparent");
+        });
+
+    nextButton.on("click", function(event) {
+        event.stopPropagation();
+        self.navigateToNextPath();
+    });
+
+    this.pathInfoLabel.style("display", "flex");
+}
+
+/**
+ * Navigate to the previous driving path
+ */
+private navigateToPreviousPath(): void {
+    if (this.allDrivingChains.length <= 1) return;
+
+    // Move to previous path (with wrapping)
+    this.selectedPathIndex = this.selectedPathIndex === 0
+        ? this.allDrivingChains.length - 1
+        : this.selectedPathIndex - 1;
+
+    this.debugLog(`[Path Navigation] Switched to path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}`);
+
+    // Persist the change
+    this.persistPathSelection();
+
+    // Recalculate and redraw
+    this.identifyLongestPathFromP6();
+
+    // Force full redraw
+    this.forceFullUpdate = true;
+    if (this.lastUpdateOptions) {
+        this.update(this.lastUpdateOptions);
+    }
+}
+
+/**
+ * Navigate to the next driving path
+ */
+private navigateToNextPath(): void {
+    if (this.allDrivingChains.length <= 1) return;
+
+    // Move to next path (with wrapping)
+    this.selectedPathIndex = (this.selectedPathIndex + 1) % this.allDrivingChains.length;
+
+    this.debugLog(`[Path Navigation] Switched to path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}`);
+
+    // Persist the change
+    this.persistPathSelection();
+
+    // Recalculate and redraw
+    this.identifyLongestPathFromP6();
+
+    // Force full redraw
+    this.forceFullUpdate = true;
+    if (this.lastUpdateOptions) {
+        this.update(this.lastUpdateOptions);
+    }
+}
+
+/**
+ * Persist the selected path index to settings
+ */
+private persistPathSelection(): void {
+    try {
+        const pathIndex1Based = this.selectedPathIndex + 1;
+
+        // Update local settings
+        if (this.settings?.drivingPathSelection?.selectedPathIndex) {
+            this.settings.drivingPathSelection.selectedPathIndex.value = pathIndex1Based;
+        }
+
+        // Persist to Power BI
+        this.host.persistProperties({
+            merge: [{
+                objectName: "drivingPathSelection",
+                properties: { selectedPathIndex: pathIndex1Based },
+                selector: null
+            }]
+        });
+
+        this.debugLog(`[Path Selection] Persisted path index: ${pathIndex1Based}`);
+    } catch (error) {
+        console.error("Error persisting path selection:", error);
+    }
 }
 
 

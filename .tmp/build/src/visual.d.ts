@@ -55,6 +55,7 @@ export declare class Visual implements IVisual {
     private dropdownInput;
     private dropdownList;
     private selectedTaskLabel;
+    private pathInfoLabel;
     private traceMode;
     private floatThresholdInput;
     private floatThreshold;
@@ -72,6 +73,8 @@ export declare class Visual implements IVisual {
     private renderStartTime;
     private predecessorIndex;
     private relationshipIndex;
+    private allDrivingChains;
+    private selectedPathIndex;
     private readonly VIEWPORT_CHANGE_THRESHOLD;
     private forceFullUpdate;
     private visualTitle;
@@ -196,6 +199,30 @@ export declare class Visual implements IVisual {
      * Selects the longest chain by total working duration
      */
     private selectLongestChain;
+    /**
+     * Sorts driving chains by duration (descending) and stores them for multi-path toggle
+     */
+    private sortAndStoreDrivingChains;
+    /**
+     * Gets the currently selected driving chain based on settings
+     */
+    private getSelectedDrivingChain;
+    /**
+     * Updates the path information label display with interactive navigation
+     */
+    private updatePathInfoLabel;
+    /**
+     * Navigate to the previous driving path
+     */
+    private navigateToPreviousPath;
+    /**
+     * Navigate to the next driving path
+     */
+    private navigateToNextPath;
+    /**
+     * Persist the selected path index to settings
+     */
+    private persistPathSelection;
     private identifyNearCriticalTasks;
     /**
      * Identifies predecessor tasks connected through driving relationships

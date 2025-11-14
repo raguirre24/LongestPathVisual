@@ -104,6 +104,14 @@ declare class TaskSelectionCard extends Card {
     traceMode: formattingSettings.ItemDropdown;
     slices: Slice[];
 }
+declare class DrivingPathSelectionCard extends Card {
+    name: string;
+    displayName: string;
+    enableMultiPathToggle: formattingSettings.ToggleSwitch;
+    selectedPathIndex: formattingSettings.NumUpDown;
+    showPathInfo: formattingSettings.ToggleSwitch;
+    slices: Slice[];
+}
 declare class PersistedStateCard extends Card {
     name: string;
     displayName: string;
@@ -123,6 +131,7 @@ export declare class VisualSettings extends Model {
     projectEndLine: ProjectEndLineCard;
     displayOptions: DisplayOptionsCard;
     criticalityMode: CriticalityModeCard;
+    drivingPathSelection: DrivingPathSelectionCard;
     taskSelection: TaskSelectionCard;
     persistedState: PersistedStateCard;
     cards: Card[];
