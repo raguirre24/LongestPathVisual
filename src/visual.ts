@@ -194,7 +194,7 @@ export class Visual implements IVisual {
     private floatTolerance = 0.001;
     private defaultMaxTasks = 500;
     private labelPaddingLeft = 10;
-    private dateBackgroundPadding = { horizontal: 4, vertical: 2 };
+    private dateBackgroundPadding = { horizontal: 6, vertical: 3 };  // UPGRADED: Increased from {4, 2} for better spacing
     private taskLabelLineHeight = "1.1em";
     private minTaskWidthPixels = 1;
     private monthYearFormatter = timeFormat("%b-%y");
@@ -3910,8 +3910,8 @@ private drawTasks(
     // --- Draw Task Bars ---
     // First remove any existing bars to redraw them (simpler than updating positions)
     allTaskGroups.selectAll(".task-bar, .milestone").remove();
-    
-    // Draw bars for normal tasks
+
+    // UPGRADED: Draw bars for normal tasks with enhanced corner radius and shadows
     allTaskGroups.filter((d: Task) =>
         d.type !== 'TT_Mile' && d.type !== 'TT_FinMile' &&
         d.startDate instanceof Date && !isNaN(d.startDate.getTime()) &&
@@ -3935,15 +3935,23 @@ private drawTasks(
             return Math.max(this.minTaskWidthPixels, finishPos - startPos);
         })
         .attr("height", taskHeight)
-        .attr("rx", Math.min(3, taskHeight * 0.1)).attr("ry", Math.min(3, taskHeight * 0.1))
+        // UPGRADED: Increased corner radius from 3px to 5px for smoother appearance
+        .attr("rx", Math.min(5, taskHeight * 0.15)).attr("ry", Math.min(5, taskHeight * 0.15))
         .style("fill", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
             if (d.isCritical) return criticalColor;
             if (d.isNearCritical) return nearCriticalColor;
             return taskColor;
         })
+        // UPGRADED: Improved stroke weight for critical tasks and selected tasks
         .style("stroke", (d: Task) => d.internalId === this.selectedTaskId ? selectionHighlightColor : "#333")
-        .style("stroke-width", (d: Task) => d.internalId === this.selectedTaskId ? selectionStrokeWidth : 0.5);
+        .style("stroke-width", (d: Task) => {
+            if (d.internalId === this.selectedTaskId) return 3;  // UPGRADED: Increased from selectionStrokeWidth to 3px
+            if (d.isCritical) return 1;  // UPGRADED: Increased from 0.5px to 1px for critical tasks
+            return 0.5;
+        })
+        // UPGRADED: Add subtle drop shadow for depth
+        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`);
 
     // --- Draw Milestones ---
     allTaskGroups.filter((d: Task) =>
@@ -3975,7 +3983,10 @@ private drawTasks(
             return milestoneColor;
         })
         .style("stroke", (d: Task) => d.internalId === this.selectedTaskId ? selectionHighlightColor : "#000")
-        .style("stroke-width", (d: Task) => d.internalId === this.selectedTaskId ? selectionStrokeWidth : 1);
+        // UPGRADED: Increased default stroke from 1px to 1.5px, selected to 3px
+        .style("stroke-width", (d: Task) => d.internalId === this.selectedTaskId ? 3 : 1.5)
+        // UPGRADED: Add subtle drop shadow for depth
+        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`);
 
     // --- Update Task Labels ---
     // First remove existing labels to avoid updating complex wrapped text
@@ -4114,12 +4125,15 @@ private drawTasks(
                         .attr("y", bbox.y - dateBgPaddingV)
                         .attr("width", bbox.width + (dateBgPaddingH * 2))
                         .attr("height", bbox.height + (dateBgPaddingV * 2))
-                        .attr("rx", 3).attr("ry", 3)
+                        // UPGRADED: Increased border radius from 3px to 4px for smoother appearance
+                        .attr("rx", 4).attr("ry", 4)
                         .style("fill", dateBackgroundColor)
-                        .style("fill-opacity", dateBackgroundOpacity);
+                        .style("fill-opacity", dateBackgroundOpacity)
+                        // UPGRADED: Add subtle shadow to date label backgrounds for depth
+                        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[1]})`);
                 }
-            } catch (e) { 
-                console.warn(`Could not get BBox for date text on task ${d.internalId}`, e); 
+            } catch (e) {
+                console.warn(`Could not get BBox for date text on task ${d.internalId}`, e);
             }
         });
     }
@@ -4450,37 +4464,75 @@ private drawTasksCanvas(
             
             // Draw task or milestone with pixel alignment
             if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-                // Draw milestone diamond
+                // UPGRADED: Draw milestone diamond with enhanced stroke and shadow
                 const milestoneDate = task.startDate || task.finishDate;
                 if (milestoneDate) {
                     const x = Math.round(xScale(milestoneDate));
                     const y = Math.round(yPos + taskHeight / 2);
                     const size = Math.round(Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9)));
                     const halfSize = size / 2;
-                    
+
+                    const isSelected = task.internalId === this.selectedTaskId;
+
+                    // UPGRADED: Add subtle shadow for depth
+                    if (isSelected) {
+                        ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
+                        ctx.shadowBlur = 6;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 3;
+                    } else {
+                        ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+                        ctx.shadowBlur = 2;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 1;
+                    }
+
                     ctx.beginPath();
                     ctx.moveTo(x, y - halfSize);
                     ctx.lineTo(x + halfSize, y);
                     ctx.lineTo(x, y + halfSize);
                     ctx.lineTo(x - halfSize, y);
                     ctx.closePath();
-                    
+
                     ctx.fillStyle = fillColor;
                     ctx.fill();
-                    
-                    ctx.strokeStyle = task.internalId === this.selectedTaskId ? fillColor : "#000";
-                    ctx.lineWidth = task.internalId === this.selectedTaskId ? 2 : 1;
+
+                    // Reset shadow for stroke
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.shadowOffsetX = 0;
+                    ctx.shadowOffsetY = 0;
+
+                    // UPGRADED: Increased stroke weight (1.5px default, 3px for selected)
+                    ctx.strokeStyle = isSelected ? fillColor : "#000";
+                    ctx.lineWidth = isSelected ? 3 : 1.5;
                     ctx.stroke();
                 }
             } else {
-                // Draw regular task bar with pixel-perfect positioning
+                // UPGRADED: Draw regular task bar with enhanced corner radius and shadow effects
                 if (task.startDate && task.finishDate) {
                     const x = Math.round(xScale(task.startDate));
                     const width = Math.round(Math.max(1, xScale(task.finishDate) - xScale(task.startDate)));
                     const y = Math.round(yPos);
                     const height = Math.round(taskHeight);
-                    const radius = Math.min(3, Math.round(height * 0.1));
-                    
+                    const radius = Math.min(5, Math.round(height * 0.15));  // UPGRADED: Increased from 3px to 5px
+
+                    // UPGRADED: Add subtle shadow effect for depth
+                    const isSelected = task.internalId === this.selectedTaskId;
+                    const isCritical = task.isCritical;
+
+                    if (isSelected || isCritical) {
+                        ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
+                        ctx.shadowBlur = isSelected ? 6 : 4;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = isSelected ? 3 : 2;
+                    } else {
+                        ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+                        ctx.shadowBlur = 2;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 1;
+                    }
+
                     // Draw crisp rounded rectangle
                     ctx.beginPath();
                     ctx.moveTo(x + radius, y);
@@ -4493,32 +4545,49 @@ private drawTasksCanvas(
                     ctx.lineTo(x, y + radius);
                     ctx.quadraticCurveTo(x, y, x + radius, y);
                     ctx.closePath();
-                    
+
                     ctx.fillStyle = fillColor;
                     ctx.fill();
-                    
-                    if (task.internalId === this.selectedTaskId) {
+
+                    // Reset shadow for stroke
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.shadowOffsetX = 0;
+                    ctx.shadowOffsetY = 0;
+
+                    // UPGRADED: Improved stroke weight for selected and critical tasks
+                    if (isSelected) {
                         ctx.strokeStyle = fillColor;
-                        ctx.lineWidth = 2;
+                        ctx.lineWidth = 3;  // UPGRADED: Increased from 2 to 3px
+                        ctx.stroke();
+                    } else if (isCritical) {
+                        ctx.strokeStyle = "#333";
+                        ctx.lineWidth = 1;
                         ctx.stroke();
                     }
-                    
-                    // Draw duration text if enabled
-                    if (showDuration && task.duration > 0 && width > 20) {
+
+                    // UPGRADED: Draw duration text with better sizing, readability, and text shadow
+                    if (showDuration && task.duration > 0 && width > 25) {  // UPGRADED: Increased from 20 to 25
                         const durationText = `${Math.round(task.duration)}d`;
-                        const durationFontSize = Math.round((Math.max(7, generalFontSize * 0.8) / 10) * baseFontSize);
-                        
+                        // UPGRADED: Slightly larger and bolder for better readability
+                        const durationFontSize = Math.round((Math.max(7.5, generalFontSize * 0.85) / 10) * baseFontSize);
+
                         ctx.save();
                         ctx.font = `bold ${durationFontSize}px ${fontFamily}`;
                         ctx.fillStyle = "white";
                         ctx.textAlign = "center";
                         ctx.textBaseline = "middle";
-                        
+
                         const centerX = Math.round(x + width / 2);
                         const centerY = Math.round(y + height / 2);
-                        
+
                         const textWidth = ctx.measureText(durationText).width;
                         if (textWidth < width - 4) {
+                            // UPGRADED: Add subtle text shadow/outline for better readability on colored bars
+                            ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+                            ctx.shadowBlur = 2;
+                            ctx.shadowOffsetX = 0;
+                            ctx.shadowOffsetY = 1;
                             ctx.fillText(durationText, centerX, centerY);
                         }
                         ctx.restore();
@@ -4691,106 +4760,170 @@ private drawArrowsCanvas(
         const visibleRelationships = this.relationships.filter((rel: Relationship) =>
             taskPositions.has(rel.predecessorId) && taskPositions.has(rel.successorId)
         );
-        
-        // Draw each relationship
+
+        // UPGRADED: Professional connector line rendering with smooth curves and anti-aliasing
         visibleRelationships.forEach((rel: Relationship) => {
             const pred = this.taskIdToTask.get(rel.predecessorId);
             const succ = this.taskIdToTask.get(rel.successorId);
             const predYOrder = taskPositions.get(rel.predecessorId);
             const succYOrder = taskPositions.get(rel.successorId);
-            
+
             if (!pred || !succ || predYOrder === undefined || succYOrder === undefined) return;
-            
+
             const predYBandPos = yScale(predYOrder.toString());
             const succYBandPos = yScale(succYOrder.toString());
             if (predYBandPos === undefined || succYBandPos === undefined) return;
-            
+
             const predY = predYBandPos + taskHeight / 2;
             const succY = succYBandPos + taskHeight / 2;
             const relType = rel.type || 'FS';
             const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
             const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
-            
+
             // Calculate start and end dates
             let baseStartDate: Date | null | undefined = null;
             let baseEndDate: Date | null | undefined = null;
-            
+
             switch (relType) {
-                case 'FS': case 'FF': 
-                    baseStartDate = predIsMilestone ? (pred.startDate ?? pred.finishDate) : pred.finishDate; 
+                case 'FS': case 'FF':
+                    baseStartDate = predIsMilestone ? (pred.startDate ?? pred.finishDate) : pred.finishDate;
                     break;
-                case 'SS': case 'SF': 
-                    baseStartDate = pred.startDate; 
+                case 'SS': case 'SF':
+                    baseStartDate = pred.startDate;
                     break;
             }
             switch (relType) {
-                case 'FS': case 'SS': 
-                    baseEndDate = succ.startDate; 
+                case 'FS': case 'SS':
+                    baseEndDate = succ.startDate;
                     break;
-                case 'FF': case 'SF': 
-                    baseEndDate = succIsMilestone ? (succ.startDate ?? succ.finishDate) : succ.finishDate; 
+                case 'FF': case 'SF':
+                    baseEndDate = succIsMilestone ? (succ.startDate ?? succ.finishDate) : succ.finishDate;
                     break;
             }
-            
+
             if (!baseStartDate || !baseEndDate) return;
-            
+
             const startX = xScale(baseStartDate);
             const endX = xScale(baseEndDate);
-            
+
             const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-            const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 2) : 2;
-            const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 2 + connectionEndPadding) : (2 + connectionEndPadding);
-            
+            const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;  // Increased from 2
+            const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
+
             let effectiveStartX = startX;
             let effectiveEndX = endX;
-            
+
             if (relType === 'FS' || relType === 'FF') effectiveStartX += startGap;
             else effectiveStartX -= startGap;
             if (predIsMilestone && (relType === 'SS' || relType === 'SF')) effectiveStartX = startX + startGap;
-            
+
             if (relType === 'FS' || relType === 'SS') effectiveEndX -= endGap;
             else effectiveEndX += endGap;
             if (succIsMilestone && (relType === 'FF' || relType === 'SF')) effectiveEndX = endX + endGap - connectionEndPadding;
-            
-            // Set line style
-            ctx.strokeStyle = rel.isCritical ? criticalColor : connectorColor;
-            ctx.lineWidth = rel.isCritical ? criticalConnectorWidth : connectorWidth;
-            
-            // Draw path
+
+            // Professional line styling with enhanced visuals
+            const isCritical = rel.isCritical;
+            const baseLineWidth = isCritical ? criticalConnectorWidth : connectorWidth;
+            const enhancedLineWidth = Math.max(1.5, baseLineWidth);  // Minimum 1.5px for visibility
+
+            ctx.strokeStyle = isCritical ? criticalColor : connectorColor;
+            ctx.lineWidth = enhancedLineWidth;
+            ctx.lineCap = 'round';  // Rounded line caps for smoother appearance
+            ctx.lineJoin = 'round';  // Rounded joins for smoother corners
+
+            // Enable anti-aliasing for smoother lines
+            (ctx as any).imageSmoothingEnabled = true;
+            (ctx as any).imageSmoothingQuality = 'high';
+
+            // Draw path with smooth curves
             ctx.beginPath();
             ctx.moveTo(effectiveStartX, predY);
-            
+
+            const cornerRadius = 8;  // Radius for smooth corners
+
             if (Math.abs(predY - succY) < 1) {
                 // Horizontal line
                 ctx.lineTo(effectiveEndX, succY);
             } else {
-                // Draw appropriate connector based on type
+                // Draw appropriate connector based on type with smooth corners
+                const isGoingDown = succY > predY;
+
                 switch(relType) {
                     case 'FS':
-                        ctx.lineTo(effectiveStartX, succY);
-                        ctx.lineTo(effectiveEndX, succY);
+                        // Smooth L-shape with rounded corner
+                        if (Math.abs(effectiveStartX - effectiveStartX) > cornerRadius * 2 &&
+                            Math.abs(succY - predY) > cornerRadius * 2) {
+                            const verticalStart = predY + (isGoingDown ? cornerRadius : -cornerRadius);
+                            const horizontalStart = effectiveStartX;
+                            const horizontalEnd = effectiveEndX - (effectiveEndX > effectiveStartX ? cornerRadius : -cornerRadius);
+
+                            ctx.lineTo(effectiveStartX, verticalStart);
+                            ctx.arcTo(effectiveStartX, succY, horizontalEnd, succY, cornerRadius);
+                            ctx.lineTo(effectiveEndX, succY);
+                        } else {
+                            // Fallback to straight lines if too small for curves
+                            ctx.lineTo(effectiveStartX, succY);
+                            ctx.lineTo(effectiveEndX, succY);
+                        }
                         break;
                     case 'SS':
                         const ssOffsetX = Math.min(effectiveStartX, effectiveEndX) - elbowOffset;
-                        ctx.lineTo(ssOffsetX, predY);
-                        ctx.lineTo(ssOffsetX, succY);
-                        ctx.lineTo(effectiveEndX, succY);
+                        // Three-segment path with smooth corners
+                        if (Math.abs(effectiveStartX - ssOffsetX) > cornerRadius &&
+                            Math.abs(succY - predY) > cornerRadius * 2) {
+                            ctx.lineTo(ssOffsetX + cornerRadius, predY);
+                            ctx.arcTo(ssOffsetX, predY, ssOffsetX, predY + (isGoingDown ? cornerRadius : -cornerRadius), cornerRadius);
+                            const vertEnd = succY - (isGoingDown ? cornerRadius : -cornerRadius);
+                            ctx.lineTo(ssOffsetX, vertEnd);
+                            ctx.arcTo(ssOffsetX, succY, ssOffsetX + cornerRadius, succY, cornerRadius);
+                            ctx.lineTo(effectiveEndX, succY);
+                        } else {
+                            ctx.lineTo(ssOffsetX, predY);
+                            ctx.lineTo(ssOffsetX, succY);
+                            ctx.lineTo(effectiveEndX, succY);
+                        }
                         break;
                     case 'FF':
                         const ffOffsetX = Math.max(effectiveStartX, effectiveEndX) + elbowOffset;
-                        ctx.lineTo(ffOffsetX, predY);
-                        ctx.lineTo(ffOffsetX, succY);
-                        ctx.lineTo(effectiveEndX, succY);
+                        if (Math.abs(ffOffsetX - effectiveStartX) > cornerRadius &&
+                            Math.abs(succY - predY) > cornerRadius * 2) {
+                            ctx.lineTo(ffOffsetX - cornerRadius, predY);
+                            ctx.arcTo(ffOffsetX, predY, ffOffsetX, predY + (isGoingDown ? cornerRadius : -cornerRadius), cornerRadius);
+                            const vertEnd = succY - (isGoingDown ? cornerRadius : -cornerRadius);
+                            ctx.lineTo(ffOffsetX, vertEnd);
+                            ctx.arcTo(ffOffsetX, succY, ffOffsetX - cornerRadius, succY, cornerRadius);
+                            ctx.lineTo(effectiveEndX, succY);
+                        } else {
+                            ctx.lineTo(ffOffsetX, predY);
+                            ctx.lineTo(ffOffsetX, succY);
+                            ctx.lineTo(effectiveEndX, succY);
+                        }
                         break;
                     case 'SF':
                         const sfStartOffset = effectiveStartX - elbowOffset;
                         const sfEndOffset = effectiveEndX + elbowOffset;
                         const midY = (predY + succY) / 2;
-                        ctx.lineTo(sfStartOffset, predY);
-                        ctx.lineTo(sfStartOffset, midY);
-                        ctx.lineTo(sfEndOffset, midY);
-                        ctx.lineTo(sfEndOffset, succY);
-                        ctx.lineTo(effectiveEndX, succY);
+                        // Complex path with multiple smooth corners
+                        if (Math.abs(effectiveStartX - sfStartOffset) > cornerRadius) {
+                            ctx.lineTo(sfStartOffset + cornerRadius, predY);
+                            ctx.arcTo(sfStartOffset, predY, sfStartOffset, midY, cornerRadius);
+                            const mid1 = midY + (predY < midY ? -cornerRadius : cornerRadius);
+                            ctx.lineTo(sfStartOffset, mid1);
+                            ctx.arcTo(sfStartOffset, midY, sfEndOffset, midY, cornerRadius);
+                            ctx.lineTo(sfEndOffset - cornerRadius, midY);
+                            const mid2 = midY + (succY > midY ? cornerRadius : -cornerRadius);
+                            ctx.arcTo(sfEndOffset, midY, sfEndOffset, mid2, cornerRadius);
+                            ctx.lineTo(sfEndOffset, succY - (succY > midY ? cornerRadius : -cornerRadius));
+                            ctx.arcTo(sfEndOffset, succY, effectiveEndX, succY, cornerRadius);
+                            ctx.lineTo(effectiveEndX, succY);
+                        } else {
+                            // Fallback
+                            ctx.lineTo(sfStartOffset, predY);
+                            ctx.lineTo(sfStartOffset, midY);
+                            ctx.lineTo(sfEndOffset, midY);
+                            ctx.lineTo(sfEndOffset, succY);
+                            ctx.lineTo(effectiveEndX, succY);
+                        }
                         break;
                     default:
                         // Fallback to FS style
@@ -4798,7 +4931,7 @@ private drawArrowsCanvas(
                         ctx.lineTo(effectiveEndX, succY);
                 }
             }
-            
+
             ctx.stroke();
         });
     } finally {
@@ -4889,6 +5022,7 @@ private drawArrowsCanvas(
             taskPositions.has(rel.predecessorId) && taskPositions.has(rel.successorId)
         );
 
+        // UPGRADED: Professional SVG connector lines with smooth curves and rounded caps/joins
         this.arrowLayer.selectAll(".relationship-arrow")
             .data(visibleRelationships, (d: Relationship) => `${d.predecessorId}-${d.successorId}`)
             .enter()
@@ -4896,7 +5030,12 @@ private drawArrowsCanvas(
             .attr("class", (d: Relationship) => `relationship-arrow ${d.isCritical ? "critical" : "normal"}`)
             .attr("fill", "none")
             .attr("stroke", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
-            .attr("stroke-width", (d: Relationship) => d.isCritical ? criticalConnectorWidth : connectorWidth)
+            .attr("stroke-width", (d: Relationship) => {
+                const baseWidth = d.isCritical ? criticalConnectorWidth : connectorWidth;
+                return Math.max(1.5, baseWidth);  // UPGRADED: Minimum 1.5px for better visibility
+            })
+            .attr("stroke-linecap", "round")  // UPGRADED: Rounded line caps for smoother appearance
+            .attr("stroke-linejoin", "round")  // UPGRADED: Rounded joins for smoother corners
             // marker-end attribute removed
             .attr("d", (rel: Relationship): string | null => {
                 const pred = this.taskIdToTask.get(rel.predecessorId);
@@ -4936,20 +5075,18 @@ private drawArrowsCanvas(
                 if (startX === null || endX === null || isNaN(startX) || isNaN(endX)) return null;
 
                 const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-                const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 2) : 2;
-                // Use connectionEndPadding instead of arrowHeadVisibleLength
-                const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 2 + connectionEndPadding) : (2 + connectionEndPadding);
+                const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;  // UPGRADED: Increased from 2 to 3
+                const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
 
                 let effectiveStartX = startX;
                 let effectiveEndX = endX;
-                
+
                 if (relType === 'FS' || relType === 'FF') effectiveStartX += startGap;
                 else effectiveStartX -= startGap;
                 if (predIsMilestone && (relType === 'SS' || relType === 'SF')) effectiveStartX = startX + startGap;
 
                 if (relType === 'FS' || relType === 'SS') effectiveEndX -= endGap;
                 else effectiveEndX += endGap;
-                // Use connectionEndPadding instead of arrowHeadVisibleLength
                 if (succIsMilestone && (relType === 'FF' || relType === 'SF')) effectiveEndX = endX + endGap - connectionEndPadding;
 
                 const pStartX = effectiveStartX;
@@ -4959,41 +5096,71 @@ private drawArrowsCanvas(
 
                 if (Math.abs(pStartX - pEndX) < elbowOffset && Math.abs(pStartY - pEndY) < 1) return null; // Skip tiny paths
 
+                // UPGRADED: Smooth corner radius for professional appearance
+                const cornerRadius = 8;
                 let pathData: string;
-                
+
                 // Check if tasks are at the same vertical level
                 if (Math.abs(pStartY - pEndY) < 1) {
                     // Simple horizontal connection for all relationship types when tasks at same level
                     pathData = `M ${pStartX},${pStartY} H ${pEndX}`;
                 } else {
-                    // Different path creation based on relationship type
+                    // UPGRADED: Different path creation based on relationship type with smooth quadratic curves
+                    const isGoingDown = pEndY > pStartY;
+
                     switch(relType) {
-                        case 'FS': 
-                            // Finish to Start: Vertical line down from end of predecessor, then horizontal to start of successor
-                            pathData = `M ${pStartX},${pStartY} V ${pEndY} H ${pEndX}`;
+                        case 'FS':
+                            // Finish to Start: Smooth L-shape with rounded corner
+                            if (Math.abs(pEndY - pStartY) > cornerRadius * 2) {
+                                const verticalEnd = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
+                                pathData = `M ${pStartX},${pStartY} L ${pStartX},${verticalEnd} Q ${pStartX},${pEndY} ${pStartX + cornerRadius},${pEndY} L ${pEndX},${pEndY}`;
+                            } else {
+                                pathData = `M ${pStartX},${pStartY} V ${pEndY} H ${pEndX}`;
+                            }
                             break;
-                            
+
                         case 'SS':
-                            // Start to Start: Path connecting start points
+                            // Start to Start: Path with smooth corners at both turns
                             const ssOffsetX = Math.min(pStartX, pEndX) - elbowOffset;
-                            pathData = `M ${pStartX},${pStartY} H ${ssOffsetX} V ${pEndY} H ${pEndX}`;
+                            if (Math.abs(pStartX - ssOffsetX) > cornerRadius && Math.abs(pEndY - pStartY) > cornerRadius * 2) {
+                                const h1End = ssOffsetX + cornerRadius;
+                                const v1End = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
+                                pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${ssOffsetX},${pStartY} ${ssOffsetX},${pStartY + (isGoingDown ? cornerRadius : -cornerRadius)} L ${ssOffsetX},${v1End} Q ${ssOffsetX},${pEndY} ${h1End},${pEndY} L ${pEndX},${pEndY}`;
+                            } else {
+                                pathData = `M ${pStartX},${pStartY} H ${ssOffsetX} V ${pEndY} H ${pEndX}`;
+                            }
                             break;
-                            
+
                         case 'FF':
-                            // Finish to Finish: Path connecting finish points
+                            // Finish to Finish: Path with smooth corners at both turns
                             const ffOffsetX = Math.max(pStartX, pEndX) + elbowOffset;
-                            pathData = `M ${pStartX},${pStartY} H ${ffOffsetX} V ${pEndY} H ${pEndX}`;
+                            if (Math.abs(ffOffsetX - pStartX) > cornerRadius && Math.abs(pEndY - pStartY) > cornerRadius * 2) {
+                                const h1End = ffOffsetX - cornerRadius;
+                                const v1End = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
+                                pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${ffOffsetX},${pStartY} ${ffOffsetX},${pStartY + (isGoingDown ? cornerRadius : -cornerRadius)} L ${ffOffsetX},${v1End} Q ${ffOffsetX},${pEndY} ${h1End},${pEndY} L ${pEndX},${pEndY}`;
+                            } else {
+                                pathData = `M ${pStartX},${pStartY} H ${ffOffsetX} V ${pEndY} H ${pEndX}`;
+                            }
                             break;
-                            
+
                         case 'SF':
-                            // Start to Finish: Path connecting start to finish
-                            // This is the least common relationship type
+                            // Start to Finish: Complex path with multiple smooth corners
                             const sfStartOffset = pStartX - elbowOffset;
                             const sfEndOffset = pEndX + elbowOffset;
                             const midY = (pStartY + pEndY) / 2;
-                            pathData = `M ${pStartX},${pStartY} H ${sfStartOffset} V ${midY} H ${sfEndOffset} V ${pEndY} H ${pEndX}`;
+                            if (Math.abs(pStartX - sfStartOffset) > cornerRadius) {
+                                const h1End = sfStartOffset + cornerRadius;
+                                const v1Start = pStartY + (midY > pStartY ? cornerRadius : -cornerRadius);
+                                const v1End = midY - (midY > pStartY ? cornerRadius : -cornerRadius);
+                                const h2End = sfEndOffset - cornerRadius;
+                                const v2Start = midY + (pEndY > midY ? cornerRadius : -cornerRadius);
+                                const v2End = pEndY - (pEndY > midY ? cornerRadius : -cornerRadius);
+                                pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${sfStartOffset},${pStartY} ${sfStartOffset},${v1Start} L ${sfStartOffset},${v1End} Q ${sfStartOffset},${midY} ${h1End},${midY} L ${h2End},${midY} Q ${sfEndOffset},${midY} ${sfEndOffset},${v2Start} L ${sfEndOffset},${v2End} Q ${sfEndOffset},${pEndY} ${h2End},${pEndY} L ${pEndX},${pEndY}`;
+                            } else {
+                                pathData = `M ${pStartX},${pStartY} H ${sfStartOffset} V ${midY} H ${sfEndOffset} V ${pEndY} H ${pEndX}`;
+                            }
                             break;
-                            
+
                         default:
                             // Fallback to FS style
                             pathData = `M ${pStartX},${pStartY} V ${pEndY} H ${pEndX}`;
