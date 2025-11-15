@@ -527,26 +527,29 @@ constructor(options: VisualConstructorOptions) {
         .style("font-weight", "bold")
         .style("display", "none");
 
-    // --- Driving Path Info Label ---
+    // --- Driving Path Info Label (Path Selection Control) ---
+    // UPGRADED: Professional path selection control with enhanced design
     this.pathInfoLabel = this.stickyHeaderContainer.append("div")
         .attr("class", "path-info-label")
         .style("position", "absolute")
-        .style("top", "4px")
+        .style("top", "6px")  // Updated for better alignment
         .style("right", "10px")
-        .style("height", "28px")
-        .style("padding", "0 12px")
+        .style("height", `${this.UI_TOKENS.height.standard}px`)  // Using design tokens
+        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
         .style("display", "none")
         .style("align-items", "center")
-        .style("gap", "8px")
-        .style("background-color", "#ffffff")
-        .style("border", "1px solid #0078D4")
-        .style("border-radius", "14px")
-        .style("box-shadow", "0 1px 3px rgba(0,0,0,0.05)")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "12px")
-        .style("color", "#0078D4")
-        .style("font-weight", "500")
-        .style("white-space", "nowrap");
+        .style("gap", `${this.UI_TOKENS.spacing.md}px`)
+        .style("background-color", this.UI_TOKENS.color.neutral.white)
+        .style("border", `2px solid ${this.UI_TOKENS.color.primary.default}`)  // Heavier border
+        .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)  // More rounded
+        .style("box-shadow", this.UI_TOKENS.shadow[4])  // Better shadow
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("color", this.UI_TOKENS.color.primary.default)
+        .style("font-weight", "600")  // Bolder
+        .style("letter-spacing", "0.2px")
+        .style("white-space", "nowrap")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // --- Scrollable Container for main chart content ---
     this.scrollableContainer = visualWrapper.append("div")
@@ -5517,6 +5520,7 @@ private getSelectedDrivingChain(): {
 
 /**
  * Updates the path information label display with interactive navigation
+ * UPGRADED: Professional navigation buttons with enhanced design and smooth animations
  */
 private updatePathInfoLabel(): void {
     if (!this.pathInfoLabel) return;
@@ -5550,71 +5554,130 @@ private updatePathInfoLabel(): void {
     const duration = currentChain.totalDuration.toFixed(1);
     const taskCount = currentChain.tasks.size;
 
-    // Previous button
+    // Professional Previous button with SVG arrow
     const prevButton = this.pathInfoLabel.append("div")
         .style("cursor", "pointer")
-        .style("padding", "4px 8px")
-        .style("border-radius", "4px")
+        .style("padding", "6px")  // Increased from 4px 8px
+        .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
         .style("display", "flex")
         .style("align-items", "center")
         .style("justify-content", "center")
-        .style("transition", "background-color 0.2s")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .style("user-select", "none")
-        .text("◀")
-        .on("mouseover", function() {
-            d3.select(this).style("background-color", "rgba(0, 120, 212, 0.1)");
-        })
-        .on("mouseout", function() {
-            d3.select(this).style("background-color", "transparent");
-        });
+        .style("width", "24px")
+        .style("height", "24px");
+
+    // SVG arrow for previous button
+    const prevSvg = prevButton.append("svg")
+        .attr("width", "12")
+        .attr("height", "12")
+        .attr("viewBox", "0 0 12 12");
+
+    prevSvg.append("path")
+        .attr("d", "M 8 2 L 4 6 L 8 10")
+        .attr("stroke", this.UI_TOKENS.color.primary.default)
+        .attr("stroke-width", "2")
+        .attr("stroke-linecap", "round")
+        .attr("stroke-linejoin", "round")
+        .attr("fill", "none");
 
     const self = this;
+    prevButton
+        .on("mouseover", function() {
+            d3.select(this)
+                .style("background-color", self.UI_TOKENS.color.primary.light)
+                .style("transform", "scale(1.1)");
+        })
+        .on("mouseout", function() {
+            d3.select(this)
+                .style("background-color", "transparent")
+                .style("transform", "scale(1)");
+        })
+        .on("mousedown", function() {
+            d3.select(this).style("transform", "scale(0.95)");
+        })
+        .on("mouseup", function() {
+            d3.select(this).style("transform", "scale(1.1)");
+        });
+
     prevButton.on("click", function(event) {
         event.stopPropagation();
         self.navigateToPreviousPath();
     });
 
-    // Path info text container
+    // Professional path info text container
     const infoContainer = this.pathInfoLabel.append("div")
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", "6px")
-        .style("padding", "0 4px");
+        .style("gap", `${this.UI_TOKENS.spacing.md}px`)
+        .style("padding", "0 6px");
 
     infoContainer.append("span")
-        .style("font-weight", "600")
+        .style("font-weight", "700")  // Bolder
+        .style("letter-spacing", "0.3px")
         .text(`Path ${pathNumber}/${totalPaths}`);
 
     infoContainer.append("span")
-        .style("color", "#666")
+        .style("color", this.UI_TOKENS.color.primary.default)
+        .style("font-weight", "600")
         .text("•");
 
     infoContainer.append("span")
+        .style("font-weight", "500")
         .text(`${taskCount} tasks`);
 
     infoContainer.append("span")
-        .style("color", "#666")
+        .style("color", this.UI_TOKENS.color.primary.default)
+        .style("font-weight", "600")
         .text("•");
 
     infoContainer.append("span")
+        .style("font-weight", "500")
         .text(`${duration} days`);
 
-    // Next button
+    // Professional Next button with SVG arrow
     const nextButton = this.pathInfoLabel.append("div")
         .style("cursor", "pointer")
-        .style("padding", "4px 8px")
-        .style("border-radius", "4px")
+        .style("padding", "6px")
+        .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
         .style("display", "flex")
         .style("align-items", "center")
         .style("justify-content", "center")
-        .style("transition", "background-color 0.2s")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .style("user-select", "none")
-        .text("▶")
+        .style("width", "24px")
+        .style("height", "24px");
+
+    // SVG arrow for next button
+    const nextSvg = nextButton.append("svg")
+        .attr("width", "12")
+        .attr("height", "12")
+        .attr("viewBox", "0 0 12 12");
+
+    nextSvg.append("path")
+        .attr("d", "M 4 2 L 8 6 L 4 10")
+        .attr("stroke", this.UI_TOKENS.color.primary.default)
+        .attr("stroke-width", "2")
+        .attr("stroke-linecap", "round")
+        .attr("stroke-linejoin", "round")
+        .attr("fill", "none");
+
+    nextButton
         .on("mouseover", function() {
-            d3.select(this).style("background-color", "rgba(0, 120, 212, 0.1)");
+            d3.select(this)
+                .style("background-color", self.UI_TOKENS.color.primary.light)
+                .style("transform", "scale(1.1)");
         })
         .on("mouseout", function() {
-            d3.select(this).style("background-color", "transparent");
+            d3.select(this)
+                .style("background-color", "transparent")
+                .style("transform", "scale(1)");
+        })
+        .on("mousedown", function() {
+            d3.select(this).style("transform", "scale(0.95)");
+        })
+        .on("mouseup", function() {
+            d3.select(this).style("transform", "scale(1.1)");
         });
 
     nextButton.on("click", function(event) {
@@ -7153,108 +7216,117 @@ private populateTaskDropdown(): void {
     this.debugLog(`Populated dropdown with ${sortedTasks.length} tasks plus clear option`);
 }
 
+/**
+ * Creates the Trace Mode Toggle (Backward/Forward) with professional design
+ * UPGRADED: Enhanced visuals, better button design, smoother animations, refined styling
+ */
 private createTraceModeToggle(): void {
     this.stickyHeaderContainer.selectAll(".trace-mode-toggle").remove();
-    
+
     if (!this.settings.taskSelection.enableTaskSelection.value) return;
-    
+
     const toggleContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "trace-mode-toggle")
         .style("position", "absolute")
-        .style("top", "32px")
+        .style("top", "38px")  // Updated position for better alignment
         .style("left", "370px")
         .style("z-index", "20");
-    
+
     const isDisabled = !this.selectedTaskId;
-    
-    // Enhanced toggle design
+
+    // Professional toggle design
     const toggleWrapper = toggleContainer.append("div")
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", "6px");
-    
-    // Label
+        .style("gap", "10px");  // Increased from 6px
+
+    // Professional label
     toggleWrapper.append("span")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px")
-        .style("color", isDisabled ? "#999" : "#666")
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", "12px")  // Increased from 11px
+        .style("font-weight", "500")
+        .style("color", isDisabled ? this.UI_TOKENS.color.neutral.grey90 : this.UI_TOKENS.color.neutral.grey130)
         .style("white-space", "nowrap")
+        .style("letter-spacing", "0.2px")
         .text("Trace:");
-    
-    // Toggle buttons container
+
+    // Professional toggle buttons container
     const toggleButtons = toggleWrapper.append("div")
         .style("display", "flex")
-        .style("border", "1px solid #d0d0d0")
-        .style("border-radius", "12px")
+        .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)  // Heavier border
+        .style("border-radius", "16px")  // More rounded
         .style("overflow", "hidden")
-        .style("opacity", isDisabled ? "0.5" : "1")
-        .style("height", "24px")
-        .style("background", "white")
-        .style("box-shadow", "0 1px 2px rgba(0,0,0,0.05)");
+        .style("opacity", isDisabled ? "0.4" : "1")
+        .style("height", "32px")  // Increased from 24px
+        .style("background", this.UI_TOKENS.color.neutral.white)
+        .style("box-shadow", this.UI_TOKENS.shadow[2])  // Better shadow
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
     
-    // Backward Button with improved arrow
+    // Professional Backward Button with enhanced arrow
     const backwardButton = toggleButtons.append("div")
         .attr("class", "trace-mode-button backward")
-        .style("padding", "0 12px")
+        .style("padding", "0 16px")  // Increased from 12px
         .style("cursor", isDisabled ? "not-allowed" : "pointer")
-        .style("background-color", this.traceMode === "backward" ? "#1890ff" : "#ffffff")
-        .style("border-right", "1px solid #d0d0d0")
+        .style("background-color", this.traceMode === "backward" ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.white)
+        .style("border-right", `1px solid ${this.UI_TOKENS.color.neutral.grey40}`)
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", "4px")
-        .style("transition", "all 0.2s ease");
-    
-    // Improved backward arrow using SVG
+        .style("gap", "6px")  // Increased from 4px
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+    // Professional backward arrow using SVG
     const backwardSvg = backwardButton.append("svg")
-        .attr("width", "14")
-        .attr("height", "14")
-        .attr("viewBox", "0 0 14 14")
+        .attr("width", "16")  // Increased from 14
+        .attr("height", "16")
+        .attr("viewBox", "0 0 16 16")
         .style("flex-shrink", "0");
-    
+
     backwardSvg.append("path")
-        .attr("d", "M 9 3 L 5 7 L 9 11")
-        .attr("stroke", this.traceMode === "backward" ? "white" : "#666")
-        .attr("stroke-width", "2")
+        .attr("d", "M 10 3 L 6 8 L 10 13")
+        .attr("stroke", this.traceMode === "backward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
+        .attr("stroke-width", "2.5")  // Increased from 2
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .attr("fill", "none");
-    
+
     backwardButton.append("span")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px")
-        .style("color", this.traceMode === "backward" ? "white" : "#666")
-        .style("font-weight", this.traceMode === "backward" ? "500" : "400")
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", "12px")  // Increased from 11px
+        .style("color", this.traceMode === "backward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
+        .style("font-weight", this.traceMode === "backward" ? "600" : "500")
+        .style("letter-spacing", "0.2px")
         .text("Back");
-    
-    // Forward Button with improved arrow
+
+    // Professional Forward Button with enhanced arrow
     const forwardButton = toggleButtons.append("div")
         .attr("class", "trace-mode-button forward")
-        .style("padding", "0 12px")
+        .style("padding", "0 16px")  // Increased from 12px
         .style("cursor", isDisabled ? "not-allowed" : "pointer")
-        .style("background-color", this.traceMode === "forward" ? "#1890ff" : "#ffffff")
+        .style("background-color", this.traceMode === "forward" ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.white)
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", "4px")
-        .style("transition", "all 0.2s ease");
-    
+        .style("gap", "6px")  // Increased from 4px
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
     forwardButton.append("span")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px")
-        .style("color", this.traceMode === "forward" ? "white" : "#666")
-        .style("font-weight", this.traceMode === "forward" ? "500" : "400")
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", "12px")  // Increased from 11px
+        .style("color", this.traceMode === "forward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
+        .style("font-weight", this.traceMode === "forward" ? "600" : "500")
+        .style("letter-spacing", "0.2px")
         .text("Forward");
-    
-    // Improved forward arrow using SVG
+
+    // Professional forward arrow using SVG
     const forwardSvg = forwardButton.append("svg")
-        .attr("width", "14")
-        .attr("height", "14")
-        .attr("viewBox", "0 0 14 14")
+        .attr("width", "16")  // Increased from 14
+        .attr("height", "16")
+        .attr("viewBox", "0 0 16 16")
         .style("flex-shrink", "0");
-    
+
     forwardSvg.append("path")
-        .attr("d", "M 5 3 L 9 7 L 5 11")
-        .attr("stroke", this.traceMode === "forward" ? "white" : "#666")
-        .attr("stroke-width", "2")
+        .attr("d", "M 6 3 L 10 8 L 6 13")
+        .attr("stroke", this.traceMode === "forward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
+        .attr("stroke-width", "2.5")  // Increased from 2
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .attr("fill", "none");
@@ -7270,29 +7342,57 @@ private createTraceModeToggle(): void {
     
     if (!isDisabled) {
         const self = this;
-        
-        // Hover effects
+
+        // Professional hover effects
         backwardButton
             .on("mouseover", function() {
                 if (self.traceMode !== "backward") {
-                    d3.select(this).style("background-color", "#f0f0f0");
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.grey10);
+                } else {
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
                 }
             })
             .on("mouseout", function() {
                 if (self.traceMode !== "backward") {
-                    d3.select(this).style("background-color", "#ffffff");
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.white);
+                } else {
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.default);
+                }
+            })
+            .on("mousedown", function() {
+                if (self.traceMode === "backward") {
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.pressed);
+                }
+            })
+            .on("mouseup", function() {
+                if (self.traceMode === "backward") {
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
                 }
             });
-        
+
         forwardButton
             .on("mouseover", function() {
                 if (self.traceMode !== "forward") {
-                    d3.select(this).style("background-color", "#f0f0f0");
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.grey10);
+                } else {
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
                 }
             })
             .on("mouseout", function() {
                 if (self.traceMode !== "forward") {
-                    d3.select(this).style("background-color", "#ffffff");
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.white);
+                } else {
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.default);
+                }
+            })
+            .on("mousedown", function() {
+                if (self.traceMode === "forward") {
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.pressed);
+                }
+            })
+            .on("mouseup", function() {
+                if (self.traceMode === "forward") {
+                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
                 }
             });
         
