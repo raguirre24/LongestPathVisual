@@ -293,6 +293,121 @@ export class Visual implements IVisual {
     // Phase 2: CPM memoization
     private cpmMemo: Map<string, number> = new Map();
 
+    // ============================================================================
+    // DESIGN TOKENS - Professional UI System (Fluent Design 2)
+    // ============================================================================
+    private readonly UI_TOKENS = {
+        // Heights - Standardized for consistency and touch-friendliness
+        height: {
+            compact: 24,    // Minimal toggles
+            standard: 28,   // Default for most controls
+            comfortable: 32 // Prominent controls (inputs, navigation)
+        },
+
+        // Border Radius - Modern, cohesive appearance
+        radius: {
+            small: 4,       // Inner elements, inputs
+            medium: 6,      // Standard buttons
+            large: 14,      // Pill-shaped toggles
+            pill: 16,       // Large pill containers
+            full: 9999      // Perfect circles
+        },
+
+        // Spacing - 4px grid system
+        spacing: {
+            xs: 4,
+            sm: 6,
+            md: 8,
+            lg: 12,
+            xl: 16,
+            xxl: 20
+        },
+
+        // Typography - Readable hierarchy
+        fontSize: {
+            xs: 10,
+            sm: 11,
+            md: 12,
+            lg: 13
+        },
+
+        fontWeight: {
+            normal: 400,
+            medium: 500,
+            semibold: 600,
+            bold: 700
+        },
+
+        // Colors - Microsoft Fluent 2 Design System
+        color: {
+            primary: {
+                default: '#0078D4',
+                hover: '#106EBE',
+                pressed: '#005A9E',
+                light: '#E6F2FA',
+                lighter: '#F3F9FD'
+            },
+            warning: {
+                default: '#F7A800',
+                hover: '#E09200',
+                pressed: '#C87E00',
+                light: '#FFF9E6',
+                lighter: '#FFFCF3'
+            },
+            success: {
+                default: '#107C10',
+                hover: '#0E6B0E',
+                pressed: '#0C5A0C',
+                light: '#E6F4E6',
+                lighter: '#F3FAF3'
+            },
+            danger: {
+                default: '#D13438',
+                hover: '#B82E31',
+                pressed: '#A0272A',
+                light: '#FDE7E9',
+                lighter: '#FEF4F5'
+            },
+            neutral: {
+                black: '#201F1E',
+                grey190: '#201F1E',
+                grey160: '#323130',
+                grey130: '#605E5C',
+                grey90: '#A19F9D',
+                grey60: '#C8C6C4',
+                grey30: '#EDEBE9',
+                grey20: '#F3F2F1',
+                grey10: '#FAF9F8',
+                white: '#FFFFFF'
+            }
+        },
+
+        // Shadows - Fluent elevation system
+        shadow: {
+            2: '0 0.3px 0.9px rgba(0, 0, 0, 0.1), 0 1.6px 3.6px rgba(0, 0, 0, 0.13)',
+            4: '0 1.6px 3.6px rgba(0, 0, 0, 0.13), 0 0.3px 0.9px rgba(0, 0, 0, 0.1)',
+            8: '0 3.2px 7.2px rgba(0, 0, 0, 0.13), 0 0.6px 1.8px rgba(0, 0, 0, 0.11)',
+            16: '0 6.4px 14.4px rgba(0, 0, 0, 0.13), 0 1.2px 3.6px rgba(0, 0, 0, 0.11)'
+        },
+
+        // Motion - Smooth, consistent animations
+        motion: {
+            duration: {
+                instant: 0,
+                fast: 100,
+                normal: 150,
+                slow: 300,
+                slower: 500
+            },
+            easing: {
+                standard: 'cubic-bezier(0.4, 0, 0.2, 1)',
+                decelerate: 'cubic-bezier(0, 0, 0.2, 1)',
+                accelerate: 'cubic-bezier(0.4, 0, 1, 1)',
+                sharp: 'cubic-bezier(0.4, 0, 0.6, 1)'
+            }
+        }
+    };
+
 constructor(options: VisualConstructorOptions) {
     this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
     this.target = options.element;
@@ -1085,6 +1200,9 @@ private togglePreviousUpdateDisplayInternal(): void {
     }
 }
 
+/**
+ * Creates/updates the Show All/Show Critical toggle button with professional Fluent design
+ */
 private createOrUpdateToggleButton(viewportWidth: number): void {
     if (!this.toggleButtonGroup || !this.headerSvg) return;
 
@@ -1093,77 +1211,126 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .on("click", null)
         .on("mouseover", null)
         .on("mouseout", null);
-        
+
     this.toggleButtonGroup.selectAll("*").remove();
 
-    const buttonWidth = 120;
-    const buttonHeight = 22;
-    const buttonPadding = { left: 8, top: 4 };
+    // Professional dimensions using design tokens
+    const buttonWidth = 128;
+    const buttonHeight = this.UI_TOKENS.height.standard;
+    const buttonPadding = { left: this.UI_TOKENS.spacing.md, top: this.UI_TOKENS.spacing.xs };
     const buttonX = buttonPadding.left;
     const buttonY = buttonPadding.top;
 
     this.toggleButtonGroup
-        .attr("transform", `translate(${buttonX}, ${buttonY})`);
+        .attr("transform", `translate(${buttonX}, ${buttonY})`)
+        .attr("role", "button")
+        .attr("aria-label", this.showAllTasksInternal ? "Show critical path only" : "Show all tasks")
+        .attr("aria-pressed", (!this.showAllTasksInternal).toString())
+        .attr("tabindex", "0");
 
+    // Enhanced button with shadow
     const buttonRect = this.toggleButtonGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
-        .attr("rx", 4)
-        .attr("ry", 4)
-        .style("fill", "#ffffff")
-        .style("stroke", "#d0d0d0")
-        .style("stroke-width", 1);
+        .attr("rx", this.UI_TOKENS.radius.medium)
+        .attr("ry", this.UI_TOKENS.radius.medium)
+        .style("fill", this.UI_TOKENS.color.neutral.white)
+        .style("stroke", this.UI_TOKENS.color.neutral.grey60)
+        .style("stroke-width", 1)
+        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
-    const iconPadding = 8;
+    // Icon with improved styling
+    const iconPadding = this.UI_TOKENS.spacing.md;
+    const iconColor = this.showAllTasksInternal
+        ? this.UI_TOKENS.color.danger.default
+        : this.UI_TOKENS.color.success.default;
+
     this.toggleButtonGroup.append("path")
-        .attr("d", this.showAllTasksInternal 
-            ? "M2,0 L5,-2 L8,0 Z"
-            : "M1,-2 L6,-2 M1,0 L8,0 M1,2 L7,2")
+        .attr("d", this.showAllTasksInternal
+            ? "M2,0 L5,-2.5 L8,0 Z"  // Filter/funnel icon (showing critical)
+            : "M1,-2.5 L7,-2.5 M1,0 L8,0 M1,2.5 L7,2.5")  // All items icon
         .attr("transform", `translate(${iconPadding}, ${buttonHeight/2})`)
-        .attr("stroke", this.showAllTasksInternal ? "#dc3545" : "#28a745")
-        .attr("stroke-width", 1.2)
-        .attr("fill", this.showAllTasksInternal ? "#dc3545" : "none")
+        .attr("stroke", iconColor)
+        .attr("stroke-width", 2)
+        .attr("fill", this.showAllTasksInternal ? iconColor : "none")
         .attr("stroke-linecap", "round")
-        .style("pointer-events", "none");
+        .attr("stroke-linejoin", "round")
+        .style("pointer-events", "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
+    // Text with enhanced typography
     this.toggleButtonGroup.append("text")
-        .attr("x", buttonWidth / 2 + 4)
+        .attr("x", buttonWidth / 2 + this.UI_TOKENS.spacing.xs)
         .attr("y", buttonHeight / 2)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "central")
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px")
-        .style("fill", "#333")
-        .style("font-weight", "400")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("fill", this.UI_TOKENS.color.neutral.grey160)
+        .style("font-weight", this.UI_TOKENS.fontWeight.medium.toString())
         .style("pointer-events", "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`)
         .text(this.showAllTasksInternal ? "Show Critical" : "Show All");
 
+    // Enhanced hover states
+    const self = this;
     this.toggleButtonGroup
-        .on("mouseover", function() { 
+        .on("mouseover", function() {
             d3.select(this).select("rect")
-                .style("fill", "#f8f9fa")
-                .style("stroke", "#999"); 
+                .style("fill", self.UI_TOKENS.color.neutral.grey20)
+                .style("stroke", self.UI_TOKENS.color.neutral.grey90)
+                .style("transform", "translateY(-1px)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
         })
-        .on("mouseout", function() { 
+        .on("mouseout", function() {
             d3.select(this).select("rect")
-                .style("fill", "#ffffff")
-                .style("stroke", "#d0d0d0"); 
+                .style("fill", self.UI_TOKENS.color.neutral.white)
+                .style("stroke", self.UI_TOKENS.color.neutral.grey60)
+                .style("transform", "translateY(0)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+        })
+        .on("mousedown", function() {
+            d3.select(this).select("rect")
+                .style("transform", "translateY(0) scale(0.98)");
+        })
+        .on("mouseup", function() {
+            d3.select(this).select("rect")
+                .style("transform", "translateY(-1px) scale(1)");
         });
 
+    // Clickable overlay
     const clickOverlay = this.toggleButtonGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
-        .attr("rx", 4).attr("ry", 4)
+        .attr("rx", this.UI_TOKENS.radius.medium)
+        .attr("ry", this.UI_TOKENS.radius.medium)
         .style("fill", "transparent")
         .style("cursor", "pointer");
 
-    const self = this;
+    // Click and keyboard handlers
     clickOverlay.on("click", function(event) {
         if (event) event.stopPropagation();
         self.toggleTaskDisplayInternal();
     });
+
+    this.toggleButtonGroup.on("keydown", function(event) {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            self.toggleTaskDisplayInternal();
+        }
+    });
+
+    // Tooltip
+    this.toggleButtonGroup.append("title")
+        .text(this.showAllTasksInternal
+            ? "Click to filter and show only critical path tasks"
+            : "Click to show all tasks in the project");
 }
 
+/**
+ * Creates/updates the Baseline toggle with professional theming and user color integration
+ */
 private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
     if (!this.headerSvg) return;
 
@@ -1175,98 +1342,144 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
     const hasBaselineFinish = dataView ? this.hasDataRole(dataView, 'baselineFinishDate') : false;
     const isAvailable = hasBaselineStart && hasBaselineFinish;
 
-    // Get colors from settings
+    // Get colors from settings with enhanced theming
     const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
-    const lightBaselineColor = this.lightenColor(baselineColor, 0.85);
-    const hoverBaselineColor = this.lightenColor(baselineColor, 0.7);
+    const lightBaselineColor = this.lightenColor(baselineColor, 0.90);
+    const hoverBaselineColor = this.lightenColor(baselineColor, 0.80);
     const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
 
     const baselineToggleGroup = this.headerSvg.append("g")
         .attr("class", "baseline-toggle-group")
-        .style("cursor", isAvailable ? "pointer" : "not-allowed");
+        .style("cursor", isAvailable ? "pointer" : "not-allowed")
+        .attr("role", "button")
+        .attr("aria-label", `${this.showBaselineInternal ? 'Hide' : 'Show'} baseline task bars`)
+        .attr("aria-pressed", this.showBaselineInternal.toString())
+        .attr("aria-disabled", (!isAvailable).toString())
+        .attr("tabindex", isAvailable ? "0" : "-1");
 
-    const buttonWidth = 110;
-    const buttonHeight = 24;
-    // Position after the Mode Toggle Button (which starts at 136 and is 220 wide)
-    const buttonX = 136 + 220 + 8; // 364px
-    const buttonY = 4;
+    const buttonWidth = 118;
+    const buttonHeight = this.UI_TOKENS.height.standard;
+    // Position after the Mode Toggle Button (144 + 210 + 8)
+    const buttonX = 362;
+    const buttonY = this.UI_TOKENS.spacing.xs;
 
     baselineToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    // Styling using baseline color from settings
+    // Enhanced button styling with user color theming
     const buttonRect = baselineToggleGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
-        .attr("rx", 12)
-        .attr("ry", 12)
-        .style("fill", this.showBaselineInternal ? lightBaselineColor : "#ffffff") 
-        .style("stroke", baselineColor) // Use actual baseline color
+        .attr("rx", this.UI_TOKENS.radius.medium)
+        .attr("ry", this.UI_TOKENS.radius.medium)
+        .style("fill", this.showBaselineInternal ? lightBaselineColor : this.UI_TOKENS.color.neutral.white)
+        .style("stroke", baselineColor)
         .style("stroke-width", 1.5)
-        .style("opacity", isAvailable ? 1 : 0.4);
+        .style("opacity", isAvailable ? 1 : 0.4)
+        .style("filter", isAvailable ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
-    // Icon representing the correct stacking order (Main -> Previous Update -> Baseline)
-    const iconX = 12;
+    // Enhanced icon representing the stacking order (Main -> Previous Update -> Baseline)
+    const iconX = this.UI_TOKENS.spacing.lg;
     const iconY = buttonHeight / 2;
-    
-    // Main bar icon (top)
+
+    // Main bar icon (top) - enhanced with rounded corners
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
         .attr("y", iconY - 7)
-        .attr("width", 14)
+        .attr("width", 16)
         .attr("height", 4)
-        .attr("rx", 1)
-        .attr("fill", this.showBaselineInternal ? "#0078D4" : "#6c757d");
+        .attr("rx", 1.5)
+        .attr("ry", 1.5)
+        .attr("fill", this.showBaselineInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
     // Previous update bar icon (middle)
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
-        .attr("y", iconY - 1) // Middle position
-        .attr("width", 14)
+        .attr("y", iconY - 1)
+        .attr("width", 16)
         .attr("height", 3)
         .attr("rx", 1)
-        .attr("fill", this.showBaselineInternal ? previousUpdateColor : "#adb5bd"); // Use actual previous update color
+        .attr("ry", 1)
+        .attr("fill", this.showBaselineInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey60)
+        .style("opacity", this.showBaselineInternal ? 1 : 0.6)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
-    // Baseline bar icon (bottom) - this is the one this toggle controls
+    // Baseline bar icon (bottom) - highlighted when active
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
-        .attr("y", iconY + 4) // Bottom position
-        .attr("width", 14)
+        .attr("y", iconY + 4)
+        .attr("width", 16)
         .attr("height", 3)
         .attr("rx", 1)
-        .attr("fill", this.showBaselineInternal ? baselineColor : "#adb5bd"); // Use actual baseline color
+        .attr("ry", 1)
+        .attr("fill", this.showBaselineInternal ? baselineColor : this.UI_TOKENS.color.neutral.grey60)
+        .style("opacity", this.showBaselineInternal ? 1 : 0.6)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
+    // Enhanced typography
     baselineToggleGroup.append("text")
-        .attr("x", iconX + 22)
+        .attr("x", iconX + 24)
         .attr("y", buttonHeight / 2)
         .attr("dominant-baseline", "central")
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px")
-        .style("fill", "#333")
-        .style("font-weight", this.showBaselineInternal ? "600" : "400")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("fill", this.UI_TOKENS.color.neutral.grey160)
+        .style("font-weight", this.showBaselineInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
         .style("pointer-events", "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`)
         .text(this.showBaselineInternal ? "Hide Baseline" : "Show Baseline");
 
-    // Tooltip
+    // Enhanced tooltip
     baselineToggleGroup.append("title")
-        .text(isAvailable ? (this.showBaselineInternal ? "Hide baseline bars" : "Show baseline bars") : "Requires Baseline Start/Finish fields");
+        .text(isAvailable
+            ? (this.showBaselineInternal ? "Click to hide baseline task bars" : "Click to show baseline task bars below main bars")
+            : "Requires Baseline Start Date and Baseline Finish Date fields to be mapped");
 
     if (isAvailable) {
         const self = this;
+
+        // Enhanced hover interactions
         baselineToggleGroup
             .on("mouseover", function() {
-                d3.select(this).select("rect").style("fill", self.showBaselineInternal ? hoverBaselineColor : "#f1f3f5");
+                d3.select(this).select("rect")
+                    .style("fill", self.showBaselineInternal ? hoverBaselineColor : self.UI_TOKENS.color.neutral.grey20)
+                    .style("transform", "translateY(-1px)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
             })
             .on("mouseout", function() {
-                d3.select(this).select("rect").style("fill", self.showBaselineInternal ? lightBaselineColor : "#ffffff");
+                d3.select(this).select("rect")
+                    .style("fill", self.showBaselineInternal ? lightBaselineColor : self.UI_TOKENS.color.neutral.white)
+                    .style("transform", "translateY(0)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+            })
+            .on("mousedown", function() {
+                d3.select(this).select("rect")
+                    .style("transform", "translateY(0) scale(0.98)");
+            })
+            .on("mouseup", function() {
+                d3.select(this).select("rect")
+                    .style("transform", "translateY(-1px) scale(1)");
             });
 
         baselineToggleGroup.on("click", function(event) {
             if (event) event.stopPropagation();
             self.toggleBaselineDisplayInternal();
         });
+
+        // Keyboard support
+        baselineToggleGroup.on("keydown", function(event) {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                self.toggleBaselineDisplayInternal();
+            }
+        });
     }
 }
 
+/**
+ * Creates/updates the Previous Update toggle with professional theming and user color integration
+ */
 private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
     if (!this.headerSvg) return;
 
@@ -1278,97 +1491,137 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
     const hasPreviousUpdateFinish = dataView ? this.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
     const isAvailable = hasPreviousUpdateStart && hasPreviousUpdateFinish;
 
-    // Get the previous update color from settings
+    // Get colors from settings with enhanced theming
     const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
-    const lightPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.85);
-    const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.7);
-
-    // Get baseline color for the icon (since it shows the stacking order)
+    const lightPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.90);
+    const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.80);
     const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
 
     const previousUpdateToggleGroup = this.headerSvg.append("g")
         .attr("class", "previous-update-toggle-group")
-        .style("cursor", isAvailable ? "pointer" : "not-allowed");
+        .style("cursor", isAvailable ? "pointer" : "not-allowed")
+        .attr("role", "button")
+        .attr("aria-label", `${this.showPreviousUpdateInternal ? 'Hide' : 'Show'} previous update task bars`)
+        .attr("aria-pressed", this.showPreviousUpdateInternal.toString())
+        .attr("aria-disabled", (!isAvailable).toString())
+        .attr("tabindex", isAvailable ? "0" : "-1");
 
-    const buttonWidth = 130;
-    const buttonHeight = 24;
-    // Position after the Baseline Toggle Button (which starts at 364 and is 110 wide)
-    const buttonX = 364 + 110 + 8; // 482px
-    const buttonY = 4;
+    const buttonWidth = 138;
+    const buttonHeight = this.UI_TOKENS.height.standard;
+    // Position after the Baseline Toggle Button (362 + 118 + 8)
+    const buttonX = 488;
+    const buttonY = this.UI_TOKENS.spacing.xs;
 
     previousUpdateToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
+    // Enhanced button styling with user color theming
     const buttonRect = previousUpdateToggleGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
-        .attr("rx", 12)
-        .attr("ry", 12)
-        .style("fill", this.showPreviousUpdateInternal ? lightPreviousUpdateColor : "#ffffff") 
-        .style("stroke", previousUpdateColor) // Use actual previous update color
+        .attr("rx", this.UI_TOKENS.radius.medium)
+        .attr("ry", this.UI_TOKENS.radius.medium)
+        .style("fill", this.showPreviousUpdateInternal ? lightPreviousUpdateColor : this.UI_TOKENS.color.neutral.white)
+        .style("stroke", previousUpdateColor)
         .style("stroke-width", 1.5)
-        .style("opacity", isAvailable ? 1 : 0.4);
+        .style("opacity", isAvailable ? 1 : 0.4)
+        .style("filter", isAvailable ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
-    // Icon representing the new stacking order (Main -> Previous Update -> Baseline)
-    const iconX = 12;
+    // Enhanced icon representing the stacking order (Main -> Previous Update -> Baseline)
+    const iconX = this.UI_TOKENS.spacing.lg;
     const iconY = buttonHeight / 2;
-    
+
     // Main bar icon (top)
     previousUpdateToggleGroup.append("rect")
         .attr("x", iconX)
         .attr("y", iconY - 7)
-        .attr("width", 14)
+        .attr("width", 16)
         .attr("height", 4)
-        .attr("rx", 1)
-        .attr("fill", this.showPreviousUpdateInternal ? "#0078D4" : "#6c757d");
+        .attr("rx", 1.5)
+        .attr("ry", 1.5)
+        .attr("fill", this.showPreviousUpdateInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
-    // Previous update bar icon (middle - directly below main bar)
+    // Previous update bar icon (middle) - highlighted when active
     previousUpdateToggleGroup.append("rect")
         .attr("x", iconX)
-        .attr("y", iconY - 1) // Middle position
-        .attr("width", 14)
+        .attr("y", iconY - 1)
+        .attr("width", 16)
         .attr("height", 3)
         .attr("rx", 1)
-        .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : "#adb5bd"); // Use actual previous update color
+        .attr("ry", 1)
+        .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey60)
+        .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
     // Baseline bar icon (bottom)
     previousUpdateToggleGroup.append("rect")
         .attr("x", iconX)
-        .attr("y", iconY + 4) // Bottom position
-        .attr("width", 14)
+        .attr("y", iconY + 4)
+        .attr("width", 16)
         .attr("height", 3)
         .attr("rx", 1)
-        .attr("fill", this.showPreviousUpdateInternal ? baselineColor : "#adb5bd"); // Use actual baseline color
+        .attr("ry", 1)
+        .attr("fill", this.showPreviousUpdateInternal ? baselineColor : this.UI_TOKENS.color.neutral.grey60)
+        .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
+    // Enhanced typography
     previousUpdateToggleGroup.append("text")
-        .attr("x", iconX + 22)
+        .attr("x", iconX + 24)
         .attr("y", buttonHeight / 2)
         .attr("dominant-baseline", "central")
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px")
-        .style("fill", "#333")
-        .style("font-weight", this.showPreviousUpdateInternal ? "600" : "400")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("fill", this.UI_TOKENS.color.neutral.grey160)
+        .style("font-weight", this.showPreviousUpdateInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
         .style("pointer-events", "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`)
         .text(this.showPreviousUpdateInternal ? "Hide Prev Update" : "Show Prev Update");
 
-    // Tooltip
+    // Enhanced tooltip
     previousUpdateToggleGroup.append("title")
-        .text(isAvailable ? 
-            (this.showPreviousUpdateInternal ? "Hide previous update bars" : "Show previous update bars") : 
-            "Requires Previous Update Start/Finish fields");
+        .text(isAvailable
+            ? (this.showPreviousUpdateInternal ? "Click to hide previous update task bars" : "Click to show previous update task bars between main and baseline")
+            : "Requires Previous Update Start Date and Previous Update Finish Date fields to be mapped");
 
     if (isAvailable) {
         const self = this;
+
+        // Enhanced hover interactions
         previousUpdateToggleGroup
             .on("mouseover", function() {
-                d3.select(this).select("rect").style("fill", self.showPreviousUpdateInternal ? hoverPreviousUpdateColor : "#fffaf0");
+                d3.select(this).select("rect")
+                    .style("fill", self.showPreviousUpdateInternal ? hoverPreviousUpdateColor : self.UI_TOKENS.color.neutral.grey20)
+                    .style("transform", "translateY(-1px)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
             })
             .on("mouseout", function() {
-                d3.select(this).select("rect").style("fill", self.showPreviousUpdateInternal ? lightPreviousUpdateColor : "#ffffff");
+                d3.select(this).select("rect")
+                    .style("fill", self.showPreviousUpdateInternal ? lightPreviousUpdateColor : self.UI_TOKENS.color.neutral.white)
+                    .style("transform", "translateY(0)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+            })
+            .on("mousedown", function() {
+                d3.select(this).select("rect")
+                    .style("transform", "translateY(0) scale(0.98)");
+            })
+            .on("mouseup", function() {
+                d3.select(this).select("rect")
+                    .style("transform", "translateY(-1px) scale(1)");
             });
 
         previousUpdateToggleGroup.on("click", function(event) {
             if (event) event.stopPropagation();
             self.togglePreviousUpdateDisplayInternal();
+        });
+
+        // Keyboard support
+        previousUpdateToggleGroup.on("keydown", function(event) {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                self.togglePreviousUpdateDisplayInternal();
+            }
         });
     }
 }
@@ -1389,219 +1642,313 @@ private lightenColor(color: string, factor: number): string {
     return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
 }
 
+/**
+ * Creates the Connector Lines toggle with modern icon-only design
+ */
 private createConnectorLinesToggleButton(viewportWidth?: number): void {
-        if (!this.headerSvg) return;
-        
-        this.headerSvg.selectAll(".connector-toggle-group").remove();
-        
-        const showConnectorToggle = this.settings?.connectorLines?.showConnectorToggle?.value ?? false;
-        if (!showConnectorToggle) return;
-        
-        const connectorToggleGroup = this.headerSvg.append("g")
-            .attr("class", "connector-toggle-group")
-            .style("cursor", "pointer");
-        
-        // Icon-only button
-        const buttonSize = 22;
-        // UPDATED POSITION: Move this button after the new Baseline toggle (X=364, W=110) + 8px gap
-        const buttonX = 482 + 130 + 8; // 620px
-        const buttonY = 4;
-        
-        connectorToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
-        
-        const buttonRect = connectorToggleGroup.append("rect")
-            .attr("width", buttonSize)
-            .attr("height", buttonSize)
-            .attr("rx", 4)
-            .attr("ry", 4)
-            .style("fill", this.showConnectorLinesInternal ? "#ffffff" : "#f5f5f5")
-            .style("stroke", "#d0d0d0")
-            .style("stroke-width", 1);
-        
-        // Connector icon
-        const iconCenter = buttonSize / 2;
-        connectorToggleGroup.append("path")
-            .attr("d", `M${iconCenter-5},${iconCenter-2} L${iconCenter},${iconCenter+2} L${iconCenter+5},${iconCenter-2}`)
-            .attr("stroke", this.showConnectorLinesInternal ? "#52c41a" : "#999")
-            .attr("stroke-width", 1.5)
-            .attr("fill", "none")
-            .attr("stroke-dasharray", this.showConnectorLinesInternal ? "none" : "2,2");
-        
-        // Tooltip
-        connectorToggleGroup.append("title")
-            .text(this.showConnectorLinesInternal ? "Hide connector lines" : "Show connector lines");
-        
-        // Hover effect
-        const self = this;
-        connectorToggleGroup
-            .on("mouseover", function() { 
-                d3.select(this).select("rect").style("fill", "#f8f9fa");
-            })
-            .on("mouseout", function() { 
-                d3.select(this).select("rect")
-                    .style("fill", self.showConnectorLinesInternal ? "#ffffff" : "#f5f5f5");
-            });
-        
-        //const self = this;
-        connectorToggleGroup.on("click", function(event) {
-            if (event) event.stopPropagation();
-            self.toggleConnectorLinesDisplay();
-        });
+    if (!this.headerSvg) return;
+
+    this.headerSvg.selectAll(".connector-toggle-group").remove();
+
+    const showConnectorToggle = this.settings?.connectorLines?.showConnectorToggle?.value ?? false;
+    if (!showConnectorToggle) return;
+
+    const connectorToggleGroup = this.headerSvg.append("g")
+        .attr("class", "connector-toggle-group")
+        .style("cursor", "pointer")
+        .attr("role", "button")
+        .attr("aria-label", `${this.showConnectorLinesInternal ? 'Hide' : 'Show'} connector lines between tasks`)
+        .attr("aria-pressed", this.showConnectorLinesInternal.toString())
+        .attr("tabindex", "0");
+
+    // Modern icon-only button with proper sizing
+    const buttonSize = this.UI_TOKENS.height.standard;
+    // Position after Previous Update Toggle (488 + 138 + 8)
+    const buttonX = 634;
+    const buttonY = this.UI_TOKENS.spacing.xs;
+
+    connectorToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+    // Enhanced button with active/inactive states
+    const buttonRect = connectorToggleGroup.append("rect")
+        .attr("width", buttonSize)
+        .attr("height", buttonSize)
+        .attr("rx", this.UI_TOKENS.radius.medium)
+        .attr("ry", this.UI_TOKENS.radius.medium)
+        .style("fill", this.showConnectorLinesInternal
+            ? this.UI_TOKENS.color.success.light
+            : this.UI_TOKENS.color.neutral.white)
+        .style("stroke", this.showConnectorLinesInternal
+            ? this.UI_TOKENS.color.success.default
+            : this.UI_TOKENS.color.neutral.grey60)
+        .style("stroke-width", 1.5)
+        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+
+    // Enhanced connector icon with better visibility
+    const iconCenter = buttonSize / 2;
+    const iconG = connectorToggleGroup.append("g")
+        .attr("transform", `translate(${iconCenter}, ${iconCenter})`);
+
+    // Connection path with improved design
+    iconG.append("path")
+        .attr("d", "M-6,-3 L0,3 L6,-3")
+        .attr("stroke", this.showConnectorLinesInternal
+            ? this.UI_TOKENS.color.success.default
+            : this.UI_TOKENS.color.neutral.grey130)
+        .attr("stroke-width", 2)
+        .attr("fill", "none")
+        .attr("stroke-linecap", "round")
+        .attr("stroke-linejoin", "round")
+        .attr("stroke-dasharray", this.showConnectorLinesInternal ? "none" : "3,2")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+
+    // Small connection dots for clarity
+    if (this.showConnectorLinesInternal) {
+        iconG.append("circle")
+            .attr("cx", -6)
+            .attr("cy", -3)
+            .attr("r", 1.5)
+            .attr("fill", this.UI_TOKENS.color.success.default);
+
+        iconG.append("circle")
+            .attr("cx", 6)
+            .attr("cy", -3)
+            .attr("r", 1.5)
+            .attr("fill", this.UI_TOKENS.color.success.default);
     }
 
+    // Enhanced tooltip
+    connectorToggleGroup.append("title")
+        .text(this.showConnectorLinesInternal
+            ? "Click to hide connector lines between dependent tasks"
+            : "Click to show connector lines between dependent tasks");
+
+    // Enhanced hover interactions
+    const self = this;
+    connectorToggleGroup
+        .on("mouseover", function() {
+            d3.select(this).select("rect")
+                .style("fill", self.showConnectorLinesInternal
+                    ? self.UI_TOKENS.color.success.default
+                    : self.UI_TOKENS.color.neutral.grey20)
+                .style("transform", "translateY(-1px)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
+
+            if (self.showConnectorLinesInternal) {
+                d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+                d3.select(this).selectAll("circle").attr("fill", self.UI_TOKENS.color.neutral.white);
+            }
+        })
+        .on("mouseout", function() {
+            d3.select(this).select("rect")
+                .style("fill", self.showConnectorLinesInternal
+                    ? self.UI_TOKENS.color.success.light
+                    : self.UI_TOKENS.color.neutral.white)
+                .style("transform", "translateY(0)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+            if (self.showConnectorLinesInternal) {
+                d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.success.default);
+                d3.select(this).selectAll("circle").attr("fill", self.UI_TOKENS.color.success.default);
+            }
+        })
+        .on("mousedown", function() {
+            d3.select(this).select("rect")
+                .style("transform", "translateY(0) scale(0.95)");
+        })
+        .on("mouseup", function() {
+            d3.select(this).select("rect")
+                .style("transform", "translateY(-1px) scale(1)");
+        });
+
+    connectorToggleGroup.on("click", function(event) {
+        if (event) event.stopPropagation();
+        self.toggleConnectorLinesDisplay();
+    });
+
+    // Keyboard support
+    connectorToggleGroup.on("keydown", function(event) {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            self.toggleConnectorLinesDisplay();
+        }
+    });
+}
+
+/**
+ * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
+ */
 private createModeToggleButton(viewportWidth: number): void {
     if (!this.headerSvg) return;
-    
+
     this.headerSvg.selectAll(".mode-toggle-group").remove();
-    
+
     const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
     const isFloatBased = currentMode === 'floatBased';
     const dataView = this.lastUpdateOptions?.dataViews?.[0];
     const hasTotalFloat = dataView ? this.hasDataRole(dataView, 'taskTotalFloat') : false;
-    
+
     const modeToggleGroup = this.headerSvg.append("g")
         .attr("class", "mode-toggle-group")
-        .style("cursor", hasTotalFloat ? "pointer" : "not-allowed");
-    
-    // Increased width for better spacing
-    const buttonWidth = 220; // Increased from 180
-    const buttonHeight = 24;
-    const buttonX = 136;
-    const buttonY = 4;
-    
+        .style("cursor", hasTotalFloat ? "pointer" : "not-allowed")
+        .attr("role", "button")
+        .attr("aria-label", `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`)
+        .attr("aria-pressed", isFloatBased.toString())
+        .attr("aria-disabled", (!hasTotalFloat).toString())
+        .attr("tabindex", hasTotalFloat ? "0" : "-1");
+
+    // Professional dimensions
+    const buttonWidth = 210;
+    const buttonHeight = this.UI_TOKENS.height.standard;
+    const buttonX = 144;  // After Show All/Critical toggle (8 + 128 + 8)
+    const buttonY = this.UI_TOKENS.spacing.xs;
+
     modeToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
-    
-    // Main button container with shadow effect
+
+    // Main button container
     const buttonG = modeToggleGroup.append("g")
         .attr("class", "mode-button-container");
-    
-    // Drop shadow filter
-    const filterId = `mode-shadow-${Date.now()}`;
-    const defs = this.headerSvg.select("defs").empty() 
-        ? this.headerSvg.append("defs") 
-        : this.headerSvg.select("defs");
-    
-    const filter = defs.append("filter")
-        .attr("id", filterId)
-        .attr("x", "-50%")
-        .attr("y", "-50%")
-        .attr("width", "200%")
-        .attr("height", "200%");
-    
-    filter.append("feDropShadow")
-        .attr("dx", 0)
-        .attr("dy", 1)
-        .attr("stdDeviation", 1)
-        .attr("flood-opacity", 0.1);
-    
-    // Button background
+
+    // Theme colors based on mode
+    const bgColor = isFloatBased ? this.UI_TOKENS.color.warning.lighter : this.UI_TOKENS.color.primary.lighter;
+    const borderColor = isFloatBased ? this.UI_TOKENS.color.warning.default : this.UI_TOKENS.color.primary.default;
+    const hoverBgColor = isFloatBased ? this.UI_TOKENS.color.warning.light : this.UI_TOKENS.color.primary.light;
+
+    // Button background with enhanced styling
     const buttonRect = buttonG.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
-        .attr("rx", 12)
-        .attr("ry", 12)
-        .style("fill", isFloatBased ? "#fff7e6" : "#e6f4ff")
-        .style("stroke", isFloatBased ? "#faad14" : "#1890ff")
+        .attr("rx", this.UI_TOKENS.radius.large)
+        .attr("ry", this.UI_TOKENS.radius.large)
+        .style("fill", bgColor)
+        .style("stroke", borderColor)
         .style("stroke-width", 1.5)
-        .style("filter", hasTotalFloat ? `url(#${filterId})` : "none")
-        .style("opacity", hasTotalFloat ? 1 : 0.4);
-    
-    // Mode indicator pill with better spacing
+        .style("filter", hasTotalFloat ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
+        .style("opacity", hasTotalFloat ? 1 : 0.4)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+
+    // Mode indicator pill with enhanced design
     const pillG = buttonG.append("g")
-        .attr("transform", `translate(8, ${buttonHeight/2})`); // Increased left padding
-    
-    // Adjusted pill dimensions for better spacing
-    const pillWidth = 100; // Increased from 80
-    const pillHeight = 16;
-    const pillX = isFloatBased ? pillWidth/2 : 0; // Adjusted positioning
-    
-    // Background track for the toggle
+        .attr("transform", `translate(${this.UI_TOKENS.spacing.md}, ${buttonHeight/2})`);
+
+    const pillWidth = 96;
+    const pillHeight = 18;
+    const pillX = isFloatBased ? pillWidth/2 : 0;
+
+    // Background track with subtle styling
     pillG.append("rect")
         .attr("class", "mode-pill-bg")
         .attr("x", 0)
         .attr("y", -pillHeight/2)
         .attr("width", pillWidth)
         .attr("height", pillHeight)
-        .attr("rx", 8)
-        .attr("ry", 8)
-        .style("fill", "#e8e8e8")
-        .style("opacity", 0.8);
-    
-    // Sliding pill indicator
+        .attr("rx", this.UI_TOKENS.radius.medium + 2)
+        .attr("ry", this.UI_TOKENS.radius.medium + 2)
+        .style("fill", this.UI_TOKENS.color.neutral.grey30)
+        .style("opacity", 0.6);
+
+    // Sliding pill indicator with smooth animation
     const slidingPill = pillG.append("rect")
         .attr("class", "mode-pill")
         .attr("x", pillX)
         .attr("y", -pillHeight/2)
         .attr("width", pillWidth/2)
         .attr("height", pillHeight)
-        .attr("rx", 8)
-        .attr("ry", 8)
-        .style("fill", isFloatBased ? "#faad14" : "#1890ff")
-        .style("transition", "all 0.3s ease");
-    
-    // Mode labels with better positioning
+        .attr("rx", this.UI_TOKENS.radius.medium + 2)
+        .attr("ry", this.UI_TOKENS.radius.medium + 2)
+        .style("fill", borderColor)
+        .style("filter", `drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2))`)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.slow}ms ${this.UI_TOKENS.motion.easing.standard}`);
+
+    // Mode labels with enhanced typography
     const labelY = 0;
-    
-    // CPM label - positioned at 1/4 of pill width
+
+    // LP label
     pillG.append("text")
         .attr("x", pillWidth/4)
         .attr("y", labelY)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "central")
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px") // Slightly larger
-        .style("font-weight", isFloatBased ? "400" : "600")
-        .style("fill", isFloatBased ? "#666" : "white")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.normal : this.UI_TOKENS.fontWeight.semibold)
+        .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.grey130 : this.UI_TOKENS.color.neutral.white)
         .style("pointer-events", "none")
-        .style("letter-spacing", "0.5px") // Add slight letter spacing
+        .style("letter-spacing", "0.3px")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`)
         .text("LP");
-    
-    // Float label - positioned at 3/4 of pill width
+
+    // Float label
     pillG.append("text")
         .attr("x", 3*pillWidth/4)
         .attr("y", labelY)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "central")
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px") // Slightly larger
-        .style("font-weight", isFloatBased ? "600" : "400")
-        .style("fill", isFloatBased ? "white" : "#666")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.normal)
+        .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
         .style("pointer-events", "none")
-        .style("letter-spacing", "0.5px") // Add slight letter spacing
+        .style("letter-spacing", "0.3px")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`)
         .text("Float");
-    
-    // Current mode text with adjusted position
+
+    // Current mode descriptive text
     buttonG.append("text")
-        .attr("x", 118) // Adjusted position due to wider pill
+        .attr("x", 116)
         .attr("y", buttonHeight/2)
         .attr("dominant-baseline", "central")
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px")
-        .style("fill", "#333")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("fill", this.UI_TOKENS.color.neutral.grey160)
+        .style("font-weight", this.UI_TOKENS.fontWeight.medium)
         .style("pointer-events", "none")
         .text(isFloatBased ? "Float-Based" : "Longest Path");
-    
-    // Tooltip
+
+    // Enhanced tooltip
     modeToggleGroup.append("title")
-        .text(hasTotalFloat 
-            ? `Current: ${isFloatBased ? 'Float-Based' : 'Longest Path'}\nClick to switch modes`
-            : "Float-Based mode requires Task Total Float field");
-    
+        .text(hasTotalFloat
+            ? `Current mode: ${isFloatBased ? 'Float-Based Criticality' : 'Longest Path (CPM)'}\nClick to switch calculation method`
+            : "Float-Based mode requires Task Total Float field to be mapped");
+
+    // Enhanced interactions
     if (hasTotalFloat) {
+        const self = this;
+
         modeToggleGroup
             .on("mouseover", function() {
                 d3.select(this).select(".mode-button-container rect")
-                    .style("fill", isFloatBased ? "#fff1e6" : "#d9f0ff");
+                    .style("fill", hoverBgColor)
+                    .style("transform", "translateY(-1px)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
             })
             .on("mouseout", function() {
                 d3.select(this).select(".mode-button-container rect")
-                    .style("fill", isFloatBased ? "#fff7e6" : "#e6f4ff");
+                    .style("fill", bgColor)
+                    .style("transform", "translateY(0)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+            })
+            .on("mousedown", function() {
+                d3.select(this).select(".mode-button-container rect")
+                    .style("transform", "translateY(0) scale(0.98)");
+            })
+            .on("mouseup", function() {
+                d3.select(this).select(".mode-button-container rect")
+                    .style("transform", "translateY(-1px) scale(1)");
             });
-        
-        const self = this;
+
         modeToggleGroup.on("click", function(event) {
             if (event) event.stopPropagation();
             self.toggleCriticalityMode();
+        });
+
+        // Keyboard support
+        modeToggleGroup.on("keydown", function(event) {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                self.toggleCriticalityMode();
+            }
         });
     }
 }
@@ -1669,154 +2016,175 @@ private toggleCriticalityMode(): void {
     }
 }
 
+/**
+ * Creates the Float Threshold control with premium input design and enhanced UX
+ */
 private createFloatThresholdControl(): void {
     this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
 
     // Only show in float-based mode when near-critical is enabled
     const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
     const isFloatBased = currentMode === 'floatBased';
-    
+
     if (!this.showNearCritical || !isFloatBased) {
         this.floatThresholdInput = null as any;
         return;
     }
 
-    // Enhanced control design
+    // Premium control container with elevated design
     const controlContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "float-threshold-wrapper")
+        .attr("role", "group")
+        .attr("aria-label", "Near-critical threshold setting")
         .style("position", "absolute")
         .style("right", "10px")
-        .style("top", "4px") // CHANGED: First row (was "32px")
+        .style("top", `${this.UI_TOKENS.spacing.xs}px`)
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", "8px")
-        .style("height", "28px")
-        .style("padding", "0 12px")
-        .style("background-color", "#ffffff")
-        .style("border", "1px solid #d0d0d0")
-        .style("border-radius", "14px")
-        .style("box-shadow", "0 1px 3px rgba(0,0,0,0.05)");
+        .style("gap", `${this.UI_TOKENS.spacing.md}px`)
+        .style("height", `${this.UI_TOKENS.height.comfortable}px`)
+        .style("padding", `0 ${this.UI_TOKENS.spacing.xl}px`)
+        .style("background-color", this.UI_TOKENS.color.neutral.white)
+        .style("border", `1.5px solid ${this.UI_TOKENS.color.warning.default}`)
+        .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
+        .style("box-shadow", this.UI_TOKENS.shadow[4])
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
     // Icon and label container
     const labelContainer = controlContainer.append("div")
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", "6px");
+        .style("gap", `${this.UI_TOKENS.spacing.sm}px`);
 
-    // Near-critical indicator with gradient
-    const iconSize = 10;
+    // Near-critical indicator - solid color for consistency
+    const iconSize = 12;
     const iconSvg = labelContainer.append("svg")
         .attr("width", iconSize)
         .attr("height", iconSize)
-        .attr("viewBox", `0 0 ${iconSize} ${iconSize}`);
-    
-    // Gradient definition
-    const gradientId = `near-critical-gradient-${Date.now()}`;
-    const gradient = iconSvg.append("defs")
-        .append("radialGradient")
-        .attr("id", gradientId);
-    
-    gradient.append("stop")
-        .attr("offset", "0%")
-        .attr("stop-color", "#FFB84D");
-    
-    gradient.append("stop")
-        .attr("offset", "100%")
-        .attr("stop-color", "#F7941F");
-    
+        .attr("viewBox", `0 0 ${iconSize} ${iconSize}`)
+        .style("flex-shrink", "0");
+
     iconSvg.append("circle")
         .attr("cx", iconSize/2)
         .attr("cy", iconSize/2)
         .attr("r", iconSize/2)
-        .attr("fill", `url(#${gradientId})`);
+        .attr("fill", this.UI_TOKENS.color.warning.default);
 
-    // Descriptive label
+    // Descriptive label with enhanced typography
     labelContainer.append("span")
-        .style("font-size", "12px")
-        .style("color", "#333")
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("color", this.UI_TOKENS.color.neutral.grey160)
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-weight", "500")
+        .style("font-weight", this.UI_TOKENS.fontWeight.medium)
+        .style("white-space", "nowrap")
         .text("Near-Critical ≤");
 
-    // Enhanced input field
+    // Enhanced input field with premium styling
     this.floatThresholdInput = controlContainer.append("input")
         .attr("type", "number")
         .attr("min", "0")
-        .attr("step", "1") // CHANGED: From "0.5" to "1"
+        .attr("step", "1")
         .attr("value", this.floatThreshold)
-        .style("width", "50px")
-        .style("height", "20px")
-        .style("padding", "2px 6px")
-        .style("border", "1px solid #d9d9d9")
-        .style("border-radius", "4px")
-        .style("font-size", "12px")
+        .attr("aria-label", "Near-critical threshold in days")
+        .style("width", "56px")
+        .style("height", "24px")
+        .style("padding", `${this.UI_TOKENS.spacing.xs}px ${this.UI_TOKENS.spacing.md}px`)
+        .style("border", `1px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+        .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-weight", "500")
+        .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
         .style("text-align", "center")
         .style("outline", "none")
-        .style("background-color", "white")
-        .style("transition", "border-color 0.2s ease");
+        .style("background-color", this.UI_TOKENS.color.neutral.white)
+        .style("color", this.UI_TOKENS.color.neutral.grey160)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
 
-    // Unit label
+    // Unit label with refined styling
     controlContainer.append("span")
-        .style("font-size", "11px")
-        .style("color", "#666")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("color", this.UI_TOKENS.color.neutral.grey130)
         .style("font-family", "Segoe UI, sans-serif")
+        .style("font-weight", this.UI_TOKENS.fontWeight.medium)
+        .style("white-space", "nowrap")
         .text("days");
 
-    // Help icon with tooltip
+    // Enhanced help icon with better accessibility
     const helpIcon = controlContainer.append("div")
-        .style("width", "16px")
-        .style("height", "16px")
+        .attr("role", "button")
+        .attr("aria-label", "Information about near-critical threshold")
+        .attr("tabindex", "0")
+        .style("width", "18px")
+        .style("height", "18px")
         .style("border-radius", "50%")
-        .style("background-color", "#f0f0f0")
+        .style("border", `1px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+        .style("background-color", this.UI_TOKENS.color.neutral.grey10)
         .style("display", "flex")
         .style("align-items", "center")
         .style("justify-content", "center")
         .style("cursor", "help")
-        .style("font-size", "10px")
-        .style("color", "#666")
+        .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
+        .style("color", this.UI_TOKENS.color.neutral.grey130)
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-weight", "600")
+        .style("font-weight", this.UI_TOKENS.fontWeight.bold)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.standard}`)
         .text("?");
 
     helpIcon.append("title")
-        .text("Tasks with Total Float ≤ this value will be highlighted as near-critical");
+        .text("Tasks with Total Float less than or equal to this value will be highlighted as near-critical path tasks");
 
-    // Hover effects
+    // Enhanced hover interactions for help icon
+    helpIcon
+        .on("mouseover", function() {
+            d3.select(this)
+                .style("background-color", this.UI_TOKENS.color.warning.light)
+                .style("border-color", this.UI_TOKENS.color.warning.default)
+                .style("color", this.UI_TOKENS.color.warning.default);
+        }.bind(this))
+        .on("mouseout", function() {
+            d3.select(this)
+                .style("background-color", this.UI_TOKENS.color.neutral.grey10)
+                .style("border-color", this.UI_TOKENS.color.neutral.grey60)
+                .style("color", this.UI_TOKENS.color.neutral.grey130);
+        }.bind(this));
+
+    // Enhanced input interactions
+    const self = this;
     this.floatThresholdInput
         .on("focus", function() {
-            d3.select(this).style("border-color", "#40a9ff");
+            d3.select(this)
+                .style("border-color", self.UI_TOKENS.color.warning.default)
+                .style("box-shadow", `0 0 0 3px ${self.UI_TOKENS.color.warning.lighter}`);
         })
         .on("blur", function() {
-            d3.select(this).style("border-color", "#d9d9d9");
+            d3.select(this)
+                .style("border-color", self.UI_TOKENS.color.neutral.grey60)
+                .style("box-shadow", "none");
         });
 
-    // Input handler
-    const self = this;
-    // Add debounce for float threshold
+    // Input handler with visual feedback
     let floatThresholdTimeout: any = null;
     this.floatThresholdInput.on("input", function() {
         const value = parseFloat((this as HTMLInputElement).value);
         const newThreshold = isNaN(value) ? 0 : Math.max(0, value);
-        
+
         // Update local value immediately for UI feedback
         self.floatThreshold = newThreshold;
-        
-        // Visual feedback
+
+        // Enhanced visual feedback
         d3.select(this)
             .transition()
-            .duration(200)
-            .style("background-color", "#e6f7ff")
+            .duration(self.UI_TOKENS.motion.duration.fast)
+            .style("background-color", self.UI_TOKENS.color.warning.lighter)
             .transition()
-            .duration(200)
-            .style("background-color", "white");
-        
+            .duration(self.UI_TOKENS.motion.duration.normal)
+            .style("background-color", self.UI_TOKENS.color.neutral.white);
+
         // Debounce the actual update
         if (floatThresholdTimeout) {
             clearTimeout(floatThresholdTimeout);
         }
-        
+
         floatThresholdTimeout = setTimeout(() => {
             self.host.persistProperties({
                 merge: [{
@@ -1825,10 +2193,23 @@ private createFloatThresholdControl(): void {
                     selector: null
                 }]
             });
-            
+
             self.requestUpdate(true);
         }, 500); // Wait 500ms after user stops typing
     });
+
+    // Container hover effect for elevated feel
+    controlContainer
+        .on("mouseover", function() {
+            d3.select(this)
+                .style("box-shadow", self.UI_TOKENS.shadow[8])
+                .style("transform", "translateY(-1px)");
+        })
+        .on("mouseout", function() {
+            d3.select(this)
+                .style("box-shadow", self.UI_TOKENS.shadow[4])
+                .style("transform", "translateY(0)");
+        });
 }
 
 private toggleConnectorLinesDisplay(): void {
@@ -5450,21 +5831,26 @@ private calculateCPMToTask(targetTaskId: string | null): void {
     targetTask.isCriticalByFloat = true;
 }
 
+/**
+ * Calculates CPM (Critical Path Method) forward from a selected source task
+ * OPTIMIZED: Converted from exponential recursion to iterative stack-based DFS
+ * PERFORMANCE FIX: Uses indexed lookups instead of filtering entire relationship array
+ */
 private calculateCPMFromTask(sourceTaskId: string | null): void {
     this.debugLog(`Calculating driving path from task: ${sourceTaskId || "None"} to the latest finish date.`);
-    
+
     if (!sourceTaskId) {
         this.identifyLongestPathFromP6();
         return;
     }
-    
+
     const sourceTask = this.taskIdToTask.get(sourceTaskId);
     if (!sourceTask) {
         console.warn(`Source task ${sourceTaskId} not found.`);
         this.identifyLongestPathFromP6();
         return;
     }
-    
+
     // Reset all tasks
     this.allTasksData.forEach(task => {
         task.isCritical = false;
@@ -5474,8 +5860,23 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
         task.totalFloat = Infinity;
     });
 
-    // First, identify all driving relationships in the schedule.
+    // First, identify all driving relationships in the schedule
     this.identifyDrivingRelationships();
+
+    // OPTIMIZATION: Build a driving successor index for O(1) lookups
+    // This avoids filtering the entire relationship array on every iteration
+    const drivingSuccessorIndex = new Map<string, Array<{ succId: string, rel: Relationship }>>();
+    for (const rel of this.relationships) {
+        if ((rel as any).isDriving) {
+            if (!drivingSuccessorIndex.has(rel.predecessorId)) {
+                drivingSuccessorIndex.set(rel.predecessorId, []);
+            }
+            drivingSuccessorIndex.get(rel.predecessorId)!.push({
+                succId: rel.successorId,
+                rel: rel
+            });
+        }
+    }
 
     const completedChains: Array<{
         tasks: Set<string>,
@@ -5484,52 +5885,102 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
         endingTask: Task
     }> = [];
 
-    // This recursive function now finds all DRIVING forward paths.
-    const findForwardChains = (taskId: string, currentChain: Set<string>, currentRels: Relationship[], currentDuration: number, visitedInPath: Set<string>) => {
-        
-        if (visitedInPath.has(taskId)) {
-            return; // Prevent cycles
+    // CRITICAL FIX: Use GLOBAL visited set to prevent exponential explosion
+    // Previously visitedInPath was cleared on backtrack, causing tasks to be visited
+    // multiple times in different branches (exponential complexity)
+    const globalVisited = new Set<string>();
+
+    // Stack-based DFS to avoid deep recursion and stack overflow
+    interface StackFrame {
+        taskId: string;
+        chain: Set<string>;
+        rels: Relationship[];
+        duration: number;
+        depth: number;
+    }
+
+    const MAX_DEPTH = 1000; // Safety limit to prevent infinite loops
+    const MAX_CHAINS = 10000; // Limit number of chains to explore
+    const stack: StackFrame[] = [{
+        taskId: sourceTaskId,
+        chain: new Set([sourceTaskId]),
+        rels: [],
+        duration: sourceTask.duration,
+        depth: 0
+    }];
+
+    let exploredChains = 0;
+
+    while (stack.length > 0 && exploredChains < MAX_CHAINS) {
+        const frame = stack.pop()!;
+        const { taskId, chain, rels, duration, depth } = frame;
+
+        // Safety checks
+        if (depth > MAX_DEPTH) {
+            console.warn(`Forward trace: Max depth (${MAX_DEPTH}) reached at task ${taskId}. Stopping this branch.`);
+            continue;
         }
-        visitedInPath.add(taskId);
+
+        // CRITICAL: Check global visited to prevent re-exploring same task
+        if (globalVisited.has(taskId)) {
+            continue; // Already fully explored from this task
+        }
+
+        globalVisited.add(taskId);
 
         const task = this.taskIdToTask.get(taskId);
-        if (!task) return;
-        
-        currentChain.add(taskId);
-        currentDuration += task.duration;
-        
-        // KEY CHANGE: We now filter to follow ONLY driving relationships forward.
-        const drivingSuccs = this.relationships.filter(rel => 
-            rel.predecessorId === taskId && (rel as any).isDriving
-        );
-        
+        if (!task) continue;
+
+        // Get driving successors using index (O(1) instead of O(n) filter)
+        const drivingSuccs = drivingSuccessorIndex.get(taskId) || [];
+
         if (drivingSuccs.length === 0) {
-            // This is the end of a driving chain. Record it.
+            // End of driving chain - record it
             completedChains.push({
-                tasks: new Set(currentChain),
-                relationships: [...currentRels],
-                totalDuration: currentDuration,
+                tasks: new Set(chain),
+                relationships: [...rels],
+                totalDuration: duration,
                 endingTask: task
             });
+            exploredChains++;
         } else {
-            for (const rel of drivingSuccs) {
-                currentRels.push(rel);
-                findForwardChains(rel.successorId, currentChain, currentRels, currentDuration, visitedInPath);
-                currentRels.pop(); // Backtrack relationship
+            // Push successors to stack (reverse order for DFS)
+            for (let i = drivingSuccs.length - 1; i >= 0; i--) {
+                const { succId, rel } = drivingSuccs[i];
+
+                // Cycle detection within current chain
+                if (chain.has(succId)) {
+                    this.debugLog(`Cycle detected: ${taskId} → ${succId} already in chain`);
+                    continue;
+                }
+
+                const succTask = this.taskIdToTask.get(succId);
+                if (!succTask) continue;
+
+                // Create new chain state for this branch
+                const newChain = new Set(chain);
+                newChain.add(succId);
+
+                const newRels = [...rels, rel];
+                const newDuration = duration + succTask.duration;
+
+                stack.push({
+                    taskId: succId,
+                    chain: newChain,
+                    rels: newRels,
+                    duration: newDuration,
+                    depth: depth + 1
+                });
             }
         }
-        
-        currentChain.delete(taskId); // Backtrack task
-        visitedInPath.delete(taskId); // Backtrack visited for other branches
-    };
-    
-    // Start the search from the user-selected source task.
-    findForwardChains(sourceTaskId, new Set(), [], 0, new Set());
+    }
+
+    if (exploredChains >= MAX_CHAINS) {
+        console.warn(`Forward trace stopped after exploring ${MAX_CHAINS} chains. Network may be very complex.`);
+    }
 
     if (completedChains.length > 0) {
-        // Sort the completed driving chains to find the best one.
-        // Primary sort: latest finish date (descending).
-        // Secondary sort: longest duration (descending).
+        // Sort to find best chain: latest finish date, then longest duration
         completedChains.sort((a, b) => {
             const aDate = a.endingTask?.finishDate?.getTime() ?? -Infinity;
             const bDate = b.endingTask?.finishDate?.getTime() ?? -Infinity;
@@ -5537,14 +5988,13 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
             if (aDate > bDate) return -1;
             if (aDate < bDate) return 1;
 
-            // If dates are the same, use duration as a tie-breaker.
             return b.totalDuration - a.totalDuration;
         });
 
         const bestChain = completedChains[0];
-        
+
         if (bestChain) {
-            // Mark only the tasks and relationships in the single best path as critical.
+            // Mark tasks in best path as critical
             bestChain.tasks.forEach(taskId => {
                 const task = this.taskIdToTask.get(taskId);
                 if (task) {
@@ -5553,73 +6003,119 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
                     task.totalFloat = 0;
                 }
             });
-            
+
             bestChain.relationships.forEach(rel => {
                 rel.isCritical = true;
             });
 
-            this.debugLog(`P6 path from ${sourceTaskId} with ${bestChain.tasks.size} tasks, ending on latest date ${this.formatDate(bestChain.endingTask?.finishDate)}`);
+            this.debugLog(`Forward path from ${sourceTaskId}: ${bestChain.tasks.size} tasks, ${completedChains.length} chains found, ending ${this.formatDate(bestChain.endingTask?.finishDate)}`);
         }
     } else {
-         // If no forward driving path, the selected task itself is the critical path.
-         sourceTask.isCritical = true;
-         sourceTask.isCriticalByFloat = true;
+        // No forward driving path - selected task is an endpoint
+        sourceTask.isCritical = true;
+        sourceTask.isCriticalByFloat = true;
+        this.debugLog(`No forward driving path from ${sourceTaskId}. Task marked as critical endpoint.`);
     }
 }
 
+/**
+ * Traces backward from a target task to find all predecessor tasks (Float-Based mode)
+ * OPTIMIZED: Added safety limits to prevent memory exhaustion
+ */
 private identifyPredecessorTasksFloatBased(targetTaskId: string): Set<string> {
-    // Simplified - no filtering needed
     const tasksInPath = new Set<string>();
     tasksInPath.add(targetTaskId);
-    
+
     const queue: string[] = [targetTaskId];
     const visited = new Set<string>();
     visited.add(targetTaskId);
-    
-    while (queue.length > 0) {
+
+    // Safety limits to prevent memory explosion
+    const MAX_TASKS = 10000; // Hard limit on tasks to trace
+    const MAX_ITERATIONS = 50000; // Prevent infinite loops
+    let iterations = 0;
+
+    while (queue.length > 0 && iterations < MAX_ITERATIONS) {
+        iterations++;
+
+        // Check if we've hit the task limit
+        if (tasksInPath.size > MAX_TASKS) {
+            console.warn(`Backward trace from ${targetTaskId} hit task limit (${MAX_TASKS}). Stopping to prevent memory exhaustion.`);
+            break;
+        }
+
         const currentTaskId = queue.shift()!;
         const task = this.taskIdToTask.get(currentTaskId);
         if (!task) continue;
-        
+
         for (const predId of task.predecessorIds) {
             if (!visited.has(predId)) {
+                const predecessor = this.taskIdToTask.get(predId);
+                if (!predecessor) continue;
+
                 tasksInPath.add(predId);
                 visited.add(predId);
                 queue.push(predId);
             }
         }
     }
-    
-    this.debugLog(`Float-Based backward trace from ${targetTaskId}: found ${tasksInPath.size} tasks`);
+
+    if (iterations >= MAX_ITERATIONS) {
+        console.warn(`Backward trace from ${targetTaskId} hit iteration limit (${MAX_ITERATIONS}). Network may contain cycles or be extremely large.`);
+    }
+
+    this.debugLog(`Float-Based backward trace from ${targetTaskId}: found ${tasksInPath.size} tasks in ${iterations} iterations`);
     return tasksInPath;
 }
 
+/**
+ * Traces forward from a source task to find all successor tasks (Float-Based mode)
+ * OPTIMIZED: Added safety limits to prevent memory exhaustion
+ */
 private identifySuccessorTasksFloatBased(sourceTaskId: string): Set<string> {
-    // Simplified - no filtering needed
     const tasksInPath = new Set<string>();
     tasksInPath.add(sourceTaskId);
-    
+
     const queue: string[] = [sourceTaskId];
     const visited = new Set<string>();
     visited.add(sourceTaskId);
-    
-    while (queue.length > 0) {
+
+    // Safety limits to prevent memory explosion
+    const MAX_TASKS = 10000; // Hard limit on tasks to trace
+    const MAX_ITERATIONS = 50000; // Prevent infinite loops
+    let iterations = 0;
+
+    while (queue.length > 0 && iterations < MAX_ITERATIONS) {
+        iterations++;
+
+        // Check if we've hit the task limit
+        if (tasksInPath.size > MAX_TASKS) {
+            console.warn(`Forward trace from ${sourceTaskId} hit task limit (${MAX_TASKS}). Stopping to prevent memory exhaustion.`);
+            break;
+        }
+
         const currentTaskId = queue.shift()!;
+
+        // predecessorIndex maps: predecessor → Set<successors>
         const successorIds = this.predecessorIndex.get(currentTaskId) || new Set();
-        
+
         for (const succId of successorIds) {
             if (!visited.has(succId)) {
                 const successor = this.taskIdToTask.get(succId);
                 if (!successor) continue;
-                
+
                 tasksInPath.add(succId);
                 visited.add(succId);
                 queue.push(succId);
             }
         }
     }
-    
-    this.debugLog(`Float-Based forward trace from ${sourceTaskId}: found ${tasksInPath.size} tasks`);
+
+    if (iterations >= MAX_ITERATIONS) {
+        console.warn(`Forward trace from ${sourceTaskId} hit iteration limit (${MAX_ITERATIONS}). Network may contain cycles or be extremely large.`);
+    }
+
+    this.debugLog(`Float-Based forward trace from ${sourceTaskId}: found ${tasksInPath.size} tasks in ${iterations} iterations`);
     return tasksInPath;
 }
 

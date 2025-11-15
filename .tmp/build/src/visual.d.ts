@@ -85,9 +85,13 @@ export declare class Visual implements IVisual {
     private pendingUpdate;
     private readonly UPDATE_DEBOUNCE_MS;
     private renderState;
+    private lastRenderTime;
+    private readonly MIN_RENDER_INTERVAL;
+    private virtualScrollEnabled;
     private scrollContainer;
     private renderCache;
     private cpmMemo;
+    private readonly UI_TOKENS;
     constructor(options: VisualConstructorOptions);
     private forceCanvasRefresh;
     private debouncedUpdate;
@@ -97,19 +101,55 @@ export declare class Visual implements IVisual {
     private determineUpdateType;
     destroy(): void;
     /**
+     * Phase 1: Check if enough time has passed since last render (throttling)
+     * @returns true if render should proceed, false if should skip
+     */
+    private shouldRender;
+    /**
+     * Phase 2: Generate a cache key based on viewport and settings
+     */
+    private getViewportKey;
+    /**
      * Phase 2: Invalidate render cache when settings or data change
      */
     private invalidateRenderCache;
+    /**
+     * Phase 2: Calculate which tasks are visible in the current viewport
+     * @returns Object with start and end indices of visible tasks
+     */
+    private calculateVisibleRange;
+    /**
+     * Phase 2: Get cached task color or compute and cache it
+     */
+    private getCachedTaskColor;
     private toggleTaskDisplayInternal;
     private toggleBaselineDisplayInternal;
     private togglePreviousUpdateDisplayInternal;
+    /**
+     * Creates/updates the Show All/Show Critical toggle button with professional Fluent design
+     */
     private createOrUpdateToggleButton;
+    /**
+     * Creates/updates the Baseline toggle with professional theming and user color integration
+     */
     private createOrUpdateBaselineToggleButton;
+    /**
+     * Creates/updates the Previous Update toggle with professional theming and user color integration
+     */
     private createOrUpdatePreviousUpdateToggleButton;
     private lightenColor;
+    /**
+     * Creates the Connector Lines toggle with modern icon-only design
+     */
     private createConnectorLinesToggleButton;
+    /**
+     * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
+     */
     private createModeToggleButton;
     private toggleCriticalityMode;
+    /**
+     * Creates the Float Threshold control with premium input design and enhanced UX
+     */
     private createFloatThresholdControl;
     private toggleConnectorLinesDisplay;
     update(options: VisualUpdateOptions): void;
@@ -153,9 +193,13 @@ export declare class Visual implements IVisual {
     private positionTooltip;
     private drawArrows;
     private drawProjectEndLine;
+    private calculateCPMOffThread;
+    private determineCriticalityMode;
     private applyFloatBasedCriticality;
+    private calculateCPM;
     /**
      * Identifies the longest path using P6 scheduled dates (reflective approach)
+     * This replaces the old calculateCPM() method for Longest Path mode
      */
     private identifyLongestPathFromP6;
     /**
@@ -187,11 +231,6 @@ export declare class Visual implements IVisual {
      */
     private updatePathInfoLabel;
     /**
-     * Navigate to a driving path based on direction
-     * @param direction 'next' to move forward, 'prev' to move backward
-     */
-    private navigateToPath;
-    /**
      * Navigate to the previous driving path
      */
     private navigateToPreviousPath;
@@ -213,8 +252,21 @@ export declare class Visual implements IVisual {
      */
     private identifyDrivingSuccessorTasks;
     private calculateCPMToTask;
+    /**
+     * Calculates CPM (Critical Path Method) forward from a selected source task
+     * OPTIMIZED: Converted from exponential recursion to iterative stack-based DFS
+     * PERFORMANCE FIX: Uses indexed lookups instead of filtering entire relationship array
+     */
     private calculateCPMFromTask;
+    /**
+     * Traces backward from a target task to find all predecessor tasks (Float-Based mode)
+     * OPTIMIZED: Added safety limits to prevent memory exhaustion
+     */
     private identifyPredecessorTasksFloatBased;
+    /**
+     * Traces forward from a source task to find all successor tasks (Float-Based mode)
+     * OPTIMIZED: Added safety limits to prevent memory exhaustion
+     */
     private identifySuccessorTasksFloatBased;
     /**
      * Extracts and validates task ID from a data row
