@@ -300,35 +300,36 @@ export class Visual implements IVisual {
         // Heights - Standardized for consistency and touch-friendliness
         height: {
             compact: 24,    // Minimal toggles
-            standard: 28,   // Default for most controls
-            comfortable: 32 // Prominent controls (inputs, navigation)
+            standard: 32,   // Default for most controls (upgraded from 28 for better touch targets)
+            comfortable: 36 // Prominent controls (inputs, navigation)
         },
 
-        // Border Radius - Modern, cohesive appearance
+        // Border Radius - Modern, cohesive appearance with refined radii
         radius: {
-            small: 4,       // Inner elements, inputs
-            medium: 6,      // Standard buttons
-            large: 14,      // Pill-shaped toggles
-            pill: 16,       // Large pill containers
+            small: 3,       // Inner elements, inputs
+            medium: 8,      // Standard buttons (upgraded from 6 for smoother look)
+            large: 16,      // Pill-shaped toggles (upgraded from 14)
+            pill: 20,       // Large pill containers (upgraded from 16)
             full: 9999      // Perfect circles
         },
 
-        // Spacing - 4px grid system
+        // Spacing - Enhanced 4px grid system with better distribution
         spacing: {
             xs: 4,
             sm: 6,
-            md: 8,
-            lg: 12,
-            xl: 16,
-            xxl: 20
+            md: 10,         // Upgraded from 8 for better breathing room
+            lg: 14,         // Upgraded from 12
+            xl: 18,         // Upgraded from 16
+            xxl: 24         // Upgraded from 20 for better header spacing
         },
 
-        // Typography - Readable hierarchy
+        // Typography - Professional hierarchy with refined sizes
         fontSize: {
             xs: 10,
             sm: 11,
             md: 12,
-            lg: 13
+            lg: 13,
+            xl: 14          // New size for prominent labels
         },
 
         fontWeight: {
@@ -338,72 +339,82 @@ export class Visual implements IVisual {
             bold: 700
         },
 
-        // Colors - Microsoft Fluent 2 Design System
+        // Colors - Enhanced Microsoft Fluent 2 Design System with refined palette
         color: {
             primary: {
                 default: '#0078D4',
                 hover: '#106EBE',
                 pressed: '#005A9E',
-                light: '#E6F2FA',
-                lighter: '#F3F9FD'
+                light: '#DEECF9',        // Refined from #E6F2FA for better contrast
+                lighter: '#EFF6FC',      // Refined from #F3F9FD
+                subtle: '#F3F9FD'        // New: very subtle backgrounds
             },
             warning: {
                 default: '#F7A800',
                 hover: '#E09200',
                 pressed: '#C87E00',
-                light: '#FFF9E6',
-                lighter: '#FFFCF3'
+                light: '#FFF4CE',        // Refined from #FFF9E6 for better visibility
+                lighter: '#FFFAED',      // Refined from #FFFCF3
+                subtle: '#FFFCF8'        // New: very subtle backgrounds
             },
             success: {
                 default: '#107C10',
                 hover: '#0E6B0E',
                 pressed: '#0C5A0C',
-                light: '#E6F4E6',
-                lighter: '#F3FAF3'
+                light: '#DFF6DD',        // Refined from #E6F4E6 for better contrast
+                lighter: '#F1FAF1',      // Refined from #F3FAF3
+                subtle: '#F7FDF7'        // New: very subtle backgrounds
             },
             danger: {
                 default: '#D13438',
                 hover: '#B82E31',
                 pressed: '#A0272A',
                 light: '#FDE7E9',
-                lighter: '#FEF4F5'
+                lighter: '#FEF4F5',
+                subtle: '#FFF9FA'        // New: very subtle backgrounds
             },
             neutral: {
                 black: '#201F1E',
                 grey190: '#201F1E',
                 grey160: '#323130',
+                grey140: '#484644',      // New: better gradation
                 grey130: '#605E5C',
                 grey90: '#A19F9D',
                 grey60: '#C8C6C4',
+                grey40: '#D2D0CE',       // New: lighter border option
                 grey30: '#EDEBE9',
                 grey20: '#F3F2F1',
                 grey10: '#FAF9F8',
+                grey5: '#FCFCFC',        // New: ultra-light backgrounds
                 white: '#FFFFFF'
             }
         },
 
-        // Shadows - Fluent elevation system
+        // Shadows - Enhanced Fluent elevation system with more refined shadows
         shadow: {
-            2: '0 0.3px 0.9px rgba(0, 0, 0, 0.1), 0 1.6px 3.6px rgba(0, 0, 0, 0.13)',
-            4: '0 1.6px 3.6px rgba(0, 0, 0, 0.13), 0 0.3px 0.9px rgba(0, 0, 0, 0.1)',
-            8: '0 3.2px 7.2px rgba(0, 0, 0, 0.13), 0 0.6px 1.8px rgba(0, 0, 0, 0.11)',
-            16: '0 6.4px 14.4px rgba(0, 0, 0, 0.13), 0 1.2px 3.6px rgba(0, 0, 0, 0.11)'
+            1: '0 0.5px 1px rgba(0, 0, 0, 0.08)',                                          // New: subtle shadow
+            2: '0 1px 2px rgba(0, 0, 0, 0.08), 0 0.5px 1px rgba(0, 0, 0, 0.04)',         // Enhanced
+            4: '0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)',            // Enhanced
+            8: '0 4px 8px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08)',           // Enhanced
+            16: '0 8px 16px rgba(0, 0, 0, 0.14), 0 4px 8px rgba(0, 0, 0, 0.1)',          // Enhanced
+            24: '0 12px 24px rgba(0, 0, 0, 0.16), 0 6px 12px rgba(0, 0, 0, 0.12)'        // New: dramatic elevation
         },
 
-        // Motion - Smooth, consistent animations
+        // Motion - Professional, smooth animations with refined easing
         motion: {
             duration: {
                 instant: 0,
-                fast: 100,
-                normal: 150,
-                slow: 300,
+                fast: 120,      // Upgraded from 100 for smoother feel
+                normal: 200,    // Upgraded from 150 for more polished transitions
+                slow: 350,      // Upgraded from 300
                 slower: 500
             },
             easing: {
-                standard: 'cubic-bezier(0.4, 0, 0.2, 1)',
-                decelerate: 'cubic-bezier(0, 0, 0.2, 1)',
-                accelerate: 'cubic-bezier(0.4, 0, 1, 1)',
-                sharp: 'cubic-bezier(0.4, 0, 0.6, 1)'
+                standard: 'cubic-bezier(0.4, 0, 0.2, 1)',          // Material Design standard
+                decelerate: 'cubic-bezier(0, 0, 0.2, 1)',          // Entering elements
+                accelerate: 'cubic-bezier(0.4, 0, 1, 1)',          // Exiting elements
+                sharp: 'cubic-bezier(0.4, 0, 0.6, 1)',             // Quick, decisive
+                smooth: 'cubic-bezier(0.4, 0.14, 0.3, 1)'          // New: extra smooth for premium feel
             }
         }
     };
@@ -1202,6 +1213,7 @@ private togglePreviousUpdateDisplayInternal(): void {
 
 /**
  * Creates/updates the Show All/Show Critical toggle button with professional Fluent design
+ * UPGRADED: Enhanced visuals, better spacing, smoother animations, refined icons
  */
 private createOrUpdateToggleButton(viewportWidth: number): void {
     if (!this.toggleButtonGroup || !this.headerSvg) return;
@@ -1214,21 +1226,23 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
 
     this.toggleButtonGroup.selectAll("*").remove();
 
-    // Professional dimensions using design tokens
-    const buttonWidth = 128;
+    // Professional dimensions with upgraded sizing
+    const buttonWidth = 140;  // Increased from 128 for better proportions
     const buttonHeight = this.UI_TOKENS.height.standard;
-    const buttonPadding = { left: this.UI_TOKENS.spacing.md, top: this.UI_TOKENS.spacing.xs };
+    const buttonPadding = { left: this.UI_TOKENS.spacing.md, top: this.UI_TOKENS.spacing.sm };
     const buttonX = buttonPadding.left;
     const buttonY = buttonPadding.top;
+
+    const isShowingCritical = this.showAllTasksInternal;
 
     this.toggleButtonGroup
         .attr("transform", `translate(${buttonX}, ${buttonY})`)
         .attr("role", "button")
-        .attr("aria-label", this.showAllTasksInternal ? "Show critical path only" : "Show all tasks")
-        .attr("aria-pressed", (!this.showAllTasksInternal).toString())
+        .attr("aria-label", isShowingCritical ? "Show critical path only" : "Show all tasks")
+        .attr("aria-pressed", (!isShowingCritical).toString())
         .attr("tabindex", "0");
 
-    // Enhanced button with shadow
+    // Professional button background with refined shadow
     const buttonRect = this.toggleButtonGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
@@ -1236,67 +1250,82 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .attr("ry", this.UI_TOKENS.radius.medium)
         .style("fill", this.UI_TOKENS.color.neutral.white)
         .style("stroke", this.UI_TOKENS.color.neutral.grey60)
-        .style("stroke-width", 1)
+        .style("stroke-width", 1.5)
         .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Icon with improved styling
-    const iconPadding = this.UI_TOKENS.spacing.md;
-    const iconColor = this.showAllTasksInternal
+    // Refined icon with better visual weight
+    const iconPadding = this.UI_TOKENS.spacing.lg;
+    const iconColor = isShowingCritical
         ? this.UI_TOKENS.color.danger.default
         : this.UI_TOKENS.color.success.default;
 
+    // Icon background circle for better visual hierarchy
+    this.toggleButtonGroup.append("circle")
+        .attr("cx", iconPadding)
+        .attr("cy", buttonHeight / 2)
+        .attr("r", 10)
+        .style("fill", isShowingCritical ? this.UI_TOKENS.color.danger.subtle : this.UI_TOKENS.color.success.subtle)
+        .style("pointer-events", "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+    // Enhanced icon with more professional design
     this.toggleButtonGroup.append("path")
-        .attr("d", this.showAllTasksInternal
-            ? "M2,0 L5,-2.5 L8,0 Z"  // Filter/funnel icon (showing critical)
-            : "M1,-2.5 L7,-2.5 M1,0 L8,0 M1,2.5 L7,2.5")  // All items icon
+        .attr("d", isShowingCritical
+            ? "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z"  // Enhanced funnel/filter icon
+            : "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3")  // Enhanced list icon
         .attr("transform", `translate(${iconPadding}, ${buttonHeight/2})`)
         .attr("stroke", iconColor)
-        .attr("stroke-width", 2)
-        .attr("fill", this.showAllTasksInternal ? iconColor : "none")
+        .attr("stroke-width", 2.25)  // Slightly heavier weight
+        .attr("fill", isShowingCritical ? iconColor : "none")
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Text with enhanced typography
+    // Professional text with better spacing
     this.toggleButtonGroup.append("text")
-        .attr("x", buttonWidth / 2 + this.UI_TOKENS.spacing.xs)
+        .attr("x", buttonWidth / 2 + this.UI_TOKENS.spacing.md)
         .attr("y", buttonHeight / 2)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
         .style("fill", this.UI_TOKENS.color.neutral.grey160)
-        .style("font-weight", this.UI_TOKENS.fontWeight.medium.toString())
+        .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
+        .style("letter-spacing", "0.2px")
         .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`)
-        .text(this.showAllTasksInternal ? "Show Critical" : "Show All");
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+        .text(isShowingCritical ? "Show Critical" : "Show All");
 
-    // Enhanced hover states
+    // Professional hover states with refined animations
     const self = this;
     this.toggleButtonGroup
         .on("mouseover", function() {
             d3.select(this).select("rect")
-                .style("fill", self.UI_TOKENS.color.neutral.grey20)
+                .style("fill", self.UI_TOKENS.color.neutral.grey10)
                 .style("stroke", self.UI_TOKENS.color.neutral.grey90)
-                .style("transform", "translateY(-1px)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
+                .style("stroke-width", 2)
+                .style("transform", "translateY(-2px)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
         })
         .on("mouseout", function() {
             d3.select(this).select("rect")
                 .style("fill", self.UI_TOKENS.color.neutral.white)
                 .style("stroke", self.UI_TOKENS.color.neutral.grey60)
+                .style("stroke-width", 1.5)
                 .style("transform", "translateY(0)")
                 .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
         })
         .on("mousedown", function() {
             d3.select(this).select("rect")
-                .style("transform", "translateY(0) scale(0.98)");
+                .style("transform", "translateY(0) scale(0.96)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
         })
         .on("mouseup", function() {
             d3.select(this).select("rect")
-                .style("transform", "translateY(-1px) scale(1)");
+                .style("transform", "translateY(-2px) scale(1)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
         });
 
     // Clickable overlay
@@ -1321,15 +1350,16 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         }
     });
 
-    // Tooltip
+    // Enhanced tooltip
     this.toggleButtonGroup.append("title")
-        .text(this.showAllTasksInternal
+        .text(isShowingCritical
             ? "Click to filter and show only critical path tasks"
             : "Click to show all tasks in the project");
 }
 
 /**
  * Creates/updates the Baseline toggle with professional theming and user color integration
+ * UPGRADED: Enhanced visuals, better icon design, smoother animations, refined color integration
  */
 private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
     if (!this.headerSvg) return;
@@ -1342,10 +1372,10 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
     const hasBaselineFinish = dataView ? this.hasDataRole(dataView, 'baselineFinishDate') : false;
     const isAvailable = hasBaselineStart && hasBaselineFinish;
 
-    // Get colors from settings with enhanced theming
+    // Professional color theming with better contrast
     const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
-    const lightBaselineColor = this.lightenColor(baselineColor, 0.90);
-    const hoverBaselineColor = this.lightenColor(baselineColor, 0.80);
+    const lightBaselineColor = this.lightenColor(baselineColor, 0.93);  // Lighter for better contrast
+    const hoverBaselineColor = this.lightenColor(baselineColor, 0.85);
     const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
 
     const baselineToggleGroup = this.headerSvg.append("g")
@@ -1357,15 +1387,15 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         .attr("aria-disabled", (!isAvailable).toString())
         .attr("tabindex", isAvailable ? "0" : "-1");
 
-    const buttonWidth = 118;
+    const buttonWidth = 138;  // Increased from 118 for better proportions
     const buttonHeight = this.UI_TOKENS.height.standard;
-    // Position after the Mode Toggle Button (144 + 210 + 8)
-    const buttonX = 362;
-    const buttonY = this.UI_TOKENS.spacing.xs;
+    // Position after the Mode Toggle Button (10 + 140 + 12 + 230 + 12)
+    const buttonX = 404;
+    const buttonY = this.UI_TOKENS.spacing.sm;
 
     baselineToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    // Enhanced button styling with user color theming
+    // Professional button styling with user color theming
     const buttonRect = baselineToggleGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
@@ -1373,62 +1403,77 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         .attr("ry", this.UI_TOKENS.radius.medium)
         .style("fill", this.showBaselineInternal ? lightBaselineColor : this.UI_TOKENS.color.neutral.white)
         .style("stroke", baselineColor)
-        .style("stroke-width", 1.5)
+        .style("stroke-width", this.showBaselineInternal ? 2 : 1.5)
         .style("opacity", isAvailable ? 1 : 0.4)
         .style("filter", isAvailable ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Enhanced icon representing the stacking order (Main -> Previous Update -> Baseline)
-    const iconX = this.UI_TOKENS.spacing.lg;
+    // Professional icon container with better visual hierarchy
+    const iconX = this.UI_TOKENS.spacing.lg + 2;
     const iconY = buttonHeight / 2;
 
-    // Main bar icon (top) - enhanced with rounded corners
+    // Icon background for better visual separation
+    baselineToggleGroup.append("circle")
+        .attr("cx", iconX + 8)
+        .attr("cy", iconY)
+        .attr("r", 11)
+        .style("fill", this.showBaselineInternal ? this.lightenColor(baselineColor, 0.95) : this.UI_TOKENS.color.neutral.grey10)
+        .style("opacity", 0.6)
+        .style("pointer-events", "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+    // Enhanced icon bars with professional styling
+    // Main bar icon (top) - refined with better proportions
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
-        .attr("y", iconY - 7)
+        .attr("y", iconY - 8)
         .attr("width", 16)
-        .attr("height", 4)
-        .attr("rx", 1.5)
-        .attr("ry", 1.5)
+        .attr("height", 4.5)
+        .attr("rx", 2)
+        .attr("ry", 2)
         .attr("fill", this.showBaselineInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("pointer-events", "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Previous update bar icon (middle)
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
-        .attr("y", iconY - 1)
+        .attr("y", iconY - 1.5)
         .attr("width", 16)
-        .attr("height", 3)
-        .attr("rx", 1)
-        .attr("ry", 1)
+        .attr("height", 3.5)
+        .attr("rx", 1.5)
+        .attr("ry", 1.5)
         .attr("fill", this.showBaselineInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey60)
         .style("opacity", this.showBaselineInternal ? 1 : 0.6)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("pointer-events", "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Baseline bar icon (bottom) - highlighted when active
+    // Baseline bar icon (bottom) - highlighted when active with better visual weight
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
         .attr("y", iconY + 4)
         .attr("width", 16)
-        .attr("height", 3)
-        .attr("rx", 1)
-        .attr("ry", 1)
+        .attr("height", 3.5)
+        .attr("rx", 1.5)
+        .attr("ry", 1.5)
         .attr("fill", this.showBaselineInternal ? baselineColor : this.UI_TOKENS.color.neutral.grey60)
         .style("opacity", this.showBaselineInternal ? 1 : 0.6)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("pointer-events", "none")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Enhanced typography
+    // Professional typography with better spacing
     baselineToggleGroup.append("text")
-        .attr("x", iconX + 24)
+        .attr("x", iconX + 26)
         .attr("y", buttonHeight / 2)
         .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
         .style("fill", this.UI_TOKENS.color.neutral.grey160)
         .style("font-weight", this.showBaselineInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
+        .style("letter-spacing", "0.2px")
         .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`)
-        .text(this.showBaselineInternal ? "Hide Baseline" : "Show Baseline");
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+        .text(this.showBaselineInternal ? "Baseline" : "Baseline");
 
     // Enhanced tooltip
     baselineToggleGroup.append("title")
@@ -1439,27 +1484,31 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
     if (isAvailable) {
         const self = this;
 
-        // Enhanced hover interactions
+        // Professional hover interactions with refined animations
         baselineToggleGroup
             .on("mouseover", function() {
                 d3.select(this).select("rect")
-                    .style("fill", self.showBaselineInternal ? hoverBaselineColor : self.UI_TOKENS.color.neutral.grey20)
-                    .style("transform", "translateY(-1px)")
-                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
+                    .style("fill", self.showBaselineInternal ? hoverBaselineColor : self.UI_TOKENS.color.neutral.grey10)
+                    .style("stroke-width", 2.5)
+                    .style("transform", "translateY(-2px)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
             })
             .on("mouseout", function() {
                 d3.select(this).select("rect")
                     .style("fill", self.showBaselineInternal ? lightBaselineColor : self.UI_TOKENS.color.neutral.white)
+                    .style("stroke-width", self.showBaselineInternal ? 2 : 1.5)
                     .style("transform", "translateY(0)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
             })
             .on("mousedown", function() {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(0) scale(0.98)");
+                    .style("transform", "translateY(0) scale(0.96)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
             })
             .on("mouseup", function() {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(-1px) scale(1)");
+                    .style("transform", "translateY(-2px) scale(1)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
             });
 
         baselineToggleGroup.on("click", function(event) {
@@ -1478,7 +1527,7 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
 }
 
 /**
- * Creates/updates the Previous Update toggle with professional theming and user color integration
+ * UPGRADED: Creates/updates the Previous Update toggle with professional theming and user color integration
  */
 private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
     if (!this.headerSvg) return;
@@ -1506,11 +1555,11 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("aria-disabled", (!isAvailable).toString())
         .attr("tabindex", isAvailable ? "0" : "-1");
 
-    const buttonWidth = 138;
+    const buttonWidth = 150;
     const buttonHeight = this.UI_TOKENS.height.standard;
-    // Position after the Baseline Toggle Button (362 + 118 + 8)
-    const buttonX = 488;
-    const buttonY = this.UI_TOKENS.spacing.xs;
+    // Position after the Baseline Toggle Button (10 + 140 + 12 + 230 + 12 + 138 + 12)
+    const buttonX = 554;
+    const buttonY = this.UI_TOKENS.spacing.sm;
 
     previousUpdateToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
@@ -1522,14 +1571,23 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("ry", this.UI_TOKENS.radius.medium)
         .style("fill", this.showPreviousUpdateInternal ? lightPreviousUpdateColor : this.UI_TOKENS.color.neutral.white)
         .style("stroke", previousUpdateColor)
-        .style("stroke-width", 1.5)
+        .style("stroke-width", this.showPreviousUpdateInternal ? 2 : 1.5)
         .style("opacity", isAvailable ? 1 : 0.4)
         .style("filter", isAvailable ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Enhanced icon representing the stacking order (Main -> Previous Update -> Baseline)
     const iconX = this.UI_TOKENS.spacing.lg;
     const iconY = buttonHeight / 2;
+
+    // Icon background circle
+    previousUpdateToggleGroup.append("circle")
+        .attr("cx", iconX + 8)
+        .attr("cy", iconY)
+        .attr("r", 14)
+        .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey20)
+        .attr("opacity", this.showPreviousUpdateInternal ? 0.15 : 0.5)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Main bar icon (top)
     previousUpdateToggleGroup.append("rect")
@@ -1540,7 +1598,7 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("rx", 1.5)
         .attr("ry", 1.5)
         .attr("fill", this.showPreviousUpdateInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Previous update bar icon (middle) - highlighted when active
     previousUpdateToggleGroup.append("rect")
@@ -1552,7 +1610,7 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("ry", 1)
         .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey60)
         .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Baseline bar icon (bottom)
     previousUpdateToggleGroup.append("rect")
@@ -1564,7 +1622,7 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("ry", 1)
         .attr("fill", this.showPreviousUpdateInternal ? baselineColor : this.UI_TOKENS.color.neutral.grey60)
         .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Enhanced typography
     previousUpdateToggleGroup.append("text")
@@ -1572,12 +1630,13 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("y", buttonHeight / 2)
         .attr("dominant-baseline", "central")
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("letter-spacing", "0.2px")
         .style("fill", this.UI_TOKENS.color.neutral.grey160)
         .style("font-weight", this.showPreviousUpdateInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
         .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`)
-        .text(this.showPreviousUpdateInternal ? "Hide Prev Update" : "Show Prev Update");
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+        .text("Prev Update");
 
     // Enhanced tooltip
     previousUpdateToggleGroup.append("title")
@@ -1593,8 +1652,8 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
             .on("mouseover", function() {
                 d3.select(this).select("rect")
                     .style("fill", self.showPreviousUpdateInternal ? hoverPreviousUpdateColor : self.UI_TOKENS.color.neutral.grey20)
-                    .style("transform", "translateY(-1px)")
-                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
+                    .style("transform", "translateY(-2px)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
             })
             .on("mouseout", function() {
                 d3.select(this).select("rect")
@@ -1608,7 +1667,7 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
             })
             .on("mouseup", function() {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(-1px) scale(1)");
+                    .style("transform", "translateY(-2px) scale(1)");
             });
 
         previousUpdateToggleGroup.on("click", function(event) {
@@ -1643,7 +1702,7 @@ private lightenColor(color: string, factor: number): string {
 }
 
 /**
- * Creates the Connector Lines toggle with modern icon-only design
+ * UPGRADED: Creates the Connector Lines toggle with modern icon-only design
  */
 private createConnectorLinesToggleButton(viewportWidth?: number): void {
     if (!this.headerSvg) return;
@@ -1662,10 +1721,10 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
         .attr("tabindex", "0");
 
     // Modern icon-only button with proper sizing
-    const buttonSize = this.UI_TOKENS.height.standard;
-    // Position after Previous Update Toggle (488 + 138 + 8)
-    const buttonX = 634;
-    const buttonY = this.UI_TOKENS.spacing.xs;
+    const buttonSize = 36;
+    // Position after Previous Update Toggle (10 + 140 + 12 + 230 + 12 + 138 + 12 + 150 + 12)
+    const buttonX = 716;
+    const buttonY = this.UI_TOKENS.spacing.sm;
 
     connectorToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
@@ -1681,9 +1740,9 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
         .style("stroke", this.showConnectorLinesInternal
             ? this.UI_TOKENS.color.success.default
             : this.UI_TOKENS.color.neutral.grey60)
-        .style("stroke-width", 1.5)
+        .style("stroke-width", this.showConnectorLinesInternal ? 2 : 1.5)
         .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Enhanced connector icon with better visibility
     const iconCenter = buttonSize / 2;
@@ -1701,7 +1760,7 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .attr("stroke-dasharray", this.showConnectorLinesInternal ? "none" : "3,2")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Small connection dots for clarity
     if (this.showConnectorLinesInternal) {
@@ -1732,8 +1791,8 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
                 .style("fill", self.showConnectorLinesInternal
                     ? self.UI_TOKENS.color.success.default
                     : self.UI_TOKENS.color.neutral.grey20)
-                .style("transform", "translateY(-1px)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
+                .style("transform", "translateY(-2px)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
 
             if (self.showConnectorLinesInternal) {
                 d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
@@ -1759,7 +1818,7 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
         })
         .on("mouseup", function() {
             d3.select(this).select("rect")
-                .style("transform", "translateY(-1px) scale(1)");
+                .style("transform", "translateY(-2px) scale(1)");
         });
 
     connectorToggleGroup.on("click", function(event) {
@@ -1778,6 +1837,7 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
 
 /**
  * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
+ * UPGRADED: Professional pill-style toggle with smooth animations and refined visuals
  */
 private createModeToggleButton(viewportWidth: number): void {
     if (!this.headerSvg) return;
@@ -1798,11 +1858,11 @@ private createModeToggleButton(viewportWidth: number): void {
         .attr("aria-disabled", (!hasTotalFloat).toString())
         .attr("tabindex", hasTotalFloat ? "0" : "-1");
 
-    // Professional dimensions
-    const buttonWidth = 210;
+    // Professional dimensions with upgraded sizing
+    const buttonWidth = 230;  // Increased from 210 for better proportions
     const buttonHeight = this.UI_TOKENS.height.standard;
-    const buttonX = 144;  // After Show All/Critical toggle (8 + 128 + 8)
-    const buttonY = this.UI_TOKENS.spacing.xs;
+    const buttonX = 162;  // After upgraded Show All/Critical toggle (10 + 140 + 12)
+    const buttonY = this.UI_TOKENS.spacing.sm;
 
     modeToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
@@ -1810,99 +1870,100 @@ private createModeToggleButton(viewportWidth: number): void {
     const buttonG = modeToggleGroup.append("g")
         .attr("class", "mode-button-container");
 
-    // Theme colors based on mode
-    const bgColor = isFloatBased ? this.UI_TOKENS.color.warning.lighter : this.UI_TOKENS.color.primary.lighter;
+    // Enhanced theme colors based on mode
+    const bgColor = isFloatBased ? this.UI_TOKENS.color.warning.subtle : this.UI_TOKENS.color.primary.subtle;
     const borderColor = isFloatBased ? this.UI_TOKENS.color.warning.default : this.UI_TOKENS.color.primary.default;
-    const hoverBgColor = isFloatBased ? this.UI_TOKENS.color.warning.light : this.UI_TOKENS.color.primary.light;
+    const hoverBgColor = isFloatBased ? this.UI_TOKENS.color.warning.lighter : this.UI_TOKENS.color.primary.lighter;
 
-    // Button background with enhanced styling
+    // Professional button background with refined styling
     const buttonRect = buttonG.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
-        .attr("rx", this.UI_TOKENS.radius.large)
-        .attr("ry", this.UI_TOKENS.radius.large)
+        .attr("rx", this.UI_TOKENS.radius.pill)  // More pronounced pill shape
+        .attr("ry", this.UI_TOKENS.radius.pill)
         .style("fill", bgColor)
         .style("stroke", borderColor)
-        .style("stroke-width", 1.5)
+        .style("stroke-width", 2)  // Heavier border for premium feel
         .style("filter", hasTotalFloat ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
         .style("opacity", hasTotalFloat ? 1 : 0.4)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Mode indicator pill with enhanced design
+    // Professional mode indicator pill with refined design
     const pillG = buttonG.append("g")
-        .attr("transform", `translate(${this.UI_TOKENS.spacing.md}, ${buttonHeight/2})`);
+        .attr("transform", `translate(${this.UI_TOKENS.spacing.lg}, ${buttonHeight/2})`);
 
-    const pillWidth = 96;
-    const pillHeight = 18;
+    const pillWidth = 106;  // Slightly increased
+    const pillHeight = 22;  // Increased from 18 for better visual weight
     const pillX = isFloatBased ? pillWidth/2 : 0;
 
-    // Background track with subtle styling
+    // Background track with refined styling
     pillG.append("rect")
         .attr("class", "mode-pill-bg")
         .attr("x", 0)
         .attr("y", -pillHeight/2)
         .attr("width", pillWidth)
         .attr("height", pillHeight)
-        .attr("rx", this.UI_TOKENS.radius.medium + 2)
-        .attr("ry", this.UI_TOKENS.radius.medium + 2)
-        .style("fill", this.UI_TOKENS.color.neutral.grey30)
-        .style("opacity", 0.6);
+        .attr("rx", this.UI_TOKENS.radius.large)
+        .attr("ry", this.UI_TOKENS.radius.large)
+        .style("fill", this.UI_TOKENS.color.neutral.grey20)  // Lighter track
+        .style("opacity", 0.8);
 
-    // Sliding pill indicator with smooth animation
+    // Professional sliding pill indicator with smooth animation and better shadow
     const slidingPill = pillG.append("rect")
         .attr("class", "mode-pill")
         .attr("x", pillX)
         .attr("y", -pillHeight/2)
         .attr("width", pillWidth/2)
         .attr("height", pillHeight)
-        .attr("rx", this.UI_TOKENS.radius.medium + 2)
-        .attr("ry", this.UI_TOKENS.radius.medium + 2)
+        .attr("rx", this.UI_TOKENS.radius.large)
+        .attr("ry", this.UI_TOKENS.radius.large)
         .style("fill", borderColor)
-        .style("filter", `drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2))`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.slow}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[4]})`)  // Better shadow
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.slow}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Mode labels with enhanced typography
+    // Professional mode labels with enhanced typography
     const labelY = 0;
 
-    // LP label
+    // LP label with better styling
     pillG.append("text")
         .attr("x", pillWidth/4)
         .attr("y", labelY)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-        .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.normal : this.UI_TOKENS.fontWeight.semibold)
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.medium : this.UI_TOKENS.fontWeight.bold)
         .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.grey130 : this.UI_TOKENS.color.neutral.white)
         .style("pointer-events", "none")
-        .style("letter-spacing", "0.3px")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`)
+        .style("letter-spacing", "0.5px")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .text("LP");
 
-    // Float label
+    // Float label with better styling
     pillG.append("text")
         .attr("x", 3*pillWidth/4)
         .attr("y", labelY)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-        .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.normal)
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.bold : this.UI_TOKENS.fontWeight.medium)
         .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
         .style("pointer-events", "none")
-        .style("letter-spacing", "0.3px")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`)
+        .style("letter-spacing", "0.5px")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .text("Float");
 
-    // Current mode descriptive text
+    // Professional mode descriptive text
     buttonG.append("text")
-        .attr("x", 116)
+        .attr("x", 130)
         .attr("y", buttonHeight/2)
         .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
         .style("fill", this.UI_TOKENS.color.neutral.grey160)
-        .style("font-weight", this.UI_TOKENS.fontWeight.medium)
+        .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
+        .style("letter-spacing", "0.2px")
         .style("pointer-events", "none")
         .text(isFloatBased ? "Float-Based" : "Longest Path");
 
@@ -1912,7 +1973,7 @@ private createModeToggleButton(viewportWidth: number): void {
             ? `Current mode: ${isFloatBased ? 'Float-Based Criticality' : 'Longest Path (CPM)'}\nClick to switch calculation method`
             : "Float-Based mode requires Task Total Float field to be mapped");
 
-    // Enhanced interactions
+    // Professional interactions with refined animations
     if (hasTotalFloat) {
         const self = this;
 
@@ -1920,22 +1981,26 @@ private createModeToggleButton(viewportWidth: number): void {
             .on("mouseover", function() {
                 d3.select(this).select(".mode-button-container rect")
                     .style("fill", hoverBgColor)
-                    .style("transform", "translateY(-1px)")
-                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
+                    .style("stroke-width", 2.5)
+                    .style("transform", "translateY(-2px)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
             })
             .on("mouseout", function() {
                 d3.select(this).select(".mode-button-container rect")
                     .style("fill", bgColor)
+                    .style("stroke-width", 2)
                     .style("transform", "translateY(0)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
             })
             .on("mousedown", function() {
                 d3.select(this).select(".mode-button-container rect")
-                    .style("transform", "translateY(0) scale(0.98)");
+                    .style("transform", "translateY(0) scale(0.96)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
             })
             .on("mouseup", function() {
                 d3.select(this).select(".mode-button-container rect")
-                    .style("transform", "translateY(-1px) scale(1)");
+                    .style("transform", "translateY(-2px) scale(1)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
             });
 
         modeToggleGroup.on("click", function(event) {
@@ -2017,7 +2082,7 @@ private toggleCriticalityMode(): void {
 }
 
 /**
- * Creates the Float Threshold control with premium input design and enhanced UX
+ * UPGRADED: Creates the Float Threshold control with premium input design and enhanced UX
  */
 private createFloatThresholdControl(): void {
     this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
@@ -2045,10 +2110,10 @@ private createFloatThresholdControl(): void {
         .style("height", `${this.UI_TOKENS.height.comfortable}px`)
         .style("padding", `0 ${this.UI_TOKENS.spacing.xl}px`)
         .style("background-color", this.UI_TOKENS.color.neutral.white)
-        .style("border", `1.5px solid ${this.UI_TOKENS.color.warning.default}`)
+        .style("border", `2px solid ${this.UI_TOKENS.color.warning.default}`)
         .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
         .style("box-shadow", this.UI_TOKENS.shadow[4])
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Icon and label container
     const labelContainer = controlContainer.append("div")
@@ -2073,6 +2138,7 @@ private createFloatThresholdControl(): void {
     // Descriptive label with enhanced typography
     labelContainer.append("span")
         .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("letter-spacing", "0.2px")
         .style("color", this.UI_TOKENS.color.neutral.grey160)
         .style("font-family", "Segoe UI, sans-serif")
         .style("font-weight", this.UI_TOKENS.fontWeight.medium)
@@ -2089,7 +2155,7 @@ private createFloatThresholdControl(): void {
         .style("width", "56px")
         .style("height", "24px")
         .style("padding", `${this.UI_TOKENS.spacing.xs}px ${this.UI_TOKENS.spacing.md}px`)
-        .style("border", `1px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+        .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
         .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
         .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
         .style("font-family", "Segoe UI, sans-serif")
@@ -2098,11 +2164,12 @@ private createFloatThresholdControl(): void {
         .style("outline", "none")
         .style("background-color", this.UI_TOKENS.color.neutral.white)
         .style("color", this.UI_TOKENS.color.neutral.grey160)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.standard}`);
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Unit label with refined styling
     controlContainer.append("span")
         .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("letter-spacing", "0.2px")
         .style("color", this.UI_TOKENS.color.neutral.grey130)
         .style("font-family", "Segoe UI, sans-serif")
         .style("font-weight", this.UI_TOKENS.fontWeight.medium)
@@ -2117,7 +2184,7 @@ private createFloatThresholdControl(): void {
         .style("width", "18px")
         .style("height", "18px")
         .style("border-radius", "50%")
-        .style("border", `1px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+        .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
         .style("background-color", this.UI_TOKENS.color.neutral.grey10)
         .style("display", "flex")
         .style("align-items", "center")
@@ -2127,7 +2194,7 @@ private createFloatThresholdControl(): void {
         .style("color", this.UI_TOKENS.color.neutral.grey130)
         .style("font-family", "Segoe UI, sans-serif")
         .style("font-weight", this.UI_TOKENS.fontWeight.bold)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.standard}`)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .text("?");
 
     helpIcon.append("title")
