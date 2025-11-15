@@ -263,41 +263,20 @@ class CriticalityModeCard extends Card {
 class TaskSelectionCard extends Card {
     name: string = "taskSelection"; displayName: string = "Task Selection";
     
-    enableTaskSelection = new ToggleSwitch({ 
-        name: "enableTaskSelection", 
-        displayName: "Enable Task Selection", 
-        value: true 
+    enableTaskSelection = new ToggleSwitch({
+        name: "enableTaskSelection",
+        displayName: "Enable Task Selection",
+        value: true
     });
-    
-    dropdownWidth = new NumUpDown({ 
-        name: "dropdownWidth", 
-        displayName: "Dropdown Width (px)", 
-        value: 250, 
-        options: { 
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 100 }, 
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 500 } 
-        } 
-    });
-    
-    dropdownPosition = new ItemDropdown({ 
-        name: "dropdownPosition", 
-        displayName: "Position",
-        items: [
-            { value: "top", displayName: "Top" },
-            { value: "topRight", displayName: "Top Right" },
-            { value: "topLeft", displayName: "Top Left" }
-        ],
-        value: { value: "topRight", displayName: "topRight" }
-    });
-    
+
     showSelectedTaskLabel = new ToggleSwitch({
         name: "showSelectedTaskLabel",
         displayName: "Show Selected Task Label",
         value: false
     });
-    
-    traceMode = new ItemDropdown({ 
-        name: "traceMode", 
+
+    traceMode = new ItemDropdown({
+        name: "traceMode",
         displayName: "Trace Mode",
         description: "Select whether to trace the critical path backward to or forward from the selected task",
         items: [
@@ -306,11 +285,9 @@ class TaskSelectionCard extends Card {
         ],
         value: { value: "backward", displayName: "Trace Backward" }
     });
-    
+
     slices: Slice[] = [
         this.enableTaskSelection,
-        this.dropdownWidth,
-        this.dropdownPosition,
         this.showSelectedTaskLabel,
         this.traceMode
     ];

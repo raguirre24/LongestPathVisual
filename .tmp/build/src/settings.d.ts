@@ -98,8 +98,6 @@ declare class TaskSelectionCard extends Card {
     name: string;
     displayName: string;
     enableTaskSelection: formattingSettings.ToggleSwitch;
-    dropdownWidth: formattingSettings.NumUpDown;
-    dropdownPosition: formattingSettings.ItemDropdown;
     showSelectedTaskLabel: formattingSettings.ToggleSwitch;
     traceMode: formattingSettings.ItemDropdown;
     slices: Slice[];

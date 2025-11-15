@@ -85,9 +85,6 @@ export declare class Visual implements IVisual {
     private pendingUpdate;
     private readonly UPDATE_DEBOUNCE_MS;
     private renderState;
-    private lastRenderTime;
-    private readonly MIN_RENDER_INTERVAL;
-    private virtualScrollEnabled;
     private scrollContainer;
     private renderCache;
     private cpmMemo;
@@ -100,27 +97,9 @@ export declare class Visual implements IVisual {
     private determineUpdateType;
     destroy(): void;
     /**
-     * Phase 1: Check if enough time has passed since last render (throttling)
-     * @returns true if render should proceed, false if should skip
-     */
-    private shouldRender;
-    /**
-     * Phase 2: Generate a cache key based on viewport and settings
-     */
-    private getViewportKey;
-    /**
      * Phase 2: Invalidate render cache when settings or data change
      */
     private invalidateRenderCache;
-    /**
-     * Phase 2: Calculate which tasks are visible in the current viewport
-     * @returns Object with start and end indices of visible tasks
-     */
-    private calculateVisibleRange;
-    /**
-     * Phase 2: Get cached task color or compute and cache it
-     */
-    private getCachedTaskColor;
     private toggleTaskDisplayInternal;
     private toggleBaselineDisplayInternal;
     private togglePreviousUpdateDisplayInternal;
@@ -174,13 +153,9 @@ export declare class Visual implements IVisual {
     private positionTooltip;
     private drawArrows;
     private drawProjectEndLine;
-    private calculateCPMOffThread;
-    private determineCriticalityMode;
     private applyFloatBasedCriticality;
-    private calculateCPM;
     /**
      * Identifies the longest path using P6 scheduled dates (reflective approach)
-     * This replaces the old calculateCPM() method for Longest Path mode
      */
     private identifyLongestPathFromP6;
     /**
@@ -211,6 +186,11 @@ export declare class Visual implements IVisual {
      * Updates the path information label display with interactive navigation
      */
     private updatePathInfoLabel;
+    /**
+     * Navigate to a driving path based on direction
+     * @param direction 'next' to move forward, 'prev' to move backward
+     */
+    private navigateToPath;
     /**
      * Navigate to the previous driving path
      */
