@@ -7480,11 +7480,15 @@ private createMarginResizer(): void {
                 .attr("width", 2);
         });
 
-    // Add drag behavior with proper coordinate handling
+    // Add drag behavior with proper coordinate handling and real-time visual updates
     let isDragging = false;
+    let lastDragTime = 0;
+    const dragThrottleMs = 50; // Throttle redraws to every 50ms for performance
+
     const drag = d3.drag<SVGGElement, unknown>()
         .on("start", function(event) {
             isDragging = true;
+            lastDragTime = 0; // Reset throttle timer
             d3.select(this).select(".margin-resizer-line")
                 .attr("fill", self.UI_TOKENS.color.primary.pressed)
                 .attr("width", 4);
@@ -7505,16 +7509,26 @@ private createMarginResizer(): void {
             // Update the setting value
             self.settings.layoutSettings.leftMargin.value = newLeftMargin;
 
-            // Update the margin and resizer position immediately for smooth dragging
+            // Update the margin immediately
             self.margin.left = newLeftMargin;
-            self.updateMarginResizerPosition();
 
-            // Update transforms for immediate visual feedback during drag
-            if (self.mainGroup) {
-                self.mainGroup.attr("transform", `translate(${self.margin.left}, ${self.margin.top})`);
-            }
-            if (self.headerGridLayer) {
-                self.headerGridLayer.attr("transform", `translate(${self.margin.left}, 0)`);
+            // Throttle the full visual redraw for performance
+            const now = Date.now();
+            if (now - lastDragTime >= dragThrottleMs) {
+                lastDragTime = now;
+
+                // Trigger full re-render during drag for real-time visual feedback
+                if (self.lastUpdateOptions) {
+                    // Create a copy of options with Resize flag to trigger proper redraw
+                    const dragUpdateOptions = {
+                        ...self.lastUpdateOptions,
+                        type: self.lastUpdateOptions.type | VisualUpdateType.Resize
+                    };
+                    self.update(dragUpdateOptions);
+                }
+            } else {
+                // Between throttled updates, just update the resizer position for smooth handle movement
+                self.updateMarginResizerPosition();
             }
         })
         .on("end", function(event) {
@@ -7532,7 +7546,7 @@ private createMarginResizer(): void {
                 }]
             });
 
-            // Trigger a full re-render after dragging is complete
+            // Trigger a final full re-render to ensure everything is properly updated
             if (self.lastUpdateOptions) {
                 self.update(self.lastUpdateOptions);
             }
