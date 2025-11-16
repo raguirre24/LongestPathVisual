@@ -203,6 +203,11 @@ export class Visual implements IVisual {
     private xScale: ScaleTime<number, number> | null = null;
     private yScale: ScaleBand<string> | null = null;
 
+    // --- Dynamic row heights ---
+    private taskHeights: Map<string, number> = new Map();        // Store calculated height for each task
+    private taskYPositions: Map<string, number> = new Map();    // Store Y position for each task
+    private totalChartHeight: number = 0;                        // Total height with all variable-height rows
+
     // --- Task selection ---
     private selectedTaskId: string | null = null;
     private selectedTaskName: string | null = null;
@@ -638,12 +643,12 @@ constructor(options: VisualConstructorOptions) {
         let clickedTask: Task | null = null;
         
         for (const task of this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1)) {
-            const domainKey = task.yOrder?.toString() ?? '';
-            const yPosition = this.yScale(domainKey);
+            // DYNAMIC ROW HEIGHT: Use task-specific Y position and height
+            const yPosition = this.getTaskYPosition(task, this.yScale);
             if (yPosition === undefined) continue;
-            
-            const taskHeight = this.settings.taskAppearance.taskHeight.value;
-            
+
+            const taskHeight = this.getTaskHeight(task);
+
             // Check if click is within task bounds
             if (y >= yPosition && y <= yPosition + taskHeight) {
                 if (task.startDate && task.finishDate) {
@@ -687,13 +692,13 @@ constructor(options: VisualConstructorOptions) {
         let hoveredTask: Task | null = null;
         
         for (const task of this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1)) {
-            const domainKey = task.yOrder?.toString() ?? '';
-            const yPosition = this.yScale(domainKey);
+            // DYNAMIC ROW HEIGHT: Use task-specific Y position and height
+            const yPosition = this.getTaskYPosition(task, this.yScale);
             if (yPosition === undefined) continue;
-            
-            const taskHeight = this.settings.taskAppearance.taskHeight.value;
+
+            const taskHeight = this.getTaskHeight(task);
             const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
-            
+
             // Check if mouse is within task vertical bounds
             if (y >= yPosition && y <= yPosition + taskHeight) {
                 if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
@@ -1068,13 +1073,35 @@ private calculateVisibleRange(tasks: Task[]): {start: number, end: number, visib
 
     const scrollTop = this.scrollableContainer.node()?.scrollTop || 0;
     const containerHeight = this.lastUpdateOptions?.viewport?.height || 600;
-    const taskHeight = (this.settings?.taskAppearance?.taskHeight?.value || 18) +
-                      (this.settings?.layoutSettings?.taskPadding?.value || 12);
 
-    // Calculate visible range
-    const startIndex = Math.floor(scrollTop / taskHeight);
-    const visibleCount = Math.ceil(containerHeight / taskHeight);
-    const endIndex = startIndex + visibleCount;
+    // DYNAMIC ROW HEIGHT: Calculate visible range using variable task heights
+    let cumulativeHeight = 0;
+    let startIndex = 0;
+    let endIndex = tasks.length;
+
+    // Find start index where cumulative height >= scrollTop
+    for (let i = 0; i < tasks.length; i++) {
+        const task = tasks[i];
+        const taskY = this.taskYPositions.get(task.internalId) || 0;
+
+        if (taskY >= scrollTop) {
+            startIndex = i;
+            break;
+        }
+    }
+
+    // Find end index where cumulative height > scrollTop + containerHeight
+    const scrollBottom = scrollTop + containerHeight;
+    for (let i = startIndex; i < tasks.length; i++) {
+        const task = tasks[i];
+        const taskY = this.taskYPositions.get(task.internalId) || 0;
+        const taskHeight = this.taskHeights.get(task.internalId) || 0;
+
+        if (taskY > scrollBottom) {
+            endIndex = i;
+            break;
+        }
+    }
 
     // Add buffer for smooth scrolling
     const BUFFER_SIZE = 10;
@@ -2896,9 +2923,24 @@ private setupTimeBasedSVGAndScales(
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const svgWidth = effectiveViewport.width;
 
-    const taskCount = tasksToShow.length;
-    const calculatedChartHeight = Math.max(50, taskCount * (taskHeight + taskPadding));
     const chartWidth = Math.max(10, svgWidth - currentLeftMargin - this.margin.right);
+
+    // Calculate label available width for text wrapping
+    const labelAvailableWidth = Math.max(50, currentLeftMargin - this.labelPaddingLeft - 20);
+
+    // Get font size from settings
+    const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+
+    // Calculate dynamic heights and positions for all tasks
+    const totalHeight = this.calculateTaskHeightsAndPositions(
+        tasksToShow,
+        labelAvailableWidth,
+        taskHeight,
+        taskPadding,
+        taskNameFontSize
+    );
+
+    const calculatedChartHeight = Math.max(50, totalHeight);
 
     // Collect ALL date timestamps including baseline dates
     const allTimestamps: number[] = [];
@@ -2984,11 +3026,11 @@ private setupTimeBasedSVGAndScales(
 private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number): void {
     this.allTasksToShow = [...tasks];
     this.taskTotalCount = tasks.length;
-    this.taskElementHeight = taskHeight + taskPadding;
-    
-    // Create a placeholder container with proper height to enable scrolling
-    const totalContentHeight = this.taskTotalCount * this.taskElementHeight;
-    
+    this.taskElementHeight = taskHeight + taskPadding;  // Keep for backward compatibility
+
+    // DYNAMIC ROW HEIGHT: Use calculated total chart height from variable heights
+    const totalContentHeight = this.totalChartHeight || (this.taskTotalCount * this.taskElementHeight);
+
     // Set full height for scrolling
     this.mainSvg
         .attr("height", totalContentHeight + this.margin.top + this.margin.bottom);
@@ -3502,6 +3544,116 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         return { xScale, yScale, chartWidth, calculatedChartHeight };
     }
 
+    /**
+     * Calculate required number of lines for a task name given available width
+     * Uses a temporary canvas context to measure text accurately
+     */
+    private calculateRequiredLines(taskName: string, availableWidth: number, fontSize: number): number {
+        if (!taskName || availableWidth <= 0) return 1;
+
+        // Create temporary canvas for text measurement
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return 1;
+
+        ctx.font = `${fontSize}pt sans-serif`;
+
+        const words = taskName.split(/\s+/);
+        let lines = 1;
+        let currentLine = '';
+
+        for (const word of words) {
+            const testLine = currentLine ? `${currentLine} ${word}` : word;
+            const metrics = ctx.measureText(testLine);
+
+            if (metrics.width > availableWidth && currentLine) {
+                // Start new line
+                lines++;
+                currentLine = word;
+            } else {
+                currentLine = testLine;
+            }
+        }
+
+        return lines;
+    }
+
+    /**
+     * Calculate the total height needed for a task row based on its name length
+     */
+    private calculateTaskHeight(task: Task, labelAvailableWidth: number, baseTaskHeight: number, fontSize: number): number {
+        const lineHeight = 1.2; // em units - matches the typical line spacing
+        const lineHeightPixels = fontSize * lineHeight * 1.33; // Convert pt to px (1pt ≈ 1.33px)
+
+        const requiredLines = this.calculateRequiredLines(task.name || '', labelAvailableWidth, fontSize);
+
+        // Calculate height: base height + extra height for additional lines
+        // First line fits in base height, additional lines need extra space
+        const extraLinesHeight = Math.max(0, requiredLines - 1) * lineHeightPixels;
+
+        return baseTaskHeight + extraLinesHeight;
+    }
+
+    /**
+     * Calculate heights and Y positions for all tasks
+     * Stores results in taskHeights and taskYPositions maps
+     */
+    private calculateTaskHeightsAndPositions(
+        tasks: Task[],
+        labelAvailableWidth: number,
+        baseTaskHeight: number,
+        taskPadding: number,
+        fontSize: number
+    ): number {
+        this.taskHeights.clear();
+        this.taskYPositions.clear();
+
+        let cumulativeY = 0;
+
+        for (const task of tasks) {
+            const height = this.calculateTaskHeight(task, labelAvailableWidth, baseTaskHeight, fontSize);
+
+            this.taskHeights.set(task.internalId, height);
+            this.taskYPositions.set(task.internalId, cumulativeY);
+
+            cumulativeY += height + taskPadding;
+        }
+
+        this.totalChartHeight = cumulativeY;
+        return cumulativeY;
+    }
+
+    /**
+     * Get Y position for a task (uses dynamic positioning if available, falls back to yScale)
+     */
+    private getTaskYPosition(task: Task, fallbackYScale?: ScaleBand<string>): number {
+        const position = this.taskYPositions.get(task.internalId);
+        if (position !== undefined) {
+            return position;
+        }
+
+        // Fallback to yScale if available
+        if (fallbackYScale) {
+            const yPos = fallbackYScale(task.yOrder?.toString() ?? '');
+            return yPos !== undefined ? yPos : 0;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Get height for a task (uses dynamic height if available, falls back to settings)
+     */
+    private getTaskHeight(task: Task): number {
+        const height = this.taskHeights.get(task.internalId);
+        if (height !== undefined) {
+            return height;
+        }
+
+        // Fallback to settings
+        return this.settings.taskAppearance.taskHeight.value;
+    }
+
 private drawVisualElements(
     tasksToShow: Task[],
     xScale: ScaleTime<number, number>,
@@ -3810,13 +3962,13 @@ private drawTasks(
     taskGroupsSelection.exit().remove();
     
     // Enter: Create new elements for new data
+    // DYNAMIC ROW HEIGHT: Use task-specific Y position from map
     const enterGroups = taskGroupsSelection.enter().append("g")
         .attr("class", "task-group")
         .attr("transform", (d: Task) => {
-            const domainKey = d.yOrder?.toString() ?? '';
-            const yPosition = yScale(domainKey);
+            const yPosition = this.getTaskYPosition(d, yScale);
             if (yPosition === undefined || isNaN(yPosition)) {
-                console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
+                console.warn(`Skipping task ${d.internalId} due to invalid yPosition.`);
                 return null; // Use null to filter later
             }
             return `translate(0, ${yPosition})`;
@@ -3826,11 +3978,11 @@ private drawTasks(
         });
     
     // Update: Update existing elements
+    // DYNAMIC ROW HEIGHT: Use task-specific Y position from map
     taskGroupsSelection.attr("transform", (d: Task) => {
-        const domainKey = d.yOrder?.toString() ?? '';
-        const yPosition = yScale(domainKey);
+        const yPosition = this.getTaskYPosition(d, yScale);
         if (yPosition === undefined || isNaN(yPosition)) {
-            console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
+            console.warn(`Skipping task ${d.internalId} due to invalid yPosition.`);
             return null;
         }
         return `translate(0, ${yPosition})`;
@@ -3856,7 +4008,8 @@ private drawTasks(
         .append("rect")
             .attr("class", "previous-update-bar")
             .attr("x", (d: Task) => xScale(d.previousUpdateStartDate!))
-            .attr("y", taskHeight + previousUpdateOffset) // Directly below task bar
+            // DYNAMIC ROW HEIGHT: Use task-specific height for Y offset
+            .attr("y", (d: Task) => this.getTaskHeight(d) + previousUpdateOffset)
             .attr("width", (d: Task) => {
                 const startPos = xScale(d.previousUpdateStartDate!);
                 const finishPos = xScale(d.previousUpdateFinishDate!);
@@ -3874,16 +4027,6 @@ private drawTasks(
         const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
         const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
         const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
-        
-        // Calculate Y position based on what's visible above
-        let baselineY = taskHeight;
-        if (showPreviousUpdate) {
-            const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
-            const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
-            baselineY = taskHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset;
-        } else {
-            baselineY = taskHeight + baselineOffset;
-        }
 
         allTaskGroups.selectAll(".baseline-bar").remove();
 
@@ -3895,7 +4038,17 @@ private drawTasks(
         .append("rect")
             .attr("class", "baseline-bar")
             .attr("x", (d: Task) => xScale(d.baselineStartDate!))
-            .attr("y", baselineY)
+            // DYNAMIC ROW HEIGHT: Calculate Y position based on task-specific height
+            .attr("y", (d: Task) => {
+                const taskSpecificHeight = this.getTaskHeight(d);
+                if (showPreviousUpdate) {
+                    const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
+                    const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
+                    return taskSpecificHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset;
+                } else {
+                    return taskSpecificHeight + baselineOffset;
+                }
+            })
             .attr("width", (d: Task) => {
                 const startPos = xScale(d.baselineStartDate!);
                 const finishPos = xScale(d.baselineFinishDate!);
@@ -3934,9 +4087,11 @@ private drawTasks(
             }
             return Math.max(this.minTaskWidthPixels, finishPos - startPos);
         })
-        .attr("height", taskHeight)
+        // DYNAMIC ROW HEIGHT: Use task-specific height
+        .attr("height", (d: Task) => this.getTaskHeight(d))
         // UPGRADED: Increased corner radius from 3px to 5px for smoother appearance
-        .attr("rx", Math.min(5, taskHeight * 0.15)).attr("ry", Math.min(5, taskHeight * 0.15))
+        .attr("rx", (d: Task) => Math.min(5, this.getTaskHeight(d) * 0.15))
+        .attr("ry", (d: Task) => Math.min(5, this.getTaskHeight(d) * 0.15))
         .style("fill", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
             if (d.isCritical) return criticalColor;
@@ -3968,12 +4123,15 @@ private drawTasks(
         .attr("transform", (d: Task) => {
             const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
             const x = (milestoneDate instanceof Date && !isNaN(milestoneDate.getTime())) ? xScale(milestoneDate) : 0;
-            const y = taskHeight / 2;
+            // DYNAMIC ROW HEIGHT: Use task-specific height for centering
+            const y = this.getTaskHeight(d) / 2;
             if (isNaN(x)) console.warn(`Invalid X position for milestone ${d.internalId}`);
             return `translate(${x}, ${y})`;
         })
-        .attr("d", () => {
-            const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+        .attr("d", (d: Task) => {
+            // DYNAMIC ROW HEIGHT: Use task-specific height for sizing
+            const taskSpecificHeight = this.getTaskHeight(d);
+            const size = Math.max(4, Math.min(milestoneSizeSetting, taskSpecificHeight * 0.9));
             return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
         })
         .style("fill", (d: Task) => {
@@ -3996,7 +4154,8 @@ private drawTasks(
     const taskLabels = allTaskGroups.append("text")
         .attr("class", "task-label")
         .attr("x", -currentLeftMargin + this.labelPaddingLeft)
-        .attr("y", taskHeight / 2)
+        // DYNAMIC ROW HEIGHT: Use task-specific height for centering
+        .attr("y", (d: Task) => this.getTaskHeight(d) / 2)
         .attr("text-anchor", "start")
         .attr("dominant-baseline", "central")
         .style("font-size", `${taskNameFontSize}pt`)
@@ -4014,8 +4173,8 @@ private drawTasks(
             const dy = 0;
             let tspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
             let lineCount = 1;
-            const maxLines = 2;
 
+            // DYNAMIC ROW HEIGHT: No maxLines limit - wrap as needed
             while (word = words.pop()) {
                 line.push(word);
                 tspan.text(line.join(" "));
@@ -4025,20 +4184,13 @@ private drawTasks(
                         line.pop();
                         tspan.text(line.join(" "));
 
-                        if (lineCount < maxLines) {
-                            line = [word];
-                            tspan = textElement.append("tspan")
-                                .attr("x", x)
-                                .attr("dy", lineHeight)
-                                .text(word);
-                            lineCount++;
-                        } else {
-                            const currentText = tspan.text();
-                            if (currentText.length > 3) {
-                                tspan.text(currentText.slice(0, -3) + "...");
-                            }
-                            break;
-                        }
+                        // Create new line for overflow text (no limit)
+                        line = [word];
+                        tspan = textElement.append("tspan")
+                            .attr("x", x)
+                            .attr("dy", lineHeight)
+                            .text(word);
+                        lineCount++;
                     }
                 } catch (e) {
                     console.warn("Could not get computed text length for wrapping:", e);
@@ -4414,35 +4566,38 @@ private drawTasksCanvas(
         
         // Draw each task
         tasks.forEach((task: Task) => {
-            const domainKey = task.yOrder?.toString() ?? '';
-            const yPosition = yScale(domainKey);
+            // DYNAMIC ROW HEIGHT: Use task-specific Y position from map
+            const yPosition = this.getTaskYPosition(task, yScale);
             if (yPosition === undefined || isNaN(yPosition)) return;
 
             // Use pixel-aligned coordinates
             const yPos = Math.round(yPosition);
 
+            // DYNAMIC ROW HEIGHT: Get task-specific height
+            const taskSpecificHeight = this.getTaskHeight(task);
+
             // --- Draw Previous Update Bar on Canvas FIRST (directly below task bar) ---
-            if (showPreviousUpdate && task.previousUpdateStartDate && task.previousUpdateFinishDate && 
+            if (showPreviousUpdate && task.previousUpdateStartDate && task.previousUpdateFinishDate &&
                 task.previousUpdateFinishDate >= task.previousUpdateStartDate) {
                 const x_prev = Math.round(xScale(task.previousUpdateStartDate));
                 const width_prev = Math.round(Math.max(1, xScale(task.previousUpdateFinishDate) - x_prev));
-                const y_prev = Math.round(yPos + taskHeight + previousUpdateOffset); // Directly below task bar
+                const y_prev = Math.round(yPos + taskSpecificHeight + previousUpdateOffset); // Directly below task bar
 
                 ctx.fillStyle = previousUpdateColor;
                 ctx.fillRect(x_prev, y_prev, width_prev, Math.round(previousUpdateHeight));
             }
 
             // --- Draw Baseline Bar on Canvas SECOND (below previous update bar) ---
-            if (showBaseline && task.baselineStartDate && task.baselineFinishDate && 
+            if (showBaseline && task.baselineStartDate && task.baselineFinishDate &&
                 task.baselineFinishDate >= task.baselineStartDate) {
                 // Calculate Y position based on what's above
                 let y_base: number;
                 if (showPreviousUpdate) {
                     // Position below previous update bar
-                    y_base = Math.round(yPos + taskHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset);
+                    y_base = Math.round(yPos + taskSpecificHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset);
                 } else {
                     // Position directly below main task bar
-                    y_base = Math.round(yPos + taskHeight + baselineOffset);
+                    y_base = Math.round(yPos + taskSpecificHeight + baselineOffset);
                 }
                 
                 const x_base = Math.round(xScale(task.baselineStartDate));
@@ -4468,8 +4623,9 @@ private drawTasksCanvas(
                 const milestoneDate = task.startDate || task.finishDate;
                 if (milestoneDate) {
                     const x = Math.round(xScale(milestoneDate));
-                    const y = Math.round(yPos + taskHeight / 2);
-                    const size = Math.round(Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9)));
+                    // DYNAMIC ROW HEIGHT: Use task-specific height for centering
+                    const y = Math.round(yPos + taskSpecificHeight / 2);
+                    const size = Math.round(Math.max(4, Math.min(milestoneSizeSetting, taskSpecificHeight * 0.9)));
                     const halfSize = size / 2;
 
                     const isSelected = task.internalId === this.selectedTaskId;
@@ -4514,7 +4670,8 @@ private drawTasksCanvas(
                     const x = Math.round(xScale(task.startDate));
                     const width = Math.round(Math.max(1, xScale(task.finishDate) - xScale(task.startDate)));
                     const y = Math.round(yPos);
-                    const height = Math.round(taskHeight);
+                    // DYNAMIC ROW HEIGHT: Use task-specific height
+                    const height = Math.round(taskSpecificHeight);
                     const radius = Math.min(5, Math.round(height * 0.15));  // UPGRADED: Increased from 3px to 5px
 
                     // UPGRADED: Add subtle shadow effect for depth
@@ -4770,12 +4927,13 @@ private drawArrowsCanvas(
 
             if (!pred || !succ || predYOrder === undefined || succYOrder === undefined) return;
 
-            const predYBandPos = yScale(predYOrder.toString());
-            const succYBandPos = yScale(succYOrder.toString());
+            // DYNAMIC ROW HEIGHT: Use task-specific Y positions and heights
+            const predYBandPos = this.getTaskYPosition(pred, yScale);
+            const succYBandPos = this.getTaskYPosition(succ, yScale);
             if (predYBandPos === undefined || succYBandPos === undefined) return;
 
-            const predY = predYBandPos + taskHeight / 2;
-            const succY = succYBandPos + taskHeight / 2;
+            const predY = predYBandPos + this.getTaskHeight(pred) / 2;
+            const succY = succYBandPos + this.getTaskHeight(succ) / 2;
             const relType = rel.type || 'FS';
             const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
             const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
@@ -5045,12 +5203,13 @@ private drawArrowsCanvas(
 
                 if (!pred || !succ || predYOrder === undefined || succYOrder === undefined) return null;
 
-                const predYBandPos = yScale(predYOrder.toString());
-                const succYBandPos = yScale(succYOrder.toString());
+                // DYNAMIC ROW HEIGHT: Use task-specific Y positions and heights
+                const predYBandPos = this.getTaskYPosition(pred, yScale);
+                const succYBandPos = this.getTaskYPosition(succ, yScale);
                 if (predYBandPos === undefined || succYBandPos === undefined || isNaN(predYBandPos) || isNaN(succYBandPos)) return null;
 
-                const predY = predYBandPos + taskHeight / 2;
-                const succY = succYBandPos + taskHeight / 2;
+                const predY = predYBandPos + this.getTaskHeight(pred) / 2;
+                const succY = succYBandPos + this.getTaskHeight(succ) / 2;
                 const relType = rel.type || 'FS';
                 const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
                 const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
