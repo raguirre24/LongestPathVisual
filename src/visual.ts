@@ -1120,13 +1120,10 @@ private toggleTaskDisplayInternal(): void {
         this.debugLog("Internal Toggle method called!");
         this.showAllTasksInternal = !this.showAllTasksInternal;
         this.debugLog("New showAllTasksInternal value:", this.showAllTasksInternal);
-        
-        // Update button text immediately for responsive feedback
-        const buttonElement = this.headerSvg?.select(".toggle-button-group")?.select("text");
-        if (buttonElement?.node()) {
-            buttonElement.text(this.showAllTasksInternal ? "Show Critical" : "Show All");
-        }
-        
+
+        // DON'T update button text here - let createOrUpdateToggleButton() rebuild entire button
+        // This ensures the icon updates properly along with the text
+
         // Persist state
         this.host.persistProperties({
             merge: [{
@@ -1236,6 +1233,7 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
     const buttonX = buttonPadding.left;
     const buttonY = buttonPadding.top;
 
+    // Button state logic (text shows what clicking WILL do)
     const isShowingCritical = this.showAllTasksInternal;
 
     this.toggleButtonGroup
@@ -1257,13 +1255,15 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Refined icon with better visual weight - RED for Critical
+    // ICON shows what you WILL see when you click (matches button text)
+    // When button says "Show Critical" -> show RED critical icon
+    // When button says "Show All" -> show GREEN bars icon
     const iconPadding = this.UI_TOKENS.spacing.lg;
     const iconColor = isShowingCritical
-        ? this.UI_TOKENS.color.danger.default  // RED for "Show Critical" state
-        : this.UI_TOKENS.color.success.default;
+        ? this.UI_TOKENS.color.danger.default   // RED icon when button says "Show Critical"
+        : this.UI_TOKENS.color.success.default; // GREEN icon when button says "Show All"
 
-    // Icon background circle for better visual hierarchy
+    // Icon background circle
     this.toggleButtonGroup.append("circle")
         .attr("cx", iconPadding)
         .attr("cy", buttonHeight / 2)
@@ -1272,21 +1272,21 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Enhanced icon with more professional design - RED for Critical
+    // Icon path (RED funnel for critical, GREEN bars for all)
     this.toggleButtonGroup.append("path")
         .attr("d", isShowingCritical
-            ? "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z"  // Enhanced funnel/filter icon
-            : "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3")  // Enhanced list icon
+            ? "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z"  // RED funnel when button says "Show Critical"
+            : "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3")  // GREEN bars when button says "Show All"
         .attr("transform", `translate(${iconPadding}, ${buttonHeight/2})`)
         .attr("stroke", iconColor)
-        .attr("stroke-width", 2.25)  // Slightly heavier weight
-        .attr("fill", isShowingCritical ? iconColor : "none")  // RED fill for Critical
+        .attr("stroke-width", 2.25)
+        .attr("fill", isShowingCritical ? iconColor : "none")  // Fill the funnel when showing critical icon
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Professional text with better spacing
+    // Button text shows what clicking will DO
     this.toggleButtonGroup.append("text")
         .attr("x", buttonWidth / 2 + this.UI_TOKENS.spacing.md)
         .attr("y", buttonHeight / 2)
@@ -1353,7 +1353,7 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         }
     });
 
-    // Enhanced tooltip
+    // Enhanced tooltip (describes what clicking will do)
     this.toggleButtonGroup.append("title")
         .text(isShowingCritical
             ? "Click to filter and show only critical path tasks"
