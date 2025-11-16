@@ -127,28 +127,31 @@ export declare class Visual implements IVisual {
     private togglePreviousUpdateDisplayInternal;
     /**
      * Creates/updates the Show All/Show Critical toggle button with professional Fluent design
+     * UPGRADED: Enhanced visuals, better spacing, smoother animations, refined icons
      */
     private createOrUpdateToggleButton;
     /**
      * Creates/updates the Baseline toggle with professional theming and user color integration
+     * UPGRADED: Enhanced visuals, better icon design, smoother animations, refined color integration
      */
     private createOrUpdateBaselineToggleButton;
     /**
-     * Creates/updates the Previous Update toggle with professional theming and user color integration
+     * UPGRADED: Creates/updates the Previous Update toggle with professional theming and user color integration
      */
     private createOrUpdatePreviousUpdateToggleButton;
     private lightenColor;
     /**
-     * Creates the Connector Lines toggle with modern icon-only design
+     * UPGRADED: Creates the Connector Lines toggle with modern icon-only design
      */
     private createConnectorLinesToggleButton;
     /**
      * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
+     * UPGRADED: Professional pill-style toggle with smooth animations and refined visuals
      */
     private createModeToggleButton;
     private toggleCriticalityMode;
     /**
-     * Creates the Float Threshold control with premium input design and enhanced UX
+     * UPGRADED: Creates the Float Threshold control with premium input design and enhanced UX
      */
     private createFloatThresholdControl;
     private toggleConnectorLinesDisplay;
@@ -228,6 +231,7 @@ export declare class Visual implements IVisual {
     private getSelectedDrivingChain;
     /**
      * Updates the path information label display with interactive navigation
+     * UPGRADED: Professional navigation buttons with enhanced design and smooth animations
      */
     private updatePathInfoLabel;
     /**
@@ -296,6 +300,10 @@ export declare class Visual implements IVisual {
      * Populates the task dropdown with tasks from the dataset
      */
     private populateTaskDropdown;
+    /**
+     * Creates the Trace Mode Toggle (Backward/Forward) with professional design
+     * UPGRADED: Enhanced visuals, better button design, smoother animations, refined styling
+     */
     private createTraceModeToggle;
     /**
      * Filters the dropdown items based on input text

@@ -1257,10 +1257,10 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Refined icon with better visual weight
+    // Refined icon with better visual weight - RED for Critical
     const iconPadding = this.UI_TOKENS.spacing.lg;
     const iconColor = isShowingCritical
-        ? this.UI_TOKENS.color.danger.default
+        ? this.UI_TOKENS.color.danger.default  // RED for "Show Critical" state
         : this.UI_TOKENS.color.success.default;
 
     // Icon background circle for better visual hierarchy
@@ -1272,7 +1272,7 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Enhanced icon with more professional design
+    // Enhanced icon with more professional design - RED for Critical
     this.toggleButtonGroup.append("path")
         .attr("d", isShowingCritical
             ? "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z"  // Enhanced funnel/filter icon
@@ -1280,7 +1280,7 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .attr("transform", `translate(${iconPadding}, ${buttonHeight/2})`)
         .attr("stroke", iconColor)
         .attr("stroke-width", 2.25)  // Slightly heavier weight
-        .attr("fill", isShowingCritical ? iconColor : "none")
+        .attr("fill", isShowingCritical ? iconColor : "none")  // RED fill for Critical
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .style("pointer-events", "none")
@@ -7147,42 +7147,51 @@ private createTaskSelectionDropdown(): void {
     // Remove existing input and list to recreate them
     this.dropdownContainer.selectAll("*").remove();
     
-    // Position in second row of header
+    // Position in second row of header - below the first row of toggles
     this.dropdownContainer
         .style("position", "absolute")
-        .style("top", "32px")    // Second row in header
-        .style("left", "8px")     // Left side positioning
+        .style("top", "44px")    // Below first row (standard height 32px + spacing 12px)
+        .style("left", "10px")   // Align with other controls
         .style("right", "auto")
         .style("transform", "none")
         .style("z-index", "20");
-    
-    // Create the input with enhanced styling
+
+    // Create the input with unified professional styling
     this.dropdownInput = this.dropdownContainer.append("input")
         .attr("type", "text")
         .attr("class", "task-selection-input")
         .attr("placeholder", "Search for a task...")
         .style("width", `${dropdownWidth}px`)
-        .style("height", "24px")  // Match other controls
-        .style("padding", "4px 8px")
-        .style("border", "1px solid #d0d0d0")
-        .style("border-radius", "12px")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "10px")
-        .style("color", "#333")
+        .style("height", `${this.UI_TOKENS.height.standard}px`)  // Match standard height
+        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
+        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+        .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("color", this.UI_TOKENS.color.neutral.grey160)
+        .style("background", this.UI_TOKENS.color.neutral.white)
         .style("box-sizing", "border-box")
         .style("outline", "none")
-        .style("transition", "border-color 0.2s ease");
+        .style("box-shadow", this.UI_TOKENS.shadow[2])
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Add focus effects
+    // Add focus effects with unified design
+    const selfRef = this;
     this.dropdownInput
         .on("focus", function() {
-            d3.select(this).style("border-color", "#40a9ff");
+            d3.select(this)
+                .style("border-color", selfRef.UI_TOKENS.color.primary.default)
+                .style("border-width", "2px")
+                .style("box-shadow", selfRef.UI_TOKENS.shadow[4]);
         })
         .on("blur", function() {
-            d3.select(this).style("border-color", "#d0d0d0");
+            d3.select(this)
+                .style("border-color", selfRef.UI_TOKENS.color.neutral.grey60)
+                .style("border-width", "1.5px")
+                .style("box-shadow", selfRef.UI_TOKENS.shadow[2]);
         });
 
-    // Create dropdown list with enhanced styling
+    // Create dropdown list with unified professional styling
     this.dropdownList = this.dropdownContainer.append("div")
         .attr("class", "task-selection-list")
         .style("position", "absolute")
@@ -7190,12 +7199,12 @@ private createTaskSelectionDropdown(): void {
         .style("left", "0")
         .style("width", `${dropdownWidth}px`)
         .style("max-height", "400px")
-        .style("margin-top", "4px")
+        .style("margin-top", `${this.UI_TOKENS.spacing.xs}px`)
         .style("overflow-y", "auto")
-        .style("background", "white")
-        .style("border", "1px solid #d0d0d0")
-        .style("border-radius", "8px")
-        .style("box-shadow", "0 2px 8px rgba(0,0,0,0.1)")
+        .style("background", this.UI_TOKENS.color.neutral.white)
+        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+        .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
+        .style("box-shadow", this.UI_TOKENS.shadow[8])
         .style("display", "none")
         .style("z-index", "1000")
         .style("box-sizing", "border-box");
@@ -7392,222 +7401,220 @@ private createTraceModeToggle(): void {
 
     if (!this.settings.taskSelection.enableTaskSelection.value) return;
 
+    // HIDE the toggle completely when no task is selected (instead of graying out)
+    if (!this.selectedTaskId) return;
+
     const toggleContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "trace-mode-toggle")
         .style("position", "absolute")
-        .style("top", "38px")  // Updated position for better alignment
+        .style("top", "44px")  // Align with task dropdown in second row
         .style("left", "370px")
         .style("z-index", "20");
 
-    const isDisabled = !this.selectedTaskId;
+    const isDisabled = false;  // Never disabled since we only show when task is selected
 
-    // Professional toggle design
+    // Professional toggle design with compact height
     const toggleWrapper = toggleContainer.append("div")
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", "10px");  // Increased from 6px
+        .style("gap", `${this.UI_TOKENS.spacing.md}px`);
 
     // Professional label
     toggleWrapper.append("span")
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", "12px")  // Increased from 11px
-        .style("font-weight", "500")
-        .style("color", isDisabled ? this.UI_TOKENS.color.neutral.grey90 : this.UI_TOKENS.color.neutral.grey130)
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("font-weight", this.UI_TOKENS.fontWeight.medium.toString())
+        .style("color", this.UI_TOKENS.color.neutral.grey130)
         .style("white-space", "nowrap")
         .style("letter-spacing", "0.2px")
         .text("Trace:");
 
-    // Professional toggle buttons container
+    // Professional toggle buttons container - compact height
     const toggleButtons = toggleWrapper.append("div")
         .style("display", "flex")
-        .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)  // Heavier border
-        .style("border-radius", "16px")  // More rounded
+        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+        .style("border-radius", `${this.UI_TOKENS.radius.large}px`)
         .style("overflow", "hidden")
-        .style("opacity", isDisabled ? "0.4" : "1")
-        .style("height", "32px")  // Increased from 24px
+        .style("height", `${this.UI_TOKENS.height.compact}px`)  // Compact height (24px)
         .style("background", this.UI_TOKENS.color.neutral.white)
-        .style("box-shadow", this.UI_TOKENS.shadow[2])  // Better shadow
+        .style("box-shadow", this.UI_TOKENS.shadow[2])
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
     
-    // Professional Backward Button with enhanced arrow
+    // Professional Backward Button - compact design
     const backwardButton = toggleButtons.append("div")
         .attr("class", "trace-mode-button backward")
-        .style("padding", "0 16px")  // Increased from 12px
-        .style("cursor", isDisabled ? "not-allowed" : "pointer")
+        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
+        .style("cursor", "pointer")
         .style("background-color", this.traceMode === "backward" ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.white)
         .style("border-right", `1px solid ${this.UI_TOKENS.color.neutral.grey40}`)
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", "6px")  // Increased from 4px
+        .style("gap", `${this.UI_TOKENS.spacing.xs}px`)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Professional backward arrow using SVG
+    // Compact backward arrow using SVG
     const backwardSvg = backwardButton.append("svg")
-        .attr("width", "16")  // Increased from 14
-        .attr("height", "16")
-        .attr("viewBox", "0 0 16 16")
+        .attr("width", "12")
+        .attr("height", "12")
+        .attr("viewBox", "0 0 12 12")
         .style("flex-shrink", "0");
 
     backwardSvg.append("path")
-        .attr("d", "M 10 3 L 6 8 L 10 13")
+        .attr("d", "M 8 2 L 4 6 L 8 10")
         .attr("stroke", this.traceMode === "backward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-        .attr("stroke-width", "2.5")  // Increased from 2
+        .attr("stroke-width", "2")
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .attr("fill", "none");
 
     backwardButton.append("span")
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", "12px")  // Increased from 11px
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
         .style("color", this.traceMode === "backward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-        .style("font-weight", this.traceMode === "backward" ? "600" : "500")
+        .style("font-weight", this.traceMode === "backward" ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
         .style("letter-spacing", "0.2px")
         .text("Back");
 
-    // Professional Forward Button with enhanced arrow
+    // Professional Forward Button - compact design
     const forwardButton = toggleButtons.append("div")
         .attr("class", "trace-mode-button forward")
-        .style("padding", "0 16px")  // Increased from 12px
-        .style("cursor", isDisabled ? "not-allowed" : "pointer")
+        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
+        .style("cursor", "pointer")
         .style("background-color", this.traceMode === "forward" ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.white)
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", "6px")  // Increased from 4px
+        .style("gap", `${this.UI_TOKENS.spacing.xs}px`)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     forwardButton.append("span")
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", "12px")  // Increased from 11px
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
         .style("color", this.traceMode === "forward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-        .style("font-weight", this.traceMode === "forward" ? "600" : "500")
+        .style("font-weight", this.traceMode === "forward" ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
         .style("letter-spacing", "0.2px")
         .text("Forward");
 
-    // Professional forward arrow using SVG
+    // Compact forward arrow using SVG
     const forwardSvg = forwardButton.append("svg")
-        .attr("width", "16")  // Increased from 14
-        .attr("height", "16")
-        .attr("viewBox", "0 0 16 16")
+        .attr("width", "12")
+        .attr("height", "12")
+        .attr("viewBox", "0 0 12 12")
         .style("flex-shrink", "0");
 
     forwardSvg.append("path")
-        .attr("d", "M 6 3 L 10 8 L 6 13")
+        .attr("d", "M 4 2 L 8 6 L 4 10")
         .attr("stroke", this.traceMode === "forward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-        .attr("stroke-width", "2.5")  // Increased from 2
+        .attr("stroke-width", "2")
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .attr("fill", "none");
     
-    // Tooltip based on mode
-    const tooltipText = isDisabled 
-        ? "Select a task to enable tracing"
-        : this.traceMode === "backward"
-            ? "Showing predecessors leading to selected task"
-            : "Showing successors from selected task";
-    
+    // Tooltip based on mode (only shown when task is selected)
+    const tooltipText = this.traceMode === "backward"
+        ? "Showing predecessors leading to selected task"
+        : "Showing successors from selected task";
+
     toggleContainer.append("title").text(tooltipText);
-    
-    if (!isDisabled) {
-        const self = this;
 
-        // Professional hover effects
-        backwardButton
-            .on("mouseover", function() {
-                if (self.traceMode !== "backward") {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.grey10);
-                } else {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
-                }
-            })
-            .on("mouseout", function() {
-                if (self.traceMode !== "backward") {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.white);
-                } else {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.default);
-                }
-            })
-            .on("mousedown", function() {
-                if (self.traceMode === "backward") {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.pressed);
-                }
-            })
-            .on("mouseup", function() {
-                if (self.traceMode === "backward") {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
-                }
-            });
+    const self = this;
 
-        forwardButton
-            .on("mouseover", function() {
-                if (self.traceMode !== "forward") {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.grey10);
-                } else {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
-                }
-            })
-            .on("mouseout", function() {
-                if (self.traceMode !== "forward") {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.white);
-                } else {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.default);
-                }
-            })
-            .on("mousedown", function() {
-                if (self.traceMode === "forward") {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.pressed);
-                }
-            })
-            .on("mouseup", function() {
-                if (self.traceMode === "forward") {
-                    d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
-                }
-            });
-        
-        // Click handlers
-        backwardButton.on("click", function() {
+    // Professional hover effects
+    backwardButton
+        .on("mouseover", function() {
             if (self.traceMode !== "backward") {
-                self.traceMode = "backward";
-                self.host.persistProperties({
-                    merge: [{
-                        objectName: "persistedState",
-                        properties: { traceMode: self.traceMode },
-                        selector: null
-                    }]
-                });
-                self.createTraceModeToggle();
-                
-                // Force canvas refresh
-                self.forceCanvasRefresh();
-                
-                self.forceFullUpdate = true;
-                if (self.lastUpdateOptions) {
-                    self.update(self.lastUpdateOptions);
-                }
+                d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.grey10);
+            } else {
+                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
+            }
+        })
+        .on("mouseout", function() {
+            if (self.traceMode !== "backward") {
+                d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.white);
+            } else {
+                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.default);
+            }
+        })
+        .on("mousedown", function() {
+            if (self.traceMode === "backward") {
+                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.pressed);
+            }
+        })
+        .on("mouseup", function() {
+            if (self.traceMode === "backward") {
+                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
             }
         });
 
-        forwardButton.on("click", function() {
+    forwardButton
+        .on("mouseover", function() {
             if (self.traceMode !== "forward") {
-                self.traceMode = "forward";
-                self.host.persistProperties({
-                    merge: [{
-                        objectName: "persistedState",
-                        properties: { traceMode: self.traceMode },
-                        selector: null
-                    }]
-                });
-                self.createTraceModeToggle();
-                
-                // Force canvas refresh
-                self.forceCanvasRefresh();
-                
-                self.forceFullUpdate = true;
-                if (self.lastUpdateOptions) {
-                    self.update(self.lastUpdateOptions);
-                }
+                d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.grey10);
+            } else {
+                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
+            }
+        })
+        .on("mouseout", function() {
+            if (self.traceMode !== "forward") {
+                d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.white);
+            } else {
+                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.default);
+            }
+        })
+        .on("mousedown", function() {
+            if (self.traceMode === "forward") {
+                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.pressed);
+            }
+        })
+        .on("mouseup", function() {
+            if (self.traceMode === "forward") {
+                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
             }
         });
-    }
+
+    // Click handlers
+    backwardButton.on("click", function() {
+        if (self.traceMode !== "backward") {
+            self.traceMode = "backward";
+            self.host.persistProperties({
+                merge: [{
+                    objectName: "persistedState",
+                    properties: { traceMode: self.traceMode },
+                    selector: null
+                }]
+            });
+            self.createTraceModeToggle();
+
+            // Force canvas refresh
+            self.forceCanvasRefresh();
+
+            self.forceFullUpdate = true;
+            if (self.lastUpdateOptions) {
+                self.update(self.lastUpdateOptions);
+            }
+        }
+    });
+
+    forwardButton.on("click", function() {
+        if (self.traceMode !== "forward") {
+            self.traceMode = "forward";
+            self.host.persistProperties({
+                merge: [{
+                    objectName: "persistedState",
+                    properties: { traceMode: self.traceMode },
+                    selector: null
+                }]
+            });
+            self.createTraceModeToggle();
+
+            // Force canvas refresh
+            self.forceCanvasRefresh();
+
+            self.forceFullUpdate = true;
+            if (self.lastUpdateOptions) {
+                self.update(self.lastUpdateOptions);
+            }
+        }
+    });
 }
 /**
  * Filters the dropdown items based on input text
