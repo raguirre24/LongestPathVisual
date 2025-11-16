@@ -54,6 +54,7 @@ export declare class Visual implements IVisual {
     private dropdownContainer;
     private dropdownInput;
     private dropdownList;
+    private marginResizer;
     private selectedTaskLabel;
     private pathInfoLabel;
     private traceMode;
@@ -300,6 +301,20 @@ export declare class Visual implements IVisual {
      * Populates the task dropdown with tasks from the dataset
      */
     private populateTaskDropdown;
+    /**
+     * Creates an interactive margin resizer that allows users to drag and adjust
+     * the left margin width between task descriptions and gantt bars
+     *
+     * CRITICAL: This must be called AFTER mainSvg has been sized with .attr("height", totalSvgHeight)
+     *
+     * IMPLEMENTATION: Uses SVG rect element so it scrolls with the gantt chart content
+     * and never appears in the sticky header area
+     */
+    private createMarginResizer;
+    /**
+     * Updates the position of the SVG margin resizer based on current settings
+     */
+    private updateMarginResizerPosition;
     /**
      * Creates the Trace Mode Toggle (Backward/Forward) with professional design
      * UPGRADED: Enhanced visuals, better button design, smoother animations, refined styling

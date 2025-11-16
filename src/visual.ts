@@ -209,6 +209,7 @@ export class Visual implements IVisual {
     private dropdownContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private dropdownInput: Selection<HTMLInputElement, unknown, null, undefined>;
     private dropdownList: Selection<HTMLDivElement, unknown, null, undefined>;
+    private marginResizer: Selection<HTMLDivElement, unknown, null, undefined>;
     private selectedTaskLabel: Selection<HTMLDivElement, unknown, null, undefined>;
     private pathInfoLabel: Selection<HTMLDivElement, unknown, null, undefined>;
 
@@ -451,7 +452,8 @@ constructor(options: VisualConstructorOptions) {
         .style("left", "0")
         .style("width", "100%")
         .style("height", `${this.headerHeight}px`)
-        .style("z-index", "10")
+        .style("z-index", "100")  // High z-index to ensure it's always above resizer
+        .style("background-color", "white")  // Solid background to cover anything behind it
         .style("overflow", "visible");
 
     // --- SVG for Header Elements ---
@@ -2417,9 +2419,10 @@ private async updateInternal(options: VisualUpdateOptions) {
         const connectorColor = this.settings.connectorLines.connectorColor.value.value;
 
         this.margin.left = this.settings.layoutSettings.leftMargin.value;
+        this.updateMarginResizerPosition();
 
         this.clearVisual();
-        this.updateHeaderElements(viewportWidth); 
+        this.updateHeaderElements(viewportWidth);
         this.createFloatThresholdControl();
         this.createTaskSelectionDropdown();
         this.createTraceModeToggle();
@@ -2614,6 +2617,9 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         this.mainGroup.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
         this.headerGridLayer.attr("transform", `translate(${this.margin.left}, 0)`);
+
+        // Create/update the margin resizer after SVG is properly sized
+        this.createMarginResizer();
 
         const availableContentHeight = viewportHeight - this.headerHeight;
         if (totalSvgHeight > availableContentHeight && tasksToShow.length > 1) {
@@ -7167,7 +7173,7 @@ private createTaskSelectionDropdown(): void {
         .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
         .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("font-size", `${this.UI_TOKENS.fontSize.lg}px`)
         .style("color", this.UI_TOKENS.color.neutral.grey160)
         .style("background", this.UI_TOKENS.color.neutral.white)
         .style("box-sizing", "border-box")
@@ -7356,10 +7362,11 @@ private populateTaskDropdown(): void {
             .style("padding", "6px 10px")
             .style("cursor", "pointer")
             .style("border-bottom", "1px solid #f5f5f5")
-            .style("white-space", "nowrap")
-            .style("overflow", "visible")
-            .style("text-overflow", "ellipsis")
-            .style("font-size", "10px")
+            .style("white-space", "normal")
+            .style("word-wrap", "break-word")
+            .style("overflow-wrap", "break-word")
+            .style("line-height", "1.4")
+            .style("font-size", "11px")
             .style("font-family", "Segoe UI, sans-serif")
             .style("background-color", task.internalId === self.selectedTaskId ? "#f0f0f0" : "white")
             .style("font-weight", task.internalId === self.selectedTaskId ? "600" : "normal")
@@ -7390,6 +7397,165 @@ private populateTaskDropdown(): void {
     });
     
     this.debugLog(`Populated dropdown with ${sortedTasks.length} tasks plus clear option`);
+}
+
+/**
+ * Creates an interactive margin resizer that allows users to drag and adjust
+ * the left margin width between task descriptions and gantt bars
+ *
+ * CRITICAL: This must be called AFTER mainSvg has been sized with .attr("height", totalSvgHeight)
+ *
+ * IMPLEMENTATION: Uses SVG rect element so it scrolls with the gantt chart content
+ * and never appears in the sticky header area
+ */
+private createMarginResizer(): void {
+    // Remove any existing resizer from SVG
+    this.mainSvg.selectAll(".margin-resizer-group").remove();
+
+    // Get the actual SVG height - this determines where gantt bars are rendered
+    const svgHeight = this.mainSvg ? parseFloat(this.mainSvg.attr("height")) || 0 : 0;
+
+    if (svgHeight === 0) {
+        // SVG not sized yet, skip creating resizer
+        this.debugLog("Skipping resizer creation - SVG height is 0");
+        return;
+    }
+
+    // The gantt bars are rendered in mainGroup which is translated by margin.top
+    // Calculate the height of the gantt bar area
+    const resizerHeight = svgHeight - this.margin.top - this.margin.bottom;
+
+    if (resizerHeight <= 0) {
+        this.debugLog("Skipping resizer creation - calculated height <= 0");
+        return;
+    }
+
+    this.debugLog(`Creating SVG resizer: height=${resizerHeight}px, svgHeight=${svgHeight}px`);
+
+    // Create a group for the resizer within mainSvg (so it scrolls with content)
+    const resizerGroup = this.mainSvg.append("g")
+        .attr("class", "margin-resizer-group")
+        .attr("transform", `translate(0, ${this.margin.top})`)  // Position after date axis
+        .style("cursor", "col-resize");
+
+    // Create an invisible wide rect for easy grabbing (8px wide)
+    const interactionRect = resizerGroup.append("rect")
+        .attr("class", "margin-resizer-interaction")
+        .attr("x", 0)  // Will be positioned by updateMarginResizerPosition
+        .attr("y", 0)
+        .attr("width", 8)
+        .attr("height", resizerHeight)
+        .attr("fill", "transparent")
+        .style("cursor", "col-resize")
+        .style("pointer-events", "all");
+
+    // Create the visible 2px line
+    const visibleLine = resizerGroup.append("rect")
+        .attr("class", "margin-resizer-line")
+        .attr("x", 3)  // Center within the 8px interaction zone
+        .attr("y", 0)
+        .attr("width", 2)
+        .attr("height", resizerHeight)
+        .attr("fill", this.UI_TOKENS.color.neutral.grey60)
+        .style("pointer-events", "none")  // Let parent handle events
+        .style("transition", `fill ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+    // Store reference to the group for later updates
+    this.marginResizer = resizerGroup as any;
+
+    // Position the resizer horizontally
+    this.updateMarginResizerPosition();
+
+    // Add hover effect (SVG attributes instead of CSS)
+    const self = this;
+    this.marginResizer
+        .on("mouseenter", function() {
+            d3.select(this).select(".margin-resizer-line")
+                .attr("fill", self.UI_TOKENS.color.primary.default)
+                .attr("width", 3);  // Make slightly wider on hover
+        })
+        .on("mouseleave", function() {
+            d3.select(this).select(".margin-resizer-line")
+                .attr("fill", self.UI_TOKENS.color.neutral.grey60)
+                .attr("width", 2);
+        });
+
+    // Add drag behavior with proper coordinate handling
+    let isDragging = false;
+    const drag = d3.drag<SVGGElement, unknown>()
+        .on("start", function(event) {
+            isDragging = true;
+            d3.select(this).select(".margin-resizer-line")
+                .attr("fill", self.UI_TOKENS.color.primary.pressed)
+                .attr("width", 4);
+        })
+        .on("drag", function(event) {
+            if (!isDragging) return;
+
+            // Get the SVG bounds for coordinate calculation
+            const svgNode = self.mainSvg.node();
+            if (!svgNode) return;
+
+            const svgRect = svgNode.getBoundingClientRect();
+
+            // Calculate the new left margin based on mouse position relative to SVG
+            const mouseX = event.sourceEvent.clientX - svgRect.left;
+            const newLeftMargin = Math.max(50, Math.min(600, mouseX));
+
+            // Update the setting value
+            self.settings.layoutSettings.leftMargin.value = newLeftMargin;
+
+            // Update the margin and resizer position immediately for smooth dragging
+            self.margin.left = newLeftMargin;
+            self.updateMarginResizerPosition();
+
+            // Update transforms for immediate visual feedback during drag
+            if (self.mainGroup) {
+                self.mainGroup.attr("transform", `translate(${self.margin.left}, ${self.margin.top})`);
+            }
+            if (self.headerGridLayer) {
+                self.headerGridLayer.attr("transform", `translate(${self.margin.left}, 0)`);
+            }
+        })
+        .on("end", function(event) {
+            isDragging = false;
+            d3.select(this).select(".margin-resizer-line")
+                .attr("fill", self.UI_TOKENS.color.primary.default)
+                .attr("width", 3);
+
+            // Persist the new margin value to Power BI settings
+            self.host.persistProperties({
+                merge: [{
+                    objectName: "layoutSettings",
+                    properties: { leftMargin: self.settings.layoutSettings.leftMargin.value },
+                    selector: null
+                }]
+            });
+
+            // Trigger a full re-render after dragging is complete
+            if (self.lastUpdateOptions) {
+                self.update(self.lastUpdateOptions);
+            }
+        });
+
+    this.marginResizer.call(drag as any);
+}
+
+/**
+ * Updates the position of the SVG margin resizer based on current settings
+ */
+private updateMarginResizerPosition(): void {
+    if (!this.marginResizer || !this.settings) return;
+
+    const leftMargin = this.settings.layoutSettings.leftMargin.value;
+
+    // Position both the interaction rect and visible line at the margin boundary
+    // The group is already translated to (0, margin.top), so we only set x position
+    this.marginResizer.select(".margin-resizer-interaction")
+        .attr("x", leftMargin - 4);  // -4 to center the 8px wide zone on the margin line
+
+    this.marginResizer.select(".margin-resizer-line")
+        .attr("x", leftMargin - 1);  // -1 to center the 2px line on the margin
 }
 
 /**
