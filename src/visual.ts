@@ -7580,6 +7580,8 @@ private createMarginResizer(): void {
                 .attr("width", 3);
 
             // Persist the new margin value to Power BI settings
+            // Power BI will trigger an update when the persist completes, so we don't call update() here
+            // This prevents the snap-back effect where update() reads the old value before persist completes
             self.host.persistProperties({
                 merge: [{
                     objectName: "layoutSettings",
@@ -7588,10 +7590,8 @@ private createMarginResizer(): void {
                 }]
             });
 
-            // Trigger a final full re-render to ensure everything is properly updated
-            if (self.lastUpdateOptions) {
-                self.update(self.lastUpdateOptions);
-            }
+            // Don't call update() here - let Power BI trigger it after persistProperties completes
+            // The visual is already in the correct state from handleMarginDragUpdate()
         });
 
     this.marginResizer.call(drag as any);
