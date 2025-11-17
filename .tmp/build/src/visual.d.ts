@@ -160,6 +160,11 @@ export declare class Visual implements IVisual {
     private updateInternal;
     private handleViewportOnlyUpdate;
     private handleSettingsOnlyUpdate;
+    /**
+     * Handles margin-only updates during drag for real-time visual feedback
+     * Does NOT recreate the resizer or call clearVisual() to preserve drag state
+     */
+    private handleMarginDragUpdate;
     private clearVisual;
     private drawHeaderDivider;
     private createArrowheadMarkers;

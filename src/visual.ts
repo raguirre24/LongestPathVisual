@@ -2804,6 +2804,49 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("--- Visual Update End (Settings Only) ---");
     }
 
+/**
+ * Handles margin-only updates during drag for real-time visual feedback
+ * Does NOT recreate the resizer or call clearVisual() to preserve drag state
+ */
+private handleMarginDragUpdate(newLeftMargin: number): void {
+    if (!this.xScale || !this.yScale || !this.allTasksToShow) return;
+
+    // Update margin
+    this.margin.left = newLeftMargin;
+
+    // Recalculate chart width based on new margin
+    const viewportWidth = this.lastViewport?.width || 0;
+    const chartWidth = Math.max(10, viewportWidth - newLeftMargin - this.margin.right);
+
+    // Update X scale range
+    this.xScale.range([0, chartWidth]);
+
+    // Update transforms
+    this.mainGroup?.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
+    this.headerGridLayer?.attr("transform", `translate(${this.margin.left}, 0)`);
+
+    // Redraw only the visual elements (gantt bars, grid lines, etc.) without destroying resizer
+    const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+
+    // Clear only the drawing layers, NOT the resizer
+    this.gridLayer?.selectAll("*").remove();
+    this.arrowLayer?.selectAll("*").remove();
+    this.taskLayer?.selectAll("*").remove();
+    this.headerGridLayer?.selectAll("*").remove();
+
+    // Redraw with new dimensions
+    this.drawVisualElements(
+        visibleTasks,
+        this.xScale,
+        this.yScale,
+        chartWidth,
+        0  // calculatedChartHeight not needed for redraw
+    );
+
+    // Update resizer position (but don't recreate it)
+    this.updateMarginResizerPosition();
+}
+
 private clearVisual(): void {
             this.gridLayer?.selectAll("*").remove();
             this.arrowLayer?.selectAll("*").remove();
@@ -7512,22 +7555,21 @@ private createMarginResizer(): void {
             // Update the margin immediately
             self.margin.left = newLeftMargin;
 
-            // Throttle the full visual redraw for performance
+            // Throttle redraws for performance
             const now = Date.now();
             if (now - lastDragTime >= dragThrottleMs) {
                 lastDragTime = now;
 
-                // Trigger full re-render during drag for real-time visual feedback
-                if (self.lastUpdateOptions) {
-                    // Create a copy of options with Resize flag to trigger proper redraw
-                    const dragUpdateOptions = {
-                        ...self.lastUpdateOptions,
-                        type: self.lastUpdateOptions.type | VisualUpdateType.Resize
-                    };
-                    self.update(dragUpdateOptions);
-                }
+                // Use lightweight margin update that preserves drag state
+                self.handleMarginDragUpdate(newLeftMargin);
             } else {
-                // Between throttled updates, just update the resizer position for smooth handle movement
+                // Between throttled updates, just update transforms for smooth movement
+                if (self.mainGroup) {
+                    self.mainGroup.attr("transform", `translate(${self.margin.left}, ${self.margin.top})`);
+                }
+                if (self.headerGridLayer) {
+                    self.headerGridLayer.attr("transform", `translate(${self.margin.left}, 0)`);
+                }
                 self.updateMarginResizerPosition();
             }
         })
