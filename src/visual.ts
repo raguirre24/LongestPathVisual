@@ -119,6 +119,8 @@ interface Task {
     previousUpdateFinishDate?: Date | null;
     yOrder?: number;
     tooltipData?: Map<string, PrimitiveValue>;
+    legendValue?: string;       // Value from legend field for this task
+    legendColor?: string;       // Assigned color for this legend value
 }
 
 interface Relationship {
@@ -190,6 +192,7 @@ export class Visual implements IVisual {
     // --- Configuration/Constants ---
     private margin = { top: 10, right: 100, bottom: 40, left: 280 };
     private headerHeight = 110;
+    private legendFooterHeight = 60;  // Fixed height for legend footer
     private dateLabelOffset = 8;
     private floatTolerance = 0.001;
     private defaultMaxTasks = 500;
@@ -237,6 +240,13 @@ export class Visual implements IVisual {
     
     // Enhanced data structures for performance
     private predecessorIndex: Map<string, Set<string>> = new Map(); // taskId -> Set of tasks that have this as predecessor
+
+    // Legend properties
+    private legendDataExists: boolean = false;
+    private legendColorMap: Map<string, string> = new Map(); // legendValue -> color
+    private legendCategories: string[] = []; // Unique legend values in order
+    private legendFieldName: string = ""; // Name of the legend field
+    private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>; // Legend UI container
 
     private relationshipIndex: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by successorId
 
@@ -554,9 +564,10 @@ constructor(options: VisualConstructorOptions) {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // --- Scrollable Container for main chart content ---
+    // Will be dynamically sized based on header + legend footer
     this.scrollableContainer = visualWrapper.append("div")
         .attr("class", "criticalPathContainer")
-        .style("height", `calc(100% - ${this.headerHeight}px)`)
+        .style("height", `calc(100% - ${this.headerHeight}px)`)  // Will be updated when legend shown
         .style("width", "100%")
         .style("overflow-y", "auto")
         .style("overflow-x", "hidden")
@@ -574,6 +585,21 @@ constructor(options: VisualConstructorOptions) {
     this.gridLayer = this.mainGroup.append("g").attr("class", "grid-layer");
     this.arrowLayer = this.mainGroup.append("g").attr("class", "arrow-layer");
     this.taskLayer = this.mainGroup.append("g").attr("class", "task-layer");
+
+    // --- Sticky Legend Footer Container (similar to header) ---
+    this.legendContainer = visualWrapper.append("div")
+        .attr("class", "sticky-legend-footer")
+        .style("position", "sticky")
+        .style("bottom", "0")
+        .style("left", "0")
+        .style("width", "100%")
+        .style("height", `${this.legendFooterHeight}px`)
+        .style("z-index", "100")
+        .style("background-color", "white")
+        .style("border-top", "2px solid #e0e0e0")
+        .style("box-shadow", "0 -2px 4px rgba(0,0,0,0.1)")
+        .style("display", "none")
+        .style("overflow", "hidden");
 
     // --- Canvas layer for high-performance rendering ---
     this.canvasElement = document.createElement('canvas');
@@ -2632,7 +2658,10 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         const visibleTasks = tasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
         this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
-        
+
+        // Render legend after visual elements are drawn
+        this.renderLegend(viewportWidth, viewportHeight);
+
         const renderEndTime = performance.now();
         this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
 
@@ -3132,7 +3161,7 @@ private showTaskTooltip(task: Task, event: MouseEvent): void {
         .style("color", function() {
             if (task.internalId === this.selectedTaskId) return selectionHighlightColor;
             if (task.isCritical) return criticalColor;
-            if (task.isNearCritical) return "#F7941F";
+            if (task.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
             return "inherit";
         }.bind(this))
         .text(function() {
@@ -3842,7 +3871,7 @@ private drawTasks(
     const lineHeight = this.taskLabelLineHeight;
     const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
     const dateBgPaddingV = this.dateBackgroundPadding.vertical;
-    const nearCriticalColor = "#F7941F"; // Yellow for near-critical tasks
+    const nearCriticalColor = this.settings.taskAppearance.nearCriticalColor.value.value;
     const self = this; // Store reference for callbacks
     
     // Define selection highlight styles
@@ -3987,20 +4016,37 @@ private drawTasks(
         // UPGRADED: Increased corner radius from 3px to 5px for smoother appearance
         .attr("rx", Math.min(5, taskHeight * 0.15)).attr("ry", Math.min(5, taskHeight * 0.15))
         .style("fill", (d: Task) => {
+            // Fill color: use legend color if available, otherwise default
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-            if (d.isCritical) return criticalColor;
-            if (d.isNearCritical) return nearCriticalColor;
+            if (d.legendColor) return d.legendColor;
             return taskColor;
         })
-        // UPGRADED: Improved stroke weight for critical tasks and selected tasks
-        .style("stroke", (d: Task) => d.internalId === this.selectedTaskId ? selectionHighlightColor : "#333")
+        // Stroke: critical color for critical, near-critical color for near-critical
+        .style("stroke", (d: Task) => {
+            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
+            if (d.isCritical) return criticalColor;
+            if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
+            return "#333";
+        })
         .style("stroke-width", (d: Task) => {
-            if (d.internalId === this.selectedTaskId) return 3;  // UPGRADED: Increased from selectionStrokeWidth to 3px
-            if (d.isCritical) return 1;  // UPGRADED: Increased from 0.5px to 1px for critical tasks
+            if (d.internalId === this.selectedTaskId) return 3;
+            if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
+            if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
             return 0.5;
         })
-        // UPGRADED: Add subtle drop shadow for depth
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`);
+        // Add glow effect for critical/near-critical tasks using setting colors
+        .style("filter", (d: Task) => {
+            if (d.isCritical) {
+                const rgb = this.hexToRgb(criticalColor);
+                return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+            }
+            if (d.isNearCritical) {
+                const nearColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                const rgb = this.hexToRgb(nearColor);
+                return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+            }
+            return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
+        });
 
     // --- Draw Milestones ---
     allTaskGroups.filter((d: Task) =>
@@ -4026,16 +4072,37 @@ private drawTasks(
             return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
         })
         .style("fill", (d: Task) => {
+            // Fill color: use legend color if available, otherwise default milestone color
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-            if (d.isCritical) return criticalColor;
-            if (d.isNearCritical) return nearCriticalColor;
+            if (d.legendColor) return d.legendColor;
             return milestoneColor;
         })
-        .style("stroke", (d: Task) => d.internalId === this.selectedTaskId ? selectionHighlightColor : "#000")
-        // UPGRADED: Increased default stroke from 1px to 1.5px, selected to 3px
-        .style("stroke-width", (d: Task) => d.internalId === this.selectedTaskId ? 3 : 1.5)
-        // UPGRADED: Add subtle drop shadow for depth
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`);
+        // Stroke: critical color for critical, near-critical color for near-critical
+        .style("stroke", (d: Task) => {
+            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
+            if (d.isCritical) return criticalColor;
+            if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
+            return "#000";
+        })
+        .style("stroke-width", (d: Task) => {
+            if (d.internalId === this.selectedTaskId) return 3;
+            if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
+            if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
+            return 1.5;
+        })
+        // Add glow effect for critical/near-critical tasks using setting colors
+        .style("filter", (d: Task) => {
+            if (d.isCritical) {
+                const rgb = this.hexToRgb(criticalColor);
+                return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+            }
+            if (d.isNearCritical) {
+                const nearColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                const rgb = this.hexToRgb(nearColor);
+                return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+            }
+            return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
+        });
 
     // --- Update Task Labels ---
     // First remove existing labels to avoid updating complex wrapped text
@@ -4431,7 +4498,7 @@ private drawTasksCanvas(
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
         const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-        const nearCriticalColor = "#F7941F";
+        const nearCriticalColor = this.settings.taskAppearance.nearCriticalColor.value.value;
         
         // Previous Update settings
         const showPreviousUpdate = this.showPreviousUpdateInternal;
@@ -4501,14 +4568,24 @@ private drawTasksCanvas(
                 ctx.fillRect(x_base, y_base, width_base, Math.round(baselineHeight));
             }
             
-            // Determine task color
-            let fillColor = taskColor;
+            // Determine task fill color - use legend color if available, otherwise default
+            let fillColor = task.legendColor || taskColor;
             if (task.internalId === this.selectedTaskId) {
                 fillColor = "#8A2BE2";
+            }
+
+            // Determine stroke color and width for critical indicators
+            let strokeColor = "#333";
+            let strokeWidth = 0.5;
+            if (task.internalId === this.selectedTaskId) {
+                strokeColor = "#8A2BE2";
+                strokeWidth = 3;
             } else if (task.isCritical) {
-                fillColor = criticalColor;
+                strokeColor = criticalColor;
+                strokeWidth = this.settings.taskAppearance.criticalBorderWidth.value;
             } else if (task.isNearCritical) {
-                fillColor = nearCriticalColor;
+                strokeColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                strokeWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
             }
             
             // Draw task or milestone with pixel alignment
@@ -4552,9 +4629,9 @@ private drawTasksCanvas(
                     ctx.shadowOffsetX = 0;
                     ctx.shadowOffsetY = 0;
 
-                    // UPGRADED: Increased stroke weight (1.5px default, 3px for selected)
-                    ctx.strokeStyle = isSelected ? fillColor : "#000";
-                    ctx.lineWidth = isSelected ? 3 : 1.5;
+                    // Apply stroke based on criticality and selection
+                    ctx.strokeStyle = strokeColor;
+                    ctx.lineWidth = strokeWidth;
                     ctx.stroke();
                 }
             } else {
@@ -4604,14 +4681,10 @@ private drawTasksCanvas(
                     ctx.shadowOffsetX = 0;
                     ctx.shadowOffsetY = 0;
 
-                    // UPGRADED: Improved stroke weight for selected and critical tasks
-                    if (isSelected) {
-                        ctx.strokeStyle = fillColor;
-                        ctx.lineWidth = 3;  // UPGRADED: Increased from 2 to 3px
-                        ctx.stroke();
-                    } else if (isCritical) {
-                        ctx.strokeStyle = "#333";
-                        ctx.lineWidth = 1;
+                    // Apply stroke based on criticality and selection
+                    if (strokeWidth > 0.5) {
+                        ctx.strokeStyle = strokeColor;
+                        ctx.lineWidth = strokeWidth;
                         ctx.stroke();
                     }
 
@@ -4623,7 +4696,7 @@ private drawTasksCanvas(
 
                         ctx.save();
                         ctx.font = `bold ${durationFontSize}px ${fontFamily}`;
-                        ctx.fillStyle = "white";
+                        ctx.fillStyle = this.getDurationTextColor(fillColor);
                         ctx.textAlign = "center";
                         ctx.textBaseline = "middle";
 
@@ -6581,9 +6654,15 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         ? this.parseDate(row[previousUpdateFinishDateIdx]) 
         : null;
     
+    // Parse legend value
+    const legendIdx = this.getColumnIndex(dataView, 'legend');
+    const legendValue = (legendIdx !== -1 && row[legendIdx] != null)
+        ? String(row[legendIdx]).trim()
+        : undefined;
+
     // Get tooltip data
     const tooltipData = this.extractTooltipData(row, dataView);
-    
+
     // Create task object
     const task: Task = {
         id: row[this.getColumnIndex(dataView, 'taskId')],
@@ -6612,9 +6691,10 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         baselineFinishDate: baselineFinishDate,
         previousUpdateStartDate: previousUpdateStartDate,
         previousUpdateFinishDate: previousUpdateFinishDate,
-        tooltipData: tooltipData
+        tooltipData: tooltipData,
+        legendValue: legendValue
     };
-    
+
     return task;
 }
 
@@ -6855,11 +6935,81 @@ private transformDataOptimized(dataView: DataView): void {
             .filter(t => t !== undefined) as Task[];
     }
 
+    // Process legend data and assign colors
+    this.processLegendData(dataView);
+
     const endTime = performance.now();
     this.debugLog(`Data transformation complete in ${endTime - startTime}ms. ` +
                 `Found ${this.allTasksData.length} tasks and ${this.relationships.length} relationships.`);
 }
-    
+
+/**
+ * Process legend data and assign colors to tasks based on legend values
+ */
+private processLegendData(dataView: DataView): void {
+    // Reset legend data
+    this.legendDataExists = false;
+    this.legendColorMap.clear();
+    this.legendCategories = [];
+    this.legendFieldName = "";
+
+    // Check if legend field exists in metadata
+    const columns = dataView.metadata?.columns;
+    if (!columns) return;
+
+    const legendColumn = columns.find(col => col.roles?.legend);
+    if (!legendColumn) {
+        // No legend field - clear legend colors from all tasks
+        for (const task of this.allTasksData) {
+            task.legendColor = undefined;
+        }
+        return;
+    }
+
+    // Extract legend field name
+    this.legendFieldName = legendColumn.displayName || "Legend";
+
+    // Collect unique legend values from tasks
+    const legendValueSet = new Set<string>();
+    for (const task of this.allTasksData) {
+        if (task.legendValue) {
+            legendValueSet.add(task.legendValue);
+        }
+    }
+
+    // Convert to sorted array
+    this.legendCategories = Array.from(legendValueSet).sort();
+
+    if (this.legendCategories.length === 0) {
+        // No legend values found
+        for (const task of this.allTasksData) {
+            task.legendColor = undefined;
+        }
+        return;
+    }
+
+    this.legendDataExists = true;
+
+    // Assign colors using Power BI's color palette
+    for (let i = 0; i < this.legendCategories.length; i++) {
+        const category = this.legendCategories[i];
+        // Use Power BI's color palette for consistent colors
+        const color = this.host.colorPalette.getColor(category).value;
+        this.legendColorMap.set(category, color);
+    }
+
+    // Assign colors to tasks
+    for (const task of this.allTasksData) {
+        if (task.legendValue) {
+            task.legendColor = this.legendColorMap.get(task.legendValue);
+        } else {
+            task.legendColor = undefined;
+        }
+    }
+
+    this.debugLog(`Legend processed: ${this.legendCategories.length} categories found`);
+}
+
     // Helper method to detect possible date values
     private mightBeDate(value: PrimitiveValue): boolean {
         // If already a Date, then it's a date
@@ -7979,6 +8129,263 @@ private ensureTaskVisible(taskId: string): void {
              this.settings = new VisualSettings();
         }
         return this.formattingSettingsService.buildFormattingModel(this.settings);
+    }
+
+    /**
+     * Render the legend UI in sticky footer with horizontal scrolling
+     */
+    private renderLegend(viewportWidth: number, viewportHeight: number): void {
+        if (!this.legendContainer) return;
+
+        // Check if legend should be shown
+        const showLegend = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
+
+        // Update scrollable container height based on legend visibility
+        if (showLegend) {
+            this.scrollableContainer.style("height", `calc(100% - ${this.headerHeight + this.legendFooterHeight}px)`);
+        } else {
+            this.scrollableContainer.style("height", `calc(100% - ${this.headerHeight}px)`);
+        }
+
+        if (!showLegend) {
+            this.legendContainer.style("display", "none");
+            return;
+        }
+
+        // Get legend settings
+        const fontSize = this.settings.legend.fontSize.value;
+        const showTitle = this.settings.legend.showTitle.value;
+        const titleText = this.settings.legend.titleText.value || this.legendFieldName;
+
+        // Clear existing legend content
+        this.legendContainer.selectAll("*").remove();
+
+        // Main container with flexbox layout
+        const mainContainer = this.legendContainer.append("div")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("height", "100%")
+            .style("padding", "0 10px");
+
+        // Left scroll arrow
+        const leftArrow = mainContainer.append("div")
+            .attr("class", "legend-scroll-left")
+            .style("flex-shrink", "0")
+            .style("width", "30px")
+            .style("height", "30px")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("cursor", "pointer")
+            .style("background-color", "#f0f0f0")
+            .style("border-radius", "4px")
+            .style("margin-right", "10px")
+            .style("user-select", "none")
+            .style("transition", "background-color 0.2s")
+            .text("◀")
+            .style("font-size", "14px")
+            .style("color", "#666");
+
+        // Scrollable content wrapper
+        const scrollWrapper = mainContainer.append("div")
+            .style("flex", "1")
+            .style("overflow", "hidden")
+            .style("position", "relative");
+
+        // Scrollable content container
+        const scrollableContent = scrollWrapper.append("div")
+            .attr("class", "legend-scrollable-content")
+            .style("display", "flex")
+            .style("gap", "20px")
+            .style("align-items", "center")
+            .style("transition", "transform 0.3s ease")
+            .style("padding", "5px 0");
+
+        // Add title if enabled
+        if (showTitle && titleText) {
+            scrollableContent.append("div")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", `${fontSize + 1}px`)
+                .style("font-weight", "bold")
+                .style("color", "#333")
+                .style("white-space", "nowrap")
+                .style("margin-right", "10px")
+                .text(titleText + ":");
+        }
+
+        // Add legend items
+        this.legendCategories.forEach(category => {
+            const color = this.legendColorMap.get(category) || "#999";
+
+            const item = scrollableContent.append("div")
+                .style("display", "flex")
+                .style("align-items", "center")
+                .style("gap", "6px")
+                .style("flex-shrink", "0")
+                .style("cursor", "pointer")
+                .style("user-select", "none")
+                .style("padding", "2px 8px")
+                .style("border-radius", "4px")
+                .style("transition", "background-color 0.2s");
+
+            // Color swatch
+            item.append("div")
+                .style("width", "14px")
+                .style("height", "14px")
+                .style("background-color", color)
+                .style("border", "1px solid #999")
+                .style("border-radius", "2px")
+                .style("flex-shrink", "0");
+
+            // Label
+            item.append("span")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", `${fontSize}px`)
+                .style("color", "#666")
+                .style("white-space", "nowrap")
+                .text(category);
+
+            // Hover effect
+            item.on("mouseenter", function() {
+                d3.select(this).style("background-color", "#f5f5f5");
+            }).on("mouseleave", function() {
+                d3.select(this).style("background-color", "transparent");
+            });
+        });
+
+        // Right scroll arrow
+        const rightArrow = mainContainer.append("div")
+            .attr("class", "legend-scroll-right")
+            .style("flex-shrink", "0")
+            .style("width", "30px")
+            .style("height", "30px")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("cursor", "pointer")
+            .style("background-color", "#f0f0f0")
+            .style("border-radius", "4px")
+            .style("margin-left", "10px")
+            .style("user-select", "none")
+            .style("transition", "background-color 0.2s")
+            .text("▶")
+            .style("font-size", "14px")
+            .style("color", "#666");
+
+        // Scroll logic
+        let scrollPosition = 0;
+        const scrollAmount = 200; // pixels to scroll per click
+
+        leftArrow.on("click", function() {
+            scrollPosition = Math.max(0, scrollPosition - scrollAmount);
+            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
+            updateArrowStates();
+        });
+
+        rightArrow.on("click", function() {
+            const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
+            const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
+            const maxScroll = Math.max(0, contentWidth - wrapperWidth);
+            scrollPosition = Math.min(maxScroll, scrollPosition + scrollAmount);
+            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
+            updateArrowStates();
+        });
+
+        // Update arrow states based on scroll position
+        const updateArrowStates = () => {
+            const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
+            const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
+            const maxScroll = Math.max(0, contentWidth - wrapperWidth);
+
+            // Disable/enable arrows
+            if (scrollPosition <= 0) {
+                leftArrow.style("opacity", "0.3").style("cursor", "default");
+            } else {
+                leftArrow.style("opacity", "1").style("cursor", "pointer");
+            }
+
+            if (scrollPosition >= maxScroll || maxScroll === 0) {
+                rightArrow.style("opacity", "0.3").style("cursor", "default");
+            } else {
+                rightArrow.style("opacity", "1").style("cursor", "pointer");
+            }
+        };
+
+        // Hover effects for arrows
+        leftArrow.on("mouseenter", function() {
+            if (scrollPosition > 0) {
+                d3.select(this).style("background-color", "#e0e0e0");
+            }
+        }).on("mouseleave", function() {
+            d3.select(this).style("background-color", "#f0f0f0");
+        });
+
+        rightArrow.on("mouseenter", function() {
+            const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
+            const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
+            if (scrollPosition < contentWidth - wrapperWidth) {
+                d3.select(this).style("background-color", "#e0e0e0");
+            }
+        }).on("mouseleave", function() {
+            d3.select(this).style("background-color", "#f0f0f0");
+        });
+
+        // Show legend and initialize arrow states
+        this.legendContainer.style("display", "block");
+
+        // Wait a frame for layout to settle, then update arrow states
+        setTimeout(() => updateArrowStates(), 0);
+    }
+
+    /**
+     * Convert hex color to RGB object
+     */
+    private hexToRgb(hex: string): { r: number; g: number; b: number } {
+        // Remove # if present
+        hex = hex.replace(/^#/, '');
+
+        // Parse hex values
+        const bigint = parseInt(hex, 16);
+        const r = (bigint >> 16) & 255;
+        const g = (bigint >> 8) & 255;
+        const b = bigint & 255;
+
+        return { r, g, b };
+    }
+
+    /**
+     * Calculate luminance of a color (for contrast calculation)
+     */
+    private getLuminance(r: number, g: number, b: number): number {
+        const a = [r, g, b].map(v => {
+            v /= 255;
+            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+        });
+        return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+    }
+
+    /**
+     * Get contrasting text color (black or white) for a given background color
+     */
+    private getContrastColor(backgroundColor: string): string {
+        const rgb = this.hexToRgb(backgroundColor);
+        const luminance = this.getLuminance(rgb.r, rgb.g, rgb.b);
+        // Use white text for dark backgrounds, black for light backgrounds
+        return luminance > 0.5 ? '#000000' : '#FFFFFF';
+    }
+
+    /**
+     * Get duration text color based on settings or auto-contrast
+     */
+    private getDurationTextColor(backgroundColor: string): string {
+        const settingColor = this.settings.textAndLabels.durationTextColor.value.value;
+
+        // If set to "Auto", calculate contrast color
+        if (settingColor === "Auto" || !settingColor) {
+            return this.getContrastColor(backgroundColor);
+        }
+
+        return settingColor;
     }
 
     // Debug helper

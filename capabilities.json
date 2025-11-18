@@ -102,6 +102,12 @@
             "kind": "Grouping",
             "displayName": "Tooltip",
             "description": "Additional fields to display in tooltips"
+        },
+        {
+            "name": "legend",
+            "kind": "Grouping",
+            "displayName": "Legend",
+            "description": "Categorical field to color tasks (e.g., WBS, Department, Phase)"
         }
     ],
     "objects": {
@@ -109,10 +115,13 @@
             "displayName": "Task Appearance",
             "properties": {
                 "taskColor": { "displayName": "Non-Critical Task Color", "type": { "fill": { "solid": { "color": true } } } },
-                "criticalPathColor": { "displayName": "Longest Path Color", "type": { "fill": { "solid": { "color": true } } } },
+                "criticalPathColor": { "displayName": "Longest Path Color", "description": "Color for critical task borders and glow", "type": { "fill": { "solid": { "color": true } } } },
+                "nearCriticalColor": { "displayName": "Near-Critical Color", "description": "Color for near-critical task borders and glow", "type": { "fill": { "solid": { "color": true } } } },
                 "milestoneColor": { "displayName": "Milestone Color", "type": { "fill": { "solid": { "color": true } } } },
                 "taskHeight": { "displayName": "Task Height", "type": { "numeric": true } },
                 "milestoneSize": { "displayName": "Milestone Size", "description": "Size of milestone markers (px)", "type": { "numeric": true } },
+                "criticalBorderWidth": { "displayName": "Critical Border Width (px)", "description": "Border thickness for critical tasks", "type": { "numeric": true } },
+                "nearCriticalBorderWidth": { "displayName": "Near-Critical Border Width (px)", "description": "Border thickness for near-critical tasks", "type": { "numeric": true } },
                 "showBaseline": { "displayName": "Show Baseline", "description": "Display baseline bars below the main task bars", "type": { "bool": true } },
                 "baselineColor": { "displayName": "Baseline Color", "type": { "fill": { "solid": { "color": true } } } },
                 "baselineHeight": { "displayName": "Baseline Height (px)", "type": { "numeric": true } },
@@ -185,6 +194,7 @@
                 "taskNameFontSize": { "displayName": "Task Name Font Size (pt)", "description": "Font size for task names in the left margin", "type": { "numeric": true } },
                 "labelColor": { "displayName": "Label Color", "description": "Color for task name and date labels", "type": { "fill": { "solid": { "color": true } } } },
                 "showDuration": { "displayName": "Show Duration (CPM)", "description": "Display calculated CPM duration text inside task bars", "type": { "bool": true } },
+                "durationTextColor": { "displayName": "Duration Text Color", "description": "Color for duration text inside bars (use 'Auto' for automatic contrast)", "type": { "fill": { "solid": { "color": true } } } },
                 "showFinishDates": { "displayName": "Show Finish Dates", "description": "Display finish date labels next to tasks/milestones", "type": { "bool": true } },
                 "dateBackgroundColor": { "displayName": "Date Background Color", "description": "Set the background color for finish date labels", "type": { "fill": { "solid": { "color": true } } } },
                 "dateBackgroundTransparency": { "displayName": "Date Background Transparency (%)", "description": "Set the transparency (0=Opaque, 100=Invisible)", "type": { "numeric": true } }
@@ -288,6 +298,42 @@
                 "floatThreshold": { "type": { "numeric": true } },
                 "traceMode": { "type": { "text": true } }
             }
+        },
+        "legend": {
+            "displayName": "Legend",
+            "properties": {
+                "show": {
+                    "displayName": "Show Legend",
+                    "description": "Display the legend when a legend field is added",
+                    "type": { "bool": true }
+                },
+                "position": {
+                    "displayName": "Position",
+                    "type": {
+                        "enumeration": [
+                            { "value": "Top", "displayName": "Top" },
+                            { "value": "Bottom", "displayName": "Bottom" },
+                            { "value": "Left", "displayName": "Left" },
+                            { "value": "Right", "displayName": "Right" }
+                        ]
+                    }
+                },
+                "fontSize": {
+                    "displayName": "Font Size (pt)",
+                    "description": "Font size for legend text",
+                    "type": { "numeric": true }
+                },
+                "showTitle": {
+                    "displayName": "Show Title",
+                    "description": "Display the legend title (field name)",
+                    "type": { "bool": true }
+                },
+                "titleText": {
+                    "displayName": "Title Text",
+                    "description": "Custom title text (defaults to field name if empty)",
+                    "type": { "text": true }
+                }
+            }
         }
     },
     "dataViewMappings": [
@@ -311,7 +357,8 @@
                         { "bind": { "to": "relationshipType" } },
                         { "bind": { "to": "relationshipLag" } },
                         { "bind": { "to": "relationshipFreeFloat" } },
-                        { "bind": { "to": "tooltip" } }
+                        { "bind": { "to": "tooltip" } },
+                        { "bind": { "to": "legend" } }
                     ],
                     "dataReductionAlgorithm": { "top": { "count": 60000 } }
                 }

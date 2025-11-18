@@ -25,10 +25,13 @@ const lineStyleItems: powerbi.IEnumMember[] = [
 class TaskAppearanceCard extends Card {
     name: string = "taskAppearance"; displayName: string = "Task Appearance";
     taskColor = new ColorPicker({ name: "taskColor", displayName: "Non-Critical Task Color", value: { value: "#0078D4" } }); // Blue color for non-critical tasks
-    criticalPathColor = new ColorPicker({ name: "criticalPathColor", displayName: "Longest Path Color", value: { value: "#E81123" } });
+    criticalPathColor = new ColorPicker({ name: "criticalPathColor", displayName: "Longest Path Color", description: "Color for critical task borders and glow", value: { value: "#E81123" } });
+    nearCriticalColor = new ColorPicker({ name: "nearCriticalColor", displayName: "Near-Critical Color", description: "Color for near-critical task borders and glow", value: { value: "#F7941F" } });
     milestoneColor = new ColorPicker({ name: "milestoneColor", displayName: "Milestone Color", value: { value: "#555555" } });
     taskHeight = new NumUpDown({ name: "taskHeight", displayName: "Task Height (px)", value: 18, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 40 } } });
     milestoneSize = new NumUpDown({ name: "milestoneSize", displayName: "Milestone Size (px)", description: "Size of milestone markers (px)", value: 12, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 4 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 30 } } });
+    criticalBorderWidth = new NumUpDown({ name: "criticalBorderWidth", displayName: "Critical Border Width (px)", description: "Border thickness for critical tasks", value: 2.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 } } });
+    nearCriticalBorderWidth = new NumUpDown({ name: "nearCriticalBorderWidth", displayName: "Near-Critical Border Width (px)", description: "Border thickness for near-critical tasks", value: 2, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 } } });
 
     // --- NEW: Baseline Settings ---
     showBaseline = new ToggleSwitch({
@@ -92,9 +95,10 @@ class TaskAppearanceCard extends Card {
         }
     });
 
-    slices: Slice[] = [ 
-        this.taskColor, this.criticalPathColor, this.milestoneColor, 
+    slices: Slice[] = [
+        this.taskColor, this.criticalPathColor, this.nearCriticalColor, this.milestoneColor,
         this.taskHeight, this.milestoneSize,
+        this.criticalBorderWidth, this.nearCriticalBorderWidth,
         this.showBaseline, this.baselineColor, this.baselineHeight, this.baselineOffset,
         this.showPreviousUpdate, this.previousUpdateColor, this.previousUpdateHeight, this.previousUpdateOffset
     ];
@@ -131,10 +135,11 @@ class TextAndLabelsCard extends Card {
     taskNameFontSize = new NumUpDown({ name: "taskNameFontSize", displayName: "Task Name Font Size (pt)", description: "Font size for task names in the left margin", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
     labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", value: { value: "#252525" } });
     showDuration = new ToggleSwitch({ name: "showDuration", displayName: "Show Duration (CPM)", description: "Display calculated CPM duration text inside task bars", value: true });
+    durationTextColor = new ColorPicker({ name: "durationTextColor", displayName: "Duration Text Color", description: "Color for duration text inside bars (use 'Auto' for automatic contrast)", value: { value: "Auto" } });
     showFinishDates = new ToggleSwitch({ name: "showFinishDates", displayName: "Show Finish Dates", description: "Display finish date labels next to tasks/milestones", value: true });
     dateBackgroundColor = new ColorPicker({ name: "dateBackgroundColor", displayName: "Date Background Color", value: { value: "#FFFFFF" } });
     dateBackgroundTransparency = new NumUpDown({ name: "dateBackgroundTransparency", displayName: "Date Background Transparency (%)", value: 20, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
-    slices: Slice[] = [ this.fontSize, this.taskNameFontSize, this.labelColor, this.showDuration, this.showFinishDates, this.dateBackgroundColor, this.dateBackgroundTransparency ];
+    slices: Slice[] = [ this.fontSize, this.taskNameFontSize, this.labelColor, this.showDuration, this.durationTextColor, this.showFinishDates, this.dateBackgroundColor, this.dateBackgroundTransparency ];
 }
 
 class LayoutSettingsCard extends Card {
@@ -324,6 +329,58 @@ class DrivingPathSelectionCard extends Card {
     slices: Slice[] = [this.enableMultiPathToggle, this.selectedPathIndex, this.showPathInfo];
 }
 
+class LegendCard extends Card {
+    name: string = "legend";
+    displayName: string = "Legend";
+
+    show = new ToggleSwitch({
+        name: "show",
+        displayName: "Show Legend",
+        description: "Display the legend when a legend field is added",
+        value: true
+    });
+
+    position = new ItemDropdown({
+        name: "position",
+        displayName: "Position",
+        items: [
+            { value: "Top", displayName: "Top" },
+            { value: "Bottom", displayName: "Bottom" },
+            { value: "Left", displayName: "Left" },
+            { value: "Right", displayName: "Right" }
+        ],
+        value: { value: "Top", displayName: "Top" }
+    });
+
+    fontSize = new NumUpDown({
+        name: "fontSize",
+        displayName: "Font Size (pt)",
+        description: "Font size for legend text",
+        value: 10,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 8 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 20 }
+        }
+    });
+
+    showTitle = new ToggleSwitch({
+        name: "showTitle",
+        displayName: "Show Title",
+        description: "Display the legend title (field name)",
+        value: true
+    });
+
+    titleText = new TextInput({
+        name: "titleText",
+        displayName: "Title Text",
+        description: "Custom title text (defaults to field name if empty)",
+        value: "",
+        placeholder: "Legend title..."
+    });
+
+    slices: Slice[] = [this.show, this.position, this.fontSize, this.showTitle, this.titleText];
+}
+
 class PersistedStateCard extends Card {
     name: string = "persistedState";
     displayName: string = "Persisted State";
@@ -364,6 +421,7 @@ export class VisualSettings extends Model {
     criticalityMode = new CriticalityModeCard();
     drivingPathSelection = new DrivingPathSelectionCard();
     taskSelection = new TaskSelectionCard();
+    legend = new LegendCard();
     persistedState = new PersistedStateCard();
 
     // Update the cards array
@@ -379,6 +437,7 @@ export class VisualSettings extends Model {
         this.criticalityMode,
         this.drivingPathSelection,
         this.taskSelection,
+        this.legend,
         this.persistedState
     ];
 }

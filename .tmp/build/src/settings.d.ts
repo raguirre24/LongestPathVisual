@@ -7,9 +7,12 @@ declare class TaskAppearanceCard extends Card {
     displayName: string;
     taskColor: formattingSettings.ColorPicker;
     criticalPathColor: formattingSettings.ColorPicker;
+    nearCriticalColor: formattingSettings.ColorPicker;
     milestoneColor: formattingSettings.ColorPicker;
     taskHeight: formattingSettings.NumUpDown;
     milestoneSize: formattingSettings.NumUpDown;
+    criticalBorderWidth: formattingSettings.NumUpDown;
+    nearCriticalBorderWidth: formattingSettings.NumUpDown;
     showBaseline: formattingSettings.ToggleSwitch;
     baselineColor: formattingSettings.ColorPicker;
     baselineHeight: formattingSettings.NumUpDown;
@@ -37,6 +40,7 @@ declare class TextAndLabelsCard extends Card {
     taskNameFontSize: formattingSettings.NumUpDown;
     labelColor: formattingSettings.ColorPicker;
     showDuration: formattingSettings.ToggleSwitch;
+    durationTextColor: formattingSettings.ColorPicker;
     showFinishDates: formattingSettings.ToggleSwitch;
     dateBackgroundColor: formattingSettings.ColorPicker;
     dateBackgroundTransparency: formattingSettings.NumUpDown;
@@ -110,6 +114,16 @@ declare class DrivingPathSelectionCard extends Card {
     showPathInfo: formattingSettings.ToggleSwitch;
     slices: Slice[];
 }
+declare class LegendCard extends Card {
+    name: string;
+    displayName: string;
+    show: formattingSettings.ToggleSwitch;
+    position: formattingSettings.ItemDropdown;
+    fontSize: formattingSettings.NumUpDown;
+    showTitle: formattingSettings.ToggleSwitch;
+    titleText: formattingSettings.TextInput;
+    slices: Slice[];
+}
 declare class PersistedStateCard extends Card {
     name: string;
     displayName: string;
@@ -131,6 +145,7 @@ export declare class VisualSettings extends Model {
     criticalityMode: CriticalityModeCard;
     drivingPathSelection: DrivingPathSelectionCard;
     taskSelection: TaskSelectionCard;
+    legend: LegendCard;
     persistedState: PersistedStateCard;
     cards: Card[];
 }
