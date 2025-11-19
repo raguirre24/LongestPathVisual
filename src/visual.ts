@@ -2933,31 +2933,35 @@ private drawHeaderDivider(viewportWidth: number): void {
         targetSvg.select("defs").remove();
         const defs = targetSvg.append("defs");
         
-        // Create critical path marker with simpler definition
+        // Create critical path marker - LARGER and more visible
         defs.append("marker")
             .attr("id", "arrowhead-critical")
-            .attr("viewBox", "0 0 10 10")
-            .attr("refX", 9)
-            .attr("refY", 5)
-            .attr("markerWidth", arrowSize)
-            .attr("markerHeight", arrowSize)
+            .attr("viewBox", "0 0 12 12")
+            .attr("refX", 11)  // Position at tip
+            .attr("refY", 6)
+            .attr("markerWidth", arrowSize * 1.5)  // 50% larger
+            .attr("markerHeight", arrowSize * 1.5)
             .attr("orient", "auto")
-            .append("polygon")
-                .attr("points", "0,0 10,5 0,10")
-                .style("fill", criticalColor);
-    
-        // Create normal marker with simpler definition
+            .append("path")
+                .attr("d", "M 1,1 L 11,6 L 1,11 L 3,6 Z")  // Filled triangle with notch
+                .style("fill", criticalColor)
+                .style("stroke", criticalColor)
+                .style("stroke-width", "0.5");
+
+        // Create normal connector marker - LARGER and more visible
         defs.append("marker")
             .attr("id", "arrowhead")
-            .attr("viewBox", "0 0 10 10")
-            .attr("refX", 9)
-            .attr("refY", 5)
-            .attr("markerWidth", arrowSize)
-            .attr("markerHeight", arrowSize)
+            .attr("viewBox", "0 0 12 12")
+            .attr("refX", 11)
+            .attr("refY", 6)
+            .attr("markerWidth", arrowSize * 1.3)  // 30% larger
+            .attr("markerHeight", arrowSize * 1.3)
             .attr("orient", "auto")
-            .append("polygon")
-                .attr("points", "0,0 10,5 0,10")
-                .style("fill", connectorColor);
+            .append("path")
+                .attr("d", "M 1,1 L 11,6 L 1,11 L 3,6 Z")
+                .style("fill", connectorColor)
+                .style("stroke", connectorColor)
+                .style("stroke-width", "0.5");
     }
 
 private setupTimeBasedSVGAndScales(
@@ -4016,35 +4020,65 @@ private drawTasks(
         // UPGRADED: Increased corner radius from 3px to 5px for smoother appearance
         .attr("rx", Math.min(5, taskHeight * 0.15)).attr("ry", Math.min(5, taskHeight * 0.15))
         .style("fill", (d: Task) => {
-            // Fill color: use legend color if available, otherwise default
+            // Selected task always highlighted
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-            if (d.legendColor) return d.legendColor;
+
+            // WITH LEGEND: Use legend colors for fill
+            if (this.legendDataExists && d.legendColor) {
+                return d.legendColor;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Use fill to show criticality
+            if (!this.legendDataExists) {
+                if (d.isCritical) return criticalColor;
+                if (d.isNearCritical) return nearCriticalColor;
+            }
+
+            // Default color
             return taskColor;
         })
-        // Stroke: critical color for critical, near-critical color for near-critical
+        // Stroke: different logic based on legend
         .style("stroke", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-            if (d.isCritical) return criticalColor;
-            if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
+
+            // WITH LEGEND: Use borders to show criticality
+            if (this.legendDataExists) {
+                if (d.isCritical) return criticalColor;
+                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Minimal borders
             return "#333";
         })
         .style("stroke-width", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return 3;
-            if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
-            if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
+
+            // WITH LEGEND: Thick borders for critical tasks
+            if (this.legendDataExists) {
+                if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
+                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Thin borders for everyone
+            if (d.isCritical) return 1;  // Slightly thicker for critical
             return 0.5;
         })
-        // Add glow effect for critical/near-critical tasks using setting colors
+        // Glow: only with legend
         .style("filter", (d: Task) => {
-            if (d.isCritical) {
-                const rgb = this.hexToRgb(criticalColor);
-                return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+            // WITH LEGEND: Add glow for critical tasks
+            if (this.legendDataExists) {
+                if (d.isCritical) {
+                    const rgb = this.hexToRgb(criticalColor);
+                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                }
+                if (d.isNearCritical) {
+                    const nearColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                    const rgb = this.hexToRgb(nearColor);
+                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                }
             }
-            if (d.isNearCritical) {
-                const nearColor = this.settings.taskAppearance.nearCriticalColor.value.value;
-                const rgb = this.hexToRgb(nearColor);
-                return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
-            }
+
+            // WITHOUT LEGEND (OLD STYLE): Standard shadow
             return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
         });
 
@@ -4072,35 +4106,64 @@ private drawTasks(
             return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
         })
         .style("fill", (d: Task) => {
-            // Fill color: use legend color if available, otherwise default milestone color
+            // Selected task always highlighted
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-            if (d.legendColor) return d.legendColor;
+
+            // WITH LEGEND: Use legend colors for fill
+            if (this.legendDataExists && d.legendColor) {
+                return d.legendColor;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Use fill to show criticality
+            if (!this.legendDataExists) {
+                if (d.isCritical) return criticalColor;
+                if (d.isNearCritical) return nearCriticalColor;
+            }
+
+            // Default milestone color
             return milestoneColor;
         })
-        // Stroke: critical color for critical, near-critical color for near-critical
+        // Stroke: different logic based on legend
         .style("stroke", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-            if (d.isCritical) return criticalColor;
-            if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
+
+            // WITH LEGEND: Use borders to show criticality
+            if (this.legendDataExists) {
+                if (d.isCritical) return criticalColor;
+                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Standard black border
             return "#000";
         })
         .style("stroke-width", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return 3;
-            if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
-            if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
+
+            // WITH LEGEND: Thick borders for critical tasks
+            if (this.legendDataExists) {
+                if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
+                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Standard border
             return 1.5;
         })
-        // Add glow effect for critical/near-critical tasks using setting colors
+        // Glow: only with legend
         .style("filter", (d: Task) => {
-            if (d.isCritical) {
-                const rgb = this.hexToRgb(criticalColor);
-                return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+            // WITH LEGEND: Add glow for critical tasks
+            if (this.legendDataExists) {
+                if (d.isCritical) {
+                    const rgb = this.hexToRgb(criticalColor);
+                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                }
+                if (d.isNearCritical) {
+                    const nearColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                    const rgb = this.hexToRgb(nearColor);
+                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                }
             }
-            if (d.isNearCritical) {
-                const nearColor = this.settings.taskAppearance.nearCriticalColor.value.value;
-                const rgb = this.hexToRgb(nearColor);
-                return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
-            }
+
+            // WITHOUT LEGEND (OLD STYLE): Standard shadow
             return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
         });
 
@@ -4568,24 +4631,51 @@ private drawTasksCanvas(
                 ctx.fillRect(x_base, y_base, width_base, Math.round(baselineHeight));
             }
             
-            // Determine task fill color - use legend color if available, otherwise default
-            let fillColor = task.legendColor || taskColor;
+            // Determine task fill color based on legend existence
+            let fillColor = taskColor;  // Default
+
+            // Selected task always highlighted
             if (task.internalId === this.selectedTaskId) {
                 fillColor = "#8A2BE2";
+            } else {
+                // WITH LEGEND: Use legend colors for fill
+                if (this.legendDataExists && task.legendColor) {
+                    fillColor = task.legendColor;
+                }
+                // WITHOUT LEGEND (OLD STYLE): Use fill to show criticality
+                else if (!this.legendDataExists) {
+                    if (task.isCritical) {
+                        fillColor = criticalColor;
+                    } else if (task.isNearCritical) {
+                        fillColor = nearCriticalColor;
+                    }
+                }
             }
 
-            // Determine stroke color and width for critical indicators
+            // Determine stroke color and width based on legend existence
             let strokeColor = "#333";
             let strokeWidth = 0.5;
+
             if (task.internalId === this.selectedTaskId) {
                 strokeColor = "#8A2BE2";
                 strokeWidth = 3;
-            } else if (task.isCritical) {
-                strokeColor = criticalColor;
-                strokeWidth = this.settings.taskAppearance.criticalBorderWidth.value;
-            } else if (task.isNearCritical) {
-                strokeColor = this.settings.taskAppearance.nearCriticalColor.value.value;
-                strokeWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
+            } else {
+                // WITH LEGEND: Use borders to show criticality
+                if (this.legendDataExists) {
+                    if (task.isCritical) {
+                        strokeColor = criticalColor;
+                        strokeWidth = this.settings.taskAppearance.criticalBorderWidth.value;
+                    } else if (task.isNearCritical) {
+                        strokeColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                        strokeWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
+                    }
+                }
+                // WITHOUT LEGEND (OLD STYLE): Minimal borders
+                else {
+                    if (task.isCritical) {
+                        strokeWidth = 1;  // Slightly thicker for critical
+                    }
+                }
             }
             
             // Draw task or milestone with pixel alignment
@@ -5120,7 +5210,7 @@ private drawArrowsCanvas(
         // If connector lines are hidden, clear any existing lines and return
         if (!this.showConnectorLinesInternal) {
             if (this.arrowLayer) {
-                this.arrowLayer.selectAll(".relationship-arrow").remove();
+                this.arrowLayer.selectAll(".relationship-arrow, .connection-dot-start, .connection-dot-end").remove();
             }
             return;
         }
@@ -5129,7 +5219,7 @@ private drawArrowsCanvas(
             console.warn("Skipping arrow drawing: Missing layer or invalid scales.");
             return;
         }
-        this.arrowLayer.selectAll(".relationship-arrow").remove();
+        this.arrowLayer.selectAll(".relationship-arrow, .connection-dot-start, .connection-dot-end").remove();
 
         // Replace arrowHeadVisibleLength calculation with fixed value
         const connectionEndPadding = 0; // Fixed padding instead of dynamic arrow size
@@ -5158,7 +5248,7 @@ private drawArrowsCanvas(
             })
             .attr("stroke-linecap", "round")  // UPGRADED: Rounded line caps for smoother appearance
             .attr("stroke-linejoin", "round")  // UPGRADED: Rounded joins for smoother corners
-            // marker-end attribute removed
+            .attr("marker-end", (d: Relationship) => d.isCritical ? "url(#arrowhead-critical)" : "url(#arrowhead)")  // RESTORED: Arrowheads!
             .attr("d", (rel: Relationship): string | null => {
                 const pred = this.taskIdToTask.get(rel.predecessorId);
                 const succ = this.taskIdToTask.get(rel.successorId);
@@ -5291,6 +5381,90 @@ private drawArrowsCanvas(
                 return pathData;
             })
             .filter(function() { return d3.select(this).attr("d") !== null; });
+
+        // Add connection dots at start and end points for clarity
+        this.arrowLayer.selectAll(".connection-dot-start")
+            .data(visibleRelationships, (d: Relationship) => `start-${d.predecessorId}-${d.successorId}`)
+            .enter()
+            .append("circle")
+            .attr("class", "connection-dot-start")
+            .attr("r", 2.5)  // Small dot
+            .attr("fill", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
+            .attr("stroke", "white")
+            .attr("stroke-width", 0.5)
+            .attr("cx", (rel: Relationship): number => {
+                const pred = this.taskIdToTask.get(rel.predecessorId);
+                const predYOrder = taskPositions.get(rel.predecessorId);
+                if (!pred || predYOrder === undefined) return 0;
+
+                const relType = rel.type || 'FS';
+                const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
+
+                let baseStartDate: Date | null | undefined = null;
+                switch (relType) {
+                    case 'FS': case 'FF': baseStartDate = predIsMilestone ? (pred.startDate ?? pred.finishDate) : pred.finishDate; break;
+                    case 'SS': case 'SF': baseStartDate = pred.startDate; break;
+                }
+
+                if (baseStartDate instanceof Date && !isNaN(baseStartDate.getTime())) {
+                    const startX = xScale(baseStartDate);
+                    const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                    const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
+
+                    if (relType === 'FS' || relType === 'FF') return startX + startGap;
+                    else return startX - startGap;
+                }
+                return 0;
+            })
+            .attr("cy", (rel: Relationship): number => {
+                const predYOrder = taskPositions.get(rel.predecessorId);
+                if (predYOrder === undefined) return 0;
+                const predYBandPos = yScale(predYOrder.toString());
+                if (predYBandPos === undefined) return 0;
+                return predYBandPos + taskHeight / 2;
+            });
+
+        // Add connection dots at end points
+        this.arrowLayer.selectAll(".connection-dot-end")
+            .data(visibleRelationships, (d: Relationship) => `end-${d.predecessorId}-${d.successorId}`)
+            .enter()
+            .append("circle")
+            .attr("class", "connection-dot-end")
+            .attr("r", 2.5)  // Small dot
+            .attr("fill", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
+            .attr("stroke", "white")
+            .attr("stroke-width", 0.5)
+            .attr("cx", (rel: Relationship): number => {
+                const succ = this.taskIdToTask.get(rel.successorId);
+                const succYOrder = taskPositions.get(rel.successorId);
+                if (!succ || succYOrder === undefined) return 0;
+
+                const relType = rel.type || 'FS';
+                const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
+
+                let baseEndDate: Date | null | undefined = null;
+                switch (relType) {
+                    case 'FS': case 'SS': baseEndDate = succ.startDate; break;
+                    case 'FF': case 'SF': baseEndDate = succIsMilestone ? (succ.startDate ?? succ.finishDate) : succ.finishDate; break;
+                }
+
+                if (baseEndDate instanceof Date && !isNaN(baseEndDate.getTime())) {
+                    const endX = xScale(baseEndDate);
+                    const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                    const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
+
+                    if (relType === 'FS' || relType === 'SS') return endX - endGap;
+                    else return endX + endGap;
+                }
+                return 0;
+            })
+            .attr("cy", (rel: Relationship): number => {
+                const succYOrder = taskPositions.get(rel.successorId);
+                if (succYOrder === undefined) return 0;
+                const succYBandPos = yScale(succYOrder.toString());
+                if (succYBandPos === undefined) return 0;
+                return succYBandPos + taskHeight / 2;
+            });
     }
 
     private drawProjectEndLine(
