@@ -79,6 +79,7 @@ export declare class Visual implements IVisual {
     private legendCategories;
     private legendFieldName;
     private legendContainer;
+    private selectedLegendCategories;
     private relationshipIndex;
     private allDrivingChains;
     private selectedPathIndex;
@@ -342,6 +343,10 @@ export declare class Visual implements IVisual {
     private selectTask;
     private ensureTaskVisible;
     getFormattingModel(): powerbi.visuals.FormattingModel;
+    /**
+     * Toggle a legend category on/off for filtering
+     */
+    private toggleLegendCategory;
     /**
      * Render the legend UI in sticky footer with horizontal scrolling
      */

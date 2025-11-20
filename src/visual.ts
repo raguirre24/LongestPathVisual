@@ -8,7 +8,7 @@ import { ScaleTime, ScaleBand } from "d3-scale";
 import powerbi from "powerbi-visuals-api";
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
-import VisualUpdateType = powerbi.VisualUpdateType; 
+import VisualUpdateType = powerbi.VisualUpdateType;
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import DataView = powerbi.DataView;
 import IViewport = powerbi.IViewport;
@@ -247,6 +247,7 @@ export class Visual implements IVisual {
     private legendCategories: string[] = []; // Unique legend values in order
     private legendFieldName: string = ""; // Name of the legend field
     private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>; // Legend UI container
+    private selectedLegendCategories: Set<string> = new Set(); // Empty set = all selected (no filter)
 
     private relationshipIndex: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by successorId
 
@@ -2343,6 +2344,9 @@ private toggleConnectorLinesDisplay(): void {
 }
 
     public update(options: VisualUpdateOptions) {
+        console.log("===== UPDATE() CALLED =====");
+        console.log("Update type:", options.type);
+        console.log("Has dataViews:", !!options.dataViews);
         void this.updateInternal(options);
     }
 
@@ -2617,8 +2621,20 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         tasksToPlot.sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
         tasksToPlot.forEach((task, index) => { task.yOrder = index; });
-        const tasksToShow = tasksToPlot;
-        
+        let tasksToShow = tasksToPlot;
+
+        // Apply legend filtering if legend categories are selected
+        if (this.legendDataExists && this.selectedLegendCategories.size > 0) {
+            tasksToShow = tasksToShow.filter(task => {
+                // Include task if it has a legend value that's selected
+                if (task.legendValue) {
+                    return this.selectedLegendCategories.has(task.legendValue);
+                }
+                // Include tasks without legend values (keep them visible)
+                return true;
+            });
+        }
+
         // ✅ CORRECT: Apply filter with valid tasks
         this.applyTaskFilter(tasksToShow.map(t => t.id));
 
@@ -6831,7 +6847,7 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
     // Parse legend value
     const legendIdx = this.getColumnIndex(dataView, 'legend');
     const legendValue = (legendIdx !== -1 && row[legendIdx] != null)
-        ? String(row[legendIdx]).trim()
+        ? String(row[legendIdx])
         : undefined;
 
     // Get tooltip data
@@ -7151,8 +7167,18 @@ private processLegendData(dataView: DataView): void {
         }
     }
 
-    // Convert to sorted array
-    this.legendCategories = Array.from(legendValueSet).sort();
+    // Convert to array and apply sort order based on settings
+    const legendArray = Array.from(legendValueSet);
+    const sortOrder = this.settings?.legend?.sortOrder?.value?.value || "none";
+
+    if (sortOrder === "ascending") {
+        this.legendCategories = legendArray.sort((a, b) => a.localeCompare(b));
+    } else if (sortOrder === "descending") {
+        this.legendCategories = legendArray.sort((a, b) => b.localeCompare(a));
+    } else {
+        // "none" - keep data order (order they appear in the dataset)
+        this.legendCategories = legendArray;
+    }
 
     if (this.legendCategories.length === 0) {
         // No legend values found
@@ -7164,10 +7190,8 @@ private processLegendData(dataView: DataView): void {
 
     this.legendDataExists = true;
 
-    // Assign colors using Power BI's color palette
-    for (let i = 0; i < this.legendCategories.length; i++) {
-        const category = this.legendCategories[i];
-        // Use Power BI's color palette for consistent colors
+    // Assign colors to each category using colorPalette
+    for (const category of this.legendCategories) {
         const color = this.host.colorPalette.getColor(category).value;
         this.legendColorMap.set(category, color);
     }
@@ -8302,7 +8326,40 @@ private ensureTaskVisible(taskId: string): void {
              // Create default settings if no data/options available yet
              this.settings = new VisualSettings();
         }
-        return this.formattingSettingsService.buildFormattingModel(this.settings);
+
+        const formattingModel = this.formattingSettingsService.buildFormattingModel(this.settings);
+
+        return formattingModel;
+    }
+
+    /**
+     * Toggle a legend category on/off for filtering
+     */
+    private toggleLegendCategory(category: string): void {
+        // If currently empty (all selected), clicking adds ONLY this category (filter TO it)
+        if (this.selectedLegendCategories.size === 0) {
+            this.selectedLegendCategories.add(category);
+        } else {
+            // Toggle the category
+            if (this.selectedLegendCategories.has(category)) {
+                this.selectedLegendCategories.delete(category);
+                // If all are deselected, reset to "all selected" state
+                if (this.selectedLegendCategories.size === 0) {
+                    // Keep it empty - empty = all selected
+                }
+            } else {
+                this.selectedLegendCategories.add(category);
+                // If all categories are now selected, reset to empty set for efficiency
+                if (this.selectedLegendCategories.size === this.legendCategories.length) {
+                    this.selectedLegendCategories.clear();
+                }
+            }
+        }
+
+        // Re-render the visual with the new filter
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
     }
 
     /**
@@ -8390,8 +8447,11 @@ private ensureTaskVisible(taskId: string): void {
         // Add legend items
         this.legendCategories.forEach(category => {
             const color = this.legendColorMap.get(category) || "#999";
+            // Check if this category is selected (empty set = all selected)
+            const isSelected = this.selectedLegendCategories.size === 0 || this.selectedLegendCategories.has(category);
 
             const item = scrollableContent.append("div")
+                .attr("data-category", category)
                 .style("display", "flex")
                 .style("align-items", "center")
                 .style("gap", "6px")
@@ -8400,7 +8460,8 @@ private ensureTaskVisible(taskId: string): void {
                 .style("user-select", "none")
                 .style("padding", "2px 8px")
                 .style("border-radius", "4px")
-                .style("transition", "background-color 0.2s");
+                .style("transition", "all 0.2s")
+                .style("opacity", isSelected ? "1" : "0.4");
 
             // Color swatch
             item.append("div")
@@ -8417,7 +8478,13 @@ private ensureTaskVisible(taskId: string): void {
                 .style("font-size", `${fontSize}px`)
                 .style("color", "#666")
                 .style("white-space", "nowrap")
+                .style("text-decoration", isSelected ? "none" : "line-through")
                 .text(category);
+
+            // Click handler for filtering
+            item.on("click", () => {
+                this.toggleLegendCategory(category);
+            });
 
             // Hover effect
             item.on("mouseenter", function() {

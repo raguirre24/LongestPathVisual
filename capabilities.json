@@ -332,6 +332,17 @@
                     "displayName": "Title Text",
                     "description": "Custom title text (defaults to field name if empty)",
                     "type": { "text": true }
+                },
+                "sortOrder": {
+                    "displayName": "Sort Order",
+                    "description": "Sort legend items alphabetically",
+                    "type": {
+                        "enumeration": [
+                            { "value": "none", "displayName": "Data Order" },
+                            { "value": "ascending", "displayName": "Ascending (A-Z)" },
+                            { "value": "descending", "displayName": "Descending (Z-A)" }
+                        ]
+                    }
                 }
             }
         }

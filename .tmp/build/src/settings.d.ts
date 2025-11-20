@@ -122,6 +122,7 @@ declare class LegendCard extends Card {
     fontSize: formattingSettings.NumUpDown;
     showTitle: formattingSettings.ToggleSwitch;
     titleText: formattingSettings.TextInput;
+    sortOrder: formattingSettings.ItemDropdown;
     slices: Slice[];
 }
 declare class PersistedStateCard extends Card {

@@ -378,7 +378,19 @@ class LegendCard extends Card {
         placeholder: "Legend title..."
     });
 
-    slices: Slice[] = [this.show, this.position, this.fontSize, this.showTitle, this.titleText];
+    sortOrder = new ItemDropdown({
+        name: "sortOrder",
+        displayName: "Sort Order",
+        description: "Sort legend items alphabetically",
+        items: [
+            { value: "none", displayName: "Data Order" },
+            { value: "ascending", displayName: "Ascending (A-Z)" },
+            { value: "descending", displayName: "Descending (Z-A)" }
+        ],
+        value: { value: "none", displayName: "Data Order" }
+    });
+
+    slices: Slice[] = [this.show, this.position, this.fontSize, this.showTitle, this.titleText, this.sortOrder];
 }
 
 class PersistedStateCard extends Card {
