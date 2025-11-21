@@ -80,6 +80,7 @@ export declare class Visual implements IVisual {
     private legendFieldName;
     private legendContainer;
     private selectedLegendCategories;
+    private legendSelectionIds;
     private relationshipIndex;
     private allDrivingChains;
     private selectedPathIndex;

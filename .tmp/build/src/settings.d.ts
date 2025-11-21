@@ -125,6 +125,31 @@ declare class LegendCard extends Card {
     sortOrder: formattingSettings.ItemDropdown;
     slices: Slice[];
 }
+declare class LegendColorsCard extends Card {
+    name: string;
+    displayName: string;
+    color1: formattingSettings.ColorPicker;
+    color2: formattingSettings.ColorPicker;
+    color3: formattingSettings.ColorPicker;
+    color4: formattingSettings.ColorPicker;
+    color5: formattingSettings.ColorPicker;
+    color6: formattingSettings.ColorPicker;
+    color7: formattingSettings.ColorPicker;
+    color8: formattingSettings.ColorPicker;
+    color9: formattingSettings.ColorPicker;
+    color10: formattingSettings.ColorPicker;
+    color11: formattingSettings.ColorPicker;
+    color12: formattingSettings.ColorPicker;
+    color13: formattingSettings.ColorPicker;
+    color14: formattingSettings.ColorPicker;
+    color15: formattingSettings.ColorPicker;
+    color16: formattingSettings.ColorPicker;
+    color17: formattingSettings.ColorPicker;
+    color18: formattingSettings.ColorPicker;
+    color19: formattingSettings.ColorPicker;
+    color20: formattingSettings.ColorPicker;
+    slices: Slice[];
+}
 declare class PersistedStateCard extends Card {
     name: string;
     displayName: string;
@@ -147,6 +172,7 @@ export declare class VisualSettings extends Model {
     drivingPathSelection: DrivingPathSelectionCard;
     taskSelection: TaskSelectionCard;
     legend: LegendCard;
+    legendColors: LegendColorsCard;
     persistedState: PersistedStateCard;
     cards: Card[];
 }

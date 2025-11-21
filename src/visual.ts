@@ -16,7 +16,7 @@ import IVisual = powerbi.extensibility.visual.IVisual;
 import PrimitiveValue = powerbi.PrimitiveValue;
 
 import { VisualSettings } from "./settings";
-import { FormattingSettingsService } from "powerbi-visuals-utils-formattingmodel";
+import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 import { IBasicFilter, FilterType } from "powerbi-models";
 import FilterAction = powerbi.FilterAction;
 import PriorityQueue from "./priorityQueue";
@@ -248,6 +248,7 @@ export class Visual implements IVisual {
     private legendFieldName: string = ""; // Name of the legend field
     private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>; // Legend UI container
     private selectedLegendCategories: Set<string> = new Set(); // Empty set = all selected (no filter)
+    private legendSelectionIds: Map<string, powerbi.visuals.ISelectionId> = new Map(); // Category -> SelectionId for color persistence (Pillar 2)
 
     private relationshipIndex: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by successorId
 
@@ -2468,8 +2469,12 @@ private async updateInternal(options: VisualUpdateOptions) {
             return;
         }
         this.debugLog("Data roles validated.");
-        
+
         this.transformDataOptimized(dataView);
+
+        // CRITICAL FIX: Re-populate settings model now that SelectionIds exist.
+        // This ensures the formatting pane gets valid selectors for the color pickers.
+        this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
 
         // Phase 2: Invalidate render cache after data transformation
         this.invalidateRenderCache();
@@ -2772,9 +2777,20 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         const oldMultiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value;
         const oldShowPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value;
 
-        // Update settings
+        // --- FIX START: REORDERED LOGIC ---
+
+        // 1. First, process legend data to generate fresh SelectionIDs from the current DataView
+        if (options.dataViews?.[0]) {
+            this.processLegendData(options.dataViews[0]);
+        }
+
+        // 2. THEN populate settings.
+        // getFormattingModel will now find the valid SelectionIds generated in step 1
+        // and create functional color pickers.
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(
             VisualSettings, options.dataViews[0]);
+
+        // --- FIX END ---
 
         // Check if driving path selection changed
         const newSelectedPathIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value;
@@ -7141,6 +7157,7 @@ private processLegendData(dataView: DataView): void {
     this.legendDataExists = false;
     this.legendColorMap.clear();
     this.legendCategories = [];
+    this.legendSelectionIds.clear();
     this.legendFieldName = "";
 
     // Check if legend field exists in metadata
@@ -7156,8 +7173,8 @@ private processLegendData(dataView: DataView): void {
         return;
     }
 
-    // Extract legend field name
     this.legendFieldName = legendColumn.displayName || "Legend";
+    this.legendDataExists = true;
 
     // Collect unique legend values from tasks
     const legendValueSet = new Set<string>();
@@ -7167,36 +7184,37 @@ private processLegendData(dataView: DataView): void {
         }
     }
 
-    // Convert to array and apply sort order based on settings
-    const legendArray = Array.from(legendValueSet);
+    this.legendCategories = Array.from(legendValueSet);
+
+    // Sort categories BEFORE assigning colors (so indices match the sorted order)
     const sortOrder = this.settings?.legend?.sortOrder?.value?.value || "none";
-
     if (sortOrder === "ascending") {
-        this.legendCategories = legendArray.sort((a, b) => a.localeCompare(b));
+        this.legendCategories.sort((a, b) => a.localeCompare(b));
     } else if (sortOrder === "descending") {
-        this.legendCategories = legendArray.sort((a, b) => b.localeCompare(a));
-    } else {
-        // "none" - keep data order (order they appear in the dataset)
-        this.legendCategories = legendArray;
+        this.legendCategories.sort((a, b) => b.localeCompare(a));
     }
 
-    if (this.legendCategories.length === 0) {
-        // No legend values found
-        for (const task of this.allTasksData) {
-            task.legendColor = undefined;
+    // Assign colors from persisted settings or theme palette
+    const legendColorsObjects = dataView.metadata?.objects?.legendColors;
+    for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
+        const category = this.legendCategories[i];
+        const colorKey = `color${i + 1}`; // color1, color2, etc.
+
+        // Check if user has set a custom color for this slot
+        const persistedColor = legendColorsObjects?.[colorKey];
+
+        if (persistedColor && typeof persistedColor === 'object' && 'solid' in persistedColor) {
+            // Use persisted color
+            this.legendColorMap.set(category, (persistedColor as any).solid.color);
+        } else {
+            // Use theme default color
+            const defaultColor = this.host.colorPalette.getColor(category).value;
+            this.legendColorMap.set(category, defaultColor);
         }
-        return;
     }
 
-    this.legendDataExists = true;
-
-    // Assign colors to each category using colorPalette
-    for (const category of this.legendCategories) {
-        const color = this.host.colorPalette.getColor(category).value;
-        this.legendColorMap.set(category, color);
-    }
-
-    // Assign colors to tasks
+    // Assign colors to tasks (this part remains valid)
+    // We map the task's legend value to the color map we just built
     for (const task of this.allTasksData) {
         if (task.legendValue) {
             task.legendColor = this.legendColorMap.get(task.legendValue);
@@ -8325,6 +8343,39 @@ private ensureTaskVisible(taskId: string): void {
         } else if (!this.settings) {
              // Create default settings if no data/options available yet
              this.settings = new VisualSettings();
+        }
+
+        // Modify legendColors card before building model if legend exists
+        if (this.legendDataExists && this.legendCategories.length > 0 && this.settings?.legendColors) {
+            const ColorPicker = formattingSettings.ColorPicker;
+
+            // Update the display name of the card
+            this.settings.legendColors.displayName = "Data Colors";
+
+            // Create dynamic color picker slices for each category (up to 20)
+            const slices: formattingSettings.Slice[] = [];
+            for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
+                const category = this.legendCategories[i];
+                const colorKey = `color${i + 1}`;
+
+                // Get the current color for this category
+                const currentColor = this.legendColorMap.get(category) || "#000000";
+
+                // Create a color picker with the category name as display name
+                const colorPicker = new ColorPicker({
+                    name: colorKey,
+                    displayName: category, // Show actual category name
+                    value: { value: currentColor }
+                });
+
+                slices.push(colorPicker);
+            }
+
+            // Replace the slices in the legendColors card
+            this.settings.legendColors.slices = slices;
+        } else if (this.settings?.legendColors) {
+            // Hide the card if no legend data exists
+            this.settings.legendColors.visible = false;
         }
 
         const formattingModel = this.formattingSettingsService.buildFormattingModel(this.settings);

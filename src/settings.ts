@@ -393,6 +393,39 @@ class LegendCard extends Card {
     slices: Slice[] = [this.show, this.position, this.fontSize, this.showTitle, this.titleText, this.sortOrder];
 }
 
+class LegendColorsCard extends Card {
+    name: string = "legendColors";
+    displayName: string = "Legend Colors";
+
+    color1 = new ColorPicker({ name: "color1", displayName: "Color 1", value: { value: "" } });
+    color2 = new ColorPicker({ name: "color2", displayName: "Color 2", value: { value: "" } });
+    color3 = new ColorPicker({ name: "color3", displayName: "Color 3", value: { value: "" } });
+    color4 = new ColorPicker({ name: "color4", displayName: "Color 4", value: { value: "" } });
+    color5 = new ColorPicker({ name: "color5", displayName: "Color 5", value: { value: "" } });
+    color6 = new ColorPicker({ name: "color6", displayName: "Color 6", value: { value: "" } });
+    color7 = new ColorPicker({ name: "color7", displayName: "Color 7", value: { value: "" } });
+    color8 = new ColorPicker({ name: "color8", displayName: "Color 8", value: { value: "" } });
+    color9 = new ColorPicker({ name: "color9", displayName: "Color 9", value: { value: "" } });
+    color10 = new ColorPicker({ name: "color10", displayName: "Color 10", value: { value: "" } });
+    color11 = new ColorPicker({ name: "color11", displayName: "Color 11", value: { value: "" } });
+    color12 = new ColorPicker({ name: "color12", displayName: "Color 12", value: { value: "" } });
+    color13 = new ColorPicker({ name: "color13", displayName: "Color 13", value: { value: "" } });
+    color14 = new ColorPicker({ name: "color14", displayName: "Color 14", value: { value: "" } });
+    color15 = new ColorPicker({ name: "color15", displayName: "Color 15", value: { value: "" } });
+    color16 = new ColorPicker({ name: "color16", displayName: "Color 16", value: { value: "" } });
+    color17 = new ColorPicker({ name: "color17", displayName: "Color 17", value: { value: "" } });
+    color18 = new ColorPicker({ name: "color18", displayName: "Color 18", value: { value: "" } });
+    color19 = new ColorPicker({ name: "color19", displayName: "Color 19", value: { value: "" } });
+    color20 = new ColorPicker({ name: "color20", displayName: "Color 20", value: { value: "" } });
+
+    slices: Slice[] = [
+        this.color1, this.color2, this.color3, this.color4, this.color5,
+        this.color6, this.color7, this.color8, this.color9, this.color10,
+        this.color11, this.color12, this.color13, this.color14, this.color15,
+        this.color16, this.color17, this.color18, this.color19, this.color20
+    ];
+}
+
 class PersistedStateCard extends Card {
     name: string = "persistedState";
     displayName: string = "Persisted State";
@@ -434,6 +467,7 @@ export class VisualSettings extends Model {
     drivingPathSelection = new DrivingPathSelectionCard();
     taskSelection = new TaskSelectionCard();
     legend = new LegendCard();
+    legendColors = new LegendColorsCard();
     persistedState = new PersistedStateCard();
 
     // Update the cards array
@@ -450,6 +484,7 @@ export class VisualSettings extends Model {
         this.drivingPathSelection,
         this.taskSelection,
         this.legend,
+        this.legendColors,
         this.persistedState
     ];
 }

@@ -345,6 +345,32 @@
                     }
                 }
             }
+        },
+        "legendColors": {
+            "displayName": "Legend Colors",
+            "description": "Customize colors for legend categories",
+            "properties": {
+                "color1": { "displayName": "Color 1", "type": { "fill": { "solid": { "color": true } } } },
+                "color2": { "displayName": "Color 2", "type": { "fill": { "solid": { "color": true } } } },
+                "color3": { "displayName": "Color 3", "type": { "fill": { "solid": { "color": true } } } },
+                "color4": { "displayName": "Color 4", "type": { "fill": { "solid": { "color": true } } } },
+                "color5": { "displayName": "Color 5", "type": { "fill": { "solid": { "color": true } } } },
+                "color6": { "displayName": "Color 6", "type": { "fill": { "solid": { "color": true } } } },
+                "color7": { "displayName": "Color 7", "type": { "fill": { "solid": { "color": true } } } },
+                "color8": { "displayName": "Color 8", "type": { "fill": { "solid": { "color": true } } } },
+                "color9": { "displayName": "Color 9", "type": { "fill": { "solid": { "color": true } } } },
+                "color10": { "displayName": "Color 10", "type": { "fill": { "solid": { "color": true } } } },
+                "color11": { "displayName": "Color 11", "type": { "fill": { "solid": { "color": true } } } },
+                "color12": { "displayName": "Color 12", "type": { "fill": { "solid": { "color": true } } } },
+                "color13": { "displayName": "Color 13", "type": { "fill": { "solid": { "color": true } } } },
+                "color14": { "displayName": "Color 14", "type": { "fill": { "solid": { "color": true } } } },
+                "color15": { "displayName": "Color 15", "type": { "fill": { "solid": { "color": true } } } },
+                "color16": { "displayName": "Color 16", "type": { "fill": { "solid": { "color": true } } } },
+                "color17": { "displayName": "Color 17", "type": { "fill": { "solid": { "color": true } } } },
+                "color18": { "displayName": "Color 18", "type": { "fill": { "solid": { "color": true } } } },
+                "color19": { "displayName": "Color 19", "type": { "fill": { "solid": { "color": true } } } },
+                "color20": { "displayName": "Color 20", "type": { "fill": { "solid": { "color": true } } } }
+            }
         }
     },
     "dataViewMappings": [
