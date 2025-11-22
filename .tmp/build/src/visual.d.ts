@@ -81,6 +81,7 @@ export declare class Visual implements IVisual {
     private legendContainer;
     private selectedLegendCategories;
     private legendSelectionIds;
+    private tooltipDebugLogged;
     private relationshipIndex;
     private allDrivingChains;
     private selectedPathIndex;

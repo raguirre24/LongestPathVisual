@@ -118,7 +118,7 @@ interface Task {
     previousUpdateStartDate?: Date | null;
     previousUpdateFinishDate?: Date | null;
     yOrder?: number;
-    tooltipData?: Map<string, PrimitiveValue>;
+    tooltipData?: Array<{key: string, value: PrimitiveValue}>;  // Array preserves field order
     legendValue?: string;       // Value from legend field for this task
     legendColor?: string;       // Assigned color for this legend value
 }
@@ -249,6 +249,9 @@ export class Visual implements IVisual {
     private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>; // Legend UI container
     private selectedLegendCategories: Set<string> = new Set(); // Empty set = all selected (no filter)
     private legendSelectionIds: Map<string, powerbi.visuals.ISelectionId> = new Map(); // Category -> SelectionId for color persistence (Pillar 2)
+
+    // Tooltip properties
+    private tooltipDebugLogged: boolean = false; // Flag to log tooltip column info only once
 
     private relationshipIndex: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by successorId
 
@@ -3232,33 +3235,34 @@ private showTaskTooltip(task: Task, event: MouseEvent): void {
     }
     
     // Custom Tooltip Fields
-    if (task.tooltipData && task.tooltipData.size > 0) {
+    if (task.tooltipData && task.tooltipData.length > 0) {
         const customInfo = tooltip.append("div")
             .classed("tooltip-custom-info", true)
             .style("margin-top", "8px")
             .style("border-top", "1px solid #eee")
             .style("padding-top", "8px");
-            
+
         customInfo.append("div")
             .style("font-weight", "bold")
             .style("margin-bottom", "4px")
             .text("Additional Information:");
-        
-        task.tooltipData.forEach((value, key) => {
+
+        // Iterate over array in order
+        for (const item of task.tooltipData) {
             let formattedValue = "";
-            if (value instanceof Date) {
-                formattedValue = this.formatDate(value);
-            } else if (typeof value === 'number') {
-                formattedValue = value.toLocaleString();
+            if (item.value instanceof Date) {
+                formattedValue = this.formatDate(item.value);
+            } else if (typeof item.value === 'number') {
+                formattedValue = item.value.toLocaleString();
             } else {
-                formattedValue = String(value);
+                formattedValue = String(item.value);
             }
-            
+
             customInfo.append("div")
-                .append("strong").text(`${key}: `)
+                .append("strong").text(`${item.key}: `)
                 .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
                 .append("span").text(formattedValue);
-        });
+        }
     }
 
     // User Float Threshold Info
@@ -4393,9 +4397,29 @@ private drawTasks(
             .on("mouseover", (event: MouseEvent, d: Task) => {
                 // Only apply hover effect if not the selected task
                 if (d.internalId !== self.selectedTaskId) {
+                    // Determine the correct hover stroke color and width based on criticality
+                    let hoverStrokeColor = "#333";
+                    let hoverStrokeWidth = "2px";
+
+                    if (self.legendDataExists) {
+                        // WITH LEGEND: Preserve critical/near-critical styling on hover
+                        if (d.isCritical) {
+                            hoverStrokeColor = criticalColor;
+                            hoverStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
+                        } else if (d.isNearCritical) {
+                            hoverStrokeColor = nearCriticalColor;
+                            hoverStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
+                        }
+                    } else {
+                        // WITHOUT LEGEND: Slightly emphasize on hover
+                        if (d.isCritical) {
+                            hoverStrokeWidth = "1.5px";
+                        }
+                    }
+
                     d3.select(event.currentTarget as Element)
-                        .style("stroke", "#333")
-                        .style("stroke-width", "2px");
+                        .style("stroke", hoverStrokeColor)
+                        .style("stroke-width", hoverStrokeWidth);
                 }
                 d3.select(event.currentTarget as Element).style("cursor", "pointer");
 
@@ -4476,33 +4500,34 @@ private drawTasks(
                     }
                     
                     // Custom Tooltip Fields
-                    if (d.tooltipData && d.tooltipData.size > 0) {
+                    if (d.tooltipData && d.tooltipData.length > 0) {
                         const customInfo = tooltip.append("div")
                             .classed("tooltip-custom-info", true)
                             .style("margin-top", "8px")
                             .style("border-top", "1px solid #eee")
                             .style("padding-top", "8px");
-                            
+
                         customInfo.append("div")
                             .style("font-weight", "bold")
                             .style("margin-bottom", "4px")
                             .text("Additional Information:");
-                        
-                        d.tooltipData.forEach((value, key) => {
+
+                        // Iterate over array in order
+                        for (const item of d.tooltipData) {
                             let formattedValue = "";
-                            if (value instanceof Date) {
-                                formattedValue = self.formatDate(value);
-                            } else if (typeof value === 'number') {
-                                formattedValue = value.toLocaleString();
+                            if (item.value instanceof Date) {
+                                formattedValue = self.formatDate(item.value);
+                            } else if (typeof item.value === 'number') {
+                                formattedValue = item.value.toLocaleString();
                             } else {
-                                formattedValue = String(value);
+                                formattedValue = String(item.value);
                             }
-                            
+
                             customInfo.append("div")
-                                .append("strong").text(`${key}: `)
+                                .append("strong").text(`${item.key}: `)
                                 .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
                                 .append("span").text(formattedValue);
-                        });
+                        }
                     }
 
                     // User Float Threshold Info
@@ -4535,11 +4560,31 @@ private drawTasks(
             .on("mouseout", (event: MouseEvent, d: Task) => {
                 // Restore normal appearance only if not selected
                 if (d.internalId !== self.selectedTaskId) {
+                    // Determine the correct default stroke color and width based on criticality
+                    let defaultStrokeColor = "#333";
+                    let defaultStrokeWidth = "0.5";
+
+                    if (self.legendDataExists) {
+                        // WITH LEGEND: Restore critical/near-critical styling
+                        if (d.isCritical) {
+                            defaultStrokeColor = criticalColor;
+                            defaultStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
+                        } else if (d.isNearCritical) {
+                            defaultStrokeColor = nearCriticalColor;
+                            defaultStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
+                        }
+                    } else {
+                        // WITHOUT LEGEND: Restore standard styling
+                        if (d.isCritical) {
+                            defaultStrokeWidth = "1";
+                        }
+                    }
+
                     d3.select(event.currentTarget as Element)
-                        .style("stroke", "#333")
-                        .style("stroke-width", "0.5");
+                        .style("stroke", defaultStrokeColor)
+                        .style("stroke-width", defaultStrokeWidth);
                 }
-                    
+
                 if (self.tooltipDiv && showTooltips) {
                     self.tooltipDiv.style("visibility", "hidden");
                 }
@@ -6907,34 +6952,76 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
 /**
  * Extracts tooltip data from a row
  */
-private extractTooltipData(row: any[], dataView: DataView): Map<string, PrimitiveValue> | undefined {
+private extractTooltipData(row: any[], dataView: DataView): Array<{key: string, value: PrimitiveValue}> | undefined {
     const columns = dataView.metadata?.columns;
     if (!columns) return undefined;
-    
-    const tooltipData = new Map<string, PrimitiveValue>();
-    let hasTooltipData = false;
-    
+
+    // Collect tooltip columns with their metadata
+    const tooltipColumns: Array<{column: any, rowIndex: number}> = [];
+
     columns.forEach((column, index) => {
         if (column.roles?.tooltip) {
-            const value = row[index];
-            if (value !== null && value !== undefined) {
-                // Check if this should be treated as a date
-                if (column.type?.dateTime || this.mightBeDate(value)) {
-                    const parsedDate = this.parseDate(value);
-                    if (parsedDate) {
-                        tooltipData.set(column.displayName || `Field ${index}`, parsedDate);
-                        hasTooltipData = true;
-                        return;
-                    }
-                }
-                // Otherwise store original value
-                tooltipData.set(column.displayName || `Field ${index}`, value);
-                hasTooltipData = true;
+            // Log column properties for debugging (first occurrence only)
+            if (index === 0 || !this.tooltipDebugLogged) {
+                this.debugLog(`Tooltip column: ${column.displayName}, index: ${column.index}, queryName: ${column.queryName}`);
             }
+            tooltipColumns.push({
+                column: column,
+                rowIndex: index
+            });
         }
     });
-    
-    return hasTooltipData ? tooltipData : undefined;
+
+    this.tooltipDebugLogged = true;
+
+    // Try sorting by queryName which often contains role index
+    tooltipColumns.sort((a, b) => {
+        const aQuery = a.column.queryName || '';
+        const bQuery = b.column.queryName || '';
+
+        // Extract numeric indices from queryNames like "Sum(Field).tooltip.0"
+        const aMatch = aQuery.match(/\.tooltip\.(\d+)$/);
+        const bMatch = bQuery.match(/\.tooltip\.(\d+)$/);
+
+        if (aMatch && bMatch) {
+            return parseInt(aMatch[1]) - parseInt(bMatch[1]);
+        }
+
+        // Fallback to Power BI's internal column index. This usually corresponds to the order fields were added to the bucket.
+        if (a.column.index !== undefined && b.column.index !== undefined) {
+            return a.column.index - b.column.index;
+        }
+
+        // Final fallback to the order they appeared in the metadata.
+        return a.rowIndex - b.rowIndex;
+    });
+
+    // Build tooltip data array in the correct order
+    const tooltipData: Array<{key: string, value: PrimitiveValue}> = [];
+
+    for (const item of tooltipColumns) {
+        const value = row[item.rowIndex];
+        if (value !== null && value !== undefined) {
+            // Check if this should be treated as a date
+            if (item.column.type?.dateTime || this.mightBeDate(value)) {
+                const parsedDate = this.parseDate(value);
+                if (parsedDate) {
+                    tooltipData.push({
+                        key: item.column.displayName || `Field ${item.rowIndex}`,
+                        value: parsedDate
+                    });
+                    continue;
+                }
+            }
+            // Otherwise store original value
+            tooltipData.push({
+                key: item.column.displayName || `Field ${item.rowIndex}`,
+                value: value
+            });
+        }
+    }
+
+    return tooltipData.length > 0 ? tooltipData : undefined;
 }
 
 private transformDataOptimized(dataView: DataView): void {
@@ -6957,15 +7044,17 @@ private transformDataOptimized(dataView: DataView): void {
     const columns = dataView.metadata.columns;
 
     // Get column indices once
-    const idIdx = this.getColumnIndex(dataView, 'taskId');
+    const idIdx = this.getColumnIndex(dataView, "taskId");
     if (idIdx !== -1) {
         this.taskIdQueryName = dataView.metadata.columns[idIdx].queryName || null;
-        const match = this.taskIdQueryName ? this.taskIdQueryName.match(/([^\[]+)\[([^\]]+)\]/) : null;
+        const match = this.taskIdQueryName
+            ? this.taskIdQueryName.match(/([^\[]+)\[([^\]]+)\]/)
+            : null;
         if (match) {
             this.taskIdTable = match[1];
             this.taskIdColumn = match[2];
         } else if (this.taskIdQueryName) {
-            const parts = this.taskIdQueryName.split('.');
+            const parts = this.taskIdQueryName.split(".");
             this.taskIdTable = parts.length > 1 ? parts[0] : null;
             this.taskIdColumn = parts[parts.length - 1];
         } else {
@@ -6973,10 +7062,11 @@ private transformDataOptimized(dataView: DataView): void {
             this.taskIdColumn = null;
         }
     }
-    const predIdIdx = this.getColumnIndex(dataView, 'predecessorId');
-    const relTypeIdx = this.getColumnIndex(dataView, 'relationshipType');
-    const relLagIdx = this.getColumnIndex(dataView, 'relationshipLag');
-    const relFreeFloatIdx = this.getColumnIndex(dataView, 'relationshipFreeFloat');
+
+    const predIdIdx = this.getColumnIndex(dataView, "predecessorId");
+    const relTypeIdx = this.getColumnIndex(dataView, "relationshipType");
+    const relLagIdx = this.getColumnIndex(dataView, "relationshipLag");
+    const relFreeFloatIdx = this.getColumnIndex(dataView, "relationshipFreeFloat");
 
     if (idIdx === -1) {
         console.error("Data transformation failed: Missing Task ID column.");
@@ -6985,16 +7075,22 @@ private transformDataOptimized(dataView: DataView): void {
     }
 
     // Single pass data structures
-    const taskDataMap = new Map<string, {
-        rows: any[],
-        task: Task | null,
-        relationships: Array<{
-            predId: string,
-            relType: string,
-            lag: number | null,
-            freeFloat: number | null
-        }>
-    }>();
+    const taskDataMap = new Map<
+        string,
+        {
+            rows: any[];
+            task: Task | null;
+            relationships: Array<{
+                predId: string;
+                relType: string;
+                lag: number | null;
+                freeFloat: number | null;
+            }>;
+        }
+    >();
+
+    // NEW: track every predecessor id we see so we can create synthetic start tasks
+    const allPredecessorIds = new Set<string>();
 
     // SINGLE PASS: Group all rows by task ID
     for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -7011,23 +7107,29 @@ private transformDataOptimized(dataView: DataView): void {
             taskData = {
                 rows: [],
                 task: null,
-                relationships: []
+                relationships: [],
             };
             taskDataMap.set(taskId, taskData);
         }
-        
+
         taskData.rows.push(row);
 
         // Extract relationship data if present
         if (predIdIdx !== -1 && row[predIdIdx] != null) {
             const predId = this.extractPredecessorId(row);
             if (predId && predId !== taskId) {
+                // NEW: remember that this id exists as a predecessor
+                allPredecessorIds.add(predId);
+
                 // Parse relationship properties
-                const relTypeRaw = (relTypeIdx !== -1 && row[relTypeIdx] != null) 
-                    ? String(row[relTypeIdx]).trim().toUpperCase() 
-                    : 'FS';
-                const validRelTypes = ['FS', 'SS', 'FF', 'SF'];
-                const relType = validRelTypes.includes(relTypeRaw) ? relTypeRaw : 'FS';
+                const relTypeRaw =
+                    relTypeIdx !== -1 && row[relTypeIdx] != null
+                        ? String(row[relTypeIdx]).trim().toUpperCase()
+                        : "FS";
+                const validRelTypes = ["FS", "SS", "FF", "SF"];
+                const relType = validRelTypes.includes(relTypeRaw)
+                    ? relTypeRaw
+                    : "FS";
 
                 let relLag: number | null = null;
                 if (relLagIdx !== -1 && row[relLagIdx] != null) {
@@ -7047,22 +7149,33 @@ private transformDataOptimized(dataView: DataView): void {
                 }
 
                 // Check if this relationship already exists
-                const existingRel = taskData.relationships.find(r => r.predId === predId);
+                const existingRel = taskData.relationships.find(
+                    (r) => r.predId === predId
+                );
                 if (!existingRel) {
                     taskData.relationships.push({
                         predId: predId,
                         relType: relType,
                         lag: relLag,
-                        freeFloat: relFreeFloat
+                        freeFloat: relFreeFloat,
                     });
                 }
             }
         }
     }
 
+    // NEW: figure out how many "predecessor-only" tasks we have
+    // (appear only as predecessors, never as a successor/taskId)
+    let syntheticTaskCount = 0;
+    for (const predId of allPredecessorIds) {
+        if (!taskDataMap.has(predId)) {
+            syntheticTaskCount++;
+        }
+    }
+
     // Phase 1: Process grouped data to create tasks and relationships
-    // Pre-allocate arrays for better performance
-    this.allTasksData = new Array(taskDataMap.size);
+    // Pre-allocate arrays for better performance (including synthetic tasks)
+    this.allTasksData = new Array(taskDataMap.size + syntheticTaskCount);
     this.relationships = [];
 
     const successorMap = new Map<string, Task[]>();
@@ -7074,7 +7187,6 @@ private transformDataOptimized(dataView: DataView): void {
         if (taskData.rows.length > 0 && !taskData.task) {
             taskData.task = this.createTaskFromRow(taskData.rows[0], 0);
         }
-
         if (!taskData.task) continue;
 
         const task = taskData.task;
@@ -7084,7 +7196,7 @@ private transformDataOptimized(dataView: DataView): void {
             this.predecessorIndex.set(taskId, new Set());
         }
 
-        // Apply relationships to task - use for...of instead of forEach
+        // Apply relationships to task
         for (const rel of taskData.relationships) {
             task.predecessorIds.push(rel.predId);
             task.relationshipTypes[rel.predId] = rel.relType;
@@ -7107,13 +7219,13 @@ private transformDataOptimized(dataView: DataView): void {
                 predecessorId: rel.predId,
                 successorId: taskId,
                 type: rel.relType,
-                freeFloat: rel.freeFloat,  // Use provided free float or null
+                freeFloat: rel.freeFloat, // Use provided free float or null
                 lag: rel.lag,
-                isCritical: false
+                isCritical: false,
             };
             this.relationships.push(relationship);
 
-            // Add to relationship index
+            // Add to relationship index (by successor/task id)
             if (!this.relationshipIndex.has(taskId)) {
                 this.relationshipIndex.set(taskId, []);
             }
@@ -7125,29 +7237,74 @@ private transformDataOptimized(dataView: DataView): void {
         this.taskIdToTask.set(taskId, task);
     }
 
-    // Trim array to actual size if needed
+    // NEW: Phase 1b – create synthetic tasks for ids that only ever appear as predecessors
+    for (const predId of allPredecessorIds) {
+        // If we already created a real task for this id (it appeared as a successor), skip it
+        if (this.taskIdToTask.has(predId)) {
+            continue;
+        }
+
+        const syntheticTask: Task = {
+            id: predId,
+            internalId: predId,
+            name: String(predId),
+            type: "Synthetic",       // You can rename this to whatever makes sense
+            duration: 0,
+            userProvidedTotalFloat: undefined,
+            taskFreeFloat: undefined,
+            predecessorIds: [],
+            predecessors: [],
+            successors: [],
+            relationshipTypes: {},
+            relationshipLags: {},
+            earlyStart: 0,
+            earlyFinish: 0,
+            lateStart: Infinity,
+            lateFinish: Infinity,
+            totalFloat: Infinity,
+            isCritical: false,
+            isCriticalByFloat: false,
+            isCriticalByRel: false,
+            startDate: null,
+            finishDate: null,
+            baselineStartDate: null,
+            baselineFinishDate: null,
+            previousUpdateStartDate: null,
+            previousUpdateFinishDate: null,
+            tooltipData: undefined,
+            legendValue: undefined,
+        };
+
+        this.allTasksData[taskIndex++] = syntheticTask;
+        this.taskIdToTask.set(predId, syntheticTask);
+    }
+
+    // Trim array to actual size if needed (should normally be exact)
     if (taskIndex < this.allTasksData.length) {
         this.allTasksData.length = taskIndex;
     }
 
-    // Phase 1: Assign successors and predecessors with cached lookups - use for...of
+    // Phase 2: Assign successors and predecessors with cached lookups
     for (const task of this.allTasksData) {
-        // Set successors from map
+        // Set successors from map (synthetic tasks will get their successors from the map as well)
         task.successors = successorMap.get(task.internalId) || [];
-        
-        // Set predecessor task references
+
+        // Set predecessor task references (now includes synthetic predecessor-only tasks)
         task.predecessors = task.predecessorIds
-            .map(id => this.taskIdToTask.get(id))
-            .filter(t => t !== undefined) as Task[];
+            .map((id) => this.taskIdToTask.get(id))
+            .filter((t) => t !== undefined) as Task[];
     }
 
-    // Process legend data and assign colors
+    // Process legend data and assign colours
     this.processLegendData(dataView);
 
     const endTime = performance.now();
-    this.debugLog(`Data transformation complete in ${endTime - startTime}ms. ` +
-                `Found ${this.allTasksData.length} tasks and ${this.relationships.length} relationships.`);
+    this.debugLog(
+        `Data transformation complete in ${endTime - startTime}ms. ` +
+            `Found ${this.allTasksData.length} tasks and ${this.relationships.length} relationships.`
+    );
 }
+
 
 /**
  * Process legend data and assign colors to tasks based on legend values
