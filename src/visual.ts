@@ -8,7 +8,7 @@ import { ScaleTime, ScaleBand } from "d3-scale";
 import powerbi from "powerbi-visuals-api";
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
-import VisualUpdateType = powerbi.VisualUpdateType; 
+import VisualUpdateType = powerbi.VisualUpdateType;
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import DataView = powerbi.DataView;
 import IViewport = powerbi.IViewport;
@@ -16,7 +16,7 @@ import IVisual = powerbi.extensibility.visual.IVisual;
 import PrimitiveValue = powerbi.PrimitiveValue;
 
 import { VisualSettings } from "./settings";
-import { FormattingSettingsService } from "powerbi-visuals-utils-formattingmodel";
+import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 import { IBasicFilter, FilterType } from "powerbi-models";
 import FilterAction = powerbi.FilterAction;
 import PriorityQueue from "./priorityQueue";
@@ -118,7 +118,9 @@ interface Task {
     previousUpdateStartDate?: Date | null;
     previousUpdateFinishDate?: Date | null;
     yOrder?: number;
-    tooltipData?: Map<string, PrimitiveValue>;
+    tooltipData?: Array<{key: string, value: PrimitiveValue}>;  // Array preserves field order
+    legendValue?: string;       // Value from legend field for this task
+    legendColor?: string;       // Assigned color for this legend value
 }
 
 interface Relationship {
@@ -190,6 +192,7 @@ export class Visual implements IVisual {
     // --- Configuration/Constants ---
     private margin = { top: 10, right: 100, bottom: 40, left: 280 };
     private headerHeight = 110;
+    private legendFooterHeight = 60;  // Fixed height for legend footer
     private dateLabelOffset = 8;
     private floatTolerance = 0.001;
     private defaultMaxTasks = 500;
@@ -237,6 +240,18 @@ export class Visual implements IVisual {
     
     // Enhanced data structures for performance
     private predecessorIndex: Map<string, Set<string>> = new Map(); // taskId -> Set of tasks that have this as predecessor
+
+    // Legend properties
+    private legendDataExists: boolean = false;
+    private legendColorMap: Map<string, string> = new Map(); // legendValue -> color
+    private legendCategories: string[] = []; // Unique legend values in order
+    private legendFieldName: string = ""; // Name of the legend field
+    private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>; // Legend UI container
+    private selectedLegendCategories: Set<string> = new Set(); // Empty set = all selected (no filter)
+    private legendSelectionIds: Map<string, powerbi.visuals.ISelectionId> = new Map(); // Category -> SelectionId for color persistence (Pillar 2)
+
+    // Tooltip properties
+    private tooltipDebugLogged: boolean = false; // Flag to log tooltip column info only once
 
     private relationshipIndex: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by successorId
 
@@ -558,9 +573,10 @@ constructor(options: VisualConstructorOptions) {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // --- Scrollable Container for main chart content ---
+    // Will be dynamically sized based on header + legend footer
     this.scrollableContainer = visualWrapper.append("div")
         .attr("class", "criticalPathContainer")
-        .style("height", `calc(100% - ${this.headerHeight}px)`)
+        .style("height", `calc(100% - ${this.headerHeight}px)`)  // Will be updated when legend shown
         .style("width", "100%")
         .style("overflow-y", "auto")
         .style("overflow-x", "hidden")
@@ -578,6 +594,21 @@ constructor(options: VisualConstructorOptions) {
     this.gridLayer = this.mainGroup.append("g").attr("class", "grid-layer");
     this.arrowLayer = this.mainGroup.append("g").attr("class", "arrow-layer");
     this.taskLayer = this.mainGroup.append("g").attr("class", "task-layer");
+
+    // --- Sticky Legend Footer Container (similar to header) ---
+    this.legendContainer = visualWrapper.append("div")
+        .attr("class", "sticky-legend-footer")
+        .style("position", "sticky")
+        .style("bottom", "0")
+        .style("left", "0")
+        .style("width", "100%")
+        .style("height", `${this.legendFooterHeight}px`)
+        .style("z-index", "100")
+        .style("background-color", "white")
+        .style("border-top", "2px solid #e0e0e0")
+        .style("box-shadow", "0 -2px 4px rgba(0,0,0,0.1)")
+        .style("display", "none")
+        .style("overflow", "hidden");
 
     // --- Canvas layer for high-performance rendering ---
     this.canvasElement = document.createElement('canvas');
@@ -2345,6 +2376,9 @@ private toggleConnectorLinesDisplay(): void {
 }
 
     public update(options: VisualUpdateOptions) {
+        console.log("===== UPDATE() CALLED =====");
+        console.log("Update type:", options.type);
+        console.log("Has dataViews:", !!options.dataViews);
         void this.updateInternal(options);
     }
 
@@ -2466,8 +2500,12 @@ private async updateInternal(options: VisualUpdateOptions) {
             return;
         }
         this.debugLog("Data roles validated.");
-        
+
         this.transformDataOptimized(dataView);
+
+        // CRITICAL FIX: Re-populate settings model now that SelectionIds exist.
+        // This ensures the formatting pane gets valid selectors for the color pickers.
+        this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
 
         // Phase 2: Invalidate render cache after data transformation
         this.invalidateRenderCache();
@@ -2619,8 +2657,20 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         tasksToPlot.sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
         tasksToPlot.forEach((task, index) => { task.yOrder = index; });
-        const tasksToShow = tasksToPlot;
-        
+        let tasksToShow = tasksToPlot;
+
+        // Apply legend filtering if legend categories are selected
+        if (this.legendDataExists && this.selectedLegendCategories.size > 0) {
+            tasksToShow = tasksToShow.filter(task => {
+                // Include task if it has a legend value that's selected
+                if (task.legendValue) {
+                    return this.selectedLegendCategories.has(task.legendValue);
+                }
+                // Include tasks without legend values (keep them visible)
+                return true;
+            });
+        }
+
         // ✅ CORRECT: Apply filter with valid tasks
         this.applyTaskFilter(tasksToShow.map(t => t.id));
 
@@ -2660,7 +2710,10 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         const visibleTasks = tasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
         this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
-        
+
+        // Render legend after visual elements are drawn
+        this.renderLegend(viewportWidth, viewportHeight);
+
         const renderEndTime = performance.now();
         this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
 
@@ -2755,9 +2808,20 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         const oldMultiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value;
         const oldShowPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value;
 
-        // Update settings
+        // --- FIX START: REORDERED LOGIC ---
+
+        // 1. First, process legend data to generate fresh SelectionIDs from the current DataView
+        if (options.dataViews?.[0]) {
+            this.processLegendData(options.dataViews[0]);
+        }
+
+        // 2. THEN populate settings.
+        // getFormattingModel will now find the valid SelectionIds generated in step 1
+        // and create functional color pickers.
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(
             VisualSettings, options.dataViews[0]);
+
+        // --- FIX END ---
 
         // Check if driving path selection changed
         const newSelectedPathIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value;
@@ -2832,6 +2896,49 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("--- Visual Update End (Settings Only) ---");
     }
 
+/**
+ * Handles margin-only updates during drag for real-time visual feedback
+ * Does NOT recreate the resizer or call clearVisual() to preserve drag state
+ */
+private handleMarginDragUpdate(newLeftMargin: number): void {
+    if (!this.xScale || !this.yScale || !this.allTasksToShow) return;
+
+    // Update margin
+    this.margin.left = newLeftMargin;
+
+    // Recalculate chart width based on new margin
+    const viewportWidth = this.lastViewport?.width || 0;
+    const chartWidth = Math.max(10, viewportWidth - newLeftMargin - this.margin.right);
+
+    // Update X scale range
+    this.xScale.range([0, chartWidth]);
+
+    // Update transforms
+    this.mainGroup?.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
+    this.headerGridLayer?.attr("transform", `translate(${this.margin.left}, 0)`);
+
+    // Redraw only the visual elements (gantt bars, grid lines, etc.) without destroying resizer
+    const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+
+    // Clear only the drawing layers, NOT the resizer
+    this.gridLayer?.selectAll("*").remove();
+    this.arrowLayer?.selectAll("*").remove();
+    this.taskLayer?.selectAll("*").remove();
+    this.headerGridLayer?.selectAll("*").remove();
+
+    // Redraw with new dimensions
+    this.drawVisualElements(
+        visibleTasks,
+        this.xScale,
+        this.yScale,
+        chartWidth,
+        0  // calculatedChartHeight not needed for redraw
+    );
+
+    // Update resizer position (but don't recreate it)
+    this.updateMarginResizerPosition();
+}
+
 private clearVisual(): void {
             this.gridLayer?.selectAll("*").remove();
             this.arrowLayer?.selectAll("*").remove();
@@ -2889,31 +2996,35 @@ private drawHeaderDivider(viewportWidth: number): void {
         targetSvg.select("defs").remove();
         const defs = targetSvg.append("defs");
         
-        // Create critical path marker with simpler definition
+        // Create critical path marker - LARGER and more visible
         defs.append("marker")
             .attr("id", "arrowhead-critical")
-            .attr("viewBox", "0 0 10 10")
-            .attr("refX", 9)
-            .attr("refY", 5)
-            .attr("markerWidth", arrowSize)
-            .attr("markerHeight", arrowSize)
+            .attr("viewBox", "0 0 12 12")
+            .attr("refX", 11)  // Position at tip
+            .attr("refY", 6)
+            .attr("markerWidth", arrowSize * 1.5)  // 50% larger
+            .attr("markerHeight", arrowSize * 1.5)
             .attr("orient", "auto")
-            .append("polygon")
-                .attr("points", "0,0 10,5 0,10")
-                .style("fill", criticalColor);
-    
-        // Create normal marker with simpler definition
+            .append("path")
+                .attr("d", "M 1,1 L 11,6 L 1,11 L 3,6 Z")  // Filled triangle with notch
+                .style("fill", criticalColor)
+                .style("stroke", criticalColor)
+                .style("stroke-width", "0.5");
+
+        // Create normal connector marker - LARGER and more visible
         defs.append("marker")
             .attr("id", "arrowhead")
-            .attr("viewBox", "0 0 10 10")
-            .attr("refX", 9)
-            .attr("refY", 5)
-            .attr("markerWidth", arrowSize)
-            .attr("markerHeight", arrowSize)
+            .attr("viewBox", "0 0 12 12")
+            .attr("refX", 11)
+            .attr("refY", 6)
+            .attr("markerWidth", arrowSize * 1.3)  // 30% larger
+            .attr("markerHeight", arrowSize * 1.3)
             .attr("orient", "auto")
-            .append("polygon")
-                .attr("points", "0,0 10,5 0,10")
-                .style("fill", connectorColor);
+            .append("path")
+                .attr("d", "M 1,1 L 11,6 L 1,11 L 3,6 Z")
+                .style("fill", connectorColor)
+                .style("stroke", connectorColor)
+                .style("stroke-width", "0.5");
     }
 
 private setupTimeBasedSVGAndScales(
@@ -3241,12 +3352,12 @@ private showTaskTooltip(task: Task, event: MouseEvent): void {
 
         task.tooltipData.forEach((value, key) => {
             let formattedValue = "";
-            if (value instanceof Date) {
-                formattedValue = this.formatDate(value);
-            } else if (typeof value === 'number') {
-                formattedValue = value.toLocaleString();
+            if (item.value instanceof Date) {
+                formattedValue = this.formatDate(item.value);
+            } else if (typeof item.value === 'number') {
+                formattedValue = item.value.toLocaleString();
             } else {
-                formattedValue = String(value);
+                formattedValue = String(item.value);
             }
 
             const fieldRow = customInfo.append("div")
@@ -3985,7 +4096,7 @@ private drawTasks(
     const lineHeight = this.taskLabelLineHeight;
     const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
     const dateBgPaddingV = this.dateBackgroundPadding.vertical;
-    const nearCriticalColor = "#F7941F"; // Yellow for near-critical tasks
+    const nearCriticalColor = this.settings.taskAppearance.nearCriticalColor.value.value;
     const self = this; // Store reference for callbacks
     
     // Define selection highlight styles
@@ -4136,15 +4247,50 @@ private drawTasks(
             if (d.isNearCritical) return "url(#nearCriticalTaskGradient)";
             return "url(#normalTaskGradient)";
         })
-        // UPGRADED: Improved stroke weight for critical tasks and selected tasks
-        .style("stroke", (d: Task) => d.internalId === this.selectedTaskId ? selectionHighlightColor : "#333")
+        // Stroke: different logic based on legend
+        .style("stroke", (d: Task) => {
+            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
+
+            // WITH LEGEND: Use borders to show criticality
+            if (this.legendDataExists) {
+                if (d.isCritical) return criticalColor;
+                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Minimal borders
+            return "#333";
+        })
         .style("stroke-width", (d: Task) => {
-            if (d.internalId === this.selectedTaskId) return 3;  // UPGRADED: Increased from selectionStrokeWidth to 3px
-            if (d.isCritical) return 1;  // UPGRADED: Increased from 0.5px to 1px for critical tasks
+            if (d.internalId === this.selectedTaskId) return 3;
+
+            // WITH LEGEND: Thick borders for critical tasks
+            if (this.legendDataExists) {
+                if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
+                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Thin borders for everyone
+            if (d.isCritical) return 1;  // Slightly thicker for critical
             return 0.5;
         })
-        // UPGRADED: Add subtle drop shadow for depth
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`);
+        // Glow: only with legend
+        .style("filter", (d: Task) => {
+            // WITH LEGEND: Add glow for critical tasks
+            if (this.legendDataExists) {
+                if (d.isCritical) {
+                    const rgb = this.hexToRgb(criticalColor);
+                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                }
+                if (d.isNearCritical) {
+                    const nearColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                    const rgb = this.hexToRgb(nearColor);
+                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                }
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Standard shadow
+            return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
+        });
 
     // --- Draw Milestones ---
     allTaskGroups.filter((d: Task) =>
@@ -4170,16 +4316,66 @@ private drawTasks(
             return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
         })
         .style("fill", (d: Task) => {
+            // Selected task always highlighted
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-            if (d.isCritical) return criticalColor;
-            if (d.isNearCritical) return nearCriticalColor;
+
+            // WITH LEGEND: Use legend colors for fill
+            if (this.legendDataExists && d.legendColor) {
+                return d.legendColor;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Use fill to show criticality
+            if (!this.legendDataExists) {
+                if (d.isCritical) return criticalColor;
+                if (d.isNearCritical) return nearCriticalColor;
+            }
+
+            // Default milestone color
             return milestoneColor;
         })
-        .style("stroke", (d: Task) => d.internalId === this.selectedTaskId ? selectionHighlightColor : "#000")
-        // UPGRADED: Increased default stroke from 1px to 1.5px, selected to 3px
-        .style("stroke-width", (d: Task) => d.internalId === this.selectedTaskId ? 3 : 1.5)
-        // UPGRADED: Add subtle drop shadow for depth
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`);
+        // Stroke: different logic based on legend
+        .style("stroke", (d: Task) => {
+            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
+
+            // WITH LEGEND: Use borders to show criticality
+            if (this.legendDataExists) {
+                if (d.isCritical) return criticalColor;
+                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Standard black border
+            return "#000";
+        })
+        .style("stroke-width", (d: Task) => {
+            if (d.internalId === this.selectedTaskId) return 3;
+
+            // WITH LEGEND: Thick borders for critical tasks
+            if (this.legendDataExists) {
+                if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
+                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Standard border
+            return 1.5;
+        })
+        // Glow: only with legend
+        .style("filter", (d: Task) => {
+            // WITH LEGEND: Add glow for critical tasks
+            if (this.legendDataExists) {
+                if (d.isCritical) {
+                    const rgb = this.hexToRgb(criticalColor);
+                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                }
+                if (d.isNearCritical) {
+                    const nearColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                    const rgb = this.hexToRgb(nearColor);
+                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                }
+            }
+
+            // WITHOUT LEGEND (OLD STYLE): Standard shadow
+            return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
+        });
 
     // --- Update Task Labels ---
     // First remove existing labels to avoid updating complex wrapped text
@@ -4375,6 +4571,26 @@ private drawTasks(
             .on("mouseover", (event: MouseEvent, d: Task) => {
                 // UPGRADED: Professional hover effect with brightness and shadow
                 if (d.internalId !== self.selectedTaskId) {
+                    // Determine the correct hover stroke color and width based on criticality
+                    let hoverStrokeColor = "#333";
+                    let hoverStrokeWidth = "2px";
+
+                    if (self.legendDataExists) {
+                        // WITH LEGEND: Preserve critical/near-critical styling on hover
+                        if (d.isCritical) {
+                            hoverStrokeColor = criticalColor;
+                            hoverStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
+                        } else if (d.isNearCritical) {
+                            hoverStrokeColor = nearCriticalColor;
+                            hoverStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
+                        }
+                    } else {
+                        // WITHOUT LEGEND: Slightly emphasize on hover
+                        if (d.isCritical) {
+                            hoverStrokeWidth = "1.5px";
+                        }
+                    }
+
                     d3.select(event.currentTarget as Element)
                         .style("filter", "brightness(1.15) drop-shadow(0 2px 4px rgba(0,0,0,0.15))")
                         .style("stroke-width", "2");
@@ -4458,33 +4674,34 @@ private drawTasks(
                     }
                     
                     // Custom Tooltip Fields
-                    if (d.tooltipData && d.tooltipData.size > 0) {
+                    if (d.tooltipData && d.tooltipData.length > 0) {
                         const customInfo = tooltip.append("div")
                             .classed("tooltip-custom-info", true)
                             .style("margin-top", "8px")
                             .style("border-top", "1px solid #eee")
                             .style("padding-top", "8px");
-                            
+
                         customInfo.append("div")
                             .style("font-weight", "bold")
                             .style("margin-bottom", "4px")
                             .text("Additional Information:");
-                        
-                        d.tooltipData.forEach((value, key) => {
+
+                        // Iterate over array in order
+                        for (const item of d.tooltipData) {
                             let formattedValue = "";
-                            if (value instanceof Date) {
-                                formattedValue = self.formatDate(value);
-                            } else if (typeof value === 'number') {
-                                formattedValue = value.toLocaleString();
+                            if (item.value instanceof Date) {
+                                formattedValue = self.formatDate(item.value);
+                            } else if (typeof item.value === 'number') {
+                                formattedValue = item.value.toLocaleString();
                             } else {
-                                formattedValue = String(value);
+                                formattedValue = String(item.value);
                             }
-                            
+
                             customInfo.append("div")
-                                .append("strong").text(`${key}: `)
+                                .append("strong").text(`${item.key}: `)
                                 .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
                                 .append("span").text(formattedValue);
-                        });
+                        }
                     }
 
                     // User Float Threshold Info
@@ -4517,6 +4734,26 @@ private drawTasks(
             .on("mouseout", (event: MouseEvent, d: Task) => {
                 // UPGRADED: Restore normal appearance only if not selected
                 if (d.internalId !== self.selectedTaskId) {
+                    // Determine the correct default stroke color and width based on criticality
+                    let defaultStrokeColor = "#333";
+                    let defaultStrokeWidth = "0.5";
+
+                    if (self.legendDataExists) {
+                        // WITH LEGEND: Restore critical/near-critical styling
+                        if (d.isCritical) {
+                            defaultStrokeColor = criticalColor;
+                            defaultStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
+                        } else if (d.isNearCritical) {
+                            defaultStrokeColor = nearCriticalColor;
+                            defaultStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
+                        }
+                    } else {
+                        // WITHOUT LEGEND: Restore standard styling
+                        if (d.isCritical) {
+                            defaultStrokeWidth = "1";
+                        }
+                    }
+
                     d3.select(event.currentTarget as Element)
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`)
                         .style("stroke-width", d.isCritical ? "1" : "0.5");
@@ -4583,7 +4820,7 @@ private drawTasksCanvas(
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
         const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-        const nearCriticalColor = "#F7941F";
+        const nearCriticalColor = this.settings.taskAppearance.nearCriticalColor.value.value;
         
         // Previous Update settings
         const showPreviousUpdate = this.showPreviousUpdateInternal;
@@ -4653,14 +4890,51 @@ private drawTasksCanvas(
                 ctx.fillRect(x_base, y_base, width_base, Math.round(baselineHeight));
             }
             
-            // Determine task color
-            let fillColor = taskColor;
+            // Determine task fill color based on legend existence
+            let fillColor = taskColor;  // Default
+
+            // Selected task always highlighted
             if (task.internalId === this.selectedTaskId) {
                 fillColor = "#8A2BE2";
-            } else if (task.isCritical) {
-                fillColor = criticalColor;
-            } else if (task.isNearCritical) {
-                fillColor = nearCriticalColor;
+            } else {
+                // WITH LEGEND: Use legend colors for fill
+                if (this.legendDataExists && task.legendColor) {
+                    fillColor = task.legendColor;
+                }
+                // WITHOUT LEGEND (OLD STYLE): Use fill to show criticality
+                else if (!this.legendDataExists) {
+                    if (task.isCritical) {
+                        fillColor = criticalColor;
+                    } else if (task.isNearCritical) {
+                        fillColor = nearCriticalColor;
+                    }
+                }
+            }
+
+            // Determine stroke color and width based on legend existence
+            let strokeColor = "#333";
+            let strokeWidth = 0.5;
+
+            if (task.internalId === this.selectedTaskId) {
+                strokeColor = "#8A2BE2";
+                strokeWidth = 3;
+            } else {
+                // WITH LEGEND: Use borders to show criticality
+                if (this.legendDataExists) {
+                    if (task.isCritical) {
+                        strokeColor = criticalColor;
+                        strokeWidth = this.settings.taskAppearance.criticalBorderWidth.value;
+                    } else if (task.isNearCritical) {
+                        strokeColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                        strokeWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
+                    }
+                }
+                // WITHOUT LEGEND (OLD STYLE): Minimal borders
+                else {
+                    if (task.isCritical) {
+                        strokeWidth = 1;  // Slightly thicker for critical
+                    }
+                }
             }
             
             // Draw task or milestone with pixel alignment
@@ -4704,9 +4978,9 @@ private drawTasksCanvas(
                     ctx.shadowOffsetX = 0;
                     ctx.shadowOffsetY = 0;
 
-                    // UPGRADED: Increased stroke weight (1.5px default, 3px for selected)
-                    ctx.strokeStyle = isSelected ? fillColor : "#000";
-                    ctx.lineWidth = isSelected ? 3 : 1.5;
+                    // Apply stroke based on criticality and selection
+                    ctx.strokeStyle = strokeColor;
+                    ctx.lineWidth = strokeWidth;
                     ctx.stroke();
                 }
             } else {
@@ -4756,14 +5030,10 @@ private drawTasksCanvas(
                     ctx.shadowOffsetX = 0;
                     ctx.shadowOffsetY = 0;
 
-                    // UPGRADED: Improved stroke weight for selected and critical tasks
-                    if (isSelected) {
-                        ctx.strokeStyle = fillColor;
-                        ctx.lineWidth = 3;  // UPGRADED: Increased from 2 to 3px
-                        ctx.stroke();
-                    } else if (isCritical) {
-                        ctx.strokeStyle = "#333";
-                        ctx.lineWidth = 1;
+                    // Apply stroke based on criticality and selection
+                    if (strokeWidth > 0.5) {
+                        ctx.strokeStyle = strokeColor;
+                        ctx.lineWidth = strokeWidth;
                         ctx.stroke();
                     }
 
@@ -4775,7 +5045,7 @@ private drawTasksCanvas(
 
                         ctx.save();
                         ctx.font = `bold ${durationFontSize}px ${fontFamily}`;
-                        ctx.fillStyle = "white";
+                        ctx.fillStyle = this.getDurationTextColor(fillColor);
                         ctx.textAlign = "center";
                         ctx.textBaseline = "middle";
 
@@ -5199,7 +5469,7 @@ private drawArrowsCanvas(
         // If connector lines are hidden, clear any existing lines and return
         if (!this.showConnectorLinesInternal) {
             if (this.arrowLayer) {
-                this.arrowLayer.selectAll(".relationship-arrow").remove();
+                this.arrowLayer.selectAll(".relationship-arrow, .connection-dot-start, .connection-dot-end").remove();
             }
             return;
         }
@@ -5208,7 +5478,7 @@ private drawArrowsCanvas(
             console.warn("Skipping arrow drawing: Missing layer or invalid scales.");
             return;
         }
-        this.arrowLayer.selectAll(".relationship-arrow").remove();
+        this.arrowLayer.selectAll(".relationship-arrow, .connection-dot-start, .connection-dot-end").remove();
 
         // Replace arrowHeadVisibleLength calculation with fixed value
         const connectionEndPadding = 0; // Fixed padding instead of dynamic arrow size
@@ -5237,7 +5507,7 @@ private drawArrowsCanvas(
             })
             .attr("stroke-linecap", "round")  // UPGRADED: Rounded line caps for smoother appearance
             .attr("stroke-linejoin", "round")  // UPGRADED: Rounded joins for smoother corners
-            // marker-end attribute removed
+            .attr("marker-end", (d: Relationship) => d.isCritical ? "url(#arrowhead-critical)" : "url(#arrowhead)")  // RESTORED: Arrowheads!
             .attr("d", (rel: Relationship): string | null => {
                 const pred = this.taskIdToTask.get(rel.predecessorId);
                 const succ = this.taskIdToTask.get(rel.successorId);
@@ -5370,6 +5640,90 @@ private drawArrowsCanvas(
                 return pathData;
             })
             .filter(function() { return d3.select(this).attr("d") !== null; });
+
+        // Add connection dots at start and end points for clarity
+        this.arrowLayer.selectAll(".connection-dot-start")
+            .data(visibleRelationships, (d: Relationship) => `start-${d.predecessorId}-${d.successorId}`)
+            .enter()
+            .append("circle")
+            .attr("class", "connection-dot-start")
+            .attr("r", 2.5)  // Small dot
+            .attr("fill", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
+            .attr("stroke", "white")
+            .attr("stroke-width", 0.5)
+            .attr("cx", (rel: Relationship): number => {
+                const pred = this.taskIdToTask.get(rel.predecessorId);
+                const predYOrder = taskPositions.get(rel.predecessorId);
+                if (!pred || predYOrder === undefined) return 0;
+
+                const relType = rel.type || 'FS';
+                const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
+
+                let baseStartDate: Date | null | undefined = null;
+                switch (relType) {
+                    case 'FS': case 'FF': baseStartDate = predIsMilestone ? (pred.startDate ?? pred.finishDate) : pred.finishDate; break;
+                    case 'SS': case 'SF': baseStartDate = pred.startDate; break;
+                }
+
+                if (baseStartDate instanceof Date && !isNaN(baseStartDate.getTime())) {
+                    const startX = xScale(baseStartDate);
+                    const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                    const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
+
+                    if (relType === 'FS' || relType === 'FF') return startX + startGap;
+                    else return startX - startGap;
+                }
+                return 0;
+            })
+            .attr("cy", (rel: Relationship): number => {
+                const predYOrder = taskPositions.get(rel.predecessorId);
+                if (predYOrder === undefined) return 0;
+                const predYBandPos = yScale(predYOrder.toString());
+                if (predYBandPos === undefined) return 0;
+                return predYBandPos + taskHeight / 2;
+            });
+
+        // Add connection dots at end points
+        this.arrowLayer.selectAll(".connection-dot-end")
+            .data(visibleRelationships, (d: Relationship) => `end-${d.predecessorId}-${d.successorId}`)
+            .enter()
+            .append("circle")
+            .attr("class", "connection-dot-end")
+            .attr("r", 2.5)  // Small dot
+            .attr("fill", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
+            .attr("stroke", "white")
+            .attr("stroke-width", 0.5)
+            .attr("cx", (rel: Relationship): number => {
+                const succ = this.taskIdToTask.get(rel.successorId);
+                const succYOrder = taskPositions.get(rel.successorId);
+                if (!succ || succYOrder === undefined) return 0;
+
+                const relType = rel.type || 'FS';
+                const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
+
+                let baseEndDate: Date | null | undefined = null;
+                switch (relType) {
+                    case 'FS': case 'SS': baseEndDate = succ.startDate; break;
+                    case 'FF': case 'SF': baseEndDate = succIsMilestone ? (succ.startDate ?? succ.finishDate) : succ.finishDate; break;
+                }
+
+                if (baseEndDate instanceof Date && !isNaN(baseEndDate.getTime())) {
+                    const endX = xScale(baseEndDate);
+                    const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                    const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
+
+                    if (relType === 'FS' || relType === 'SS') return endX - endGap;
+                    else return endX + endGap;
+                }
+                return 0;
+            })
+            .attr("cy", (rel: Relationship): number => {
+                const succYOrder = taskPositions.get(rel.successorId);
+                if (succYOrder === undefined) return 0;
+                const succYBandPos = yScale(succYOrder.toString());
+                if (succYBandPos === undefined) return 0;
+                return succYBandPos + taskHeight / 2;
+            });
     }
 
     private drawProjectEndLine(
@@ -6733,9 +7087,15 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         ? this.parseDate(row[previousUpdateFinishDateIdx]) 
         : null;
     
+    // Parse legend value
+    const legendIdx = this.getColumnIndex(dataView, 'legend');
+    const legendValue = (legendIdx !== -1 && row[legendIdx] != null)
+        ? String(row[legendIdx])
+        : undefined;
+
     // Get tooltip data
     const tooltipData = this.extractTooltipData(row, dataView);
-    
+
     // Create task object
     const task: Task = {
         id: row[this.getColumnIndex(dataView, 'taskId')],
@@ -6764,43 +7124,86 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         baselineFinishDate: baselineFinishDate,
         previousUpdateStartDate: previousUpdateStartDate,
         previousUpdateFinishDate: previousUpdateFinishDate,
-        tooltipData: tooltipData
+        tooltipData: tooltipData,
+        legendValue: legendValue
     };
-    
+
     return task;
 }
 
 /**
  * Extracts tooltip data from a row
  */
-private extractTooltipData(row: any[], dataView: DataView): Map<string, PrimitiveValue> | undefined {
+private extractTooltipData(row: any[], dataView: DataView): Array<{key: string, value: PrimitiveValue}> | undefined {
     const columns = dataView.metadata?.columns;
     if (!columns) return undefined;
-    
-    const tooltipData = new Map<string, PrimitiveValue>();
-    let hasTooltipData = false;
-    
+
+    // Collect tooltip columns with their metadata
+    const tooltipColumns: Array<{column: any, rowIndex: number}> = [];
+
     columns.forEach((column, index) => {
         if (column.roles?.tooltip) {
-            const value = row[index];
-            if (value !== null && value !== undefined) {
-                // Check if this should be treated as a date
-                if (column.type?.dateTime || this.mightBeDate(value)) {
-                    const parsedDate = this.parseDate(value);
-                    if (parsedDate) {
-                        tooltipData.set(column.displayName || `Field ${index}`, parsedDate);
-                        hasTooltipData = true;
-                        return;
-                    }
-                }
-                // Otherwise store original value
-                tooltipData.set(column.displayName || `Field ${index}`, value);
-                hasTooltipData = true;
+            // Log column properties for debugging (first occurrence only)
+            if (index === 0 || !this.tooltipDebugLogged) {
+                this.debugLog(`Tooltip column: ${column.displayName}, index: ${column.index}, queryName: ${column.queryName}`);
             }
+            tooltipColumns.push({
+                column: column,
+                rowIndex: index
+            });
         }
     });
-    
-    return hasTooltipData ? tooltipData : undefined;
+
+    this.tooltipDebugLogged = true;
+
+    // Try sorting by queryName which often contains role index
+    tooltipColumns.sort((a, b) => {
+        const aQuery = a.column.queryName || '';
+        const bQuery = b.column.queryName || '';
+
+        // Extract numeric indices from queryNames like "Sum(Field).tooltip.0"
+        const aMatch = aQuery.match(/\.tooltip\.(\d+)$/);
+        const bMatch = bQuery.match(/\.tooltip\.(\d+)$/);
+
+        if (aMatch && bMatch) {
+            return parseInt(aMatch[1]) - parseInt(bMatch[1]);
+        }
+
+        // Fallback to Power BI's internal column index. This usually corresponds to the order fields were added to the bucket.
+        if (a.column.index !== undefined && b.column.index !== undefined) {
+            return a.column.index - b.column.index;
+        }
+
+        // Final fallback to the order they appeared in the metadata.
+        return a.rowIndex - b.rowIndex;
+    });
+
+    // Build tooltip data array in the correct order
+    const tooltipData: Array<{key: string, value: PrimitiveValue}> = [];
+
+    for (const item of tooltipColumns) {
+        const value = row[item.rowIndex];
+        if (value !== null && value !== undefined) {
+            // Check if this should be treated as a date
+            if (item.column.type?.dateTime || this.mightBeDate(value)) {
+                const parsedDate = this.parseDate(value);
+                if (parsedDate) {
+                    tooltipData.push({
+                        key: item.column.displayName || `Field ${item.rowIndex}`,
+                        value: parsedDate
+                    });
+                    continue;
+                }
+            }
+            // Otherwise store original value
+            tooltipData.push({
+                key: item.column.displayName || `Field ${item.rowIndex}`,
+                value: value
+            });
+        }
+    }
+
+    return tooltipData.length > 0 ? tooltipData : undefined;
 }
 
 private transformDataOptimized(dataView: DataView): void {
@@ -6823,15 +7226,17 @@ private transformDataOptimized(dataView: DataView): void {
     const columns = dataView.metadata.columns;
 
     // Get column indices once
-    const idIdx = this.getColumnIndex(dataView, 'taskId');
+    const idIdx = this.getColumnIndex(dataView, "taskId");
     if (idIdx !== -1) {
         this.taskIdQueryName = dataView.metadata.columns[idIdx].queryName || null;
-        const match = this.taskIdQueryName ? this.taskIdQueryName.match(/([^\[]+)\[([^\]]+)\]/) : null;
+        const match = this.taskIdQueryName
+            ? this.taskIdQueryName.match(/([^\[]+)\[([^\]]+)\]/)
+            : null;
         if (match) {
             this.taskIdTable = match[1];
             this.taskIdColumn = match[2];
         } else if (this.taskIdQueryName) {
-            const parts = this.taskIdQueryName.split('.');
+            const parts = this.taskIdQueryName.split(".");
             this.taskIdTable = parts.length > 1 ? parts[0] : null;
             this.taskIdColumn = parts[parts.length - 1];
         } else {
@@ -6839,10 +7244,11 @@ private transformDataOptimized(dataView: DataView): void {
             this.taskIdColumn = null;
         }
     }
-    const predIdIdx = this.getColumnIndex(dataView, 'predecessorId');
-    const relTypeIdx = this.getColumnIndex(dataView, 'relationshipType');
-    const relLagIdx = this.getColumnIndex(dataView, 'relationshipLag');
-    const relFreeFloatIdx = this.getColumnIndex(dataView, 'relationshipFreeFloat');
+
+    const predIdIdx = this.getColumnIndex(dataView, "predecessorId");
+    const relTypeIdx = this.getColumnIndex(dataView, "relationshipType");
+    const relLagIdx = this.getColumnIndex(dataView, "relationshipLag");
+    const relFreeFloatIdx = this.getColumnIndex(dataView, "relationshipFreeFloat");
 
     if (idIdx === -1) {
         console.error("Data transformation failed: Missing Task ID column.");
@@ -6851,16 +7257,22 @@ private transformDataOptimized(dataView: DataView): void {
     }
 
     // Single pass data structures
-    const taskDataMap = new Map<string, {
-        rows: any[],
-        task: Task | null,
-        relationships: Array<{
-            predId: string,
-            relType: string,
-            lag: number | null,
-            freeFloat: number | null
-        }>
-    }>();
+    const taskDataMap = new Map<
+        string,
+        {
+            rows: any[];
+            task: Task | null;
+            relationships: Array<{
+                predId: string;
+                relType: string;
+                lag: number | null;
+                freeFloat: number | null;
+            }>;
+        }
+    >();
+
+    // NEW: track every predecessor id we see so we can create synthetic start tasks
+    const allPredecessorIds = new Set<string>();
 
     // SINGLE PASS: Group all rows by task ID
     for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -6877,23 +7289,29 @@ private transformDataOptimized(dataView: DataView): void {
             taskData = {
                 rows: [],
                 task: null,
-                relationships: []
+                relationships: [],
             };
             taskDataMap.set(taskId, taskData);
         }
-        
+
         taskData.rows.push(row);
 
         // Extract relationship data if present
         if (predIdIdx !== -1 && row[predIdIdx] != null) {
             const predId = this.extractPredecessorId(row);
             if (predId && predId !== taskId) {
+                // NEW: remember that this id exists as a predecessor
+                allPredecessorIds.add(predId);
+
                 // Parse relationship properties
-                const relTypeRaw = (relTypeIdx !== -1 && row[relTypeIdx] != null) 
-                    ? String(row[relTypeIdx]).trim().toUpperCase() 
-                    : 'FS';
-                const validRelTypes = ['FS', 'SS', 'FF', 'SF'];
-                const relType = validRelTypes.includes(relTypeRaw) ? relTypeRaw : 'FS';
+                const relTypeRaw =
+                    relTypeIdx !== -1 && row[relTypeIdx] != null
+                        ? String(row[relTypeIdx]).trim().toUpperCase()
+                        : "FS";
+                const validRelTypes = ["FS", "SS", "FF", "SF"];
+                const relType = validRelTypes.includes(relTypeRaw)
+                    ? relTypeRaw
+                    : "FS";
 
                 let relLag: number | null = null;
                 if (relLagIdx !== -1 && row[relLagIdx] != null) {
@@ -6913,22 +7331,33 @@ private transformDataOptimized(dataView: DataView): void {
                 }
 
                 // Check if this relationship already exists
-                const existingRel = taskData.relationships.find(r => r.predId === predId);
+                const existingRel = taskData.relationships.find(
+                    (r) => r.predId === predId
+                );
                 if (!existingRel) {
                     taskData.relationships.push({
                         predId: predId,
                         relType: relType,
                         lag: relLag,
-                        freeFloat: relFreeFloat
+                        freeFloat: relFreeFloat,
                     });
                 }
             }
         }
     }
 
+    // NEW: figure out how many "predecessor-only" tasks we have
+    // (appear only as predecessors, never as a successor/taskId)
+    let syntheticTaskCount = 0;
+    for (const predId of allPredecessorIds) {
+        if (!taskDataMap.has(predId)) {
+            syntheticTaskCount++;
+        }
+    }
+
     // Phase 1: Process grouped data to create tasks and relationships
-    // Pre-allocate arrays for better performance
-    this.allTasksData = new Array(taskDataMap.size);
+    // Pre-allocate arrays for better performance (including synthetic tasks)
+    this.allTasksData = new Array(taskDataMap.size + syntheticTaskCount);
     this.relationships = [];
 
     const successorMap = new Map<string, Task[]>();
@@ -6940,7 +7369,6 @@ private transformDataOptimized(dataView: DataView): void {
         if (taskData.rows.length > 0 && !taskData.task) {
             taskData.task = this.createTaskFromRow(taskData.rows[0], 0);
         }
-
         if (!taskData.task) continue;
 
         const task = taskData.task;
@@ -6950,7 +7378,7 @@ private transformDataOptimized(dataView: DataView): void {
             this.predecessorIndex.set(taskId, new Set());
         }
 
-        // Apply relationships to task - use for...of instead of forEach
+        // Apply relationships to task
         for (const rel of taskData.relationships) {
             task.predecessorIds.push(rel.predId);
             task.relationshipTypes[rel.predId] = rel.relType;
@@ -6973,13 +7401,13 @@ private transformDataOptimized(dataView: DataView): void {
                 predecessorId: rel.predId,
                 successorId: taskId,
                 type: rel.relType,
-                freeFloat: rel.freeFloat,  // Use provided free float or null
+                freeFloat: rel.freeFloat, // Use provided free float or null
                 lag: rel.lag,
-                isCritical: false
+                isCritical: false,
             };
             this.relationships.push(relationship);
 
-            // Add to relationship index
+            // Add to relationship index (by successor/task id)
             if (!this.relationshipIndex.has(taskId)) {
                 this.relationshipIndex.set(taskId, []);
             }
@@ -6991,27 +7419,152 @@ private transformDataOptimized(dataView: DataView): void {
         this.taskIdToTask.set(taskId, task);
     }
 
-    // Trim array to actual size if needed
+    // NEW: Phase 1b – create synthetic tasks for ids that only ever appear as predecessors
+    for (const predId of allPredecessorIds) {
+        // If we already created a real task for this id (it appeared as a successor), skip it
+        if (this.taskIdToTask.has(predId)) {
+            continue;
+        }
+
+        const syntheticTask: Task = {
+            id: predId,
+            internalId: predId,
+            name: String(predId),
+            type: "Synthetic",       // You can rename this to whatever makes sense
+            duration: 0,
+            userProvidedTotalFloat: undefined,
+            taskFreeFloat: undefined,
+            predecessorIds: [],
+            predecessors: [],
+            successors: [],
+            relationshipTypes: {},
+            relationshipLags: {},
+            earlyStart: 0,
+            earlyFinish: 0,
+            lateStart: Infinity,
+            lateFinish: Infinity,
+            totalFloat: Infinity,
+            isCritical: false,
+            isCriticalByFloat: false,
+            isCriticalByRel: false,
+            startDate: null,
+            finishDate: null,
+            baselineStartDate: null,
+            baselineFinishDate: null,
+            previousUpdateStartDate: null,
+            previousUpdateFinishDate: null,
+            tooltipData: undefined,
+            legendValue: undefined,
+        };
+
+        this.allTasksData[taskIndex++] = syntheticTask;
+        this.taskIdToTask.set(predId, syntheticTask);
+    }
+
+    // Trim array to actual size if needed (should normally be exact)
     if (taskIndex < this.allTasksData.length) {
         this.allTasksData.length = taskIndex;
     }
 
-    // Phase 1: Assign successors and predecessors with cached lookups - use for...of
+    // Phase 2: Assign successors and predecessors with cached lookups
     for (const task of this.allTasksData) {
-        // Set successors from map
+        // Set successors from map (synthetic tasks will get their successors from the map as well)
         task.successors = successorMap.get(task.internalId) || [];
-        
-        // Set predecessor task references
+
+        // Set predecessor task references (now includes synthetic predecessor-only tasks)
         task.predecessors = task.predecessorIds
-            .map(id => this.taskIdToTask.get(id))
-            .filter(t => t !== undefined) as Task[];
+            .map((id) => this.taskIdToTask.get(id))
+            .filter((t) => t !== undefined) as Task[];
     }
 
+    // Process legend data and assign colours
+    this.processLegendData(dataView);
+
     const endTime = performance.now();
-    this.debugLog(`Data transformation complete in ${endTime - startTime}ms. ` +
-                `Found ${this.allTasksData.length} tasks and ${this.relationships.length} relationships.`);
+    this.debugLog(
+        `Data transformation complete in ${endTime - startTime}ms. ` +
+            `Found ${this.allTasksData.length} tasks and ${this.relationships.length} relationships.`
+    );
 }
-    
+
+
+/**
+ * Process legend data and assign colors to tasks based on legend values
+ */
+private processLegendData(dataView: DataView): void {
+    // Reset legend data
+    this.legendDataExists = false;
+    this.legendColorMap.clear();
+    this.legendCategories = [];
+    this.legendSelectionIds.clear();
+    this.legendFieldName = "";
+
+    // Check if legend field exists in metadata
+    const columns = dataView.metadata?.columns;
+    if (!columns) return;
+
+    const legendColumn = columns.find(col => col.roles?.legend);
+    if (!legendColumn) {
+        // No legend field - clear legend colors from all tasks
+        for (const task of this.allTasksData) {
+            task.legendColor = undefined;
+        }
+        return;
+    }
+
+    this.legendFieldName = legendColumn.displayName || "Legend";
+    this.legendDataExists = true;
+
+    // Collect unique legend values from tasks
+    const legendValueSet = new Set<string>();
+    for (const task of this.allTasksData) {
+        if (task.legendValue) {
+            legendValueSet.add(task.legendValue);
+        }
+    }
+
+    this.legendCategories = Array.from(legendValueSet);
+
+    // Sort categories BEFORE assigning colors (so indices match the sorted order)
+    const sortOrder = this.settings?.legend?.sortOrder?.value?.value || "none";
+    if (sortOrder === "ascending") {
+        this.legendCategories.sort((a, b) => a.localeCompare(b));
+    } else if (sortOrder === "descending") {
+        this.legendCategories.sort((a, b) => b.localeCompare(a));
+    }
+
+    // Assign colors from persisted settings or theme palette
+    const legendColorsObjects = dataView.metadata?.objects?.legendColors;
+    for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
+        const category = this.legendCategories[i];
+        const colorKey = `color${i + 1}`; // color1, color2, etc.
+
+        // Check if user has set a custom color for this slot
+        const persistedColor = legendColorsObjects?.[colorKey];
+
+        if (persistedColor && typeof persistedColor === 'object' && 'solid' in persistedColor) {
+            // Use persisted color
+            this.legendColorMap.set(category, (persistedColor as any).solid.color);
+        } else {
+            // Use theme default color
+            const defaultColor = this.host.colorPalette.getColor(category).value;
+            this.legendColorMap.set(category, defaultColor);
+        }
+    }
+
+    // Assign colors to tasks (this part remains valid)
+    // We map the task's legend value to the color map we just built
+    for (const task of this.allTasksData) {
+        if (task.legendValue) {
+            task.legendColor = this.legendColorMap.get(task.legendValue);
+        } else {
+            task.legendColor = undefined;
+        }
+    }
+
+    this.debugLog(`Legend processed: ${this.legendCategories.length} categories found`);
+}
+
     // Helper method to detect possible date values
     private mightBeDate(value: PrimitiveValue): boolean {
         // If already a Date, then it's a date
@@ -8009,22 +8562,21 @@ private createMarginResizer(): void {
             // Update the margin immediately
             self.margin.left = newLeftMargin;
 
-            // Throttle the full visual redraw for performance
+            // Throttle redraws for performance
             const now = Date.now();
             if (now - lastDragTime >= dragThrottleMs) {
                 lastDragTime = now;
 
-                // Trigger full re-render during drag for real-time visual feedback
-                if (self.lastUpdateOptions) {
-                    // Create a copy of options with Resize flag to trigger proper redraw
-                    const dragUpdateOptions = {
-                        ...self.lastUpdateOptions,
-                        type: self.lastUpdateOptions.type | VisualUpdateType.Resize
-                    };
-                    self.update(dragUpdateOptions);
-                }
+                // Use lightweight margin update that preserves drag state
+                self.handleMarginDragUpdate(newLeftMargin);
             } else {
-                // Between throttled updates, just update the resizer position for smooth handle movement
+                // Between throttled updates, just update transforms for smooth movement
+                if (self.mainGroup) {
+                    self.mainGroup.attr("transform", `translate(${self.margin.left}, ${self.margin.top})`);
+                }
+                if (self.headerGridLayer) {
+                    self.headerGridLayer.attr("transform", `translate(${self.margin.left}, 0)`);
+                }
                 self.updateMarginResizerPosition();
             }
         })
@@ -8044,6 +8596,8 @@ private createMarginResizer(): void {
             }
 
             // Persist the new margin value to Power BI settings
+            // Power BI will trigger an update when the persist completes, so we don't call update() here
+            // This prevents the snap-back effect where update() reads the old value before persist completes
             self.host.persistProperties({
                 merge: [{
                     objectName: "layoutSettings",
@@ -8052,10 +8606,8 @@ private createMarginResizer(): void {
                 }]
             });
 
-            // Trigger a final full re-render to ensure everything is properly updated
-            if (self.lastUpdateOptions) {
-                self.update(self.lastUpdateOptions);
-            }
+            // Don't call update() here - let Power BI trigger it after persistProperties completes
+            // The visual is already in the correct state from handleMarginDragUpdate()
         });
 
     this.marginResizer.call(drag as any);
@@ -8529,7 +9081,340 @@ private ensureTaskVisible(taskId: string): void {
              // Create default settings if no data/options available yet
              this.settings = new VisualSettings();
         }
-        return this.formattingSettingsService.buildFormattingModel(this.settings);
+
+        // Modify legendColors card before building model if legend exists
+        if (this.legendDataExists && this.legendCategories.length > 0 && this.settings?.legendColors) {
+            const ColorPicker = formattingSettings.ColorPicker;
+
+            // Update the display name of the card
+            this.settings.legendColors.displayName = "Data Colors";
+
+            // Create dynamic color picker slices for each category (up to 20)
+            const slices: formattingSettings.Slice[] = [];
+            for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
+                const category = this.legendCategories[i];
+                const colorKey = `color${i + 1}`;
+
+                // Get the current color for this category
+                const currentColor = this.legendColorMap.get(category) || "#000000";
+
+                // Create a color picker with the category name as display name
+                const colorPicker = new ColorPicker({
+                    name: colorKey,
+                    displayName: category, // Show actual category name
+                    value: { value: currentColor }
+                });
+
+                slices.push(colorPicker);
+            }
+
+            // Replace the slices in the legendColors card
+            this.settings.legendColors.slices = slices;
+        } else if (this.settings?.legendColors) {
+            // Hide the card if no legend data exists
+            this.settings.legendColors.visible = false;
+        }
+
+        const formattingModel = this.formattingSettingsService.buildFormattingModel(this.settings);
+
+        return formattingModel;
+    }
+
+    /**
+     * Toggle a legend category on/off for filtering
+     */
+    private toggleLegendCategory(category: string): void {
+        // If currently empty (all selected), clicking adds ONLY this category (filter TO it)
+        if (this.selectedLegendCategories.size === 0) {
+            this.selectedLegendCategories.add(category);
+        } else {
+            // Toggle the category
+            if (this.selectedLegendCategories.has(category)) {
+                this.selectedLegendCategories.delete(category);
+                // If all are deselected, reset to "all selected" state
+                if (this.selectedLegendCategories.size === 0) {
+                    // Keep it empty - empty = all selected
+                }
+            } else {
+                this.selectedLegendCategories.add(category);
+                // If all categories are now selected, reset to empty set for efficiency
+                if (this.selectedLegendCategories.size === this.legendCategories.length) {
+                    this.selectedLegendCategories.clear();
+                }
+            }
+        }
+
+        // Re-render the visual with the new filter
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+    }
+
+    /**
+     * Render the legend UI in sticky footer with horizontal scrolling
+     */
+    private renderLegend(viewportWidth: number, viewportHeight: number): void {
+        if (!this.legendContainer) return;
+
+        // Check if legend should be shown
+        const showLegend = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
+
+        // Update scrollable container height based on legend visibility
+        if (showLegend) {
+            this.scrollableContainer.style("height", `calc(100% - ${this.headerHeight + this.legendFooterHeight}px)`);
+        } else {
+            this.scrollableContainer.style("height", `calc(100% - ${this.headerHeight}px)`);
+        }
+
+        if (!showLegend) {
+            this.legendContainer.style("display", "none");
+            return;
+        }
+
+        // Get legend settings
+        const fontSize = this.settings.legend.fontSize.value;
+        const showTitle = this.settings.legend.showTitle.value;
+        const titleText = this.settings.legend.titleText.value || this.legendFieldName;
+
+        // Clear existing legend content
+        this.legendContainer.selectAll("*").remove();
+
+        // Main container with flexbox layout
+        const mainContainer = this.legendContainer.append("div")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("height", "100%")
+            .style("padding", "0 10px");
+
+        // Left scroll arrow
+        const leftArrow = mainContainer.append("div")
+            .attr("class", "legend-scroll-left")
+            .style("flex-shrink", "0")
+            .style("width", "30px")
+            .style("height", "30px")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("cursor", "pointer")
+            .style("background-color", "#f0f0f0")
+            .style("border-radius", "4px")
+            .style("margin-right", "10px")
+            .style("user-select", "none")
+            .style("transition", "background-color 0.2s")
+            .text("◀")
+            .style("font-size", "14px")
+            .style("color", "#666");
+
+        // Scrollable content wrapper
+        const scrollWrapper = mainContainer.append("div")
+            .style("flex", "1")
+            .style("overflow", "hidden")
+            .style("position", "relative");
+
+        // Scrollable content container
+        const scrollableContent = scrollWrapper.append("div")
+            .attr("class", "legend-scrollable-content")
+            .style("display", "flex")
+            .style("gap", "20px")
+            .style("align-items", "center")
+            .style("transition", "transform 0.3s ease")
+            .style("padding", "5px 0");
+
+        // Add title if enabled
+        if (showTitle && titleText) {
+            scrollableContent.append("div")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", `${fontSize + 1}px`)
+                .style("font-weight", "bold")
+                .style("color", "#333")
+                .style("white-space", "nowrap")
+                .style("margin-right", "10px")
+                .text(titleText + ":");
+        }
+
+        // Add legend items
+        this.legendCategories.forEach(category => {
+            const color = this.legendColorMap.get(category) || "#999";
+            // Check if this category is selected (empty set = all selected)
+            const isSelected = this.selectedLegendCategories.size === 0 || this.selectedLegendCategories.has(category);
+
+            const item = scrollableContent.append("div")
+                .attr("data-category", category)
+                .style("display", "flex")
+                .style("align-items", "center")
+                .style("gap", "6px")
+                .style("flex-shrink", "0")
+                .style("cursor", "pointer")
+                .style("user-select", "none")
+                .style("padding", "2px 8px")
+                .style("border-radius", "4px")
+                .style("transition", "all 0.2s")
+                .style("opacity", isSelected ? "1" : "0.4");
+
+            // Color swatch
+            item.append("div")
+                .style("width", "14px")
+                .style("height", "14px")
+                .style("background-color", color)
+                .style("border", "1px solid #999")
+                .style("border-radius", "2px")
+                .style("flex-shrink", "0");
+
+            // Label
+            item.append("span")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", `${fontSize}px`)
+                .style("color", "#666")
+                .style("white-space", "nowrap")
+                .style("text-decoration", isSelected ? "none" : "line-through")
+                .text(category);
+
+            // Click handler for filtering
+            item.on("click", () => {
+                this.toggleLegendCategory(category);
+            });
+
+            // Hover effect
+            item.on("mouseenter", function() {
+                d3.select(this).style("background-color", "#f5f5f5");
+            }).on("mouseleave", function() {
+                d3.select(this).style("background-color", "transparent");
+            });
+        });
+
+        // Right scroll arrow
+        const rightArrow = mainContainer.append("div")
+            .attr("class", "legend-scroll-right")
+            .style("flex-shrink", "0")
+            .style("width", "30px")
+            .style("height", "30px")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("cursor", "pointer")
+            .style("background-color", "#f0f0f0")
+            .style("border-radius", "4px")
+            .style("margin-left", "10px")
+            .style("user-select", "none")
+            .style("transition", "background-color 0.2s")
+            .text("▶")
+            .style("font-size", "14px")
+            .style("color", "#666");
+
+        // Scroll logic
+        let scrollPosition = 0;
+        const scrollAmount = 200; // pixels to scroll per click
+
+        leftArrow.on("click", function() {
+            scrollPosition = Math.max(0, scrollPosition - scrollAmount);
+            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
+            updateArrowStates();
+        });
+
+        rightArrow.on("click", function() {
+            const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
+            const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
+            const maxScroll = Math.max(0, contentWidth - wrapperWidth);
+            scrollPosition = Math.min(maxScroll, scrollPosition + scrollAmount);
+            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
+            updateArrowStates();
+        });
+
+        // Update arrow states based on scroll position
+        const updateArrowStates = () => {
+            const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
+            const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
+            const maxScroll = Math.max(0, contentWidth - wrapperWidth);
+
+            // Disable/enable arrows
+            if (scrollPosition <= 0) {
+                leftArrow.style("opacity", "0.3").style("cursor", "default");
+            } else {
+                leftArrow.style("opacity", "1").style("cursor", "pointer");
+            }
+
+            if (scrollPosition >= maxScroll || maxScroll === 0) {
+                rightArrow.style("opacity", "0.3").style("cursor", "default");
+            } else {
+                rightArrow.style("opacity", "1").style("cursor", "pointer");
+            }
+        };
+
+        // Hover effects for arrows
+        leftArrow.on("mouseenter", function() {
+            if (scrollPosition > 0) {
+                d3.select(this).style("background-color", "#e0e0e0");
+            }
+        }).on("mouseleave", function() {
+            d3.select(this).style("background-color", "#f0f0f0");
+        });
+
+        rightArrow.on("mouseenter", function() {
+            const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
+            const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
+            if (scrollPosition < contentWidth - wrapperWidth) {
+                d3.select(this).style("background-color", "#e0e0e0");
+            }
+        }).on("mouseleave", function() {
+            d3.select(this).style("background-color", "#f0f0f0");
+        });
+
+        // Show legend and initialize arrow states
+        this.legendContainer.style("display", "block");
+
+        // Wait a frame for layout to settle, then update arrow states
+        setTimeout(() => updateArrowStates(), 0);
+    }
+
+    /**
+     * Convert hex color to RGB object
+     */
+    private hexToRgb(hex: string): { r: number; g: number; b: number } {
+        // Remove # if present
+        hex = hex.replace(/^#/, '');
+
+        // Parse hex values
+        const bigint = parseInt(hex, 16);
+        const r = (bigint >> 16) & 255;
+        const g = (bigint >> 8) & 255;
+        const b = bigint & 255;
+
+        return { r, g, b };
+    }
+
+    /**
+     * Calculate luminance of a color (for contrast calculation)
+     */
+    private getLuminance(r: number, g: number, b: number): number {
+        const a = [r, g, b].map(v => {
+            v /= 255;
+            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+        });
+        return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+    }
+
+    /**
+     * Get contrasting text color (black or white) for a given background color
+     */
+    private getContrastColor(backgroundColor: string): string {
+        const rgb = this.hexToRgb(backgroundColor);
+        const luminance = this.getLuminance(rgb.r, rgb.g, rgb.b);
+        // Use white text for dark backgrounds, black for light backgrounds
+        return luminance > 0.5 ? '#000000' : '#FFFFFF';
+    }
+
+    /**
+     * Get duration text color based on settings or auto-contrast
+     */
+    private getDurationTextColor(backgroundColor: string): string {
+        const settingColor = this.settings.textAndLabels.durationTextColor.value.value;
+
+        // If set to "Auto", calculate contrast color
+        if (settingColor === "Auto" || !settingColor) {
+            return this.getContrastColor(backgroundColor);
+        }
+
+        return settingColor;
     }
 
     // Debug helper

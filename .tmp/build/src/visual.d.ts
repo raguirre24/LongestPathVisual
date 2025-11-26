@@ -39,6 +39,7 @@ export declare class Visual implements IVisual {
     private debug;
     private margin;
     private headerHeight;
+    private legendFooterHeight;
     private dateLabelOffset;
     private floatTolerance;
     private defaultMaxTasks;
@@ -73,6 +74,14 @@ export declare class Visual implements IVisual {
     private lastDataViewId;
     private renderStartTime;
     private predecessorIndex;
+    private legendDataExists;
+    private legendColorMap;
+    private legendCategories;
+    private legendFieldName;
+    private legendContainer;
+    private selectedLegendCategories;
+    private legendSelectionIds;
+    private tooltipDebugLogged;
     private relationshipIndex;
     private allDrivingChains;
     private selectedPathIndex;
@@ -160,6 +169,11 @@ export declare class Visual implements IVisual {
     private updateInternal;
     private handleViewportOnlyUpdate;
     private handleSettingsOnlyUpdate;
+    /**
+     * Handles margin-only updates during drag for real-time visual feedback
+     * Does NOT recreate the resizer or call clearVisual() to preserve drag state
+     */
+    private handleMarginDragUpdate;
     private clearVisual;
     private drawHeaderDivider;
     private createArrowheadMarkers;
@@ -287,6 +301,10 @@ export declare class Visual implements IVisual {
      */
     private extractTooltipData;
     private transformDataOptimized;
+    /**
+     * Process legend data and assign colors to tasks based on legend values
+     */
+    private processLegendData;
     private mightBeDate;
     private validateDataView;
     private hasDataRole;
@@ -327,5 +345,29 @@ export declare class Visual implements IVisual {
     private selectTask;
     private ensureTaskVisible;
     getFormattingModel(): powerbi.visuals.FormattingModel;
+    /**
+     * Toggle a legend category on/off for filtering
+     */
+    private toggleLegendCategory;
+    /**
+     * Render the legend UI in sticky footer with horizontal scrolling
+     */
+    private renderLegend;
+    /**
+     * Convert hex color to RGB object
+     */
+    private hexToRgb;
+    /**
+     * Calculate luminance of a color (for contrast calculation)
+     */
+    private getLuminance;
+    /**
+     * Get contrasting text color (black or white) for a given background color
+     */
+    private getContrastColor;
+    /**
+     * Get duration text color based on settings or auto-contrast
+     */
+    private getDurationTextColor;
     private debugLog;
 }

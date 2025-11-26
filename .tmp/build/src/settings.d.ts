@@ -7,9 +7,12 @@ declare class TaskAppearanceCard extends Card {
     displayName: string;
     taskColor: formattingSettings.ColorPicker;
     criticalPathColor: formattingSettings.ColorPicker;
+    nearCriticalColor: formattingSettings.ColorPicker;
     milestoneColor: formattingSettings.ColorPicker;
     taskHeight: formattingSettings.NumUpDown;
     milestoneSize: formattingSettings.NumUpDown;
+    criticalBorderWidth: formattingSettings.NumUpDown;
+    nearCriticalBorderWidth: formattingSettings.NumUpDown;
     showBaseline: formattingSettings.ToggleSwitch;
     baselineColor: formattingSettings.ColorPicker;
     baselineHeight: formattingSettings.NumUpDown;
@@ -37,6 +40,7 @@ declare class TextAndLabelsCard extends Card {
     taskNameFontSize: formattingSettings.NumUpDown;
     labelColor: formattingSettings.ColorPicker;
     showDuration: formattingSettings.ToggleSwitch;
+    durationTextColor: formattingSettings.ColorPicker;
     showFinishDates: formattingSettings.ToggleSwitch;
     dateBackgroundColor: formattingSettings.ColorPicker;
     dateBackgroundTransparency: formattingSettings.NumUpDown;
@@ -110,6 +114,42 @@ declare class DrivingPathSelectionCard extends Card {
     showPathInfo: formattingSettings.ToggleSwitch;
     slices: Slice[];
 }
+declare class LegendCard extends Card {
+    name: string;
+    displayName: string;
+    show: formattingSettings.ToggleSwitch;
+    position: formattingSettings.ItemDropdown;
+    fontSize: formattingSettings.NumUpDown;
+    showTitle: formattingSettings.ToggleSwitch;
+    titleText: formattingSettings.TextInput;
+    sortOrder: formattingSettings.ItemDropdown;
+    slices: Slice[];
+}
+declare class LegendColorsCard extends Card {
+    name: string;
+    displayName: string;
+    color1: formattingSettings.ColorPicker;
+    color2: formattingSettings.ColorPicker;
+    color3: formattingSettings.ColorPicker;
+    color4: formattingSettings.ColorPicker;
+    color5: formattingSettings.ColorPicker;
+    color6: formattingSettings.ColorPicker;
+    color7: formattingSettings.ColorPicker;
+    color8: formattingSettings.ColorPicker;
+    color9: formattingSettings.ColorPicker;
+    color10: formattingSettings.ColorPicker;
+    color11: formattingSettings.ColorPicker;
+    color12: formattingSettings.ColorPicker;
+    color13: formattingSettings.ColorPicker;
+    color14: formattingSettings.ColorPicker;
+    color15: formattingSettings.ColorPicker;
+    color16: formattingSettings.ColorPicker;
+    color17: formattingSettings.ColorPicker;
+    color18: formattingSettings.ColorPicker;
+    color19: formattingSettings.ColorPicker;
+    color20: formattingSettings.ColorPicker;
+    slices: Slice[];
+}
 declare class PersistedStateCard extends Card {
     name: string;
     displayName: string;
@@ -131,6 +171,8 @@ export declare class VisualSettings extends Model {
     criticalityMode: CriticalityModeCard;
     drivingPathSelection: DrivingPathSelectionCard;
     taskSelection: TaskSelectionCard;
+    legend: LegendCard;
+    legendColors: LegendColorsCard;
     persistedState: PersistedStateCard;
     cards: Card[];
 }
