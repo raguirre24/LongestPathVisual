@@ -513,21 +513,25 @@ constructor(options: VisualConstructorOptions) {
     // --- Create modern Float Threshold control ---
     this.createFloatThresholdControl();
 
-    // --- Selected Task Label ---
+    // UPGRADED: Professional Selected Task Label with status indicator and close button
     this.selectedTaskLabel = this.stickyHeaderContainer.append("div")
         .attr("class", "selected-task-label")
         .style("position", "absolute")
-        .style("top", "10px")
-        .style("right", "15px")
-        .style("padding", "5px 10px")
-        .style("background-color", "rgba(255,255,255,0.8)")
-        .style("border", "1px solid #ccc")
-        .style("border-radius", "4px")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "9px")
-        .style("color", "#333")
-        .style("font-weight", "bold")
-        .style("display", "none");
+        .style("top", "8px")
+        .style("right", "10px")
+        .style("display", "none")
+        .style("align-items", "center")
+        .style("gap", `${this.UI_TOKENS.spacing.sm}px`)
+        .style("padding", `${this.UI_TOKENS.spacing.sm}px ${this.UI_TOKENS.spacing.md}px`)
+        .style("background-color", this.UI_TOKENS.color.neutral.white)
+        .style("border", `2px solid #8A2BE2`)  // Purple for selected
+        .style("border-radius", `${this.UI_TOKENS.radius.large}px`)
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("color", this.UI_TOKENS.color.neutral.grey160)
+        .style("box-shadow", this.UI_TOKENS.shadow[4])
+        .style("max-width", "250px")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // --- Driving Path Info Label (Path Selection Control) ---
     // UPGRADED: Professional path selection control with enhanced design
@@ -605,22 +609,30 @@ constructor(options: VisualConstructorOptions) {
     // --- Tooltip with improved styling ---
     // Remove any existing tooltips from this instance
     d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
-    
+
+    // UPGRADED: Professional tooltip with Fluent Design 2 styling
     this.tooltipDiv = d3.select("body").append("div")
         .attr("class", `critical-path-tooltip ${this.tooltipClassName}`)
         .style("position", "absolute")
         .style("visibility", "hidden")
-        .style("background-color", "white")
-        .style("border", "1px solid #ddd")
-        .style("border-radius", "5px")
-        .style("padding", "10px")
-        .style("box-shadow", "0 2px 10px rgba(0,0,0,0.2)")
+        .style("background-color", this.UI_TOKENS.color.neutral.white)
+        .style("border", `1px solid ${this.UI_TOKENS.color.neutral.grey40}`)
+        .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
+        .style("padding", `${this.UI_TOKENS.spacing.lg}px ${this.UI_TOKENS.spacing.xl}px`)
+        .style("box-shadow", this.UI_TOKENS.shadow[16])  // Deeper shadow for elevation
         .style("pointer-events", "none")
-        .style("z-index", "1000")
-        .style("max-width", "300px")
-        .style("font-size", "12px")
-        .style("line-height", "1.4")
-        .style("color", "#333");
+        .style("z-index", "10000")
+        .style("max-width", "320px")
+        .style("min-width", "240px")
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("line-height", "1.5")
+        .style("color", this.UI_TOKENS.color.neutral.grey160)
+        .style("opacity", "0")  // Start invisible for animation
+        .style("transform", "translateY(-4px)")  // Start slightly above for animation
+        .style("transition", `opacity ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.decelerate}, transform ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.decelerate}`)
+        .style("backdrop-filter", "blur(10px)")  // Modern blur effect
+        .style("-webkit-backdrop-filter", "blur(10px)");  // Safari support
     
     // Initialize trace mode
     this.traceMode = "backward";
@@ -732,16 +744,32 @@ constructor(options: VisualConstructorOptions) {
             d3.select(this.canvasElement).style("cursor", "pointer");
         } else {
             if (this.tooltipDiv) {
-                this.tooltipDiv.style("visibility", "hidden");
+                // UPGRADED: Animate tooltip out
+                this.tooltipDiv
+                    .style("opacity", "0")
+                    .style("transform", "translateY(-4px)");
+                setTimeout(() => {
+                    if (this.tooltipDiv) {
+                        this.tooltipDiv.style("visibility", "hidden");
+                    }
+                }, this.UI_TOKENS.motion.duration.fast);
             }
             d3.select(this.canvasElement).style("cursor", "default");
         }
     });
-    
+
     // Add mouseout handler
     d3.select(this.canvasElement).on("mouseout", () => {
         if (this.tooltipDiv) {
-            this.tooltipDiv.style("visibility", "hidden");
+            // UPGRADED: Animate tooltip out
+            this.tooltipDiv
+                .style("opacity", "0")
+                .style("transform", "translateY(-4px)");
+            setTimeout(() => {
+                if (this.tooltipDiv) {
+                    this.tooltipDiv.style("visibility", "hidden");
+                }
+            }, this.UI_TOKENS.motion.duration.fast);
         }
         d3.select(this.canvasElement).style("cursor", "default");
     });
@@ -3047,51 +3075,97 @@ private getCanvasMouseCoordinates(event: MouseEvent): { x: number, y: number } {
 private showTaskTooltip(task: Task, event: MouseEvent): void {
     const tooltip = this.tooltipDiv;
     if (!tooltip || !task) return;
-    
-    tooltip.selectAll("*").remove();
-    tooltip.style("visibility", "visible");
-    
-    // Standard Fields
-    tooltip.append("div").append("strong").text("Task: ")
-        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-        .append("span").text(task.name || "");
-        
-    tooltip.append("div").append("strong").text("Start Date: ")
-        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-        .append("span").text(this.formatDate(task.startDate));
-        
-    tooltip.append("div").append("strong").text("Finish Date: ")
-        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-        .append("span").text(this.formatDate(task.finishDate));
-    
-    // Mode-specific Info
-    const modeInfo = tooltip.append("div")
-        .classed("tooltip-mode-info", true)
-        .style("margin-top", "8px")
-        .style("border-top", "1px solid #eee")
-        .style("padding-top", "8px");
 
-    // Display mode
+    tooltip.selectAll("*").remove();
+
+    // Determine criticality color for accent bar
     const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
     const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
     const selectionHighlightColor = "#8A2BE2";
-    
-    modeInfo.append("div")
-        .style("font-size", "10px")
-        .style("font-style", "italic")
-        .style("color", "#666")
-        .text(`Mode: ${mode === 'floatBased' ? 'Float-Based' : 'Longest Path'}`);
+    const nearCriticalColor = "#F7941F";
 
-    // Status
-    modeInfo.append("div").append("strong").style("color", "#555").text("Status: ")
-        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-        .append("span")
+    let accentColor = this.UI_TOKENS.color.neutral.grey90;
+    if (task.internalId === this.selectedTaskId) accentColor = selectionHighlightColor;
+    else if (task.isCritical) accentColor = criticalColor;
+    else if (task.isNearCritical) accentColor = nearCriticalColor;
+
+    // Add color accent bar on left edge
+    tooltip.append("div")
+        .style("position", "absolute")
+        .style("left", "0")
+        .style("top", "0")
+        .style("bottom", "0")
+        .style("width", "4px")
+        .style("background", `linear-gradient(180deg, ${accentColor} 0%, ${accentColor}99 100%)`)
+        .style("border-radius", `${this.UI_TOKENS.radius.medium}px 0 0 ${this.UI_TOKENS.radius.medium}px`);
+
+    // Main content container with left padding for accent bar
+    const contentContainer = tooltip.append("div")
+        .style("padding-left", "8px");
+
+    // Task name (larger, bold)
+    contentContainer.append("div")
+        .style("font-size", `${this.UI_TOKENS.fontSize.xl}px`)
+        .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
+        .style("color", this.UI_TOKENS.color.neutral.grey190)
+        .style("margin-bottom", `${this.UI_TOKENS.spacing.sm}px`)
+        .style("line-height", "1.3")
+        .text(task.name || "Unnamed Task");
+
+    // Date information row (compact)
+    const dateRow = contentContainer.append("div")
+        .style("display", "flex")
+        .style("gap", `${this.UI_TOKENS.spacing.lg}px`)
+        .style("margin-bottom", `${this.UI_TOKENS.spacing.md}px`)
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("color", this.UI_TOKENS.color.neutral.grey130);
+
+    dateRow.append("span")
+        .html(`<strong style="color: ${this.UI_TOKENS.color.neutral.grey160}">Start:</strong> ${this.formatDate(task.startDate)}`);
+
+    dateRow.append("span")
+        .style("color", this.UI_TOKENS.color.neutral.grey60)
+        .text("→");
+
+    dateRow.append("span")
+        .html(`<strong style="color: ${this.UI_TOKENS.color.neutral.grey160}">Finish:</strong> ${this.formatDate(task.finishDate)}`);
+
+    // Mode-specific Info section
+    const modeInfo = contentContainer.append("div")
+        .classed("tooltip-mode-info", true)
+        .style("margin-top", `${this.UI_TOKENS.spacing.md}px`)
+        .style("border-top", `1px solid ${this.UI_TOKENS.color.neutral.grey30}`)
+        .style("padding-top", `${this.UI_TOKENS.spacing.md}px`);
+    
+    // Mode badge (compact, modern)
+    modeInfo.append("div")
+        .style("display", "inline-block")
+        .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
+        .style("font-weight", this.UI_TOKENS.fontWeight.medium.toString())
+        .style("color", this.UI_TOKENS.color.primary.default)
+        .style("background-color", this.UI_TOKENS.color.primary.lighter)
+        .style("padding", `2px ${this.UI_TOKENS.spacing.sm}px`)
+        .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
+        .style("margin-bottom", `${this.UI_TOKENS.spacing.sm}px`)
+        .text(mode === 'floatBased' ? 'Float-Based Mode' : 'Longest Path Mode');
+
+    // Status with better styling
+    const statusRow = modeInfo.append("div")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("margin-bottom", `${this.UI_TOKENS.spacing.xs}px`);
+
+    statusRow.append("strong")
+        .style("color", this.UI_TOKENS.color.neutral.grey130)
+        .text("Status: ");
+
+    statusRow.append("span")
         .style("color", function() {
             if (task.internalId === this.selectedTaskId) return selectionHighlightColor;
             if (task.isCritical) return criticalColor;
-            if (task.isNearCritical) return "#F7941F";
-            return "inherit";
+            if (task.isNearCritical) return nearCriticalColor;
+            return this.UI_TOKENS.color.neutral.grey160;
         }.bind(this))
+        .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
         .text(function() {
             if (task.internalId === this.selectedTaskId) return "Selected";
             if (task.isCritical) return mode === 'floatBased' ? "Critical (Float ≤ 0)" : "On Longest Path";
@@ -3102,40 +3176,69 @@ private showTaskTooltip(task: Task, event: MouseEvent): void {
     // Show float values in Float-Based mode
     if (mode === 'floatBased') {
         if (task.userProvidedTotalFloat !== undefined) {
-            modeInfo.append("div").append("strong").text("Total Float: ")
-                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                .append("span")
-                .style("color", task.userProvidedTotalFloat <= 0 ? criticalColor : "inherit")
+            const floatRow = modeInfo.append("div")
+                .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+                .style("margin-bottom", `${this.UI_TOKENS.spacing.xs}px`);
+
+            floatRow.append("strong")
+                .style("color", this.UI_TOKENS.color.neutral.grey130)
+                .text("Total Float: ");
+
+            floatRow.append("span")
+                .style("color", task.userProvidedTotalFloat <= 0 ? criticalColor : this.UI_TOKENS.color.neutral.grey160)
+                .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
                 .text(task.userProvidedTotalFloat.toFixed(2) + " days");
         }
-        
+
         if (task.taskFreeFloat !== undefined) {
-            modeInfo.append("div").append("strong").text("Task Free Float: ")
-                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                .append("span").text(task.taskFreeFloat.toFixed(2) + " days");
+            const freeFloatRow = modeInfo.append("div")
+                .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+                .style("margin-bottom", `${this.UI_TOKENS.spacing.xs}px`);
+
+            freeFloatRow.append("strong")
+                .style("color", this.UI_TOKENS.color.neutral.grey130)
+                .text("Free Float: ");
+
+            freeFloatRow.append("span")
+                .style("color", this.UI_TOKENS.color.neutral.grey160)
+                .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
+                .text(task.taskFreeFloat.toFixed(2) + " days");
         }
     }
 
     // Duration (only for Longest Path mode)
     if (mode === 'longestPath') {
-        modeInfo.append("div").append("strong").text("Rem. Duration: ")
-            .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-            .append("span").text(`${task.duration} (work days)`);
+        const durationRow = modeInfo.append("div")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .style("margin-bottom", `${this.UI_TOKENS.spacing.xs}px`);
+
+        durationRow.append("strong")
+            .style("color", this.UI_TOKENS.color.neutral.grey130)
+            .text("Rem. Duration: ");
+
+        durationRow.append("span")
+            .style("color", this.UI_TOKENS.color.neutral.grey160)
+            .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
+            .text(`${task.duration} days`);
     }
     
     // Custom Tooltip Fields
     if (task.tooltipData && task.tooltipData.size > 0) {
-        const customInfo = tooltip.append("div")
+        const customInfo = contentContainer.append("div")
             .classed("tooltip-custom-info", true)
-            .style("margin-top", "8px")
-            .style("border-top", "1px solid #eee")
-            .style("padding-top", "8px");
-            
+            .style("margin-top", `${this.UI_TOKENS.spacing.md}px`)
+            .style("border-top", `1px solid ${this.UI_TOKENS.color.neutral.grey30}`)
+            .style("padding-top", `${this.UI_TOKENS.spacing.md}px`);
+
         customInfo.append("div")
-            .style("font-weight", "bold")
-            .style("margin-bottom", "4px")
-            .text("Additional Information:");
-        
+            .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
+            .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
+            .style("color", this.UI_TOKENS.color.neutral.grey130)
+            .style("text-transform", "uppercase")
+            .style("letter-spacing", "0.5px")
+            .style("margin-bottom", `${this.UI_TOKENS.spacing.sm}px`)
+            .text("Additional Fields");
+
         task.tooltipData.forEach((value, key) => {
             let formattedValue = "";
             if (value instanceof Date) {
@@ -3145,34 +3248,50 @@ private showTaskTooltip(task: Task, event: MouseEvent): void {
             } else {
                 formattedValue = String(value);
             }
-            
-            customInfo.append("div")
-                .append("strong").text(`${key}: `)
-                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                .append("span").text(formattedValue);
+
+            const fieldRow = customInfo.append("div")
+                .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+                .style("margin-bottom", `${this.UI_TOKENS.spacing.xs}px`);
+
+            fieldRow.append("strong")
+                .style("color", this.UI_TOKENS.color.neutral.grey130)
+                .text(`${key}: `);
+
+            fieldRow.append("span")
+                .style("color", this.UI_TOKENS.color.neutral.grey160)
+                .text(formattedValue);
         });
     }
 
-    // User Float Threshold Info
-    if (this.showNearCritical && this.floatThreshold > 0) {
-        tooltip.append("div")
-            .style("margin-top", "8px")
-            .style("font-style", "italic")
-            .style("font-size", "10px")
-            .style("color", "#666")
-            .text(`Near Critical Threshold: ${this.floatThreshold}`);
-    }
+    // Interaction hint (compact, modern)
+    const hintContainer = contentContainer.append("div")
+        .style("margin-top", `${this.UI_TOKENS.spacing.md}px`)
+        .style("padding-top", `${this.UI_TOKENS.spacing.md}px`)
+        .style("border-top", `1px solid ${this.UI_TOKENS.color.neutral.grey30}`)
+        .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
+        .style("color", this.UI_TOKENS.color.neutral.grey90)
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("gap", `${this.UI_TOKENS.spacing.xs}px`);
 
-    // Add selection hint
-    tooltip.append("div")
-        .style("margin-top", "8px")
-        .style("font-style", "italic")
-        .style("font-size", "10px")
-        .style("color", "#666")
+    hintContainer.append("span")
+        .style("opacity", "0.7")
+        .text("💡");
+
+    hintContainer.append("span")
         .text(`Click to ${this.selectedTaskId === task.internalId ? "deselect" : "select"} this task`);
 
     // Position the tooltip
     this.positionTooltip(tooltip.node(), event);
+
+    // UPGRADED: Trigger fade-in animation
+    tooltip.style("visibility", "visible");
+    // Use requestAnimationFrame to ensure the transition plays
+    requestAnimationFrame(() => {
+        tooltip
+            .style("opacity", "1")
+            .style("transform", "translateY(0)");
+    });
 }
 
 private updateHeaderElements(viewportWidth: number): void {
@@ -4334,9 +4453,17 @@ private drawTasks(
                         .style("stroke", "#333")
                         .style("stroke-width", "0.5");
                 }
-                    
+
                 if (self.tooltipDiv && showTooltips) {
-                    self.tooltipDiv.style("visibility", "hidden");
+                    // UPGRADED: Animate tooltip out
+                    self.tooltipDiv
+                        .style("opacity", "0")
+                        .style("transform", "translateY(-4px)");
+                    setTimeout(() => {
+                        if (self.tooltipDiv) {
+                            self.tooltipDiv.style("visibility", "hidden");
+                        }
+                    }, self.UI_TOKENS.motion.duration.fast);
                 }
             })
             .on("click", (event: MouseEvent, d: Task) => {
@@ -7100,10 +7227,10 @@ private validateDataView(dataView: DataView): boolean {
 
 private displayMessage(message: string): void {
     this.debugLog("Displaying Message:", message);
-    
+
     // Clear any active cross-filters when showing error messages
-    this.applyTaskFilter([]); // ← ADDED THIS LINE FOR EXTRA SAFETY
-    
+    this.applyTaskFilter([]);
+
     const containerNode = this.scrollableContainer?.node();
     if (!containerNode || !this.mainSvg || !this.headerSvg) {
         console.error("Cannot display message, containers or svgs not ready.");
@@ -7117,20 +7244,86 @@ private displayMessage(message: string): void {
     this.mainSvg.attr("width", width).attr("height", height);
     this.mainGroup?.attr("transform", null);
 
-    this.mainSvg.append("text")
-        .attr("class", "message-text")
-        .attr("x", width / 2)
-        .attr("y", height / 2)
+    // UPGRADED: Professional empty state with icon and helpful text
+    const messageGroup = this.mainSvg.append("g")
+        .attr("class", "message-group")
+        .attr("transform", `translate(${width / 2}, ${height / 2 - 40})`);
+
+    // Icon circle background
+    const iconSize = 60;
+    messageGroup.append("circle")
+        .attr("r", iconSize / 2)
+        .attr("fill", this.UI_TOKENS.color.neutral.grey10)
+        .attr("stroke", this.UI_TOKENS.color.neutral.grey40)
+        .attr("stroke-width", "2");
+
+    // Info icon (i symbol)
+    messageGroup.append("text")
         .attr("text-anchor", "middle")
-        .attr("dominant-baseline", "middle")
-        .style("fill", "#777777")
-        .style("font-size", "14px")
-        .style("font-weight", "bold")
+        .attr("dominant-baseline", "central")
+        .style("fill", this.UI_TOKENS.color.primary.default)
+        .style("font-size", "32px")
+        .style("font-weight", this.UI_TOKENS.fontWeight.bold.toString())
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .text("i");
+
+    // Main message text (larger, bold)
+    messageGroup.append("text")
+        .attr("class", "message-text")
+        .attr("y", iconSize / 2 + 30)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "hanging")
+        .style("fill", this.UI_TOKENS.color.neutral.grey190)
+        .style("font-size", `${this.UI_TOKENS.fontSize.xl}px`)
+        .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
         .text(message);
+
+    // Helper text (smaller, lighter)
+    const helperText = this.getHelperTextForMessage(message);
+    if (helperText) {
+        messageGroup.append("text")
+            .attr("class", "message-helper")
+            .attr("y", iconSize / 2 + 55)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "hanging")
+            .style("fill", this.UI_TOKENS.color.neutral.grey130)
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .text(helperText);
+    }
 
     const viewportWidth = this.lastUpdateOptions?.viewport.width || width;
     this.createOrUpdateToggleButton(viewportWidth);
     this.drawHeaderDivider(viewportWidth);
+}
+
+/**
+ * Returns helpful context text based on the error message
+ */
+private getHelperTextForMessage(message: string): string {
+    if (message.includes("Required options not available")) {
+        return "Check your Power BI connection and data source settings";
+    }
+    if (message.includes("Float-Based mode requires")) {
+        return "Add the required fields: Task ID, Total Float, Start Date, Finish Date";
+    }
+    if (message.includes("Longest Path mode requires")) {
+        return "Add the required fields: Task ID, Duration, Start Date, Finish Date";
+    }
+    if (message.includes("No valid task data")) {
+        return "Verify your data source has task information available";
+    }
+    if (message.includes("No tasks to display")) {
+        return "Adjust your filters or increase the max tasks limit in settings";
+    }
+    if (message.includes("lack valid Start/Finish dates")) {
+        return "Ensure all tasks have both start and finish dates";
+    }
+    if (message.includes("Could not create time/band scale")) {
+        return "Check that your date fields are properly formatted";
+    }
+    return "Please review your data configuration and try again";
 }
 
 private createTaskSelectionDropdown(): void {
@@ -7865,12 +8058,99 @@ private selectTask(taskId: string | null, taskName: string | null): void {
         this.dropdownInput.property("value", taskName || "");
     }
     
-    // Update selected task label
+    // UPGRADED: Update selected task label with status indicator and close button
     if (this.selectedTaskLabel) {
         if (taskId && taskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
-            this.selectedTaskLabel
-                .style("display", "block")
-                .text(`Selected: ${taskName}`);
+            // Clear existing content
+            this.selectedTaskLabel.selectAll("*").remove();
+
+            // Get task details for criticality status
+            const task = this.taskIdToTask.get(taskId);
+            let statusColor = this.UI_TOKENS.color.neutral.grey90;
+            let statusText = "Task";
+
+            if (task) {
+                if (task.isCritical) {
+                    statusColor = this.settings.taskAppearance.criticalPathColor.value.value;
+                    statusText = "Critical";
+                } else if (task.isNearCritical) {
+                    statusColor = "#F7941F";
+                    statusText = "Near-Critical";
+                }
+            }
+
+            // Status indicator dot
+            this.selectedTaskLabel.append("div")
+                .style("width", "8px")
+                .style("height", "8px")
+                .style("border-radius", "50%")
+                .style("background-color", statusColor)
+                .style("flex-shrink", "0")
+                .style("animation", "pulse 2s ease-in-out infinite")
+                .append("style")
+                .text(`
+                    @keyframes pulse {
+                        0%, 100% { opacity: 1; }
+                        50% { opacity: 0.5; }
+                    }
+                `);
+
+            // Task name and status
+            const textContainer = this.selectedTaskLabel.append("div")
+                .style("display", "flex")
+                .style("flex-direction", "column")
+                .style("gap", "2px")
+                .style("overflow", "hidden")
+                .style("flex", "1");
+
+            textContainer.append("div")
+                .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
+                .style("color", this.UI_TOKENS.color.neutral.grey190)
+                .style("white-space", "nowrap")
+                .style("overflow", "hidden")
+                .style("text-overflow", "ellipsis")
+                .text(taskName);
+
+            textContainer.append("div")
+                .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
+                .style("color", statusColor)
+                .style("font-weight", this.UI_TOKENS.fontWeight.medium.toString())
+                .text(statusText);
+
+            // Close button
+            const closeButton = this.selectedTaskLabel.append("div")
+                .attr("role", "button")
+                .attr("aria-label", "Deselect task")
+                .style("width", "16px")
+                .style("height", "16px")
+                .style("display", "flex")
+                .style("align-items", "center")
+                .style("justify-content", "center")
+                .style("border-radius", "50%")
+                .style("cursor", "pointer")
+                .style("flex-shrink", "0")
+                .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+                .style("color", this.UI_TOKENS.color.neutral.grey90)
+                .html("×");  // Close symbol
+
+            const self = this;
+            closeButton
+                .on("mouseover", function() {
+                    d3.select(this)
+                        .style("background-color", self.UI_TOKENS.color.danger.lighter)
+                        .style("color", self.UI_TOKENS.color.danger.default);
+                })
+                .on("mouseout", function() {
+                    d3.select(this)
+                        .style("background-color", "transparent")
+                        .style("color", self.UI_TOKENS.color.neutral.grey90);
+                })
+                .on("click", function(event) {
+                    event.stopPropagation();
+                    self.selectTask(null, null);
+                });
+
+            this.selectedTaskLabel.style("display", "flex");
         } else {
             this.selectedTaskLabel.style("display", "none");
         }

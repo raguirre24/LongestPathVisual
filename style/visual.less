@@ -77,3 +77,61 @@
       stroke-dasharray: 4, 2; // Dashed line style
       stroke-width: 1.5px;
   }
+
+  // UPGRADED: Professional custom scrollbar styling
+  .criticalPathContainer {
+      // Webkit browsers (Chrome, Safari, Edge)
+      &::-webkit-scrollbar {
+          width: 10px;
+          height: 10px;
+      }
+
+      &::-webkit-scrollbar-track {
+          background: #F3F2F1; // Fluent neutral-grey20
+          border-radius: 5px;
+      }
+
+      &::-webkit-scrollbar-thumb {
+          background: #C8C6C4; // Fluent neutral-grey60
+          border-radius: 5px;
+          border: 2px solid #F3F2F1; // Creates padding effect
+          transition: background 200ms ease;
+      }
+
+      &::-webkit-scrollbar-thumb:hover {
+          background: #A19F9D; // Fluent neutral-grey90
+      }
+
+      &::-webkit-scrollbar-thumb:active {
+          background: #605E5C; // Fluent neutral-grey130
+      }
+
+      // Firefox
+      scrollbar-width: thin;
+      scrollbar-color: #C8C6C4 #F3F2F1;
+  }
+
+  // Dropdown list scrollbar
+  .task-selection-list {
+      &::-webkit-scrollbar {
+          width: 8px;
+      }
+
+      &::-webkit-scrollbar-track {
+          background: #F3F2F1;
+          border-radius: 4px;
+      }
+
+      &::-webkit-scrollbar-thumb {
+          background: #C8C6C4;
+          border-radius: 4px;
+          border: 2px solid #F3F2F1;
+      }
+
+      &::-webkit-scrollbar-thumb:hover {
+          background: #A19F9D;
+      }
+
+      scrollbar-width: thin;
+      scrollbar-color: #C8C6C4 #F3F2F1;
+  }
