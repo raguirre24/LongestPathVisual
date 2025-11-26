@@ -3669,7 +3669,74 @@ private drawVisualElements(
     const showProjectEndLine = this.settings.projectEndLine.show.value;
     // MODIFICATION: Ensure currentLeftMargin is defined here for conditional use.
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-    
+
+    // UPGRADED: Create gradient definitions for task bars (professional depth effect)
+    let defs = this.mainSvg.select("defs");
+    if (defs.empty()) {
+        defs = this.mainSvg.append("defs");
+    }
+
+    // Clear existing gradients to recreate with current colors
+    defs.selectAll("linearGradient").remove();
+
+    // Critical task gradient (red with subtle depth)
+    const criticalGradient = defs.append("linearGradient")
+        .attr("id", "criticalTaskGradient")
+        .attr("x1", "0%").attr("y1", "0%")
+        .attr("x2", "0%").attr("y2", "100%");
+    criticalGradient.append("stop")
+        .attr("offset", "0%")
+        .attr("stop-color", criticalColor)
+        .attr("stop-opacity", "1");
+    criticalGradient.append("stop")
+        .attr("offset", "100%")
+        .attr("stop-color", this.adjustColorBrightness(criticalColor, -15))
+        .attr("stop-opacity", "1");
+
+    // Near-critical task gradient (orange with subtle depth)
+    const nearCriticalColor = "#F7941F";
+    const nearCriticalGradient = defs.append("linearGradient")
+        .attr("id", "nearCriticalTaskGradient")
+        .attr("x1", "0%").attr("y1", "0%")
+        .attr("x2", "0%").attr("y2", "100%");
+    nearCriticalGradient.append("stop")
+        .attr("offset", "0%")
+        .attr("stop-color", nearCriticalColor)
+        .attr("stop-opacity", "1");
+    nearCriticalGradient.append("stop")
+        .attr("offset", "100%")
+        .attr("stop-color", this.adjustColorBrightness(nearCriticalColor, -15))
+        .attr("stop-opacity", "1");
+
+    // Normal task gradient (subtle depth)
+    const normalGradient = defs.append("linearGradient")
+        .attr("id", "normalTaskGradient")
+        .attr("x1", "0%").attr("y1", "0%")
+        .attr("x2", "0%").attr("y2", "100%");
+    normalGradient.append("stop")
+        .attr("offset", "0%")
+        .attr("stop-color", taskColor)
+        .attr("stop-opacity", "1");
+    normalGradient.append("stop")
+        .attr("offset", "100%")
+        .attr("stop-color", this.adjustColorBrightness(taskColor, -10))
+        .attr("stop-opacity", "1");
+
+    // Selected task gradient (purple)
+    const selectionHighlightColor = "#8A2BE2";
+    const selectedGradient = defs.append("linearGradient")
+        .attr("id", "selectedTaskGradient")
+        .attr("x1", "0%").attr("y1", "0%")
+        .attr("x2", "0%").attr("y2", "100%");
+    selectedGradient.append("stop")
+        .attr("offset", "0%")
+        .attr("stop-color", selectionHighlightColor)
+        .attr("stop-opacity", "1");
+    selectedGradient.append("stop")
+        .attr("offset", "100%")
+        .attr("stop-color", this.adjustColorBrightness(selectionHighlightColor, -15))
+        .attr("stop-opacity", "1");
+
     // Decide whether to use Canvas or SVG based on task count
     this.useCanvasRendering = tasksToShow.length > this.CANVAS_THRESHOLD;
     this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${tasksToShow.length} tasks`);
@@ -4062,11 +4129,12 @@ private drawTasks(
         .attr("height", taskHeight)
         // UPGRADED: Increased corner radius from 3px to 5px for smoother appearance
         .attr("rx", Math.min(5, taskHeight * 0.15)).attr("ry", Math.min(5, taskHeight * 0.15))
+        // UPGRADED: Use gradients for depth effect
         .style("fill", (d: Task) => {
-            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-            if (d.isCritical) return criticalColor;
-            if (d.isNearCritical) return nearCriticalColor;
-            return taskColor;
+            if (d.internalId === this.selectedTaskId) return "url(#selectedTaskGradient)";
+            if (d.isCritical) return "url(#criticalTaskGradient)";
+            if (d.isNearCritical) return "url(#nearCriticalTaskGradient)";
+            return "url(#normalTaskGradient)";
         })
         // UPGRADED: Improved stroke weight for critical tasks and selected tasks
         .style("stroke", (d: Task) => d.internalId === this.selectedTaskId ? selectionHighlightColor : "#333")
@@ -4305,11 +4373,11 @@ private drawTasks(
     const setupInteractivity = (selection: Selection<BaseType, Task, BaseType, unknown>) => {
         selection
             .on("mouseover", (event: MouseEvent, d: Task) => {
-                // Only apply hover effect if not the selected task
+                // UPGRADED: Professional hover effect with brightness and shadow
                 if (d.internalId !== self.selectedTaskId) {
                     d3.select(event.currentTarget as Element)
-                        .style("stroke", "#333")
-                        .style("stroke-width", "2px");
+                        .style("filter", "brightness(1.15) drop-shadow(0 2px 4px rgba(0,0,0,0.15))")
+                        .style("stroke-width", "2");
                 }
                 d3.select(event.currentTarget as Element).style("cursor", "pointer");
 
@@ -4447,11 +4515,11 @@ private drawTasks(
                 }
             })
             .on("mouseout", (event: MouseEvent, d: Task) => {
-                // Restore normal appearance only if not selected
+                // UPGRADED: Restore normal appearance only if not selected
                 if (d.internalId !== self.selectedTaskId) {
                     d3.select(event.currentTarget as Element)
-                        .style("stroke", "#333")
-                        .style("stroke-width", "0.5");
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`)
+                        .style("stroke-width", d.isCritical ? "1" : "0.5");
                 }
 
                 if (self.tooltipDiv && showTooltips) {
@@ -7326,6 +7394,127 @@ private getHelperTextForMessage(message: string): string {
     return "Please review your data configuration and try again";
 }
 
+/**
+ * UPGRADED: Shows loading indicator overlay
+ */
+private showLoadingIndicator(): void {
+    // Remove any existing loading indicator
+    d3.select("body").selectAll(".pbi-loading-overlay").remove();
+
+    const loadingOverlay = d3.select("body").append("div")
+        .attr("class", "pbi-loading-overlay")
+        .style("position", "fixed")
+        .style("top", "0")
+        .style("left", "0")
+        .style("right", "0")
+        .style("bottom", "0")
+        .style("background-color", "rgba(255, 255, 255, 0.85)")
+        .style("backdrop-filter", "blur(2px)")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("justify-content", "center")
+        .style("z-index", "99999")
+        .style("pointer-events", "none")
+        .style("opacity", "0")
+        .style("transition", `opacity ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.decelerate}`);
+
+    const spinnerContainer = loadingOverlay.append("div")
+        .style("display", "flex")
+        .style("flex-direction", "column")
+        .style("align-items", "center")
+        .style("gap", `${this.UI_TOKENS.spacing.md}px`);
+
+    // SVG Spinner
+    const spinner = spinnerContainer.append("svg")
+        .attr("width", "40")
+        .attr("height", "40")
+        .attr("viewBox", "0 0 40 40")
+        .style("animation", "spin 1s linear infinite");
+
+    spinner.append("circle")
+        .attr("cx", "20")
+        .attr("cy", "20")
+        .attr("r", "16")
+        .attr("fill", "none")
+        .attr("stroke", this.UI_TOKENS.color.neutral.grey30)
+        .attr("stroke-width", "4");
+
+    spinner.append("circle")
+        .attr("cx", "20")
+        .attr("cy", "20")
+        .attr("r", "16")
+        .attr("fill", "none")
+        .attr("stroke", this.UI_TOKENS.color.primary.default)
+        .attr("stroke-width", "4")
+        .attr("stroke-dasharray", "80")
+        .attr("stroke-dashoffset", "60")
+        .attr("stroke-linecap", "round");
+
+    // Loading text
+    spinnerContainer.append("div")
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("color", this.UI_TOKENS.color.neutral.grey130)
+        .style("font-weight", this.UI_TOKENS.fontWeight.medium.toString())
+        .text("Loading...");
+
+    // Add keyframe animation
+    const style = document.createElement("style");
+    style.textContent = `
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    `;
+    document.head.appendChild(style);
+
+    // Fade in
+    requestAnimationFrame(() => {
+        loadingOverlay.style("opacity", "1");
+    });
+}
+
+/**
+ * UPGRADED: Hides loading indicator overlay
+ */
+private hideLoadingIndicator(): void {
+    const loadingOverlay = d3.select("body").select(".pbi-loading-overlay");
+    if (!loadingOverlay.empty()) {
+        loadingOverlay.style("opacity", "0");
+        setTimeout(() => {
+            loadingOverlay.remove();
+        }, this.UI_TOKENS.motion.duration.fast);
+    }
+}
+
+/**
+ * UPGRADED: Adjusts color brightness for gradient effects
+ * @param color Hex color string (e.g., "#FF0000")
+ * @param percent Percentage to adjust (-100 to 100, negative = darker)
+ */
+private adjustColorBrightness(color: string, percent: number): string {
+    // Remove # if present
+    const hex = color.replace('#', '');
+
+    // Parse RGB values
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+
+    // Calculate new values
+    const newR = Math.max(0, Math.min(255, r + (r * percent / 100)));
+    const newG = Math.max(0, Math.min(255, g + (g * percent / 100)));
+    const newB = Math.max(0, Math.min(255, b + (b * percent / 100)));
+
+    // Convert back to hex
+    const toHex = (n: number) => {
+        const hex = Math.round(n).toString(16);
+        return hex.length === 1 ? '0' + hex : hex;
+    };
+
+    return `#${toHex(newR)}${toHex(newG)}${toHex(newB)}`;
+}
+
 private createTaskSelectionDropdown(): void {
     if (!this.dropdownContainer || !this.selectedTaskLabel) {
         console.warn("Dropdown elements not ready.");
@@ -7355,14 +7544,87 @@ private createTaskSelectionDropdown(): void {
         .style("transform", "none")
         .style("z-index", "20");
 
-    // Create the input with unified professional styling
-    this.dropdownInput = this.dropdownContainer.append("input")
+    // UPGRADED: Create input wrapper for icon positioning
+    const inputWrapper = this.dropdownContainer.append("div")
+        .attr("class", "input-wrapper")
+        .style("position", "relative")
+        .style("width", `${dropdownWidth}px`);
+
+    // UPGRADED: Add search icon (SVG magnifying glass)
+    const searchIcon = inputWrapper.append("div")
+        .attr("class", "search-icon")
+        .style("position", "absolute")
+        .style("left", "12px")
+        .style("top", "50%")
+        .style("transform", "translateY(-50%)")
+        .style("pointer-events", "none")
+        .style("color", this.UI_TOKENS.color.neutral.grey90)
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("z-index", "1");
+
+    searchIcon.append("svg")
+        .attr("width", "16")
+        .attr("height", "16")
+        .attr("viewBox", "0 0 16 16")
+        .attr("fill", "none")
+        .html(`
+            <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M11 11L14.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        `);
+
+    // UPGRADED: Add clear button (X icon, shown only when text entered)
+    const clearButton = inputWrapper.append("div")
+        .attr("class", "clear-button")
+        .style("position", "absolute")
+        .style("right", "8px")
+        .style("top", "50%")
+        .style("transform", "translateY(-50%)")
+        .style("width", "20px")
+        .style("height", "20px")
+        .style("border-radius", "50%")
+        .style("display", "none")  // Hidden by default
+        .style("align-items", "center")
+        .style("justify-content", "center")
+        .style("cursor", "pointer")
+        .style("color", this.UI_TOKENS.color.neutral.grey90)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+        .style("z-index", "1")
+        .html("×")
+        .style("font-size", "20px")
+        .style("font-weight", "300")
+        .style("line-height", "1");
+
+    const selfClear = this;
+    clearButton
+        .on("mouseover", function() {
+            d3.select(this)
+                .style("background-color", selfClear.UI_TOKENS.color.neutral.grey30)
+                .style("color", selfClear.UI_TOKENS.color.neutral.grey160);
+        })
+        .on("mouseout", function() {
+            d3.select(this)
+                .style("background-color", "transparent")
+                .style("color", selfClear.UI_TOKENS.color.neutral.grey90);
+        })
+        .on("click", function(event) {
+            event.stopPropagation();
+            if (selfClear.dropdownInput) {
+                selfClear.dropdownInput.property("value", "");
+                selfClear.dropdownInput.node().dispatchEvent(new Event('input', { bubbles: true }));
+                d3.select(this).style("display", "none");
+            }
+        });
+
+    // Create the input with UPGRADED padding for icons
+    this.dropdownInput = inputWrapper.append("input")
         .attr("type", "text")
         .attr("class", "task-selection-input")
         .attr("placeholder", "Search for a task...")
-        .style("width", `${dropdownWidth}px`)
-        .style("height", `${this.UI_TOKENS.height.standard}px`)  // Match standard height
-        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
+        .style("width", "100%")
+        .style("height", `${this.UI_TOKENS.height.standard}px`)
+        .style("padding-left", "38px")  // Space for search icon
+        .style("padding-right", "36px")  // Space for clear button
         .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
         .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
@@ -7411,12 +7673,19 @@ private createTaskSelectionDropdown(): void {
     // Rest of the method remains the same...
     const self = this;
     
-    // Input event handlers
+    // UPGRADED: Input event handlers with clear button visibility
     this.dropdownInput
         .on("input", function() {
             const inputValue = (this as HTMLInputElement).value.trim();
             self.filterTaskDropdown(inputValue);
-            
+
+            // UPGRADED: Show/hide clear button based on input value
+            if (inputValue.length > 0) {
+                clearButton.style("display", "flex");
+            } else {
+                clearButton.style("display", "none");
+            }
+
             // Show dropdown when typing
             if (self.dropdownList) {
                 self.dropdownList.style("display", "block");
@@ -7678,6 +7947,9 @@ private createMarginResizer(): void {
     let lastDragTime = 0;
     const dragThrottleMs = 50; // Throttle redraws to every 50ms for performance
 
+    // UPGRADED: Create width preview tooltip
+    let widthTooltip: Selection<HTMLDivElement, unknown, HTMLElement, unknown> | null = null;
+
     const drag = d3.drag<SVGGElement, unknown>()
         .on("start", function(event) {
             isDragging = true;
@@ -7685,6 +7957,30 @@ private createMarginResizer(): void {
             d3.select(this).select(".margin-resizer-line")
                 .attr("fill", self.UI_TOKENS.color.primary.pressed)
                 .attr("width", 4);
+
+            // UPGRADED: Create width preview tooltip
+            widthTooltip = d3.select("body").append("div")
+                .attr("class", "margin-resizer-tooltip")
+                .style("position", "fixed")
+                .style("background-color", self.UI_TOKENS.color.primary.default)
+                .style("color", self.UI_TOKENS.color.neutral.white)
+                .style("padding", `${self.UI_TOKENS.spacing.xs}px ${self.UI_TOKENS.spacing.md}px`)
+                .style("border-radius", `${self.UI_TOKENS.radius.small}px`)
+                .style("font-size", `${self.UI_TOKENS.fontSize.sm}px`)
+                .style("font-weight", self.UI_TOKENS.fontWeight.semibold.toString())
+                .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+                .style("pointer-events", "none")
+                .style("z-index", "10001")
+                .style("box-shadow", self.UI_TOKENS.shadow[8])
+                .style("opacity", "0")
+                .style("transition", `opacity ${self.UI_TOKENS.motion.duration.fast}ms ${self.UI_TOKENS.motion.easing.decelerate}`);
+
+            // Fade in tooltip
+            requestAnimationFrame(() => {
+                if (widthTooltip) {
+                    widthTooltip.style("opacity", "1");
+                }
+            });
         })
         .on("drag", function(event) {
             if (!isDragging) return;
@@ -7698,6 +7994,14 @@ private createMarginResizer(): void {
             // Calculate the new left margin based on mouse position relative to SVG
             const mouseX = event.sourceEvent.clientX - svgRect.left;
             const newLeftMargin = Math.max(50, Math.min(600, mouseX));
+
+            // UPGRADED: Update width preview tooltip
+            if (widthTooltip) {
+                widthTooltip
+                    .text(`${Math.round(newLeftMargin)}px`)
+                    .style("left", `${event.sourceEvent.clientX + 15}px`)
+                    .style("top", `${event.sourceEvent.clientY - 30}px`);
+            }
 
             // Update the setting value
             self.settings.layoutSettings.leftMargin.value = newLeftMargin;
@@ -7729,6 +8033,15 @@ private createMarginResizer(): void {
             d3.select(this).select(".margin-resizer-line")
                 .attr("fill", self.UI_TOKENS.color.primary.default)
                 .attr("width", 3);
+
+            // UPGRADED: Fade out and remove width preview tooltip
+            if (widthTooltip) {
+                widthTooltip.style("opacity", "0");
+                setTimeout(() => {
+                    widthTooltip?.remove();
+                    widthTooltip = null;
+                }, self.UI_TOKENS.motion.duration.fast);
+            }
 
             // Persist the new margin value to Power BI settings
             self.host.persistProperties({
