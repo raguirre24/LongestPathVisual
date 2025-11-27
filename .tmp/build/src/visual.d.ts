@@ -195,6 +195,13 @@ export declare class Visual implements IVisual {
     private drawTasks;
     private drawTasksCanvas;
     /**
+     * ACCESSIBILITY: Creates an invisible but screen-reader accessible fallback for canvas rendering.
+     * This ensures users with assistive technology can access task information even when canvas mode is active.
+     * @param tasks The tasks being rendered on canvas
+     * @param yScale The Y-axis scale for positioning
+     */
+    private createAccessibleCanvasFallback;
+    /**
      * Prepares the canvas for high-DPI rendering.
      * This function sizes the canvas backing store, clears it, and applies the necessary scale transform.
      * @param chartWidth The desired CSS width of the chart.
@@ -301,6 +308,20 @@ export declare class Visual implements IVisual {
      */
     private extractTooltipData;
     private transformDataOptimized;
+    /**
+     * DATA QUALITY: Validates data quality and reports issues to the user
+     * Checks for:
+     * - Duplicate Task IDs
+     * - Circular dependencies
+     * - Invalid date ranges (start after finish)
+     * - Tasks with no dates
+     */
+    private validateDataQuality;
+    /**
+     * Detects circular dependencies in the task graph
+     * @returns Array of circular dependency paths as strings
+     */
+    private detectCircularDependencies;
     /**
      * Process legend data and assign colors to tasks based on legend values
      */

@@ -652,7 +652,21 @@ constructor(options: VisualConstructorOptions) {
         .style("font-size", "12px")
         .style("line-height", "1.4")
         .style("color", "#333");
-    
+
+    // ACCESSIBILITY: Create ARIA live region for screen reader announcements
+    const existingLiveRegion = d3.select("body").select(".sr-live-region");
+    if (existingLiveRegion.empty()) {
+        d3.select("body").append("div")
+            .attr("class", "sr-live-region")
+            .attr("aria-live", "polite")
+            .attr("aria-atomic", "true")
+            .style("position", "absolute")
+            .style("left", "-10000px")
+            .style("width", "1px")
+            .style("height", "1px")
+            .style("overflow", "hidden");
+    }
+
     // Initialize trace mode
     this.traceMode = "backward";
     
@@ -3451,8 +3465,8 @@ private redrawVisibleTasks(): void {
 
             // Draw tasks on the prepared canvas
             this.drawTasksCanvas(
-                visibleTasks, 
-                this.xScale, 
+                visibleTasks,
+                this.xScale,
                 this.yScale,
                 this.settings.taskAppearance.taskColor.value.value,
                 this.settings.taskAppearance.milestoneColor.value.value,
@@ -3463,7 +3477,10 @@ private redrawVisibleTasks(): void {
                 this.settings.textAndLabels.dateBackgroundColor.value.value,
                 1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
             );
-            
+
+            // ACCESSIBILITY: Create fallback for canvas rendering
+            this.createAccessibleCanvasFallback(visibleTasks, this.yScale);
+
             if (this.showConnectorLinesInternal) {
                 // Draw arrows on the prepared canvas
                 this.drawArrowsCanvas(
@@ -4042,6 +4059,15 @@ private drawTasks(
             if (d.isNearCritical) return "task-bar near-critical";
             return "task-bar normal";
         })
+        // ACCESSIBILITY: Add ARIA attributes for screen readers
+        .attr("role", "button")
+        .attr("aria-label", (d: Task) => {
+            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+            const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
+            return `${d.name}, ${statusText} task, Start: ${this.formatDate(d.startDate)}, Finish: ${this.formatDate(d.finishDate)}${selectedText}. Press Enter or Space to select.`;
+        })
+        .attr("tabindex", 0)
+        .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
         .attr("x", (d: Task) => xScale(d.startDate!))
         .attr("y", 0)
         .attr("width", (d: Task) => {
@@ -4130,6 +4156,16 @@ private drawTasks(
             if (d.isNearCritical) return "milestone near-critical";
             return "milestone normal";
         })
+        // ACCESSIBILITY: Add ARIA attributes for milestones
+        .attr("role", "button")
+        .attr("aria-label", (d: Task) => {
+            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+            const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
+            const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
+            return `${d.name}, ${statusText} milestone, Date: ${this.formatDate(milestoneDate)}${selectedText}. Press Enter or Space to select.`;
+        })
+        .attr("tabindex", 0)
+        .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
         .attr("transform", (d: Task) => {
             const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
             const x = (milestoneDate instanceof Date && !isNaN(milestoneDate.getTime())) ? xScale(milestoneDate) : 0;
@@ -4596,12 +4632,55 @@ private drawTasks(
                 } else {
                     self.selectTask(d.internalId, d.name);
                 }
-                
+
                 if (self.dropdownInput) {
                     self.dropdownInput.property("value", self.selectedTaskName || "");
                 }
-                
+
                 event.stopPropagation();
+            })
+            // ACCESSIBILITY: Add keyboard navigation support
+            .on("keydown", (event: KeyboardEvent, d: Task) => {
+                // Handle Enter and Space keys for selection
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    event.stopPropagation();
+
+                    // Toggle task selection
+                    if (self.selectedTaskId === d.internalId) {
+                        self.selectTask(null, null);
+                    } else {
+                        self.selectTask(d.internalId, d.name);
+                    }
+
+                    if (self.dropdownInput) {
+                        self.dropdownInput.property("value", self.selectedTaskName || "");
+                    }
+                }
+            })
+            // ACCESSIBILITY: Add focus indicators
+            .on("focus", function(_event: FocusEvent, _d: Task) {
+                // Add visible focus ring
+                d3.select(this)
+                    .style("outline", "2px solid #0078D4")
+                    .style("outline-offset", "2px");
+
+                // Announce to screen readers
+                const element = this as SVGElement;
+                const ariaLabel = element.getAttribute("aria-label");
+                if (ariaLabel) {
+                    // Update aria-live region if it exists
+                    const liveRegion = d3.select("body").select(".sr-live-region");
+                    if (!liveRegion.empty()) {
+                        liveRegion.text(`Focused on ${ariaLabel}`);
+                    }
+                }
+            })
+            .on("blur", function(_event: FocusEvent, _d: Task) {
+                // Remove focus ring
+                d3.select(this)
+                    .style("outline", null)
+                    .style("outline-offset", null);
             });
     };
 
@@ -4949,6 +5028,88 @@ private drawTasksCanvas(
     } finally {
         ctx.restore();
     }
+}
+
+/**
+ * ACCESSIBILITY: Creates an invisible but screen-reader accessible fallback for canvas rendering.
+ * This ensures users with assistive technology can access task information even when canvas mode is active.
+ * @param tasks The tasks being rendered on canvas
+ * @param yScale The Y-axis scale for positioning
+ */
+private createAccessibleCanvasFallback(tasks: Task[], yScale: ScaleBand<string>): void {
+    if (!this.mainSvg) return;
+
+    // Remove existing accessible layer
+    this.mainSvg.selectAll(".accessible-fallback-layer").remove();
+
+    // Create accessible SVG layer (invisible but screen-reader accessible)
+    const accessibleLayer = this.mainSvg.append("g")
+        .attr("class", "accessible-fallback-layer")
+        .attr("role", "list")
+        .attr("aria-label", "Project tasks (canvas rendering mode)")
+        .style("opacity", 0)
+        .style("pointer-events", "none");
+
+    // Create accessible elements for each task
+    const taskGroups = accessibleLayer.selectAll(".accessible-task")
+        .data(tasks, (d: Task) => d.internalId)
+        .enter()
+        .append("g")
+        .attr("class", "accessible-task")
+        .attr("role", "listitem")
+        .attr("transform", (d: Task) => {
+            const domainKey = d.yOrder?.toString() ?? '';
+            const yPosition = yScale(domainKey);
+            return yPosition !== undefined ? `translate(0, ${yPosition})` : "translate(0, 0)";
+        });
+
+    // Add focusable rect for each task
+    taskGroups.append("rect")
+        .attr("role", "button")
+        .attr("aria-label", (d: Task) => {
+            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+            const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
+            if (d.type === 'TT_Mile' || d.type === 'TT_FinMile') {
+                const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
+                return `${d.name}, ${statusText} milestone, Date: ${this.formatDate(milestoneDate)}${selectedText}. Press Enter or Space to select.`;
+            } else {
+                return `${d.name}, ${statusText} task, Start: ${this.formatDate(d.startDate)}, Finish: ${this.formatDate(d.finishDate)}${selectedText}. Press Enter or Space to select.`;
+            }
+        })
+        .attr("tabindex", 0)
+        .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("width", "100%")
+        .attr("height", this.settings.taskAppearance.taskHeight.value)
+        .style("fill", "transparent")
+        .on("keydown", (event: KeyboardEvent, d: Task) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+
+                // Toggle task selection
+                if (this.selectedTaskId === d.internalId) {
+                    this.selectTask(null, null);
+                } else {
+                    this.selectTask(d.internalId, d.name);
+                }
+
+                if (this.dropdownInput) {
+                    this.dropdownInput.property("value", this.selectedTaskName || "");
+                }
+            }
+        })
+        .on("focus", function(_event: FocusEvent, _d: Task) {
+            d3.select(this)
+                .style("outline", "2px solid #0078D4")
+                .style("outline-offset", "2px");
+        })
+        .on("blur", function(_event: FocusEvent, _d: Task) {
+            d3.select(this)
+                .style("outline", null)
+                .style("outline-offset", null);
+        });
 }
 
 /**
@@ -7298,6 +7459,9 @@ private transformDataOptimized(dataView: DataView): void {
     // Process legend data and assign colours
     this.processLegendData(dataView);
 
+    // DATA QUALITY: Validate data quality and warn users of potential issues
+    this.validateDataQuality();
+
     const endTime = performance.now();
     this.debugLog(
         `Data transformation complete in ${endTime - startTime}ms. ` +
@@ -7305,6 +7469,125 @@ private transformDataOptimized(dataView: DataView): void {
     );
 }
 
+
+/**
+ * DATA QUALITY: Validates data quality and reports issues to the user
+ * Checks for:
+ * - Duplicate Task IDs
+ * - Circular dependencies
+ * - Invalid date ranges (start after finish)
+ * - Tasks with no dates
+ */
+private validateDataQuality(): void {
+    const warnings: string[] = [];
+
+    // Check 1: Duplicate Task IDs (already handled by Map overwrite, but warn user)
+    const seenIds = new Map<string, number>();
+    for (const task of this.allTasksData) {
+        const count = seenIds.get(task.id as string) || 0;
+        seenIds.set(task.id as string, count + 1);
+    }
+
+    const duplicates = Array.from(seenIds.entries())
+        .filter(([_id, count]) => count > 1)
+        .map(([id, count]) => `${id} (${count}x)`);
+
+    if (duplicates.length > 0) {
+        warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
+    }
+
+    // Check 2: Circular dependencies
+    const circularPaths = this.detectCircularDependencies();
+    if (circularPaths.length > 0) {
+        warnings.push(`Circular dependencies detected in ${circularPaths.length} path(s): ${circularPaths.slice(0, 3).join(', ')}${circularPaths.length > 3 ? '...' : ''}`);
+    }
+
+    // Check 3: Invalid date ranges
+    const invalidDates: string[] = [];
+    for (const task of this.allTasksData) {
+        if (task.startDate instanceof Date && task.finishDate instanceof Date &&
+            !isNaN(task.startDate.getTime()) && !isNaN(task.finishDate.getTime())) {
+            if (task.startDate > task.finishDate) {
+                invalidDates.push(task.name);
+            }
+        }
+    }
+
+    if (invalidDates.length > 0) {
+        warnings.push(`Invalid date ranges (start > finish): ${invalidDates.slice(0, 5).join(', ')}${invalidDates.length > 5 ? ` and ${invalidDates.length - 5} more` : ''}`);
+    }
+
+    // Check 4: Tasks with no valid dates
+    const noDateTasks = this.allTasksData.filter(task =>
+        !(task.startDate instanceof Date && !isNaN(task.startDate.getTime())) &&
+        !(task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()))
+    );
+
+    if (noDateTasks.length > 0 && noDateTasks.length < this.allTasksData.length) {
+        warnings.push(`${noDateTasks.length} task(s) have no valid dates and will not be displayed`);
+    }
+
+    // Check 5: Synthetic tasks (predecessor-only tasks missing task details)
+    const syntheticTasks = this.allTasksData.filter(task => task.type === "Synthetic");
+    if (syntheticTasks.length > 0) {
+        const syntheticIds = syntheticTasks.map(t => t.id).slice(0, 5);
+        warnings.push(`${syntheticTasks.length} task(s) referenced as predecessors but missing from task list: ${syntheticIds.join(', ')}${syntheticTasks.length > 5 ? '...' : ''}. Add these tasks to your data source with proper Task Name values.`);
+    }
+
+    // Report warnings to console (enterprise visuals should log data quality issues)
+    if (warnings.length > 0) {
+        console.warn('Data Quality Issues Detected:');
+        warnings.forEach((warning, index) => {
+            console.warn(`  ${index + 1}. ${warning}`);
+        });
+    }
+}
+
+/**
+ * Detects circular dependencies in the task graph
+ * @returns Array of circular dependency paths as strings
+ */
+private detectCircularDependencies(): string[] {
+    const circularPaths: string[] = [];
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+
+    const dfs = (taskId: string, path: string[]): void => {
+        if (recursionStack.has(taskId)) {
+            // Found a cycle - extract the circular portion
+            const cycleStart = path.indexOf(taskId);
+            const cycle = path.slice(cycleStart).concat([taskId]);
+            circularPaths.push(cycle.join(' → '));
+            return;
+        }
+
+        if (visited.has(taskId)) {
+            return;
+        }
+
+        visited.add(taskId);
+        recursionStack.add(taskId);
+        path.push(taskId);
+
+        const task = this.taskIdToTask.get(taskId);
+        if (task && task.predecessorIds) {
+            for (const predId of task.predecessorIds) {
+                dfs(predId, [...path]);
+            }
+        }
+
+        recursionStack.delete(taskId);
+    };
+
+    // Check all tasks
+    for (const task of this.allTasksData) {
+        if (!visited.has(task.internalId)) {
+            dfs(task.internalId, []);
+        }
+    }
+
+    return circularPaths;
+}
 
 /**
  * Process legend data and assign colors to tasks based on legend values
@@ -7878,11 +8161,13 @@ private populateTaskDropdown(): void {
     
     // Clear existing items
     this.dropdownList.selectAll("*").remove();
-    
-    // Sort tasks by name for better usability
-    const sortedTasks = [...this.allTasksData].sort((a, b) => 
+
+    // Filter out synthetic tasks (predecessor-only tasks without proper data)
+    // and sort remaining tasks by name for better usability
+    const realTasks = this.allTasksData.filter(task => task.type !== "Synthetic");
+    const sortedTasks = [...realTasks].sort((a, b) =>
         (a.name || "").localeCompare(b.name || ""));
-    
+
     const self = this;
     
     // Add "Clear Selection" option FIRST (at the top)
@@ -7918,13 +8203,14 @@ private populateTaskDropdown(): void {
                 .style("pointer-events", "auto");
         });
     
-    // Create dropdown items for tasks
+    // Create dropdown items for tasks (synthetic tasks already filtered out)
     sortedTasks.forEach(task => {
         const taskName = task.name || `Task ${task.internalId}`;
         const item = this.dropdownList.append("div")
             .attr("class", "dropdown-item")
             .attr("data-task-id", task.internalId)
             .attr("data-task-name", taskName)
+            .attr("title", taskName)
             .style("padding", "6px 10px")
             .style("cursor", "pointer")
             .style("border-bottom", "1px solid #f5f5f5")
@@ -8652,6 +8938,22 @@ private ensureTaskVisible(taskId: string): void {
                 .text(titleText + ":");
         }
 
+        // UX ENHANCEMENT: Add selection count indicator
+        const selectedCount = this.selectedLegendCategories.size === 0 ? this.legendCategories.length : this.selectedLegendCategories.size;
+        const totalCount = this.legendCategories.length;
+
+        scrollableContent.append("div")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", `${fontSize - 1}px`)
+            .style("color", "#888")
+            .style("white-space", "nowrap")
+            .style("margin-right", "15px")
+            .style("padding", "2px 8px")
+            .style("background-color", "#f0f0f0")
+            .style("border-radius", "10px")
+            .attr("title", "Number of visible categories")
+            .text(`${selectedCount} of ${totalCount} shown`);
+
         // Add legend items
         this.legendCategories.forEach(category => {
             const color = this.legendColorMap.get(category) || "#999";
@@ -8660,32 +8962,44 @@ private ensureTaskVisible(taskId: string): void {
 
             const item = scrollableContent.append("div")
                 .attr("data-category", category)
+                // UX ENHANCEMENT: Add role and aria attributes for accessibility
+                .attr("role", "button")
+                .attr("aria-label", `${isSelected ? 'Hide' : 'Show'} ${category} tasks. Click to toggle visibility.`)
+                .attr("aria-pressed", isSelected ? "true" : "false")
+                .attr("tabindex", 0)
+                // UX ENHANCEMENT: Add title attribute for discoverability
+                .attr("title", `Click to ${isSelected ? 'hide' : 'show'} "${category}" tasks`)
                 .style("display", "flex")
                 .style("align-items", "center")
                 .style("gap", "6px")
                 .style("flex-shrink", "0")
                 .style("cursor", "pointer")
                 .style("user-select", "none")
-                .style("padding", "2px 8px")
-                .style("border-radius", "4px")
-                .style("transition", "all 0.2s")
-                .style("opacity", isSelected ? "1" : "0.4");
+                .style("padding", "4px 10px")
+                .style("border-radius", "6px")
+                // UX ENHANCEMENT: Improved transitions for smoother feel
+                .style("transition", "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)")
+                .style("opacity", isSelected ? "1" : "0.5")
+                // UX ENHANCEMENT: Add subtle border to make items more distinct
+                .style("border", `1px solid ${isSelected ? '#ddd' : '#e8e8e8'}`);
 
             // Color swatch
             item.append("div")
-                .style("width", "14px")
-                .style("height", "14px")
+                .style("width", "16px")
+                .style("height", "16px")
                 .style("background-color", color)
-                .style("border", "1px solid #999")
-                .style("border-radius", "2px")
-                .style("flex-shrink", "0");
+                .style("border", `2px solid ${isSelected ? color : '#ccc'}`)
+                .style("border-radius", "3px")
+                .style("flex-shrink", "0")
+                .style("transition", "border-color 0.2s");
 
             // Label
             item.append("span")
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", `${fontSize}px`)
-                .style("color", "#666")
+                .style("color", isSelected ? "#333" : "#999")
                 .style("white-space", "nowrap")
+                .style("font-weight", isSelected ? "500" : "400")
                 .style("text-decoration", isSelected ? "none" : "line-through")
                 .text(category);
 
@@ -8694,11 +9008,35 @@ private ensureTaskVisible(taskId: string): void {
                 this.toggleLegendCategory(category);
             });
 
-            // Hover effect
+            // UX ENHANCEMENT: Keyboard support
+            item.on("keydown", (event: KeyboardEvent) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    this.toggleLegendCategory(category);
+                }
+            });
+
+            // UX ENHANCEMENT: Improved hover effect with subtle elevation
             item.on("mouseenter", function() {
-                d3.select(this).style("background-color", "#f5f5f5");
+                d3.select(this)
+                    .style("background-color", "#f8f9fa")
+                    .style("transform", "translateY(-1px)")
+                    .style("box-shadow", "0 2px 4px rgba(0,0,0,0.1)");
             }).on("mouseleave", function() {
-                d3.select(this).style("background-color", "transparent");
+                d3.select(this)
+                    .style("background-color", "transparent")
+                    .style("transform", "translateY(0)")
+                    .style("box-shadow", "none");
+            });
+
+            // UX ENHANCEMENT: Focus indicator
+            item.on("focus", function() {
+                d3.select(this)
+                    .style("outline", "2px solid #0078D4")
+                    .style("outline-offset", "2px");
+            }).on("blur", function() {
+                d3.select(this)
+                    .style("outline", "none");
             });
         });
 
