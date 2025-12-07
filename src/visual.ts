@@ -121,6 +121,31 @@ interface Task {
     tooltipData?: Array<{key: string, value: PrimitiveValue}>;  // Array preserves field order
     legendValue?: string;       // Value from legend field for this task
     legendColor?: string;       // Assigned color for this legend value
+    // WBS Grouping fields
+    wbsLevel2?: string;
+    wbsLevel3?: string;
+    wbsLevel4?: string;
+    wbsLevel5?: string;
+    wbsGroupId?: string;        // Computed: concatenated WBS path for grouping
+    wbsIndentLevel?: number;    // Computed: depth level for indentation (0-4)
+}
+
+// WBS Group interface for hierarchical grouping
+interface WBSGroup {
+    id: string;                 // Unique group identifier (e.g., "L2:Phase1|L3:Design")
+    level: number;              // Hierarchy level (2, 3, 4, or 5)
+    name: string;               // Display name of this group level
+    fullPath: string;           // Full WBS path for sorting
+    parentId: string | null;    // Parent group's id (null for top-level)
+    children: WBSGroup[];       // Child groups
+    tasks: Task[];              // Direct tasks in this group
+    allTasks: Task[];           // All tasks including children (computed)
+    isExpanded: boolean;        // Current expansion state
+    // Summary metrics (computed from all descendant tasks)
+    summaryStartDate?: Date | null;
+    summaryFinishDate?: Date | null;
+    hasCriticalTasks: boolean;
+    taskCount: number;
 }
 
 interface Relationship {
@@ -249,6 +274,14 @@ export class Visual implements IVisual {
     private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>; // Legend UI container
     private selectedLegendCategories: Set<string> = new Set(); // Empty set = all selected (no filter)
     private legendSelectionIds: Map<string, powerbi.visuals.ISelectionId> = new Map(); // Category -> SelectionId for color persistence (Pillar 2)
+
+    // WBS Grouping properties
+    private wbsDataExists: boolean = false;
+    private wbsGroups: WBSGroup[] = [];                         // Flat list of all WBS groups
+    private wbsGroupMap: Map<string, WBSGroup> = new Map();     // groupId -> WBSGroup for quick lookup
+    private wbsRootGroups: WBSGroup[] = [];                     // Top-level groups (Level 2)
+    private wbsExpandedState: Map<string, boolean> = new Map(); // Persisted expand/collapse state
+    private wbsGroupLayer: Selection<SVGGElement, unknown, null, undefined>; // SVG layer for group headers
 
     // Tooltip properties
     private tooltipDebugLogged: boolean = false; // Flag to log tooltip column info only once
@@ -2641,9 +2674,21 @@ private async updateInternal(options: VisualUpdateOptions) {
             return;
         }
 
-        tasksToPlot.sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-        tasksToPlot.forEach((task, index) => { task.yOrder = index; });
-        let tasksToShow = tasksToPlot;
+        // WBS GROUPING: If enabled, sort and order by WBS hierarchy
+        const wbsGroupingEnabled = this.wbsDataExists &&
+            this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+        let orderedTasks: Task[];
+        if (wbsGroupingEnabled) {
+            // Use WBS-aware ordering
+            orderedTasks = this.applyWbsOrdering(tasksToPlot);
+        } else {
+            // Original behavior: sort by start date
+            orderedTasks = [...tasksToPlot].sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+        }
+
+        orderedTasks.forEach((task, index) => { task.yOrder = index; });
+        let tasksToShow = orderedTasks;
 
         // Apply legend filtering if legend categories are selected
         if (this.legendDataExists && this.selectedLegendCategories.size > 0) {
@@ -3770,8 +3815,11 @@ private drawVisualElements(
             labelColor, showDuration, taskHeight,
             dateBgColor, dateBgOpacity
         );
+
+        // Draw WBS group headers (SVG mode only)
+        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
     }
-    
+
     if (showProjectEndLine) {
         // Project end line is always drawn in SVG
         this.drawProjectEndLine(chartWidth, xScale, tasksToShow, this.allTasksToShow, chartHeight, 
@@ -4242,11 +4290,19 @@ private drawTasks(
     // --- Update Task Labels ---
     // First remove existing labels to avoid updating complex wrapped text
     allTaskGroups.selectAll(".task-label").remove();
-    
+
+    // WBS indentation settings
+    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+    const wbsIndentPerLevel = wbsGroupingEnabled ? (this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20) : 0;
+
     // Draw task labels
     const taskLabels = allTaskGroups.append("text")
         .attr("class", "task-label")
-        .attr("x", -currentLeftMargin + this.labelPaddingLeft)
+        .attr("x", (d: Task) => {
+            // Apply WBS indentation if grouping is enabled
+            const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
+            return -currentLeftMargin + this.labelPaddingLeft + indent;
+        })
         .attr("y", taskHeight / 2)
         .attr("text-anchor", "start")
         .attr("dominant-baseline", "central")
@@ -4263,6 +4319,9 @@ private drawTasks(
             const x = parseFloat(textElement.attr("x"));
             const y = parseFloat(textElement.attr("y"));
             const dy = 0;
+            // Adjust available width for WBS indentation
+            const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
+            const adjustedLabelWidth = labelAvailableWidth - indent;
             let tspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
             let lineCount = 1;
             const maxLines = 2;
@@ -4272,7 +4331,7 @@ private drawTasks(
                 tspan.text(line.join(" "));
                 try {
                     const node = tspan.node();
-                    if (node && node.getComputedTextLength() > labelAvailableWidth && line.length > 1) {
+                    if (node && node.getComputedTextLength() > adjustedLabelWidth && line.length > 1) {
                         line.pop();
                         tspan.text(line.join(" "));
 
@@ -7072,6 +7131,25 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         ? String(row[legendIdx])
         : undefined;
 
+    // Parse WBS level values
+    const wbsLevel2Idx = this.getColumnIndex(dataView, 'wbsLevel2');
+    const wbsLevel3Idx = this.getColumnIndex(dataView, 'wbsLevel3');
+    const wbsLevel4Idx = this.getColumnIndex(dataView, 'wbsLevel4');
+    const wbsLevel5Idx = this.getColumnIndex(dataView, 'wbsLevel5');
+
+    const wbsLevel2 = (wbsLevel2Idx !== -1 && row[wbsLevel2Idx] != null)
+        ? String(row[wbsLevel2Idx]).trim()
+        : undefined;
+    const wbsLevel3 = (wbsLevel3Idx !== -1 && row[wbsLevel3Idx] != null)
+        ? String(row[wbsLevel3Idx]).trim()
+        : undefined;
+    const wbsLevel4 = (wbsLevel4Idx !== -1 && row[wbsLevel4Idx] != null)
+        ? String(row[wbsLevel4Idx]).trim()
+        : undefined;
+    const wbsLevel5 = (wbsLevel5Idx !== -1 && row[wbsLevel5Idx] != null)
+        ? String(row[wbsLevel5Idx]).trim()
+        : undefined;
+
     // Get tooltip data
     const tooltipData = this.extractTooltipData(row, dataView);
 
@@ -7104,7 +7182,11 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         previousUpdateStartDate: previousUpdateStartDate,
         previousUpdateFinishDate: previousUpdateFinishDate,
         tooltipData: tooltipData,
-        legendValue: legendValue
+        legendValue: legendValue,
+        wbsLevel2: wbsLevel2,
+        wbsLevel3: wbsLevel3,
+        wbsLevel4: wbsLevel4,
+        wbsLevel5: wbsLevel5
     };
 
     return task;
@@ -7459,6 +7541,9 @@ private transformDataOptimized(dataView: DataView): void {
     // Process legend data and assign colours
     this.processLegendData(dataView);
 
+    // Process WBS data and build hierarchy
+    this.processWBSData();
+
     // DATA QUALITY: Validate data quality and warn users of potential issues
     this.validateDataQuality();
 
@@ -7664,6 +7749,514 @@ private processLegendData(dataView: DataView): void {
     }
 
     this.debugLog(`Legend processed: ${this.legendCategories.length} categories found`);
+}
+
+/**
+ * WBS GROUPING: Processes WBS data and builds hierarchical group structure
+ * Builds the WBS hierarchy from task WBS level fields and calculates summary metrics
+ */
+private processWBSData(): void {
+    // Reset WBS data
+    this.wbsDataExists = false;
+    this.wbsGroups = [];
+    this.wbsGroupMap.clear();
+    this.wbsRootGroups = [];
+
+    // Check if any task has WBS data
+    const hasWbsData = this.allTasksData.some(task =>
+        task.wbsLevel2 || task.wbsLevel3 || task.wbsLevel4 || task.wbsLevel5
+    );
+
+    if (!hasWbsData) {
+        // No WBS data - clear WBS properties from tasks
+        for (const task of this.allTasksData) {
+            task.wbsGroupId = undefined;
+            task.wbsIndentLevel = 0;
+        }
+        return;
+    }
+
+    this.wbsDataExists = true;
+    const defaultExpanded = this.settings?.wbsGrouping?.defaultExpanded?.value ?? true;
+
+    // Build unique WBS paths and assign to tasks
+    // Path format: "L2:Value2|L3:Value3|L4:Value4|L5:Value5"
+    for (const task of this.allTasksData) {
+        const pathParts: string[] = [];
+        let deepestLevel = 0;
+
+        if (task.wbsLevel2) {
+            pathParts.push(`L2:${task.wbsLevel2}`);
+            deepestLevel = 2;
+        }
+        if (task.wbsLevel3) {
+            pathParts.push(`L3:${task.wbsLevel3}`);
+            deepestLevel = 3;
+        }
+        if (task.wbsLevel4) {
+            pathParts.push(`L4:${task.wbsLevel4}`);
+            deepestLevel = 4;
+        }
+        if (task.wbsLevel5) {
+            pathParts.push(`L5:${task.wbsLevel5}`);
+            deepestLevel = 5;
+        }
+
+        if (pathParts.length > 0) {
+            task.wbsGroupId = pathParts.join('|');
+            // Indent level is 0 for no WBS, 1 for L2 only, 2 for L3, etc.
+            task.wbsIndentLevel = deepestLevel > 0 ? deepestLevel - 1 : 0;
+        } else {
+            task.wbsGroupId = undefined;
+            task.wbsIndentLevel = 0;
+        }
+    }
+
+    // Build hierarchical group structure
+    // First, collect all unique group paths at each level
+    const groupPaths = new Set<string>();
+
+    for (const task of this.allTasksData) {
+        if (!task.wbsGroupId) continue;
+
+        // Add all parent paths as well
+        const parts = task.wbsGroupId.split('|');
+        let currentPath = '';
+        for (const part of parts) {
+            currentPath = currentPath ? `${currentPath}|${part}` : part;
+            groupPaths.add(currentPath);
+        }
+    }
+
+    // Create WBSGroup objects for each unique path
+    for (const path of groupPaths) {
+        const parts = path.split('|');
+        const lastPart = parts[parts.length - 1];
+        const levelMatch = lastPart.match(/^L(\d+):(.+)$/);
+
+        if (!levelMatch) continue;
+
+        const level = parseInt(levelMatch[1], 10);
+        const name = levelMatch[2];
+        const parentPath = parts.length > 1 ? parts.slice(0, -1).join('|') : null;
+
+        // Check if we have a persisted expansion state, otherwise use default
+        const isExpanded = this.wbsExpandedState.has(path)
+            ? this.wbsExpandedState.get(path)!
+            : defaultExpanded;
+
+        const group: WBSGroup = {
+            id: path,
+            level: level,
+            name: name,
+            fullPath: path,
+            parentId: parentPath,
+            children: [],
+            tasks: [],
+            allTasks: [],
+            isExpanded: isExpanded,
+            summaryStartDate: null,
+            summaryFinishDate: null,
+            hasCriticalTasks: false,
+            taskCount: 0
+        };
+
+        this.wbsGroups.push(group);
+        this.wbsGroupMap.set(path, group);
+    }
+
+    // Build parent-child relationships
+    for (const group of this.wbsGroups) {
+        if (group.parentId) {
+            const parent = this.wbsGroupMap.get(group.parentId);
+            if (parent) {
+                parent.children.push(group);
+            }
+        } else {
+            this.wbsRootGroups.push(group);
+        }
+    }
+
+    // Assign tasks to their immediate (deepest) group
+    for (const task of this.allTasksData) {
+        if (task.wbsGroupId) {
+            const group = this.wbsGroupMap.get(task.wbsGroupId);
+            if (group) {
+                group.tasks.push(task);
+            }
+        }
+    }
+
+    // Calculate allTasks (including children) and summary metrics recursively
+    const calculateGroupMetrics = (group: WBSGroup): void => {
+        // Start with direct tasks
+        group.allTasks = [...group.tasks];
+
+        // Recursively process children first
+        for (const child of group.children) {
+            calculateGroupMetrics(child);
+            // Add child's allTasks to this group's allTasks
+            group.allTasks.push(...child.allTasks);
+        }
+
+        // Calculate summary metrics from all tasks
+        group.taskCount = group.allTasks.length;
+        group.hasCriticalTasks = group.allTasks.some(t => t.isCritical);
+
+        // Calculate summary dates (earliest start, latest finish)
+        let minStart: Date | null = null;
+        let maxFinish: Date | null = null;
+
+        for (const task of group.allTasks) {
+            if (task.startDate) {
+                if (!minStart || task.startDate < minStart) {
+                    minStart = task.startDate;
+                }
+            }
+            if (task.finishDate) {
+                if (!maxFinish || task.finishDate > maxFinish) {
+                    maxFinish = task.finishDate;
+                }
+            }
+        }
+
+        group.summaryStartDate = minStart;
+        group.summaryFinishDate = maxFinish;
+    };
+
+    // Calculate metrics for all root groups (which recursively calculates for all children)
+    for (const rootGroup of this.wbsRootGroups) {
+        calculateGroupMetrics(rootGroup);
+    }
+
+    // Sort groups by their path for consistent ordering
+    this.wbsGroups.sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+    this.wbsRootGroups.sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+
+    // Sort children within each group
+    for (const group of this.wbsGroups) {
+        group.children.sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+    }
+
+    this.debugLog(`WBS processed: ${this.wbsGroups.length} groups found, ${this.wbsRootGroups.length} root groups`);
+}
+
+/**
+ * WBS GROUPING: Toggle expansion state for a WBS group
+ */
+private toggleWbsGroupExpansion(groupId: string): void {
+    const group = this.wbsGroupMap.get(groupId);
+    if (!group) return;
+
+    group.isExpanded = !group.isExpanded;
+    this.wbsExpandedState.set(groupId, group.isExpanded);
+
+    // Trigger re-render
+    if (this.lastUpdateOptions) {
+        this.forceFullUpdate = true;
+        this.updateInternal(this.lastUpdateOptions);
+    }
+}
+
+/**
+ * WBS GROUPING: Check if a task should be visible based on WBS group expansion state
+ */
+private isTaskVisibleWithWbsGrouping(task: Task): boolean {
+    if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+        return true; // WBS grouping disabled, show all tasks
+    }
+
+    if (!task.wbsGroupId) {
+        return true; // Task has no WBS assignment, show it
+    }
+
+    // Check if any ancestor group is collapsed
+    const parts = task.wbsGroupId.split('|');
+    let currentPath = '';
+
+    for (let i = 0; i < parts.length - 1; i++) { // Don't check the task's own group
+        currentPath = currentPath ? `${currentPath}|${parts[i]}` : parts[i];
+        const group = this.wbsGroupMap.get(currentPath);
+        if (group && !group.isExpanded) {
+            return false; // Parent group is collapsed, hide task
+        }
+    }
+
+    return true;
+}
+
+/**
+ * WBS GROUPING: Apply WBS ordering and filtering to tasks
+ * Returns tasks sorted by WBS hierarchy with collapsed groups filtered out
+ */
+private applyWbsOrdering(tasks: Task[]): Task[] {
+    const orderedTasks: Task[] = [];
+    const taskSet = new Set(tasks.map(t => t.internalId));
+
+    // Helper to process a group and its children recursively
+    const processGroup = (group: WBSGroup): void => {
+        if (group.isExpanded) {
+            // Process child groups first (sorted alphabetically)
+            for (const child of group.children) {
+                processGroup(child);
+            }
+
+            // Then add direct tasks of this group (only if they're in our input list)
+            // Sort by start date within the group
+            const directTasks = group.tasks
+                .filter(t => taskSet.has(t.internalId))
+                .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+            for (const task of directTasks) {
+                orderedTasks.push(task);
+            }
+        }
+        // If group is collapsed, its tasks and children are not added
+    };
+
+    // Process root groups in order
+    for (const rootGroup of this.wbsRootGroups) {
+        processGroup(rootGroup);
+    }
+
+    // Add tasks without WBS assignment at the end (sorted by start date)
+    const tasksWithoutWbs = tasks
+        .filter(t => !t.wbsGroupId)
+        .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+    for (const task of tasksWithoutWbs) {
+        orderedTasks.push(task);
+    }
+
+    return orderedTasks;
+}
+
+/**
+ * WBS GROUPING: Get the ordered list of items to display (groups + tasks)
+ * Returns a flat list with groups interleaved with their visible tasks
+ */
+private getWbsOrderedDisplayItems(): Array<{ type: 'group' | 'task', group?: WBSGroup, task?: Task }> {
+    const items: Array<{ type: 'group' | 'task', group?: WBSGroup, task?: Task }> = [];
+
+    if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+        // WBS grouping disabled, return just tasks
+        for (const task of this.allTasksToShow) {
+            items.push({ type: 'task', task });
+        }
+        return items;
+    }
+
+    // Build ordered list with groups and tasks
+    const processGroup = (group: WBSGroup, depth: number): void => {
+        // Add the group header
+        items.push({ type: 'group', group });
+
+        if (group.isExpanded) {
+            // Add child groups first (sorted)
+            for (const child of group.children) {
+                processGroup(child, depth + 1);
+            }
+
+            // Add direct tasks of this group (sorted by start date)
+            const directTasks = group.tasks
+                .filter(t => this.allTasksToShow.includes(t))
+                .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+            for (const task of directTasks) {
+                items.push({ type: 'task', task });
+            }
+        }
+    };
+
+    // Process root groups
+    for (const rootGroup of this.wbsRootGroups) {
+        processGroup(rootGroup, 0);
+    }
+
+    // Add tasks without WBS assignment at the end
+    const tasksWithoutWbs = this.allTasksToShow
+        .filter(t => !t.wbsGroupId)
+        .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+    for (const task of tasksWithoutWbs) {
+        items.push({ type: 'task', task });
+    }
+
+    return items;
+}
+
+/**
+ * WBS GROUPING: Draw WBS group headers in SVG mode
+ * Renders group headers with expand/collapse controls and optional summary bars
+ */
+private drawWbsGroupHeaders(
+    xScale: ScaleTime<number, number>,
+    yScale: ScaleBand<string>,
+    chartWidth: number,
+    taskHeight: number
+): void {
+    if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+        // Remove any existing WBS group elements
+        this.taskLayer?.selectAll('.wbs-group-header').remove();
+        return;
+    }
+
+    const showGroupSummary = this.settings.wbsGrouping.showGroupSummary.value;
+    const groupHeaderColor = this.settings.wbsGrouping.groupHeaderColor.value.value;
+    const groupSummaryColor = this.settings.wbsGrouping.groupSummaryColor.value.value;
+    const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
+    const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+    const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+
+    // Build list of visible groups (groups with at least one visible parent or root groups)
+    const visibleGroups: WBSGroup[] = [];
+
+    const isGroupVisible = (group: WBSGroup): boolean => {
+        if (!group.parentId) return true; // Root groups are always visible
+        const parent = this.wbsGroupMap.get(group.parentId);
+        return parent ? parent.isExpanded && isGroupVisible(parent) : true;
+    };
+
+    for (const group of this.wbsGroups) {
+        if (isGroupVisible(group)) {
+            visibleGroups.push(group);
+        }
+    }
+
+    // Calculate yOrder for each visible group (interleaved with tasks)
+    // We need to track which row each group header appears on
+    const groupYPositions = new Map<string, number>();
+    let currentY = 0;
+
+    const calculateGroupPositions = (group: WBSGroup): void => {
+        if (!isGroupVisible(group)) return;
+
+        groupYPositions.set(group.id, currentY);
+        currentY++;
+
+        if (group.isExpanded) {
+            // Add positions for child groups
+            for (const child of group.children) {
+                calculateGroupPositions(child);
+            }
+            // Add space for tasks (they'll be positioned by their own yOrder)
+            // Tasks are handled separately
+        }
+    };
+
+    // Clear existing group headers
+    this.taskLayer?.selectAll('.wbs-group-header').remove();
+
+    // Create a separate layer for WBS headers if it doesn't exist
+    if (!this.wbsGroupLayer) {
+        this.wbsGroupLayer = this.mainGroup.insert('g', ':first-child')
+            .attr('class', 'wbs-group-layer');
+    }
+
+    // Clear existing headers
+    this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
+
+    const self = this;
+
+    // Draw each visible group header
+    for (const group of visibleGroups) {
+        // Find the first task in this group to determine Y position
+        // For group headers, we want them to appear before their first child
+        const firstTask = group.tasks.find(t => t.yOrder !== undefined);
+        let yPos: number;
+
+        if (firstTask && firstTask.yOrder !== undefined) {
+            // Position header at the y position of the first task, but we need to adjust
+            const domainKey = firstTask.yOrder.toString();
+            yPos = yScale(domainKey) ?? 0;
+        } else if (group.children.length > 0) {
+            // Find first child group's first task
+            const findFirstTaskInGroup = (g: WBSGroup): Task | undefined => {
+                if (g.tasks.length > 0) {
+                    return g.tasks.find(t => t.yOrder !== undefined);
+                }
+                for (const child of g.children) {
+                    const task = findFirstTaskInGroup(child);
+                    if (task) return task;
+                }
+                return undefined;
+            };
+            const childTask = findFirstTaskInGroup(group);
+            if (childTask && childTask.yOrder !== undefined) {
+                yPos = yScale(childTask.yOrder.toString()) ?? 0;
+            } else {
+                continue; // Skip this group if no position can be determined
+            }
+        } else {
+            continue; // No tasks or children, skip
+        }
+
+        const indent = (group.level - 2) * indentPerLevel;
+        const headerGroup = this.wbsGroupLayer.append('g')
+            .attr('class', 'wbs-group-header')
+            .attr('data-group-id', group.id)
+            .style('cursor', 'pointer');
+
+        // Background rectangle for the header
+        headerGroup.append('rect')
+            .attr('class', 'wbs-header-bg')
+            .attr('x', -currentLeftMargin + indent)
+            .attr('y', yPos - taskHeight / 2 - 2)
+            .attr('width', currentLeftMargin - indent - 5)
+            .attr('height', taskHeight + 4)
+            .style('fill', groupHeaderColor)
+            .style('opacity', 0.8);
+
+        // Expand/collapse indicator
+        const expandIcon = group.isExpanded ? '\u25BC' : '\u25B6'; // ▼ or ▶
+        headerGroup.append('text')
+            .attr('class', 'wbs-expand-icon')
+            .attr('x', -currentLeftMargin + indent + 8)
+            .attr('y', yPos + taskHeight / 2 - 2)
+            .style('font-size', `${taskNameFontSize}px`)
+            .style('font-family', 'Segoe UI, sans-serif')
+            .style('fill', '#333')
+            .text(expandIcon);
+
+        // Group name with task count
+        const displayName = group.isExpanded
+            ? group.name
+            : `${group.name} (${group.taskCount} tasks)`;
+
+        headerGroup.append('text')
+            .attr('class', 'wbs-group-name')
+            .attr('x', -currentLeftMargin + indent + 22)
+            .attr('y', yPos + taskHeight / 2 - 2)
+            .style('font-size', `${taskNameFontSize + 1}px`)
+            .style('font-family', 'Segoe UI, sans-serif')
+            .style('font-weight', '600')
+            .style('fill', '#333')
+            .text(displayName);
+
+        // Summary bar (if group is collapsed and has valid dates)
+        if (!group.isExpanded && showGroupSummary &&
+            group.summaryStartDate && group.summaryFinishDate) {
+            const startX = xScale(group.summaryStartDate);
+            const finishX = xScale(group.summaryFinishDate);
+            const barWidth = Math.max(2, finishX - startX);
+
+            headerGroup.append('rect')
+                .attr('class', 'wbs-summary-bar')
+                .attr('x', startX)
+                .attr('y', yPos)
+                .attr('width', barWidth)
+                .attr('height', taskHeight * 0.6)
+                .attr('rx', 3)
+                .attr('ry', 3)
+                .style('fill', group.hasCriticalTasks ? this.settings.taskAppearance.criticalPathColor.value.value : groupSummaryColor)
+                .style('opacity', 0.7);
+        }
+
+        // Click handler for expand/collapse
+        headerGroup.on('click', function() {
+            self.toggleWbsGroupExpansion(group.id);
+        });
+    }
 }
 
     // Helper method to detect possible date values

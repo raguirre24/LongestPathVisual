@@ -393,6 +393,66 @@ class LegendCard extends Card {
     slices: Slice[] = [this.show, this.position, this.fontSize, this.showTitle, this.titleText, this.sortOrder];
 }
 
+class WBSGroupingCard extends Card {
+    name: string = "wbsGrouping";
+    displayName: string = "WBS Grouping";
+
+    enableWbsGrouping = new ToggleSwitch({
+        name: "enableWbsGrouping",
+        displayName: "Enable WBS Grouping",
+        description: "Group tasks by WBS hierarchy",
+        value: false
+    });
+
+    defaultExpanded = new ToggleSwitch({
+        name: "defaultExpanded",
+        displayName: "Default Expanded",
+        description: "Expand all WBS groups by default",
+        value: true
+    });
+
+    showGroupSummary = new ToggleSwitch({
+        name: "showGroupSummary",
+        displayName: "Show Group Summary Bar",
+        description: "Display a summary bar for each WBS group",
+        value: true
+    });
+
+    groupHeaderColor = new ColorPicker({
+        name: "groupHeaderColor",
+        displayName: "Group Header Background",
+        description: "Background color for WBS group headers",
+        value: { value: "#F0F0F0" }
+    });
+
+    groupSummaryColor = new ColorPicker({
+        name: "groupSummaryColor",
+        displayName: "Group Summary Bar Color",
+        description: "Color for WBS group summary bars",
+        value: { value: "#808080" }
+    });
+
+    indentPerLevel = new NumUpDown({
+        name: "indentPerLevel",
+        displayName: "Indent Per Level (px)",
+        description: "Indentation for each WBS level",
+        value: 20,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 }
+        }
+    });
+
+    slices: Slice[] = [
+        this.enableWbsGrouping,
+        this.defaultExpanded,
+        this.showGroupSummary,
+        this.groupHeaderColor,
+        this.groupSummaryColor,
+        this.indentPerLevel
+    ];
+}
+
 class LegendColorsCard extends Card {
     name: string = "legendColors";
     displayName: string = "Legend Colors";
@@ -466,6 +526,7 @@ export class VisualSettings extends Model {
     criticalityMode = new CriticalityModeCard();
     drivingPathSelection = new DrivingPathSelectionCard();
     taskSelection = new TaskSelectionCard();
+    wbsGrouping = new WBSGroupingCard();
     legend = new LegendCard();
     legendColors = new LegendColorsCard();
     persistedState = new PersistedStateCard();
@@ -483,6 +544,7 @@ export class VisualSettings extends Model {
         this.criticalityMode,
         this.drivingPathSelection,
         this.taskSelection,
+        this.wbsGrouping,
         this.legend,
         this.legendColors,
         this.persistedState

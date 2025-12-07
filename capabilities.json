@@ -108,6 +108,30 @@
             "kind": "Grouping",
             "displayName": "Legend",
             "description": "Categorical field to color tasks (e.g., WBS, Department, Phase)"
+        },
+        {
+            "name": "wbsLevel2",
+            "kind": "Grouping",
+            "displayName": "WBS Level 2",
+            "description": "Work Breakdown Structure Level 2 grouping field"
+        },
+        {
+            "name": "wbsLevel3",
+            "kind": "Grouping",
+            "displayName": "WBS Level 3",
+            "description": "Work Breakdown Structure Level 3 grouping field"
+        },
+        {
+            "name": "wbsLevel4",
+            "kind": "Grouping",
+            "displayName": "WBS Level 4",
+            "description": "Work Breakdown Structure Level 4 grouping field"
+        },
+        {
+            "name": "wbsLevel5",
+            "kind": "Grouping",
+            "displayName": "WBS Level 5",
+            "description": "Work Breakdown Structure Level 5 grouping field"
         }
     ],
     "objects": {
@@ -346,6 +370,42 @@
                 }
             }
         },
+        "wbsGrouping": {
+            "displayName": "WBS Grouping",
+            "description": "Work Breakdown Structure grouping settings",
+            "properties": {
+                "enableWbsGrouping": {
+                    "displayName": "Enable WBS Grouping",
+                    "description": "Group tasks by WBS hierarchy",
+                    "type": { "bool": true }
+                },
+                "defaultExpanded": {
+                    "displayName": "Default Expanded",
+                    "description": "Expand all WBS groups by default",
+                    "type": { "bool": true }
+                },
+                "showGroupSummary": {
+                    "displayName": "Show Group Summary Bar",
+                    "description": "Display a summary bar for each WBS group",
+                    "type": { "bool": true }
+                },
+                "groupHeaderColor": {
+                    "displayName": "Group Header Background",
+                    "description": "Background color for WBS group headers",
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "groupSummaryColor": {
+                    "displayName": "Group Summary Bar Color",
+                    "description": "Color for WBS group summary bars",
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "indentPerLevel": {
+                    "displayName": "Indent Per Level (px)",
+                    "description": "Indentation for each WBS level",
+                    "type": { "numeric": true }
+                }
+            }
+        },
         "legendColors": {
             "displayName": "Legend Colors",
             "description": "Customize colors for legend categories",
@@ -395,7 +455,11 @@
                         { "bind": { "to": "relationshipLag" } },
                         { "bind": { "to": "relationshipFreeFloat" } },
                         { "bind": { "to": "tooltip" } },
-                        { "bind": { "to": "legend" } }
+                        { "bind": { "to": "legend" } },
+                        { "bind": { "to": "wbsLevel2" } },
+                        { "bind": { "to": "wbsLevel3" } },
+                        { "bind": { "to": "wbsLevel4" } },
+                        { "bind": { "to": "wbsLevel5" } }
                     ],
                     "dataReductionAlgorithm": { "top": { "count": 60000 } }
                 }
