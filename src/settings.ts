@@ -443,9 +443,25 @@ class WBSGroupingCard extends Card {
         }
     });
 
+    hideEmptyGroups = new ToggleSwitch({
+        name: "hideEmptyGroups",
+        displayName: "Hide Empty Groups",
+        description: "Hide WBS groups that have no visible/filtered tasks",
+        value: true
+    });
+
+    expandCollapseAll = new ToggleSwitch({
+        name: "expandCollapseAll",
+        displayName: "Expand All Groups",
+        description: "Toggle to expand or collapse all WBS groups at once",
+        value: true
+    });
+
     slices: Slice[] = [
         this.enableWbsGrouping,
         this.defaultExpanded,
+        this.expandCollapseAll,
+        this.hideEmptyGroups,
         this.showGroupSummary,
         this.groupHeaderColor,
         this.groupSummaryColor,
