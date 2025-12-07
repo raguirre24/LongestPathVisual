@@ -141,6 +141,8 @@ interface WBSGroup {
     tasks: Task[];              // Direct tasks in this group
     allTasks: Task[];           // All tasks including children (computed)
     isExpanded: boolean;        // Current expansion state
+    yOrder?: number;            // Y-position order in the visual (for layout)
+    visibleTaskCount: number;   // Number of currently visible tasks after all filtering
     // Summary metrics (computed from all descendant tasks)
     summaryStartDate?: Date | null;
     summaryFinishDate?: Date | null;
@@ -2678,28 +2680,56 @@ private async updateInternal(options: VisualUpdateOptions) {
         const wbsGroupingEnabled = this.wbsDataExists &&
             this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
-        let orderedTasks: Task[];
-        if (wbsGroupingEnabled) {
-            // Use WBS-aware ordering
-            orderedTasks = this.applyWbsOrdering(tasksToPlot);
-        } else {
-            // Original behavior: sort by start date
-            orderedTasks = [...tasksToPlot].sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-        }
-
-        orderedTasks.forEach((task, index) => { task.yOrder = index; });
-        let tasksToShow = orderedTasks;
-
-        // Apply legend filtering if legend categories are selected
+        // IMPORTANT: For WBS mode, calculate filtered task count BEFORE applying collapse/expand
+        // This ensures groups remain visible even when collapsed
+        let tasksAfterLegendFilter = tasksToPlot;
         if (this.legendDataExists && this.selectedLegendCategories.size > 0) {
-            tasksToShow = tasksToShow.filter(task => {
-                // Include task if it has a legend value that's selected
+            tasksAfterLegendFilter = tasksToPlot.filter(task => {
                 if (task.legendValue) {
                     return this.selectedLegendCategories.has(task.legendValue);
                 }
-                // Include tasks without legend values (keep them visible)
                 return true;
             });
+        }
+
+        // Update group filtered counts BEFORE ordering (which respects collapse state)
+        if (wbsGroupingEnabled) {
+            this.updateWbsFilteredCounts(tasksAfterLegendFilter);
+        }
+
+        let orderedTasks: Task[];
+        if (wbsGroupingEnabled) {
+            // Use WBS-aware ordering (respects collapse/expand state)
+            orderedTasks = this.applyWbsOrdering(tasksAfterLegendFilter);
+        } else {
+            // Original behavior: sort by start date
+            orderedTasks = [...tasksAfterLegendFilter].sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+        }
+
+        // Final task list after all filtering and ordering
+        let tasksToShow = orderedTasks;
+
+        // NOW assign yOrder after all filtering is complete
+        // For WBS mode, this also assigns yOrder to group headers
+        if (wbsGroupingEnabled) {
+            this.assignWbsYOrder(tasksToShow);
+        } else {
+            // Standard mode: just assign sequential yOrder to tasks
+            tasksToShow.forEach((task, index) => { task.yOrder = index; });
+        }
+
+        // Check if we have any visible items after yOrder assignment
+        const tasksWithYOrder = tasksToShow.filter(t => t.yOrder !== undefined);
+        const visibleGroupCount = wbsGroupingEnabled ? this.wbsGroups.filter(g => g.yOrder !== undefined).length : 0;
+
+        if (tasksWithYOrder.length === 0 && visibleGroupCount === 0) {
+            this.applyTaskFilter([]);
+            if (wbsGroupingEnabled) {
+                this.displayMessage("All WBS groups are collapsed or filtered. Expand a group to view tasks.");
+            } else {
+                this.displayMessage("No tasks to display after filtering.");
+            }
+            return;
         }
 
         // ✅ CORRECT: Apply filter with valid tasks
@@ -2707,7 +2737,27 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         const taskHeight = this.settings.taskAppearance.taskHeight.value;
         const taskPadding = this.settings.layoutSettings.taskPadding.value;
-        const totalSvgHeight = Math.max(50, tasksToShow.length * (taskHeight + taskPadding)) + this.margin.top + this.margin.bottom;
+
+        // Calculate total rows based on the highest yOrder value assigned
+        let totalRows = tasksWithYOrder.length;
+        if (wbsGroupingEnabled) {
+            // Find the maximum yOrder value across both tasks and groups
+            let maxYOrder = -1;
+            for (const task of tasksWithYOrder) {
+                if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
+                    maxYOrder = task.yOrder;
+                }
+            }
+            for (const group of this.wbsGroups) {
+                if (group.yOrder !== undefined && group.yOrder > maxYOrder) {
+                    maxYOrder = group.yOrder;
+                }
+            }
+            // Total rows is max yOrder + 1 (since yOrder is 0-based)
+            totalRows = maxYOrder + 1;
+        }
+
+        const totalSvgHeight = Math.max(50, totalRows * (taskHeight + taskPadding)) + this.margin.top + this.margin.bottom;
 
         const scaleSetupResult = this.setupTimeBasedSVGAndScales({ width: viewportWidth, height: totalSvgHeight }, tasksToShow);
         this.xScale = scaleSetupResult.xScale;
@@ -2731,13 +2781,13 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.createMarginResizer();
 
         const availableContentHeight = viewportHeight - this.headerHeight;
-        if (totalSvgHeight > availableContentHeight && tasksToShow.length > 1) {
+        if (totalSvgHeight > availableContentHeight && totalRows > 1) {
             this.scrollableContainer.style("height", `${availableContentHeight}px`).style("overflow-y", "scroll");
         } else {
             this.scrollableContainer.style("height", `${Math.min(totalSvgHeight, availableContentHeight)}px`).style("overflow-y", "hidden");
         }
 
-        this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding);
+        this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding, totalRows);
 
         const visibleTasks = tasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
         this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
@@ -2893,20 +2943,47 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         // We must recalculate scales here because a setting change (like baseline toggle via format pane)
         // might affect the X-axis domain or Y-axis layout (task height/padding).
         if (this.xScale && this.yScale) {
+             // Calculate total rows for proper scrolling (including WBS groups if enabled)
+             const taskHeight = this.settings.taskAppearance.taskHeight.value;
+             const taskPadding = this.settings.layoutSettings.taskPadding.value;
+             const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+             let totalRows = this.allTasksToShow.length;
+             if (wbsGroupingEnabled) {
+                 // Find the maximum yOrder value across both tasks and groups
+                 let maxYOrder = -1;
+                 for (const task of this.allTasksToShow) {
+                     if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
+                         maxYOrder = task.yOrder;
+                     }
+                 }
+                 for (const group of this.wbsGroups) {
+                     if (group.yOrder !== undefined && group.yOrder > maxYOrder) {
+                         maxYOrder = group.yOrder;
+                     }
+                 }
+                 if (maxYOrder >= 0) {
+                     totalRows = maxYOrder + 1;
+                 }
+             }
+
              // Recalculate scales
              const scaleSetupResult = this.setupTimeBasedSVGAndScales(
                 options.viewport,
                 this.allTasksToShow // Use all tasks for scale calculation
             );
             this.xScale = scaleSetupResult.xScale;
-            this.yScale = scaleSetupResult.yScale; 
+            this.yScale = scaleSetupResult.yScale;
             const chartWidth = scaleSetupResult.chartWidth;
             const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
 
             // Update taskElementHeight as it might have changed
-            const taskHeight = this.settings.taskAppearance.taskHeight.value;
-            const taskPadding = this.settings.layoutSettings.taskPadding.value;
             this.taskElementHeight = taskHeight + taskPadding;
+
+            // Update virtual scroll with correct totalRows
+            const totalSvgHeight = Math.max(50, totalRows * this.taskElementHeight) + this.margin.top + this.margin.bottom;
+            this.mainSvg.attr("height", totalSvgHeight);
+            this.taskTotalCount = totalRows;
 
             // Recalculate visible tasks in case layout changed
             this.calculateVisibleTasks();
@@ -3072,8 +3149,30 @@ private setupTimeBasedSVGAndScales(
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const svgWidth = effectiveViewport.width;
 
-    const taskCount = tasksToShow.length;
-    const calculatedChartHeight = Math.max(50, taskCount * (taskHeight + taskPadding));
+    // Calculate row count: include group headers when WBS grouping is enabled
+    let rowCount = tasksToShow.length;
+    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+    if (wbsGroupingEnabled) {
+        // Find the maximum yOrder value across both tasks and groups
+        let maxYOrder = -1;
+        for (const task of tasksToShow) {
+            if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
+                maxYOrder = task.yOrder;
+            }
+        }
+        for (const group of this.wbsGroups) {
+            if (group.yOrder !== undefined && group.yOrder > maxYOrder) {
+                maxYOrder = group.yOrder;
+            }
+        }
+        // Row count is max yOrder + 1 (since yOrder is 0-based)
+        if (maxYOrder >= 0) {
+            rowCount = maxYOrder + 1;
+        }
+    }
+
+    const calculatedChartHeight = Math.max(50, rowCount * (taskHeight + taskPadding));
     const chartWidth = Math.max(10, svgWidth - currentLeftMargin - this.margin.right);
 
     // Collect ALL date timestamps including baseline dates
@@ -3157,14 +3256,15 @@ private setupTimeBasedSVGAndScales(
     );
 }
 
-private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number): void {
+private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number, totalRows?: number): void {
     this.allTasksToShow = [...tasks];
-    this.taskTotalCount = tasks.length;
+    // Use totalRows if provided (includes groups in WBS mode), otherwise use task count
+    this.taskTotalCount = totalRows !== undefined ? totalRows : tasks.length;
     this.taskElementHeight = taskHeight + taskPadding;
-    
+
     // Create a placeholder container with proper height to enable scrolling
     const totalContentHeight = this.taskTotalCount * this.taskElementHeight;
-    
+
     // Set full height for scrolling
     this.mainSvg
         .attr("height", totalContentHeight + this.margin.top + this.margin.bottom);
@@ -3663,7 +3763,30 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
             .domain([domainMin, domainMax])
             .range([0, chartWidth]);
 
-        const yDomain = tasksToShow.map((d: Task) => d.yOrder?.toString() ?? '').filter(id => id !== '');
+        // Build yDomain: include both tasks AND group headers (when WBS is enabled)
+        const yDomainSet = new Set<string>();
+
+        // Add task yOrders
+        for (const task of tasksToShow) {
+            if (task.yOrder !== undefined) {
+                yDomainSet.add(task.yOrder.toString());
+            }
+        }
+
+        // Add group header yOrders if WBS grouping is enabled
+        const wbsGroupingEnabled = this.wbsDataExists &&
+            this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+        if (wbsGroupingEnabled) {
+            for (const group of this.wbsGroups) {
+                if (group.yOrder !== undefined) {
+                    yDomainSet.add(group.yOrder.toString());
+                }
+            }
+        }
+
+        // Convert to sorted array
+        const yDomain = Array.from(yDomainSet).sort((a, b) => parseInt(a) - parseInt(b));
 
         if (yDomain.length === 0) {
              this.debugLog("Y-scale domain is empty because no tasks are being plotted.");
@@ -7855,6 +7978,8 @@ private processWBSData(): void {
             tasks: [],
             allTasks: [],
             isExpanded: isExpanded,
+            yOrder: undefined,
+            visibleTaskCount: 0,
             summaryStartDate: null,
             summaryFinishDate: null,
             hasCriticalTasks: false,
@@ -8032,6 +8157,119 @@ private applyWbsOrdering(tasks: Task[]): Task[] {
 }
 
 /**
+ * WBS GROUPING: Update filtered task counts for groups
+ * This must be called BEFORE applyWbsOrdering so that collapse state doesn't affect counts
+ *
+ * @param filteredTasks - Tasks after filtering (legend, etc.) but before collapse/expand ordering
+ */
+private updateWbsFilteredCounts(filteredTasks: Task[]): void {
+    // Reset visible counts
+    for (const group of this.wbsGroups) {
+        group.visibleTaskCount = 0;
+    }
+
+    // Count tasks that passed filtering (regardless of collapse state)
+    for (const task of filteredTasks) {
+        if (task.wbsGroupId) {
+            const group = this.wbsGroupMap.get(task.wbsGroupId);
+            if (group) {
+                group.visibleTaskCount++;
+            }
+        }
+    }
+
+    // Propagate counts up the hierarchy
+    const propagateCounts = (group: WBSGroup): void => {
+        for (const child of group.children) {
+            propagateCounts(child);
+            group.visibleTaskCount += child.visibleTaskCount;
+        }
+    };
+    for (const rootGroup of this.wbsRootGroups) {
+        propagateCounts(rootGroup);
+    }
+}
+
+/**
+ * WBS GROUPING: Assign yOrder to both group headers and tasks after all filtering
+ * This creates a unified layout where group headers reserve their own rows
+ *
+ * @param tasksToShow - Final filtered list of tasks to display (after collapse/expand)
+ */
+private assignWbsYOrder(tasksToShow: Task[]): void {
+    // Reset yOrder for all groups
+    for (const group of this.wbsGroups) {
+        group.yOrder = undefined;
+    }
+
+    // Note: visibleTaskCount is already set by updateWbsFilteredCounts()
+    // It represents tasks that passed filtering, NOT tasks currently shown after collapse/expand
+    // This is intentional so that collapsed groups remain visible
+
+    // Create a Set of task IDs from the tasks that will be displayed
+    // (This is AFTER collapse/expand has been applied by applyWbsOrdering)
+    const visibleTaskIds = new Set(tasksToShow.map(t => t.internalId));
+
+    // Now assign yOrder in a unified sequence
+    let currentYOrder = 0;
+
+    // Helper to check if a group should be visible
+    const isGroupVisible = (group: WBSGroup): boolean => {
+        // Don't show groups with zero visible tasks (after filtering)
+        // This keeps the UI clean - only show groups that have something to display
+        if (group.visibleTaskCount === 0) return false;
+
+        // Root groups are visible if they have visible content
+        if (!group.parentId) return true;
+
+        // Child groups are visible if parent is expanded and visible
+        const parent = this.wbsGroupMap.get(group.parentId);
+        return parent ? parent.isExpanded && isGroupVisible(parent) : true;
+    };
+
+    // Recursive function to assign yOrder to groups and their tasks
+    const assignYOrderRecursive = (group: WBSGroup): void => {
+        if (!isGroupVisible(group)) return;
+
+        // Assign yOrder to the group header itself
+        group.yOrder = currentYOrder++;
+
+        if (group.isExpanded) {
+            // Process child groups first
+            for (const child of group.children) {
+                assignYOrderRecursive(child);
+            }
+
+            // Then assign yOrder to direct tasks that are in the visible list
+            const directVisibleTasks = group.tasks
+                .filter(t => visibleTaskIds.has(t.internalId))
+                .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+            for (const task of directVisibleTasks) {
+                task.yOrder = currentYOrder++;
+            }
+        }
+        // If collapsed, tasks don't get yOrder (they're hidden)
+    };
+
+    // Process all root groups
+    for (const rootGroup of this.wbsRootGroups) {
+        assignYOrderRecursive(rootGroup);
+    }
+
+    // Handle tasks without WBS assignment
+    const tasksWithoutWbs = tasksToShow
+        .filter(t => !t.wbsGroupId)
+        .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+    for (const task of tasksWithoutWbs) {
+        task.yOrder = currentYOrder++;
+    }
+
+    this.debugLog(`Assigned yOrder to ${currentYOrder} items (groups + tasks)`);
+}
+
+/**
  * WBS GROUPING: Get the ordered list of items to display (groups + tasks)
  * Returns a flat list with groups interleaved with their visible tasks
  */
@@ -8108,45 +8346,6 @@ private drawWbsGroupHeaders(
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
 
-    // Build list of visible groups (groups with at least one visible parent or root groups)
-    const visibleGroups: WBSGroup[] = [];
-
-    const isGroupVisible = (group: WBSGroup): boolean => {
-        if (!group.parentId) return true; // Root groups are always visible
-        const parent = this.wbsGroupMap.get(group.parentId);
-        return parent ? parent.isExpanded && isGroupVisible(parent) : true;
-    };
-
-    for (const group of this.wbsGroups) {
-        if (isGroupVisible(group)) {
-            visibleGroups.push(group);
-        }
-    }
-
-    // Calculate yOrder for each visible group (interleaved with tasks)
-    // We need to track which row each group header appears on
-    const groupYPositions = new Map<string, number>();
-    let currentY = 0;
-
-    const calculateGroupPositions = (group: WBSGroup): void => {
-        if (!isGroupVisible(group)) return;
-
-        groupYPositions.set(group.id, currentY);
-        currentY++;
-
-        if (group.isExpanded) {
-            // Add positions for child groups
-            for (const child of group.children) {
-                calculateGroupPositions(child);
-            }
-            // Add space for tasks (they'll be positioned by their own yOrder)
-            // Tasks are handled separately
-        }
-    };
-
-    // Clear existing group headers
-    this.taskLayer?.selectAll('.wbs-group-header').remove();
-
     // Create a separate layer for WBS headers if it doesn't exist
     if (!this.wbsGroupLayer) {
         this.wbsGroupLayer = this.mainGroup.insert('g', ':first-child')
@@ -8158,38 +8357,16 @@ private drawWbsGroupHeaders(
 
     const self = this;
 
-    // Draw each visible group header
-    for (const group of visibleGroups) {
-        // Find the first task in this group to determine Y position
-        // For group headers, we want them to appear before their first child
-        const firstTask = group.tasks.find(t => t.yOrder !== undefined);
-        let yPos: number;
+    // Draw each group that has a yOrder assigned
+    for (const group of this.wbsGroups) {
+        // Skip groups without yOrder (they're not visible)
+        if (group.yOrder === undefined) continue;
 
-        if (firstTask && firstTask.yOrder !== undefined) {
-            // Position header at the y position of the first task, but we need to adjust
-            const domainKey = firstTask.yOrder.toString();
-            yPos = yScale(domainKey) ?? 0;
-        } else if (group.children.length > 0) {
-            // Find first child group's first task
-            const findFirstTaskInGroup = (g: WBSGroup): Task | undefined => {
-                if (g.tasks.length > 0) {
-                    return g.tasks.find(t => t.yOrder !== undefined);
-                }
-                for (const child of g.children) {
-                    const task = findFirstTaskInGroup(child);
-                    if (task) return task;
-                }
-                return undefined;
-            };
-            const childTask = findFirstTaskInGroup(group);
-            if (childTask && childTask.yOrder !== undefined) {
-                yPos = yScale(childTask.yOrder.toString()) ?? 0;
-            } else {
-                continue; // Skip this group if no position can be determined
-            }
-        } else {
-            continue; // No tasks or children, skip
-        }
+        // Get Y position from the group's own yOrder
+        const domainKey = group.yOrder.toString();
+        const yPos = yScale(domainKey);
+
+        if (yPos === undefined) continue; // Safety check
 
         const indent = (group.level - 2) * indentPerLevel;
         const headerGroup = this.wbsGroupLayer.append('g')
@@ -8197,7 +8374,8 @@ private drawWbsGroupHeaders(
             .attr('data-group-id', group.id)
             .style('cursor', 'pointer');
 
-        // Background rectangle for the header
+        // Background rectangle for the header (dim if no visible tasks)
+        const bgOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
         headerGroup.append('rect')
             .attr('class', 'wbs-header-bg')
             .attr('x', -currentLeftMargin + indent)
@@ -8205,23 +8383,46 @@ private drawWbsGroupHeaders(
             .attr('width', currentLeftMargin - indent - 5)
             .attr('height', taskHeight + 4)
             .style('fill', groupHeaderColor)
-            .style('opacity', 0.8);
+            .style('opacity', bgOpacity);
 
         // Expand/collapse indicator
         const expandIcon = group.isExpanded ? '\u25BC' : '\u25B6'; // ▼ or ▶
+        const iconColor = (group.visibleTaskCount === 0) ? '#999' : '#333';
+
         headerGroup.append('text')
             .attr('class', 'wbs-expand-icon')
             .attr('x', -currentLeftMargin + indent + 8)
             .attr('y', yPos + taskHeight / 2 - 2)
             .style('font-size', `${taskNameFontSize}px`)
             .style('font-family', 'Segoe UI, sans-serif')
-            .style('fill', '#333')
+            .style('fill', iconColor)
             .text(expandIcon);
 
-        // Group name with task count
-        const displayName = group.isExpanded
-            ? group.name
-            : `${group.name} (${group.taskCount} tasks)`;
+        // Group name with task count (show visible vs total if different)
+        let displayName: string;
+        if (group.isExpanded) {
+            // When expanded, show name only or visible count if filtered
+            if (group.visibleTaskCount === 0) {
+                displayName = `${group.name} (all ${group.taskCount} tasks filtered)`;
+            } else if (group.visibleTaskCount < group.taskCount) {
+                displayName = `${group.name} (${group.visibleTaskCount}/${group.taskCount} visible)`;
+            } else {
+                displayName = group.name;
+            }
+        } else {
+            // When collapsed, show total task count
+            if (group.visibleTaskCount === 0) {
+                displayName = `${group.name} (${group.taskCount} tasks - all filtered)`;
+            } else if (group.visibleTaskCount < group.taskCount) {
+                displayName = `${group.name} (${group.visibleTaskCount}/${group.taskCount} tasks)`;
+            } else {
+                displayName = `${group.name} (${group.taskCount} tasks)`;
+            }
+        }
+
+        // Determine text color based on visibility
+        const textColor = (group.visibleTaskCount === 0) ? '#999' : '#333';
+        const textOpacity = (group.visibleTaskCount === 0) ? 0.6 : 1.0;
 
         headerGroup.append('text')
             .attr('class', 'wbs-group-name')
@@ -8230,24 +8431,27 @@ private drawWbsGroupHeaders(
             .style('font-size', `${taskNameFontSize + 1}px`)
             .style('font-family', 'Segoe UI, sans-serif')
             .style('font-weight', '600')
-            .style('fill', '#333')
+            .style('fill', textColor)
+            .style('opacity', textOpacity)
             .text(displayName);
 
-        // Summary bar (if group is collapsed and has valid dates)
-        if (!group.isExpanded && showGroupSummary &&
+        // Summary bar (if group is collapsed, has valid dates, and has visible tasks)
+        if (!group.isExpanded && showGroupSummary && group.visibleTaskCount > 0 &&
             group.summaryStartDate && group.summaryFinishDate) {
             const startX = xScale(group.summaryStartDate);
             const finishX = xScale(group.summaryFinishDate);
             const barWidth = Math.max(2, finishX - startX);
+            const barHeight = taskHeight * 0.5; // Make it 50% of task height
+            const barY = yPos - barHeight / 2; // Center it vertically on yPos
 
             headerGroup.append('rect')
                 .attr('class', 'wbs-summary-bar')
                 .attr('x', startX)
-                .attr('y', yPos)
+                .attr('y', barY)
                 .attr('width', barWidth)
-                .attr('height', taskHeight * 0.6)
-                .attr('rx', 3)
-                .attr('ry', 3)
+                .attr('height', barHeight)
+                .attr('rx', 2)
+                .attr('ry', 2)
                 .style('fill', group.hasCriticalTasks ? this.settings.taskAppearance.criticalPathColor.value.value : groupSummaryColor)
                 .style('opacity', 0.7);
         }
@@ -8417,12 +8621,19 @@ private validateDataView(dataView: DataView): boolean {
 
     private limitTasks(tasksToFilter: Task[], maxTasks: number): Task[] {
         const effectiveMaxTasks = (!isNaN(maxTasks) && maxTasks > 0) ? Math.floor(maxTasks) : this.defaultMaxTasks;
-    
+
         if (tasksToFilter.length <= effectiveMaxTasks) {
             return [...tasksToFilter];
         }
-    
+
         this.debugLog(`Limiting tasks shown from ${tasksToFilter.length} to ${effectiveMaxTasks}`);
+
+        // Create a map to preserve original order from tasksToFilter
+        const originalIndexMap = new Map<string, number>();
+        tasksToFilter.forEach((task, index) => {
+            originalIndexMap.set(task.internalId, index);
+        });
+
         const tasksToShow: Task[] = [];
         const shownTaskIds = new Set<string>();
     
@@ -8514,9 +8725,13 @@ private validateDataView(dataView: DataView): boolean {
             }
         }
     
-        // Re-sort the final limited set based on original yOrder
-        tasksToShow.sort((a, b) => (a.yOrder ?? Infinity) - (b.yOrder ?? Infinity));
-    
+        // Re-sort the final limited set to preserve the original order from tasksToFilter
+        tasksToShow.sort((a, b) => {
+            const indexA = originalIndexMap.get(a.internalId) ?? Infinity;
+            const indexB = originalIndexMap.get(b.internalId) ?? Infinity;
+            return indexA - indexB;
+        });
+
         this.debugLog(`Final limited task count: ${tasksToShow.length}`);
         return tasksToShow;
     }

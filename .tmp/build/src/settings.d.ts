@@ -125,6 +125,17 @@ declare class LegendCard extends Card {
     sortOrder: formattingSettings.ItemDropdown;
     slices: Slice[];
 }
+declare class WBSGroupingCard extends Card {
+    name: string;
+    displayName: string;
+    enableWbsGrouping: formattingSettings.ToggleSwitch;
+    defaultExpanded: formattingSettings.ToggleSwitch;
+    showGroupSummary: formattingSettings.ToggleSwitch;
+    groupHeaderColor: formattingSettings.ColorPicker;
+    groupSummaryColor: formattingSettings.ColorPicker;
+    indentPerLevel: formattingSettings.NumUpDown;
+    slices: Slice[];
+}
 declare class LegendColorsCard extends Card {
     name: string;
     displayName: string;
@@ -171,6 +182,7 @@ export declare class VisualSettings extends Model {
     criticalityMode: CriticalityModeCard;
     drivingPathSelection: DrivingPathSelectionCard;
     taskSelection: TaskSelectionCard;
+    wbsGrouping: WBSGroupingCard;
     legend: LegendCard;
     legendColors: LegendColorsCard;
     persistedState: PersistedStateCard;

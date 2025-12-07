@@ -81,6 +81,12 @@ export declare class Visual implements IVisual {
     private legendContainer;
     private selectedLegendCategories;
     private legendSelectionIds;
+    private wbsDataExists;
+    private wbsGroups;
+    private wbsGroupMap;
+    private wbsRootGroups;
+    private wbsExpandedState;
+    private wbsGroupLayer;
     private tooltipDebugLogged;
     private relationshipIndex;
     private allDrivingChains;
@@ -326,6 +332,48 @@ export declare class Visual implements IVisual {
      * Process legend data and assign colors to tasks based on legend values
      */
     private processLegendData;
+    /**
+     * WBS GROUPING: Processes WBS data and builds hierarchical group structure
+     * Builds the WBS hierarchy from task WBS level fields and calculates summary metrics
+     */
+    private processWBSData;
+    /**
+     * WBS GROUPING: Toggle expansion state for a WBS group
+     */
+    private toggleWbsGroupExpansion;
+    /**
+     * WBS GROUPING: Check if a task should be visible based on WBS group expansion state
+     */
+    private isTaskVisibleWithWbsGrouping;
+    /**
+     * WBS GROUPING: Apply WBS ordering and filtering to tasks
+     * Returns tasks sorted by WBS hierarchy with collapsed groups filtered out
+     */
+    private applyWbsOrdering;
+    /**
+     * WBS GROUPING: Update filtered task counts for groups
+     * This must be called BEFORE applyWbsOrdering so that collapse state doesn't affect counts
+     *
+     * @param filteredTasks - Tasks after filtering (legend, etc.) but before collapse/expand ordering
+     */
+    private updateWbsFilteredCounts;
+    /**
+     * WBS GROUPING: Assign yOrder to both group headers and tasks after all filtering
+     * This creates a unified layout where group headers reserve their own rows
+     *
+     * @param tasksToShow - Final filtered list of tasks to display (after collapse/expand)
+     */
+    private assignWbsYOrder;
+    /**
+     * WBS GROUPING: Get the ordered list of items to display (groups + tasks)
+     * Returns a flat list with groups interleaved with their visible tasks
+     */
+    private getWbsOrderedDisplayItems;
+    /**
+     * WBS GROUPING: Draw WBS group headers in SVG mode
+     * Renders group headers with expand/collapse controls and optional summary bars
+     */
+    private drawWbsGroupHeaders;
     private mightBeDate;
     private validateDataView;
     private hasDataRole;
