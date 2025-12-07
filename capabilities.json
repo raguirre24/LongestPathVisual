@@ -403,6 +403,21 @@
                     "displayName": "Indent Per Level (px)",
                     "description": "Indentation for each WBS level",
                     "type": { "numeric": true }
+                },
+                "hideEmptyGroups": {
+                    "displayName": "Hide Empty Groups",
+                    "description": "Hide WBS groups that have no visible/filtered tasks",
+                    "type": { "bool": true }
+                },
+                "expandCollapseAll": {
+                    "displayName": "Expand All Groups",
+                    "description": "Toggle to expand or collapse all WBS groups at once",
+                    "type": { "bool": true }
+                },
+                "showWbsToggle": {
+                    "displayName": "Show WBS Toggle Button",
+                    "description": "Show or hide the Expand/Collapse WBS toggle button in the header",
+                    "type": { "bool": true }
                 }
             }
         },

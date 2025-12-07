@@ -457,10 +457,18 @@ class WBSGroupingCard extends Card {
         value: true
     });
 
+    showWbsToggle = new ToggleSwitch({
+        name: "showWbsToggle",
+        displayName: "Show WBS Toggle Button",
+        description: "Show or hide the Expand/Collapse WBS toggle button in the header",
+        value: true
+    });
+
     slices: Slice[] = [
         this.enableWbsGrouping,
         this.defaultExpanded,
         this.expandCollapseAll,
+        this.showWbsToggle,
         this.hideEmptyGroups,
         this.showGroupSummary,
         this.groupHeaderColor,

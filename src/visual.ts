@@ -207,6 +207,9 @@ export class Visual implements IVisual {
     private showConnectorLinesInternal: boolean = true;
     private connectorToggleGroup: Selection<SVGGElement, unknown, null, undefined>;
 
+    // WBS expand/collapse toggle state
+    private wbsExpandedInternal: boolean = true;
+
     // --- State properties remain the same ---
     private showAllTasksInternal: boolean = true;
     private showBaselineInternal: boolean = true;
@@ -479,11 +482,12 @@ constructor(options: VisualConstructorOptions) {
 
     this.showAllTasksInternal = true;
     // Initialize baseline internal state. Will be synced in first update.
-    this.showBaselineInternal = true; 
+    this.showBaselineInternal = true;
     this.showPreviousUpdateInternal = true;
     this.isInitialLoad = true;
     this.floatThreshold = 0;
     this.showConnectorLinesInternal = true;
+    this.wbsExpandedInternal = true;
     
     // Generate unique tooltip class name
     this.tooltipClassName = `critical-path-tooltip-${Date.now()}`;
@@ -1923,6 +1927,187 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
 }
 
 /**
+ * Creates the WBS Expand/Collapse toggle button with icon-only design
+ * Similar styling to Connector Lines toggle for visual consistency
+ */
+private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
+    if (!this.headerSvg) return;
+
+    this.headerSvg.selectAll(".wbs-toggle-group").remove();
+
+    // Only show if WBS grouping is enabled and the toggle setting is enabled
+    const wbsEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+    const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
+    if (!wbsEnabled || !showWbsToggle) return;
+
+    const wbsToggleGroup = this.headerSvg.append("g")
+        .attr("class", "wbs-toggle-group")
+        .style("cursor", "pointer")
+        .attr("role", "button")
+        .attr("aria-label", `${this.wbsExpandedInternal ? 'Collapse' : 'Expand'} all WBS groups`)
+        .attr("aria-pressed", this.wbsExpandedInternal.toString())
+        .attr("tabindex", "0");
+
+    // Icon-only button with proper sizing (same as connector toggle)
+    const buttonSize = 36;
+    // Position after Connector Lines Toggle (716 + 36 + 12 = 764)
+    const buttonX = 764;
+    const buttonY = this.UI_TOKENS.spacing.sm;
+
+    wbsToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+    // Button background with active/inactive states
+    wbsToggleGroup.append("rect")
+        .attr("width", buttonSize)
+        .attr("height", buttonSize)
+        .attr("rx", this.UI_TOKENS.radius.medium)
+        .attr("ry", this.UI_TOKENS.radius.medium)
+        .style("fill", this.wbsExpandedInternal
+            ? this.UI_TOKENS.color.primary.light
+            : this.UI_TOKENS.color.neutral.white)
+        .style("stroke", this.wbsExpandedInternal
+            ? this.UI_TOKENS.color.primary.default
+            : this.UI_TOKENS.color.neutral.grey60)
+        .style("stroke-width", this.wbsExpandedInternal ? 2 : 1.5)
+        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+    // WBS expand/collapse icon
+    const iconCenter = buttonSize / 2;
+    const iconG = wbsToggleGroup.append("g")
+        .attr("transform", `translate(${iconCenter}, ${iconCenter})`);
+
+    const iconColor = this.wbsExpandedInternal
+        ? this.UI_TOKENS.color.primary.default
+        : this.UI_TOKENS.color.neutral.grey130;
+
+    if (this.wbsExpandedInternal) {
+        // Expanded state: show collapse icon (tree with minus)
+        // Tree structure lines
+        iconG.append("path")
+            .attr("d", "M-8,-6 L-8,6 M-8,-6 L-2,-6 M-8,0 L-2,0 M-8,6 L-2,6")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 1.5)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round");
+        // Minus sign
+        iconG.append("path")
+            .attr("d", "M3,0 L9,0")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 2)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round");
+    } else {
+        // Collapsed state: show expand icon (tree with plus)
+        // Tree structure lines
+        iconG.append("path")
+            .attr("d", "M-8,-6 L-8,6 M-8,-6 L-2,-6 M-8,0 L-2,0 M-8,6 L-2,6")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 1.5)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round");
+        // Plus sign
+        iconG.append("path")
+            .attr("d", "M3,0 L9,0 M6,-3 L6,3")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 2)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round");
+    }
+
+    // Tooltip
+    wbsToggleGroup.append("title")
+        .text(this.wbsExpandedInternal
+            ? "Click to collapse all WBS groups"
+            : "Click to expand all WBS groups");
+
+    // Hover interactions
+    const self = this;
+    wbsToggleGroup
+        .on("mouseover", function() {
+            d3.select(this).select("rect")
+                .style("fill", self.wbsExpandedInternal
+                    ? self.UI_TOKENS.color.primary.default
+                    : self.UI_TOKENS.color.neutral.grey20)
+                .style("transform", "translateY(-2px)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+
+            if (self.wbsExpandedInternal) {
+                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+            }
+        })
+        .on("mouseout", function() {
+            d3.select(this).select("rect")
+                .style("fill", self.wbsExpandedInternal
+                    ? self.UI_TOKENS.color.primary.light
+                    : self.UI_TOKENS.color.neutral.white)
+                .style("transform", "translateY(0)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+            if (self.wbsExpandedInternal) {
+                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
+            }
+        })
+        .on("mousedown", function() {
+            d3.select(this).select("rect")
+                .style("transform", "translateY(0) scale(0.95)");
+        })
+        .on("mouseup", function() {
+            d3.select(this).select("rect")
+                .style("transform", "translateY(-2px) scale(1)");
+        });
+
+    wbsToggleGroup.on("click", function(event) {
+        if (event) event.stopPropagation();
+        self.toggleWbsExpandCollapseDisplay();
+    });
+
+    // Keyboard support
+    wbsToggleGroup.on("keydown", function(event) {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            self.toggleWbsExpandCollapseDisplay();
+        }
+    });
+}
+
+/**
+ * Toggles the WBS expand/collapse state for all groups
+ */
+private toggleWbsExpandCollapseDisplay(): void {
+    try {
+        this.debugLog("WBS Expand/Collapse Toggle method called!");
+        this.wbsExpandedInternal = !this.wbsExpandedInternal;
+        this.debugLog("New wbsExpandedInternal value:", this.wbsExpandedInternal);
+
+        // Clear persisted states so all groups adopt the new state
+        this.wbsExpandedState.clear();
+
+        // Persist the state back to the formatting pane setting
+        this.host.persistProperties({
+            merge: [{
+                objectName: "wbsGrouping",
+                properties: { expandCollapseAll: this.wbsExpandedInternal },
+                selector: null
+            }]
+        });
+
+        // Update button appearance
+        this.createWbsExpandCollapseToggleButton();
+
+        // Force full update to re-render with new expansion state
+        this.forceFullUpdate = true;
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+
+        this.debugLog("WBS expand/collapse toggled");
+    } catch (error) {
+        console.error("Error in WBS toggle method:", error);
+    }
+}
+
+/**
  * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
  * UPGRADED: Professional pill-style toggle with smooth animations and refined visuals
  */
@@ -2476,6 +2661,11 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         if (this.settings?.taskAppearance?.showPreviousUpdate !== undefined) {
             this.showPreviousUpdateInternal = this.settings.taskAppearance.showPreviousUpdate.value;
+        }
+
+        // Sync WBS expand/collapse state with settings
+        if (this.settings?.wbsGrouping?.expandCollapseAll !== undefined) {
+            this.wbsExpandedInternal = this.settings.wbsGrouping.expandCollapseAll.value;
         }
 
         this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
@@ -3512,6 +3702,7 @@ private updateHeaderElements(viewportWidth: number): void {
     this.createOrUpdateBaselineToggleButton(viewportWidth);
     this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
     this.createConnectorLinesToggleButton(viewportWidth);
+    this.createWbsExpandCollapseToggleButton(viewportWidth);
 }
 
     private calculateVisibleTasks(): void {
@@ -8307,6 +8498,25 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
     };
     for (const rootGroup of this.wbsRootGroups) {
         propagateCounts(rootGroup);
+    }
+
+    // Re-sort groups based on the FILTERED summary dates
+    // This ensures that in Critical Mode, groups are sorted by the earliest
+    // start date of critical tasks, not all tasks
+    const sortByFilteredStartDate = (a: WBSGroup, b: WBSGroup): number => {
+        const aStart = a.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const bStart = b.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        if (aStart !== bStart) return aStart - bStart;
+        // If start dates are equal, fall back to alphabetical for consistency
+        return a.fullPath.localeCompare(b.fullPath);
+    };
+
+    // Sort root groups
+    this.wbsRootGroups.sort(sortByFilteredStartDate);
+
+    // Sort children within each group
+    for (const group of this.wbsGroups) {
+        group.children.sort(sortByFilteredStartDate);
     }
 }
 
