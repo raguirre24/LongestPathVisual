@@ -829,16 +829,12 @@ constructor(options: VisualConstructorOptions) {
 
 private forceCanvasRefresh(): void {
     this.debugLog("Forcing canvas refresh");
-    
-    // Reset viewport indices to force recalculation
-    this.viewportStartIndex = 0;
-    this.viewportEndIndex = 0;
-    
+
     // Clear canvas if it exists
     if (this.canvasElement && this.canvasContext) {
         this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
     }
-    
+
     // Clear SVG elements
     if (this.taskLayer) {
         this.taskLayer.selectAll("*").remove();
@@ -846,11 +842,16 @@ private forceCanvasRefresh(): void {
     if (this.arrowLayer) {
         this.arrowLayer.selectAll("*").remove();
     }
-    
-    // Recalculate visible tasks immediately if we have the data
+
+    // Clear WBS group layer
+    if (this.wbsGroupLayer) {
+        this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
+    }
+
+    // Recalculate visible tasks based on current scroll position (preserve scroll state)
     if (this.scrollableContainer?.node() && this.allTasksToShow?.length > 0) {
         this.calculateVisibleTasks();
-        
+
         // Force immediate redraw if we have scales
         if (this.xScale && this.yScale) {
             requestAnimationFrame(() => {
@@ -3190,7 +3191,7 @@ private setupTimeBasedSVGAndScales(
         if (task.finishDate && !isNaN(task.finishDate.getTime())) {
             allTimestamps.push(task.finishDate.getTime());
         }
-        
+
         // IMPORTANT: Only add baseline dates if they exist AND the toggle is ON
         if (includeBaselineInScale) {
             if (task.baselineStartDate && !isNaN(task.baselineStartDate.getTime())) {
@@ -3211,6 +3212,20 @@ private setupTimeBasedSVGAndScales(
             }
         }
     });
+
+    // WBS FIX: When all groups are collapsed, include WBS group summary dates for scale calculation
+    if (wbsGroupingEnabled && tasksToShow.length === 0) {
+        for (const group of this.wbsGroups) {
+            if (group.yOrder !== undefined && group.taskCount > 0) {
+                if (group.summaryStartDate && !isNaN(group.summaryStartDate.getTime())) {
+                    allTimestamps.push(group.summaryStartDate.getTime());
+                }
+                if (group.summaryFinishDate && !isNaN(group.summaryFinishDate.getTime())) {
+                    allTimestamps.push(group.summaryFinishDate.getTime());
+                }
+            }
+        }
+    }
 
     // Filter out any invalid timestamps
     const validTimestamps = allTimestamps.filter(t => t != null && !isNaN(t) && isFinite(t));
@@ -3571,6 +3586,11 @@ private redrawVisibleTasks(): void {
         this.taskLayer?.selectAll("*").remove();
     }
 
+    // Clear WBS group layer before redrawing
+    if (this.wbsGroupLayer) {
+        this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
+    }
+
     // MODIFICATION: Prepare for Gridline redraw
     const showHorzGridLines = this.settings.gridLines.showGridLines.value;
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
@@ -3687,8 +3707,26 @@ private redrawVisibleTasks(): void {
             this.settings.textAndLabels.dateBackgroundColor.value.value,
             1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
         );
+
+        // Draw WBS group headers (SVG mode)
+        this.drawWbsGroupHeaders(
+            this.xScale,
+            this.yScale,
+            chartWidth,
+            this.settings.taskAppearance.taskHeight.value
+        );
     }
-    
+
+    // Draw WBS group headers for canvas mode (using SVG overlay)
+    if (this.useCanvasRendering) {
+        this.drawWbsGroupHeaders(
+            this.xScale,
+            this.yScale,
+            chartWidth,
+            this.settings.taskAppearance.taskHeight.value
+        );
+    }
+
     // Redraw project end line if needed (Always SVG)
     if (this.settings.projectEndLine.show.value) {
         this.drawProjectEndLine(
@@ -8215,11 +8253,12 @@ private assignWbsYOrder(tasksToShow: Task[]): void {
 
     // Helper to check if a group should be visible
     const isGroupVisible = (group: WBSGroup): boolean => {
-        // Don't show groups with zero visible tasks (after filtering)
-        // This keeps the UI clean - only show groups that have something to display
-        if (group.visibleTaskCount === 0) return false;
+        // Show groups that have tasks (even if currently filtered/collapsed)
+        // This allows summary bars to display for collapsed groups
+        // Only hide groups that have no tasks at all
+        if (group.taskCount === 0) return false;
 
-        // Root groups are visible if they have visible content
+        // Root groups are always visible if they have tasks
         if (!group.parentId) return true;
 
         // Child groups are visible if parent is expanded and visible
@@ -8385,6 +8424,31 @@ private drawWbsGroupHeaders(
             .style('fill', groupHeaderColor)
             .style('opacity', bgOpacity);
 
+        // Summary bar - DRAW FIRST so it appears BEHIND the text (SVG z-order)
+        // Show summary bar when group is collapsed and has tasks (even if filtered)
+        if (!group.isExpanded && showGroupSummary && group.taskCount > 0 &&
+            group.summaryStartDate && group.summaryFinishDate) {
+            const startX = xScale(group.summaryStartDate);
+            const finishX = xScale(group.summaryFinishDate);
+            const barWidth = Math.max(2, finishX - startX);
+            const barHeight = taskHeight * 0.6; // Make it 60% of task height for better visibility
+            const barY = yPos - barHeight / 2; // Center it vertically on yPos
+
+            // Dim the bar if all tasks are filtered out
+            const barOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
+
+            headerGroup.append('rect')
+                .attr('class', 'wbs-summary-bar')
+                .attr('x', startX)
+                .attr('y', barY)
+                .attr('width', barWidth)
+                .attr('height', barHeight)
+                .attr('rx', 3)
+                .attr('ry', 3)
+                .style('fill', group.hasCriticalTasks ? this.settings.taskAppearance.criticalPathColor.value.value : groupSummaryColor)
+                .style('opacity', barOpacity);
+        }
+
         // Expand/collapse indicator
         const expandIcon = group.isExpanded ? '\u25BC' : '\u25B6'; // ▼ or ▶
         const iconColor = (group.visibleTaskCount === 0) ? '#999' : '#333';
@@ -8434,27 +8498,6 @@ private drawWbsGroupHeaders(
             .style('fill', textColor)
             .style('opacity', textOpacity)
             .text(displayName);
-
-        // Summary bar (if group is collapsed, has valid dates, and has visible tasks)
-        if (!group.isExpanded && showGroupSummary && group.visibleTaskCount > 0 &&
-            group.summaryStartDate && group.summaryFinishDate) {
-            const startX = xScale(group.summaryStartDate);
-            const finishX = xScale(group.summaryFinishDate);
-            const barWidth = Math.max(2, finishX - startX);
-            const barHeight = taskHeight * 0.5; // Make it 50% of task height
-            const barY = yPos - barHeight / 2; // Center it vertically on yPos
-
-            headerGroup.append('rect')
-                .attr('class', 'wbs-summary-bar')
-                .attr('x', startX)
-                .attr('y', barY)
-                .attr('width', barWidth)
-                .attr('height', barHeight)
-                .attr('rx', 2)
-                .attr('ry', 2)
-                .style('fill', group.hasCriticalTasks ? this.settings.taskAppearance.criticalPathColor.value.value : groupSummaryColor)
-                .style('opacity', 0.7);
-        }
 
         // Click handler for expand/collapse
         headerGroup.on('click', function() {
