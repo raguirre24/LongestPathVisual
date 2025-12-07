@@ -8854,16 +8854,65 @@ private drawWbsGroupHeaders(
         const textColor = (group.visibleTaskCount === 0) ? '#999' : groupNameColor;
         const textOpacity = (group.visibleTaskCount === 0) ? 0.6 : 1.0;
 
-        headerGroup.append('text')
+        // Calculate available width for group name text (with wrapping)
+        const textX = -currentLeftMargin + indent + 22;
+        const textY = yPos;
+        const availableWidth = currentLeftMargin - indent - 30; // Leave some padding
+        const lineHeight = '1.1em';
+        const maxLines = 2;
+
+        const textElement = headerGroup.append('text')
             .attr('class', 'wbs-group-name')
-            .attr('x', -currentLeftMargin + indent + 22)
-            .attr('y', yPos + taskHeight / 2 - 2)
+            .attr('x', textX)
+            .attr('y', textY)
+            .attr('dominant-baseline', 'central')
             .style('font-size', `${groupNameFontSize}px`)
             .style('font-family', 'Segoe UI, sans-serif')
             .style('font-weight', '600')
             .style('fill', textColor)
-            .style('opacity', textOpacity)
-            .text(displayName);
+            .style('opacity', textOpacity);
+
+        // Apply text wrapping similar to task names
+        const words = displayName.split(/\s+/).reverse();
+        let word: string | undefined;
+        let line: string[] = [];
+        let tspan = textElement.text(null).append('tspan')
+            .attr('x', textX)
+            .attr('y', textY)
+            .attr('dy', '0em');
+        let lineCount = 1;
+
+        while (word = words.pop()) {
+            line.push(word);
+            tspan.text(line.join(' '));
+            try {
+                const node = tspan.node();
+                if (node && node.getComputedTextLength() > availableWidth && line.length > 1) {
+                    line.pop();
+                    tspan.text(line.join(' '));
+
+                    if (lineCount < maxLines) {
+                        line = [word];
+                        tspan = textElement.append('tspan')
+                            .attr('x', textX)
+                            .attr('dy', lineHeight)
+                            .text(word);
+                        lineCount++;
+                    } else {
+                        // Truncate with ellipsis on last line
+                        const currentText = tspan.text();
+                        if (currentText.length > 3) {
+                            tspan.text(currentText.slice(0, -3) + '...');
+                        }
+                        break;
+                    }
+                }
+            } catch (e) {
+                // Fallback if getComputedTextLength fails
+                tspan.text(line.join(' '));
+                break;
+            }
+        }
 
         // Click handler for expand/collapse
         headerGroup.on('click', function() {
