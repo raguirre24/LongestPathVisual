@@ -3178,10 +3178,24 @@ private setupTimeBasedSVGAndScales(
 
     // Collect ALL date timestamps including baseline dates
     const allTimestamps: number[] = [];
-    
+
     // NEW: Check if baseline should be included based on the internal toggle state
     const includeBaselineInScale = this.showBaselineInternal;
     const includePreviousUpdateInScale = this.showPreviousUpdateInternal;
+
+    // IMPORTANT: For WBS mode, include dates from summary bars of ALL groups
+    // This maintains consistent time scale perspective regardless of collapse/expand state
+    if (wbsGroupingEnabled && this.wbsGroups.length > 0) {
+        // Add summary dates from all groups (these are already filtered)
+        for (const group of this.wbsGroups) {
+            if (group.summaryStartDate && !isNaN(group.summaryStartDate.getTime())) {
+                allTimestamps.push(group.summaryStartDate.getTime());
+            }
+            if (group.summaryFinishDate && !isNaN(group.summaryFinishDate.getTime())) {
+                allTimestamps.push(group.summaryFinishDate.getTime());
+            }
+        }
+    }
 
     tasksToShow.forEach(task => {
         // Add regular start/finish dates
@@ -8204,7 +8218,13 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
     // Reset visible counts
     for (const group of this.wbsGroups) {
         group.visibleTaskCount = 0;
+        group.summaryStartDate = null;
+        group.summaryFinishDate = null;
+        group.hasCriticalTasks = false;
     }
+
+    // Create a set of filtered task IDs for quick lookup
+    const filteredTaskIds = new Set(filteredTasks.map(t => t.internalId));
 
     // Count tasks that passed filtering (regardless of collapse state)
     for (const task of filteredTasks) {
@@ -8214,6 +8234,48 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
                 group.visibleTaskCount++;
             }
         }
+    }
+
+    // Recalculate summary dates based on FILTERED tasks only
+    const calculateFilteredSummary = (group: WBSGroup): void => {
+        let minStart: Date | null = null;
+        let maxFinish: Date | null = null;
+        let hasCritical = false;
+
+        // Check direct tasks
+        for (const task of group.tasks) {
+            // Only include tasks that passed filtering
+            if (!filteredTaskIds.has(task.internalId)) continue;
+
+            if (task.isCritical) hasCritical = true;
+            if (task.startDate && (!minStart || task.startDate < minStart)) {
+                minStart = task.startDate;
+            }
+            if (task.finishDate && (!maxFinish || task.finishDate > maxFinish)) {
+                maxFinish = task.finishDate;
+            }
+        }
+
+        // Recursively process children
+        for (const child of group.children) {
+            calculateFilteredSummary(child);
+            if (child.hasCriticalTasks) hasCritical = true;
+            if (child.summaryStartDate && (!minStart || child.summaryStartDate < minStart)) {
+                minStart = child.summaryStartDate;
+            }
+            if (child.summaryFinishDate && (!maxFinish || child.summaryFinishDate > maxFinish)) {
+                maxFinish = child.summaryFinishDate;
+            }
+        }
+
+        group.summaryStartDate = minStart;
+        group.summaryFinishDate = maxFinish;
+        group.hasCriticalTasks = hasCritical;
+    };
+
+    // Calculate filtered summaries for all root groups
+    for (const rootGroup of this.wbsRootGroups) {
+        calculateFilteredSummary(rootGroup);
     }
 
     // Propagate counts up the hierarchy
