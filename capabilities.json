@@ -418,6 +418,16 @@
                     "displayName": "Show WBS Toggle Button",
                     "description": "Show or hide the Expand/Collapse WBS toggle button in the header",
                     "type": { "bool": true }
+                },
+                "groupNameFontSize": {
+                    "displayName": "Group Name Font Size (pt)",
+                    "description": "Font size for WBS group names (0 = use Task Name Font Size)",
+                    "type": { "numeric": true }
+                },
+                "groupNameColor": {
+                    "displayName": "Group Name Color",
+                    "description": "Text color for WBS group names",
+                    "type": { "fill": { "solid": { "color": true } } }
                 }
             }
         },

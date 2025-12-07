@@ -148,6 +148,9 @@ interface WBSGroup {
     summaryFinishDate?: Date | null;
     hasCriticalTasks: boolean;
     taskCount: number;
+    // Critical date range (for partial highlighting)
+    criticalStartDate?: Date | null;
+    criticalFinishDate?: Date | null;
 }
 
 interface Relationship {
@@ -4205,20 +4208,33 @@ private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartW
         let lineDashArray = "none";
          switch (style) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; break; }
 
-        // MODIFICATION: Fix boundary logic. Use filter instead of slice(1).
-        // const lineData = tasks.slice(1);
-        const lineData = tasks.filter(t => t.yOrder !== undefined && t.yOrder > 0);
+        // Collect all yOrder values from tasks
+        const taskYOrders = tasks
+            .filter(t => t.yOrder !== undefined && t.yOrder > 0)
+            .map(t => t.yOrder as number);
 
+        // If WBS grouping is enabled, also include WBS group yOrders
+        let allYOrders: number[] = [...taskYOrders];
+        if (this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+            const groupYOrders = this.wbsGroups
+                .filter(g => g.yOrder !== undefined && g.yOrder > 0)
+                .map(g => g.yOrder as number);
+            allYOrders = [...allYOrders, ...groupYOrders];
+        }
 
+        // Remove duplicates and sort
+        const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
+
+        // Draw gridlines for each yOrder
         this.gridLayer.selectAll(".grid-line.horizontal")
-            .data(lineData, (d: Task) => d.internalId)
+            .data(uniqueYOrders)
             .enter()
             .append("line")
             .attr("class", "grid-line horizontal")
             .attr("x1", -currentLeftMargin)
             .attr("x2", chartWidth)
-            .attr("y1", (d: Task) => yScale(d.yOrder?.toString() ?? '') ?? 0)
-            .attr("y2", (d: Task) => yScale(d.yOrder?.toString() ?? '') ?? 0)
+            .attr("y1", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
+            .attr("y2", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
             .style("stroke", lineColor)
             .style("stroke-width", lineWidth)
             .style("stroke-dasharray", lineDashArray)
@@ -8237,7 +8253,9 @@ private processWBSData(): void {
             summaryStartDate: null,
             summaryFinishDate: null,
             hasCriticalTasks: false,
-            taskCount: 0
+            taskCount: 0,
+            criticalStartDate: null,
+            criticalFinishDate: null
         };
 
         this.wbsGroups.push(group);
@@ -8432,6 +8450,8 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         group.summaryStartDate = null;
         group.summaryFinishDate = null;
         group.hasCriticalTasks = false;
+        group.criticalStartDate = null;
+        group.criticalFinishDate = null;
     }
 
     // Create a set of filtered task IDs for quick lookup
@@ -8448,22 +8468,35 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
     }
 
     // Recalculate summary dates based on FILTERED tasks only
+    // Also calculate critical date ranges for partial highlighting
     const calculateFilteredSummary = (group: WBSGroup): void => {
         let minStart: Date | null = null;
         let maxFinish: Date | null = null;
         let hasCritical = false;
+        let criticalMinStart: Date | null = null;
+        let criticalMaxFinish: Date | null = null;
 
         // Check direct tasks
         for (const task of group.tasks) {
             // Only include tasks that passed filtering
             if (!filteredTaskIds.has(task.internalId)) continue;
 
-            if (task.isCritical) hasCritical = true;
             if (task.startDate && (!minStart || task.startDate < minStart)) {
                 minStart = task.startDate;
             }
             if (task.finishDate && (!maxFinish || task.finishDate > maxFinish)) {
                 maxFinish = task.finishDate;
+            }
+
+            // Track critical task date range separately
+            if (task.isCritical) {
+                hasCritical = true;
+                if (task.startDate && (!criticalMinStart || task.startDate < criticalMinStart)) {
+                    criticalMinStart = task.startDate;
+                }
+                if (task.finishDate && (!criticalMaxFinish || task.finishDate > criticalMaxFinish)) {
+                    criticalMaxFinish = task.finishDate;
+                }
             }
         }
 
@@ -8477,11 +8510,20 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
             if (child.summaryFinishDate && (!maxFinish || child.summaryFinishDate > maxFinish)) {
                 maxFinish = child.summaryFinishDate;
             }
+            // Merge child critical date ranges
+            if (child.criticalStartDate && (!criticalMinStart || child.criticalStartDate < criticalMinStart)) {
+                criticalMinStart = child.criticalStartDate;
+            }
+            if (child.criticalFinishDate && (!criticalMaxFinish || child.criticalFinishDate > criticalMaxFinish)) {
+                criticalMaxFinish = child.criticalFinishDate;
+            }
         }
 
         group.summaryStartDate = minStart;
         group.summaryFinishDate = maxFinish;
         group.hasCriticalTasks = hasCritical;
+        group.criticalStartDate = criticalMinStart;
+        group.criticalFinishDate = criticalMaxFinish;
     };
 
     // Calculate filtered summaries for all root groups
@@ -8678,6 +8720,11 @@ private drawWbsGroupHeaders(
     const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+    // Get custom group name settings (use taskNameFontSize if groupNameFontSize is 0)
+    const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
+    const groupNameFontSize = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
+    const groupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? '#333333';
+    const criticalPathColor = this.settings.taskAppearance.criticalPathColor.value.value;
 
     // Create a separate layer for WBS headers if it doesn't exist
     if (!this.wbsGroupLayer) {
@@ -8731,6 +8778,7 @@ private drawWbsGroupHeaders(
             // Dim the bar if all tasks are filtered out
             const barOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
 
+            // Draw the base (non-critical) summary bar
             headerGroup.append('rect')
                 .attr('class', 'wbs-summary-bar')
                 .attr('x', startX)
@@ -8739,8 +8787,32 @@ private drawWbsGroupHeaders(
                 .attr('height', barHeight)
                 .attr('rx', 3)
                 .attr('ry', 3)
-                .style('fill', group.hasCriticalTasks ? this.settings.taskAppearance.criticalPathColor.value.value : groupSummaryColor)
+                .style('fill', groupSummaryColor)
                 .style('opacity', barOpacity);
+
+            // If there are critical tasks, overlay the critical portion in red
+            if (group.hasCriticalTasks && group.criticalStartDate && group.criticalFinishDate) {
+                const criticalStartX = xScale(group.criticalStartDate);
+                const criticalFinishX = xScale(group.criticalFinishDate);
+                const criticalWidth = Math.max(2, criticalFinishX - criticalStartX);
+
+                // Determine if we need rounded corners on each end
+                // Left rounded if critical starts at or before summary start
+                // Right rounded if critical ends at or after summary finish
+                const criticalStartsAtBeginning = criticalStartX <= startX + 1;
+                const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
+
+                headerGroup.append('rect')
+                    .attr('class', 'wbs-summary-bar-critical')
+                    .attr('x', criticalStartX)
+                    .attr('y', barY)
+                    .attr('width', criticalWidth)
+                    .attr('height', barHeight)
+                    .attr('rx', (criticalStartsAtBeginning || criticalEndsAtEnd) ? 3 : 0)
+                    .attr('ry', (criticalStartsAtBeginning || criticalEndsAtEnd) ? 3 : 0)
+                    .style('fill', criticalPathColor)
+                    .style('opacity', barOpacity);
+            }
         }
 
         // Expand/collapse indicator
@@ -8778,15 +8850,15 @@ private drawWbsGroupHeaders(
             }
         }
 
-        // Determine text color based on visibility
-        const textColor = (group.visibleTaskCount === 0) ? '#999' : '#333';
+        // Determine text color based on visibility (use custom groupNameColor, dimmed if no visible tasks)
+        const textColor = (group.visibleTaskCount === 0) ? '#999' : groupNameColor;
         const textOpacity = (group.visibleTaskCount === 0) ? 0.6 : 1.0;
 
         headerGroup.append('text')
             .attr('class', 'wbs-group-name')
             .attr('x', -currentLeftMargin + indent + 22)
             .attr('y', yPos + taskHeight / 2 - 2)
-            .style('font-size', `${taskNameFontSize + 1}px`)
+            .style('font-size', `${groupNameFontSize}px`)
             .style('font-family', 'Segoe UI, sans-serif')
             .style('font-weight', '600')
             .style('fill', textColor)
