@@ -134,6 +134,8 @@ declare class WBSGroupingCard extends Card {
     groupHeaderColor: formattingSettings.ColorPicker;
     groupSummaryColor: formattingSettings.ColorPicker;
     indentPerLevel: formattingSettings.NumUpDown;
+    hideEmptyGroups: formattingSettings.ToggleSwitch;
+    expandCollapseAll: formattingSettings.ToggleSwitch;
     slices: Slice[];
 }
 declare class LegendColorsCard extends Card {

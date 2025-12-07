@@ -87,6 +87,7 @@ export declare class Visual implements IVisual {
     private wbsRootGroups;
     private wbsExpandedState;
     private wbsGroupLayer;
+    private lastExpandCollapseAllState;
     private tooltipDebugLogged;
     private relationshipIndex;
     private allDrivingChains;
