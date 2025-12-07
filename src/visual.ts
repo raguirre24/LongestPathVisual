@@ -284,6 +284,7 @@ export class Visual implements IVisual {
     private wbsRootGroups: WBSGroup[] = [];                     // Top-level groups (Level 2)
     private wbsExpandedState: Map<string, boolean> = new Map(); // Persisted expand/collapse state
     private wbsGroupLayer: Selection<SVGGElement, unknown, null, undefined>; // SVG layer for group headers
+    private lastExpandCollapseAllState: boolean | null = null;  // Track expand/collapse all toggle state
 
     // Tooltip properties
     private tooltipDebugLogged: boolean = false; // Flag to log tooltip column info only once
@@ -7953,6 +7954,16 @@ private processWBSData(): void {
 
     this.wbsDataExists = true;
     const defaultExpanded = this.settings?.wbsGrouping?.defaultExpanded?.value ?? true;
+    const expandCollapseAll = this.settings?.wbsGrouping?.expandCollapseAll?.value ?? true;
+
+    // Check if expandCollapseAll toggle has changed - if so, we'll override all states
+    const expandCollapseAllChanged = this.lastExpandCollapseAllState !== null &&
+                                      this.lastExpandCollapseAllState !== expandCollapseAll;
+    if (expandCollapseAllChanged) {
+        // Clear persisted states so new groups will use the current expandCollapseAll value
+        this.wbsExpandedState.clear();
+    }
+    this.lastExpandCollapseAllState = expandCollapseAll;
 
     // Build unique WBS paths and assign to tasks
     // Path format: "L2:Value2|L3:Value3|L4:Value4|L5:Value5"
@@ -8015,10 +8026,10 @@ private processWBSData(): void {
         const name = levelMatch[2];
         const parentPath = parts.length > 1 ? parts.slice(0, -1).join('|') : null;
 
-        // Check if we have a persisted expansion state, otherwise use default
+        // Check if we have a persisted expansion state, otherwise use current expandCollapseAll value
         const isExpanded = this.wbsExpandedState.has(path)
             ? this.wbsExpandedState.get(path)!
-            : defaultExpanded;
+            : expandCollapseAll;
 
         const group: WBSGroup = {
             id: path,
@@ -8106,13 +8117,22 @@ private processWBSData(): void {
         calculateGroupMetrics(rootGroup);
     }
 
-    // Sort groups by their path for consistent ordering
-    this.wbsGroups.sort((a, b) => a.fullPath.localeCompare(b.fullPath));
-    this.wbsRootGroups.sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+    // Sort groups by earliest start date for logical task flow ordering
+    // Groups with earlier tasks appear first, making the visual flow chronologically
+    const sortByStartDate = (a: WBSGroup, b: WBSGroup): number => {
+        const aStart = a.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const bStart = b.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        if (aStart !== bStart) return aStart - bStart;
+        // If start dates are equal, fall back to alphabetical for consistency
+        return a.fullPath.localeCompare(b.fullPath);
+    };
 
-    // Sort children within each group
+    this.wbsGroups.sort(sortByStartDate);
+    this.wbsRootGroups.sort(sortByStartDate);
+
+    // Sort children within each group by their start date
     for (const group of this.wbsGroups) {
-        group.children.sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+        group.children.sort(sortByStartDate);
     }
 
     this.debugLog(`WBS processed: ${this.wbsGroups.length} groups found, ${this.wbsRootGroups.length} root groups`);
@@ -8314,13 +8334,15 @@ private assignWbsYOrder(tasksToShow: Task[]): void {
     let currentYOrder = 0;
 
     // Helper to check if a group should be visible
+    const hideEmptyGroups = this.settings?.wbsGrouping?.hideEmptyGroups?.value ?? true;
     const isGroupVisible = (group: WBSGroup): boolean => {
-        // Show groups that have tasks (even if currently filtered/collapsed)
-        // This allows summary bars to display for collapsed groups
-        // Only hide groups that have no tasks at all
+        // If hideEmptyGroups is enabled, hide groups with no visible/filtered tasks
+        if (hideEmptyGroups && group.visibleTaskCount === 0) return false;
+
+        // Still hide groups with no tasks at all (regardless of setting)
         if (group.taskCount === 0) return false;
 
-        // Root groups are always visible if they have tasks
+        // Root groups are visible if they have tasks
         if (!group.parentId) return true;
 
         // Child groups are visible if parent is expanded and visible
