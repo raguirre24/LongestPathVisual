@@ -32,6 +32,7 @@ export declare class Visual implements IVisual {
     private lastUpdateOptions;
     private showConnectorLinesInternal;
     private connectorToggleGroup;
+    private wbsExpandedInternal;
     private showAllTasksInternal;
     private showBaselineInternal;
     private showPreviousUpdateInternal;
@@ -70,6 +71,7 @@ export declare class Visual implements IVisual {
     private scrollThrottleTimeout;
     private scrollListener;
     private allTasksToShow;
+    private allFilteredTasks;
     private lastViewport;
     private lastDataViewId;
     private renderStartTime;
@@ -161,6 +163,15 @@ export declare class Visual implements IVisual {
      * UPGRADED: Creates the Connector Lines toggle with modern icon-only design
      */
     private createConnectorLinesToggleButton;
+    /**
+     * Creates the WBS Expand/Collapse toggle button with icon-only design
+     * Similar styling to Connector Lines toggle for visual consistency
+     */
+    private createWbsExpandCollapseToggleButton;
+    /**
+     * Toggles the WBS expand/collapse state for all groups
+     */
+    private toggleWbsExpandCollapseDisplay;
     /**
      * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
      * UPGRADED: Professional pill-style toggle with smooth animations and refined visuals
