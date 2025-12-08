@@ -3767,8 +3767,23 @@ private redrawVisibleTasks(): void {
         console.warn("Cannot redraw: Missing scales or task data");
         return;
     }
-    
-    const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+
+    // When WBS is enabled, filter tasks by yOrder (not array index) since groups occupy rows too
+    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+    let visibleTasks: Task[];
+
+    if (wbsGroupingEnabled) {
+        // Filter tasks whose yOrder falls within the visible range
+        visibleTasks = this.allTasksToShow.filter(t =>
+            t.yOrder !== undefined &&
+            t.yOrder >= this.viewportStartIndex &&
+            t.yOrder <= this.viewportEndIndex
+        );
+    } else {
+        // Original behavior: slice by array index
+        visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+    }
+
     const shouldUseCanvas = visibleTasks.length > this.CANVAS_THRESHOLD;
     
     // Only switch rendering mode if it actually changed
@@ -3917,22 +3932,26 @@ private redrawVisibleTasks(): void {
             1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
         );
 
-        // Draw WBS group headers (SVG mode)
+        // Draw WBS group headers (SVG mode) - only for visible viewport range
         this.drawWbsGroupHeaders(
             this.xScale,
             this.yScale,
             chartWidth,
-            this.settings.taskAppearance.taskHeight.value
+            this.settings.taskAppearance.taskHeight.value,
+            this.viewportStartIndex,
+            this.viewportEndIndex
         );
     }
 
-    // Draw WBS group headers for canvas mode (using SVG overlay)
+    // Draw WBS group headers for canvas mode (using SVG overlay) - only for visible viewport range
     if (this.useCanvasRendering) {
         this.drawWbsGroupHeaders(
             this.xScale,
             this.yScale,
             chartWidth,
-            this.settings.taskAppearance.taskHeight.value
+            this.settings.taskAppearance.taskHeight.value,
+            this.viewportStartIndex,
+            this.viewportEndIndex
         );
     }
 
@@ -3974,11 +3993,26 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         const x1 = -currentLeftMargin;
         const x2 = chartWidth;
 
-        // MODIFICATION: Fix boundary logic. Use all visible tasks, but filter out the very first task (yOrder 0).
-        const lineData = tasks.filter(t => t.yOrder !== undefined && t.yOrder > 0);
+        // Collect all yOrder values from tasks
+        const taskYOrders = tasks
+            .filter(t => t.yOrder !== undefined && t.yOrder > 0)
+            .map(t => t.yOrder as number);
 
-        lineData.forEach(task => {
-            const yPos = yScale(task.yOrder?.toString() ?? '');
+        // If WBS grouping is enabled, also include visible WBS group yOrders
+        let allYOrders: number[] = [...taskYOrders];
+        if (this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+            const groupYOrders = this.wbsGroups
+                .filter(g => g.yOrder !== undefined && g.yOrder > 0 &&
+                    g.yOrder >= this.viewportStartIndex && g.yOrder <= this.viewportEndIndex)
+                .map(g => g.yOrder as number);
+            allYOrders = [...allYOrders, ...groupYOrders];
+        }
+
+        // Remove duplicates and sort
+        const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
+
+        uniqueYOrders.forEach(yOrder => {
+            const yPos = yScale(yOrder.toString());
             if (yPos !== undefined && !isNaN(yPos)) {
                 // Ensure pixel alignment for crisp lines
                 const alignedY = Math.round(yPos);
@@ -8706,7 +8740,9 @@ private drawWbsGroupHeaders(
     xScale: ScaleTime<number, number>,
     yScale: ScaleBand<string>,
     chartWidth: number,
-    taskHeight: number
+    taskHeight: number,
+    viewportStartIndex?: number,
+    viewportEndIndex?: number
 ): void {
     if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
         // Remove any existing WBS group elements
@@ -8737,10 +8773,17 @@ private drawWbsGroupHeaders(
 
     const self = this;
 
-    // Draw each group that has a yOrder assigned
+    // Draw each group that has a yOrder assigned and is within the visible viewport
     for (const group of this.wbsGroups) {
         // Skip groups without yOrder (they're not visible)
         if (group.yOrder === undefined) continue;
+
+        // If viewport range is provided, only render groups within the visible range
+        if (viewportStartIndex !== undefined && viewportEndIndex !== undefined) {
+            if (group.yOrder < viewportStartIndex || group.yOrder > viewportEndIndex) {
+                continue;
+            }
+        }
 
         // Get Y position from the group's own yOrder
         const domainKey = group.yOrder.toString();
