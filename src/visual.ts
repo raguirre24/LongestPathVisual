@@ -3005,9 +3005,13 @@ private async updateInternal(options: VisualUpdateOptions) {
         // This ensures calculateVisibleTasks() uses the correct scroll position
         this.adjustScrollForWbsToggle(totalSvgHeight);
 
-        this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding, totalRows);
+        // Pass skipInitialRender=true to prevent requestAnimationFrame double-render
+        // since we call drawVisualElements immediately after
+        this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding, totalRows, true);
 
-        const visibleTasks = tasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+        // Get visible tasks using the centralized WBS-aware helper
+        const visibleTasks = this.getVisibleTasks();
+
         this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
 
         // Render legend after visual elements are drawn
@@ -3076,21 +3080,22 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         const showHorzGridLines = this.settings.gridLines.showGridLines.value;
         const showVertGridLines = this.settings.verticalGridLines.show.value;
         
+        // Get visible tasks using the centralized WBS-aware helper
+        const visibleTasks = this.getVisibleTasks();
+
         if (showHorzGridLines && this.yScale) {
             const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-            const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
-            this.drawHorizontalGridLines(visibleTasks, this.yScale, chartWidth, currentLeftMargin, 
+            this.drawHorizontalGridLines(visibleTasks, this.yScale, chartWidth, currentLeftMargin,
                                         this.yScale.range()[1]);
         }
-        
+
         if (showVertGridLines && this.xScale && this.yScale) {
-            this.drawVerticalGridLines(this.xScale, this.yScale.range()[1], 
+            this.drawVerticalGridLines(this.xScale, this.yScale.range()[1],
                                       this.gridLayer, this.headerGridLayer);
         }
-        
+
         // Redraw visible tasks with updated dimensions
         if (this.xScale && this.yScale) {
-            const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
             this.drawVisualElements(
                 visibleTasks,
                 this.xScale,
@@ -3209,8 +3214,10 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
 
             // Recalculate visible tasks in case layout changed
             this.calculateVisibleTasks();
-            const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
-            
+
+            // Get visible tasks using the centralized WBS-aware helper
+            const visibleTasks = this.getVisibleTasks();
+
             // Ensure scales are valid before drawing
             if (this.xScale && this.yScale) {
                 this.drawVisualElements(
@@ -3222,7 +3229,7 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
                 );
             }
         }
-        
+
         this.debugLog("--- Visual Update End (Settings Only) ---");
     }
 
@@ -3506,7 +3513,7 @@ private setupTimeBasedSVGAndScales(
     );
 }
 
-private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number, totalRows?: number): void {
+private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number, totalRows?: number, skipInitialRender: boolean = false): void {
     this.allTasksToShow = [...tasks];
     // Use totalRows if provided (includes groups in WBS mode), otherwise use task count
     this.taskTotalCount = totalRows !== undefined ? totalRows : tasks.length;
@@ -3518,13 +3525,13 @@ private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: numbe
     // Set full height for scrolling
     this.mainSvg
         .attr("height", totalContentHeight + this.margin.top + this.margin.bottom);
-    
+
     // Remove any existing scroll listener properly
     if (this.scrollListener) {
         this.scrollableContainer.on("scroll", null);
         this.scrollListener = null;
     }
-    
+
     // Setup scroll handler with throttling
     const self = this;
     this.scrollListener = function() {
@@ -3535,14 +3542,15 @@ private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: numbe
             }, 50); // Throttle to 20fps
         }
     };
-    
+
     this.scrollableContainer.on("scroll", this.scrollListener);
-    
+
     // CRITICAL: Calculate initial visible range
     this.calculateVisibleTasks();
-    
-    // CRITICAL: Force immediate initial render
-    if (this.xScale && this.yScale && this.allTasksToShow.length > 0) {
+
+    // Only schedule initial render if not skipped (caller will handle rendering)
+    // This prevents double-render when drawVisualElements is called immediately after
+    if (!skipInitialRender && this.xScale && this.yScale && this.allTasksToShow.length > 0) {
         requestAnimationFrame(() => {
             this.redrawVisibleTasks();
         });
@@ -3779,7 +3787,7 @@ private handleScroll(): void {
 // Add this helper method
 private canvasHasContent(): boolean {
     if (!this.canvasElement || !this.canvasContext) return false;
-    
+
     // Check if canvas has any non-transparent pixels
     try {
         const imageData = this.canvasContext.getImageData(0, 0, 1, 1);
@@ -3788,28 +3796,38 @@ private canvasHasContent(): boolean {
         return false;
     }
 }
-    
-private redrawVisibleTasks(): void {
-    if (!this.xScale || !this.yScale || !this.allTasksToShow) {
-        console.warn("Cannot redraw: Missing scales or task data");
-        return;
-    }
 
-    // When WBS is enabled, filter tasks by yOrder (not array index) since groups occupy rows too
+/**
+ * Get visible tasks based on current viewport indices
+ * When WBS grouping is enabled, filters by yOrder (row number) instead of array index
+ * because WBS group headers occupy rows but aren't in the task array
+ */
+private getVisibleTasks(): Task[] {
+    if (!this.allTasksToShow) return [];
+
     const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-    let visibleTasks: Task[];
 
     if (wbsGroupingEnabled) {
         // Filter tasks whose yOrder falls within the visible range
-        visibleTasks = this.allTasksToShow.filter(t =>
+        return this.allTasksToShow.filter(t =>
             t.yOrder !== undefined &&
             t.yOrder >= this.viewportStartIndex &&
             t.yOrder <= this.viewportEndIndex
         );
     } else {
         // Original behavior: slice by array index
-        visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+        return this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
     }
+}
+
+private redrawVisibleTasks(): void {
+    if (!this.xScale || !this.yScale || !this.allTasksToShow) {
+        console.warn("Cannot redraw: Missing scales or task data");
+        return;
+    }
+
+    // Use centralized helper for WBS-aware visible task calculation
+    const visibleTasks = this.getVisibleTasks();
 
     const shouldUseCanvas = visibleTasks.length > this.CANVAS_THRESHOLD;
     
