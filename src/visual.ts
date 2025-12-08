@@ -8437,6 +8437,14 @@ private toggleWbsGroupExpansion(groupId: string): void {
     const group = this.wbsGroupMap.get(groupId);
     if (!group) return;
 
+    // CRITICAL: Clear any pending scroll throttle timeout to prevent it from
+    // interfering with the WBS toggle update. Without this, drawVisualElements()
+    // would skip rendering if a scroll just happened (scrollThrottleTimeout !== null)
+    if (this.scrollThrottleTimeout) {
+        clearTimeout(this.scrollThrottleTimeout);
+        this.scrollThrottleTimeout = null;
+    }
+
     // Before toggling, capture the group's visual position (position relative to viewport)
     // so we can restore it after re-render
     if (this.scrollableContainer?.node() && group.yOrder !== undefined) {
