@@ -2998,6 +2998,13 @@ private async updateInternal(options: VisualUpdateOptions) {
             this.scrollableContainer.style("height", `${Math.min(totalSvgHeight, availableContentHeight)}px`).style("overflow-y", "hidden");
         }
 
+        // Update taskElementHeight before scroll adjustment (needed for position calculation)
+        this.taskElementHeight = taskHeight + taskPadding;
+
+        // CRITICAL: Adjust scroll position BEFORE setupVirtualScroll to avoid double-render
+        // This ensures calculateVisibleTasks() uses the correct scroll position
+        this.adjustScrollForWbsToggle(totalSvgHeight);
+
         this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding, totalRows);
 
         const visibleTasks = tasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
@@ -3009,9 +3016,6 @@ private async updateInternal(options: VisualUpdateOptions) {
         // Ensure WBS toggle button is visible now that WBS data has been processed
         // This fixes timing issue where button may not appear on initial load
         this.createWbsExpandCollapseToggleButton(viewportWidth);
-
-        // Adjust scroll position to keep toggled WBS group in same visual position
-        this.adjustScrollForWbsToggle();
 
         const renderEndTime = performance.now();
         this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
@@ -8437,9 +8441,11 @@ private toggleWbsGroupExpansion(groupId: string): void {
 }
 
 /**
- * WBS GROUPING: Adjust scroll position after toggle to keep the WBS group in same visual position
+ * WBS GROUPING: Adjust scroll position BEFORE setupVirtualScroll to keep WBS group in same visual position
+ * This must be called after the scroll container height is set but before calculateVisibleTasks()
+ * @param totalSvgHeight - Total height of SVG content for calculating max scroll
  */
-private adjustScrollForWbsToggle(): void {
+private adjustScrollForWbsToggle(totalSvgHeight: number): void {
     if (!this.wbsToggleScrollAnchor || !this.scrollableContainer?.node()) {
         return;
     }
@@ -8459,29 +8465,16 @@ private adjustScrollForWbsToggle(): void {
     // Calculate the new scroll position to keep the group at the same visual offset
     const newScrollTop = newAbsoluteY - visualOffset;
 
-    // Clamp to valid scroll range
+    // Calculate max scroll based on the known total SVG height
     const containerNode = this.scrollableContainer.node();
-    const maxScroll = containerNode.scrollHeight - containerNode.clientHeight;
+    const maxScroll = Math.max(0, totalSvgHeight - containerNode.clientHeight);
     const clampedScrollTop = Math.max(0, Math.min(newScrollTop, maxScroll));
 
-    this.debugLog(`WBS scroll adjust: group=${groupId}, newYOrder=${group.yOrder}, newAbsoluteY=${newAbsoluteY}, visualOffset=${visualOffset}, newScrollTop=${clampedScrollTop}`);
+    this.debugLog(`WBS scroll adjust: group=${groupId}, newYOrder=${group.yOrder}, newAbsoluteY=${newAbsoluteY}, visualOffset=${visualOffset}, newScrollTop=${clampedScrollTop}, maxScroll=${maxScroll}`);
 
-    // Temporarily disable scroll handler to avoid triggering recalculations
-    if (this.scrollListener) {
-        this.scrollableContainer.on("scroll", null);
-    }
-
+    // Set scroll position synchronously BEFORE setupVirtualScroll calculates visible tasks
+    // This ensures the first render uses the correct scroll position (no double-render/flicker)
     containerNode.scrollTop = clampedScrollTop;
-
-    // Re-enable scroll handler after a frame
-    requestAnimationFrame(() => {
-        if (this.scrollListener && this.scrollableContainer) {
-            this.scrollableContainer.on("scroll", this.scrollListener);
-        }
-        // Recalculate visible tasks for the new scroll position
-        this.calculateVisibleTasks();
-        this.redrawVisibleTasks();
-    });
 }
 
 /**
