@@ -2373,14 +2373,13 @@ private createFloatThresholdControl(): void {
     }
 
     // Premium control container with elevated design
-    // Position after the WBS toggle button (which is at X=764 + 36 = 800)
-    // Using left positioning to avoid overlap with other elements
+    // Position in the right corner of the header
     const controlContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "float-threshold-wrapper")
         .attr("role", "group")
         .attr("aria-label", "Near-critical threshold setting")
         .style("position", "absolute")
-        .style("left", "812px")
+        .style("right", "10px")
         .style("top", `${this.UI_TOKENS.spacing.sm}px`)
         .style("display", "flex")
         .style("align-items", "center")
