@@ -2372,13 +2372,14 @@ private createFloatThresholdControl(): void {
     }
 
     // Premium control container with elevated design
+    // Position on second row (below toggle buttons) to avoid overlap
     const controlContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "float-threshold-wrapper")
         .attr("role", "group")
         .attr("aria-label", "Near-critical threshold setting")
         .style("position", "absolute")
         .style("right", "10px")
-        .style("top", `${this.UI_TOKENS.spacing.xs}px`)
+        .style("top", "50px")
         .style("display", "flex")
         .style("align-items", "center")
         .style("gap", `${this.UI_TOKENS.spacing.md}px`)
@@ -8763,8 +8764,9 @@ private drawWbsGroupHeaders(
     const criticalPathColor = this.settings.taskAppearance.criticalPathColor.value.value;
 
     // Create a separate layer for WBS headers if it doesn't exist
+    // Insert AFTER gridLayer so WBS headers appear on top of gridlines
     if (!this.wbsGroupLayer) {
-        this.wbsGroupLayer = this.mainGroup.insert('g', ':first-child')
+        this.wbsGroupLayer = this.mainGroup.insert('g', '.arrow-layer')
             .attr('class', 'wbs-group-layer');
     }
 
@@ -8797,16 +8799,8 @@ private drawWbsGroupHeaders(
             .attr('data-group-id', group.id)
             .style('cursor', 'pointer');
 
-        // Background rectangle for the header (dim if no visible tasks)
+        // Background rectangle will be sized after text is rendered to accommodate wrapping
         const bgOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
-        headerGroup.append('rect')
-            .attr('class', 'wbs-header-bg')
-            .attr('x', -currentLeftMargin + indent)
-            .attr('y', yPos - taskHeight / 2 - 2)
-            .attr('width', currentLeftMargin - indent - 5)
-            .attr('height', taskHeight + 4)
-            .style('fill', groupHeaderColor)
-            .style('opacity', bgOpacity);
 
         // Summary bar - DRAW FIRST so it appears BEHIND the text (SVG z-order)
         // Show summary bar when group is collapsed and has tasks (even if filtered)
@@ -8919,10 +8913,11 @@ private drawWbsGroupHeaders(
         const words = displayName.split(/\s+/).reverse();
         let word: string | undefined;
         let line: string[] = [];
-        let tspan = textElement.text(null).append('tspan')
+        let firstTspan = textElement.text(null).append('tspan')
             .attr('x', textX)
             .attr('y', textY)
             .attr('dy', '0em');
+        let tspan = firstTspan;
         let lineCount = 1;
 
         while (word = words.pop()) {
@@ -8956,6 +8951,27 @@ private drawWbsGroupHeaders(
                 break;
             }
         }
+
+        // If text wrapped to 2 lines, adjust first line up to center the text block
+        if (lineCount > 1) {
+            firstTspan.attr('dy', '-0.55em');
+        }
+
+        // Now draw the background rectangle sized to accommodate the text
+        // Calculate height based on whether text wrapped to 2 lines
+        const lineHeightPx = groupNameFontSize * 1.1;
+        const bgHeight = lineCount > 1 ? taskHeight + lineHeightPx : taskHeight + 4;
+        const bgY = lineCount > 1 ? yPos - bgHeight / 2 : yPos - taskHeight / 2 - 2;
+
+        // Insert background at the beginning of the group so it's behind everything
+        headerGroup.insert('rect', ':first-child')
+            .attr('class', 'wbs-header-bg')
+            .attr('x', -currentLeftMargin + indent)
+            .attr('y', bgY)
+            .attr('width', currentLeftMargin - indent - 5)
+            .attr('height', bgHeight)
+            .style('fill', groupHeaderColor)
+            .style('opacity', bgOpacity);
 
         // Click handler for expand/collapse
         headerGroup.on('click', function() {
