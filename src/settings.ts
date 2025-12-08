@@ -457,14 +457,42 @@ class WBSGroupingCard extends Card {
         value: true
     });
 
+    showWbsToggle = new ToggleSwitch({
+        name: "showWbsToggle",
+        displayName: "Show WBS Toggle Button",
+        description: "Show or hide the Expand/Collapse WBS toggle button in the header",
+        value: true
+    });
+
+    groupNameFontSize = new NumUpDown({
+        name: "groupNameFontSize",
+        displayName: "Group Name Font Size (pt)",
+        description: "Font size for WBS group names (0 = use Task Name Font Size)",
+        value: 0,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 24 }
+        }
+    });
+
+    groupNameColor = new ColorPicker({
+        name: "groupNameColor",
+        displayName: "Group Name Color",
+        description: "Text color for WBS group names",
+        value: { value: "#333333" }
+    });
+
     slices: Slice[] = [
         this.enableWbsGrouping,
         this.defaultExpanded,
         this.expandCollapseAll,
+        this.showWbsToggle,
         this.hideEmptyGroups,
         this.showGroupSummary,
         this.groupHeaderColor,
         this.groupSummaryColor,
+        this.groupNameFontSize,
+        this.groupNameColor,
         this.indentPerLevel
     ];
 }

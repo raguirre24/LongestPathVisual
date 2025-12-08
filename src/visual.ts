@@ -148,6 +148,9 @@ interface WBSGroup {
     summaryFinishDate?: Date | null;
     hasCriticalTasks: boolean;
     taskCount: number;
+    // Critical date range (for partial highlighting)
+    criticalStartDate?: Date | null;
+    criticalFinishDate?: Date | null;
 }
 
 interface Relationship {
@@ -206,6 +209,9 @@ export class Visual implements IVisual {
     // Connect lines toggle state and group
     private showConnectorLinesInternal: boolean = true;
     private connectorToggleGroup: Selection<SVGGElement, unknown, null, undefined>;
+
+    // WBS expand/collapse toggle state
+    private wbsExpandedInternal: boolean = true;
 
     // --- State properties remain the same ---
     private showAllTasksInternal: boolean = true;
@@ -479,11 +485,12 @@ constructor(options: VisualConstructorOptions) {
 
     this.showAllTasksInternal = true;
     // Initialize baseline internal state. Will be synced in first update.
-    this.showBaselineInternal = true; 
+    this.showBaselineInternal = true;
     this.showPreviousUpdateInternal = true;
     this.isInitialLoad = true;
     this.floatThreshold = 0;
     this.showConnectorLinesInternal = true;
+    this.wbsExpandedInternal = true;
     
     // Generate unique tooltip class name
     this.tooltipClassName = `critical-path-tooltip-${Date.now()}`;
@@ -1923,6 +1930,187 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
 }
 
 /**
+ * Creates the WBS Expand/Collapse toggle button with icon-only design
+ * Similar styling to Connector Lines toggle for visual consistency
+ */
+private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
+    if (!this.headerSvg) return;
+
+    this.headerSvg.selectAll(".wbs-toggle-group").remove();
+
+    // Only show if WBS grouping is enabled and the toggle setting is enabled
+    const wbsEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+    const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
+    if (!wbsEnabled || !showWbsToggle) return;
+
+    const wbsToggleGroup = this.headerSvg.append("g")
+        .attr("class", "wbs-toggle-group")
+        .style("cursor", "pointer")
+        .attr("role", "button")
+        .attr("aria-label", `${this.wbsExpandedInternal ? 'Collapse' : 'Expand'} all WBS groups`)
+        .attr("aria-pressed", this.wbsExpandedInternal.toString())
+        .attr("tabindex", "0");
+
+    // Icon-only button with proper sizing (same as connector toggle)
+    const buttonSize = 36;
+    // Position after Connector Lines Toggle (716 + 36 + 12 = 764)
+    const buttonX = 764;
+    const buttonY = this.UI_TOKENS.spacing.sm;
+
+    wbsToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+    // Button background with active/inactive states
+    wbsToggleGroup.append("rect")
+        .attr("width", buttonSize)
+        .attr("height", buttonSize)
+        .attr("rx", this.UI_TOKENS.radius.medium)
+        .attr("ry", this.UI_TOKENS.radius.medium)
+        .style("fill", this.wbsExpandedInternal
+            ? this.UI_TOKENS.color.primary.light
+            : this.UI_TOKENS.color.neutral.white)
+        .style("stroke", this.wbsExpandedInternal
+            ? this.UI_TOKENS.color.primary.default
+            : this.UI_TOKENS.color.neutral.grey60)
+        .style("stroke-width", this.wbsExpandedInternal ? 2 : 1.5)
+        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+    // WBS expand/collapse icon
+    const iconCenter = buttonSize / 2;
+    const iconG = wbsToggleGroup.append("g")
+        .attr("transform", `translate(${iconCenter}, ${iconCenter})`);
+
+    const iconColor = this.wbsExpandedInternal
+        ? this.UI_TOKENS.color.primary.default
+        : this.UI_TOKENS.color.neutral.grey130;
+
+    if (this.wbsExpandedInternal) {
+        // Expanded state: show collapse icon (tree with minus)
+        // Tree structure lines
+        iconG.append("path")
+            .attr("d", "M-8,-6 L-8,6 M-8,-6 L-2,-6 M-8,0 L-2,0 M-8,6 L-2,6")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 1.5)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round");
+        // Minus sign
+        iconG.append("path")
+            .attr("d", "M3,0 L9,0")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 2)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round");
+    } else {
+        // Collapsed state: show expand icon (tree with plus)
+        // Tree structure lines
+        iconG.append("path")
+            .attr("d", "M-8,-6 L-8,6 M-8,-6 L-2,-6 M-8,0 L-2,0 M-8,6 L-2,6")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 1.5)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round");
+        // Plus sign
+        iconG.append("path")
+            .attr("d", "M3,0 L9,0 M6,-3 L6,3")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 2)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round");
+    }
+
+    // Tooltip
+    wbsToggleGroup.append("title")
+        .text(this.wbsExpandedInternal
+            ? "Click to collapse all WBS groups"
+            : "Click to expand all WBS groups");
+
+    // Hover interactions
+    const self = this;
+    wbsToggleGroup
+        .on("mouseover", function() {
+            d3.select(this).select("rect")
+                .style("fill", self.wbsExpandedInternal
+                    ? self.UI_TOKENS.color.primary.default
+                    : self.UI_TOKENS.color.neutral.grey20)
+                .style("transform", "translateY(-2px)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+
+            if (self.wbsExpandedInternal) {
+                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+            }
+        })
+        .on("mouseout", function() {
+            d3.select(this).select("rect")
+                .style("fill", self.wbsExpandedInternal
+                    ? self.UI_TOKENS.color.primary.light
+                    : self.UI_TOKENS.color.neutral.white)
+                .style("transform", "translateY(0)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+            if (self.wbsExpandedInternal) {
+                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
+            }
+        })
+        .on("mousedown", function() {
+            d3.select(this).select("rect")
+                .style("transform", "translateY(0) scale(0.95)");
+        })
+        .on("mouseup", function() {
+            d3.select(this).select("rect")
+                .style("transform", "translateY(-2px) scale(1)");
+        });
+
+    wbsToggleGroup.on("click", function(event) {
+        if (event) event.stopPropagation();
+        self.toggleWbsExpandCollapseDisplay();
+    });
+
+    // Keyboard support
+    wbsToggleGroup.on("keydown", function(event) {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            self.toggleWbsExpandCollapseDisplay();
+        }
+    });
+}
+
+/**
+ * Toggles the WBS expand/collapse state for all groups
+ */
+private toggleWbsExpandCollapseDisplay(): void {
+    try {
+        this.debugLog("WBS Expand/Collapse Toggle method called!");
+        this.wbsExpandedInternal = !this.wbsExpandedInternal;
+        this.debugLog("New wbsExpandedInternal value:", this.wbsExpandedInternal);
+
+        // Clear persisted states so all groups adopt the new state
+        this.wbsExpandedState.clear();
+
+        // Persist the state back to the formatting pane setting
+        this.host.persistProperties({
+            merge: [{
+                objectName: "wbsGrouping",
+                properties: { expandCollapseAll: this.wbsExpandedInternal },
+                selector: null
+            }]
+        });
+
+        // Update button appearance
+        this.createWbsExpandCollapseToggleButton();
+
+        // Force full update to re-render with new expansion state
+        this.forceFullUpdate = true;
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+
+        this.debugLog("WBS expand/collapse toggled");
+    } catch (error) {
+        console.error("Error in WBS toggle method:", error);
+    }
+}
+
+/**
  * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
  * UPGRADED: Professional pill-style toggle with smooth animations and refined visuals
  */
@@ -2476,6 +2664,11 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         if (this.settings?.taskAppearance?.showPreviousUpdate !== undefined) {
             this.showPreviousUpdateInternal = this.settings.taskAppearance.showPreviousUpdate.value;
+        }
+
+        // Sync WBS expand/collapse state with settings
+        if (this.settings?.wbsGrouping?.expandCollapseAll !== undefined) {
+            this.wbsExpandedInternal = this.settings.wbsGrouping.expandCollapseAll.value;
         }
 
         this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
@@ -3512,6 +3705,7 @@ private updateHeaderElements(viewportWidth: number): void {
     this.createOrUpdateBaselineToggleButton(viewportWidth);
     this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
     this.createConnectorLinesToggleButton(viewportWidth);
+    this.createWbsExpandCollapseToggleButton(viewportWidth);
 }
 
     private calculateVisibleTasks(): void {
@@ -3573,8 +3767,23 @@ private redrawVisibleTasks(): void {
         console.warn("Cannot redraw: Missing scales or task data");
         return;
     }
-    
-    const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+
+    // When WBS is enabled, filter tasks by yOrder (not array index) since groups occupy rows too
+    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+    let visibleTasks: Task[];
+
+    if (wbsGroupingEnabled) {
+        // Filter tasks whose yOrder falls within the visible range
+        visibleTasks = this.allTasksToShow.filter(t =>
+            t.yOrder !== undefined &&
+            t.yOrder >= this.viewportStartIndex &&
+            t.yOrder <= this.viewportEndIndex
+        );
+    } else {
+        // Original behavior: slice by array index
+        visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+    }
+
     const shouldUseCanvas = visibleTasks.length > this.CANVAS_THRESHOLD;
     
     // Only switch rendering mode if it actually changed
@@ -3723,22 +3932,26 @@ private redrawVisibleTasks(): void {
             1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
         );
 
-        // Draw WBS group headers (SVG mode)
+        // Draw WBS group headers (SVG mode) - only for visible viewport range
         this.drawWbsGroupHeaders(
             this.xScale,
             this.yScale,
             chartWidth,
-            this.settings.taskAppearance.taskHeight.value
+            this.settings.taskAppearance.taskHeight.value,
+            this.viewportStartIndex,
+            this.viewportEndIndex
         );
     }
 
-    // Draw WBS group headers for canvas mode (using SVG overlay)
+    // Draw WBS group headers for canvas mode (using SVG overlay) - only for visible viewport range
     if (this.useCanvasRendering) {
         this.drawWbsGroupHeaders(
             this.xScale,
             this.yScale,
             chartWidth,
-            this.settings.taskAppearance.taskHeight.value
+            this.settings.taskAppearance.taskHeight.value,
+            this.viewportStartIndex,
+            this.viewportEndIndex
         );
     }
 
@@ -3780,11 +3993,26 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         const x1 = -currentLeftMargin;
         const x2 = chartWidth;
 
-        // MODIFICATION: Fix boundary logic. Use all visible tasks, but filter out the very first task (yOrder 0).
-        const lineData = tasks.filter(t => t.yOrder !== undefined && t.yOrder > 0);
+        // Collect all yOrder values from tasks
+        const taskYOrders = tasks
+            .filter(t => t.yOrder !== undefined && t.yOrder > 0)
+            .map(t => t.yOrder as number);
 
-        lineData.forEach(task => {
-            const yPos = yScale(task.yOrder?.toString() ?? '');
+        // If WBS grouping is enabled, also include visible WBS group yOrders
+        let allYOrders: number[] = [...taskYOrders];
+        if (this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+            const groupYOrders = this.wbsGroups
+                .filter(g => g.yOrder !== undefined && g.yOrder > 0 &&
+                    g.yOrder >= this.viewportStartIndex && g.yOrder <= this.viewportEndIndex)
+                .map(g => g.yOrder as number);
+            allYOrders = [...allYOrders, ...groupYOrders];
+        }
+
+        // Remove duplicates and sort
+        const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
+
+        uniqueYOrders.forEach(yOrder => {
+            const yPos = yScale(yOrder.toString());
             if (yPos !== undefined && !isNaN(yPos)) {
                 // Ensure pixel alignment for crisp lines
                 const alignedY = Math.round(yPos);
@@ -4014,20 +4242,33 @@ private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartW
         let lineDashArray = "none";
          switch (style) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; break; }
 
-        // MODIFICATION: Fix boundary logic. Use filter instead of slice(1).
-        // const lineData = tasks.slice(1);
-        const lineData = tasks.filter(t => t.yOrder !== undefined && t.yOrder > 0);
+        // Collect all yOrder values from tasks
+        const taskYOrders = tasks
+            .filter(t => t.yOrder !== undefined && t.yOrder > 0)
+            .map(t => t.yOrder as number);
 
+        // If WBS grouping is enabled, also include WBS group yOrders
+        let allYOrders: number[] = [...taskYOrders];
+        if (this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+            const groupYOrders = this.wbsGroups
+                .filter(g => g.yOrder !== undefined && g.yOrder > 0)
+                .map(g => g.yOrder as number);
+            allYOrders = [...allYOrders, ...groupYOrders];
+        }
 
+        // Remove duplicates and sort
+        const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
+
+        // Draw gridlines for each yOrder
         this.gridLayer.selectAll(".grid-line.horizontal")
-            .data(lineData, (d: Task) => d.internalId)
+            .data(uniqueYOrders)
             .enter()
             .append("line")
             .attr("class", "grid-line horizontal")
             .attr("x1", -currentLeftMargin)
             .attr("x2", chartWidth)
-            .attr("y1", (d: Task) => yScale(d.yOrder?.toString() ?? '') ?? 0)
-            .attr("y2", (d: Task) => yScale(d.yOrder?.toString() ?? '') ?? 0)
+            .attr("y1", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
+            .attr("y2", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
             .style("stroke", lineColor)
             .style("stroke-width", lineWidth)
             .style("stroke-dasharray", lineDashArray)
@@ -8046,7 +8287,9 @@ private processWBSData(): void {
             summaryStartDate: null,
             summaryFinishDate: null,
             hasCriticalTasks: false,
-            taskCount: 0
+            taskCount: 0,
+            criticalStartDate: null,
+            criticalFinishDate: null
         };
 
         this.wbsGroups.push(group);
@@ -8241,6 +8484,8 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         group.summaryStartDate = null;
         group.summaryFinishDate = null;
         group.hasCriticalTasks = false;
+        group.criticalStartDate = null;
+        group.criticalFinishDate = null;
     }
 
     // Create a set of filtered task IDs for quick lookup
@@ -8257,22 +8502,35 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
     }
 
     // Recalculate summary dates based on FILTERED tasks only
+    // Also calculate critical date ranges for partial highlighting
     const calculateFilteredSummary = (group: WBSGroup): void => {
         let minStart: Date | null = null;
         let maxFinish: Date | null = null;
         let hasCritical = false;
+        let criticalMinStart: Date | null = null;
+        let criticalMaxFinish: Date | null = null;
 
         // Check direct tasks
         for (const task of group.tasks) {
             // Only include tasks that passed filtering
             if (!filteredTaskIds.has(task.internalId)) continue;
 
-            if (task.isCritical) hasCritical = true;
             if (task.startDate && (!minStart || task.startDate < minStart)) {
                 minStart = task.startDate;
             }
             if (task.finishDate && (!maxFinish || task.finishDate > maxFinish)) {
                 maxFinish = task.finishDate;
+            }
+
+            // Track critical task date range separately
+            if (task.isCritical) {
+                hasCritical = true;
+                if (task.startDate && (!criticalMinStart || task.startDate < criticalMinStart)) {
+                    criticalMinStart = task.startDate;
+                }
+                if (task.finishDate && (!criticalMaxFinish || task.finishDate > criticalMaxFinish)) {
+                    criticalMaxFinish = task.finishDate;
+                }
             }
         }
 
@@ -8286,11 +8544,20 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
             if (child.summaryFinishDate && (!maxFinish || child.summaryFinishDate > maxFinish)) {
                 maxFinish = child.summaryFinishDate;
             }
+            // Merge child critical date ranges
+            if (child.criticalStartDate && (!criticalMinStart || child.criticalStartDate < criticalMinStart)) {
+                criticalMinStart = child.criticalStartDate;
+            }
+            if (child.criticalFinishDate && (!criticalMaxFinish || child.criticalFinishDate > criticalMaxFinish)) {
+                criticalMaxFinish = child.criticalFinishDate;
+            }
         }
 
         group.summaryStartDate = minStart;
         group.summaryFinishDate = maxFinish;
         group.hasCriticalTasks = hasCritical;
+        group.criticalStartDate = criticalMinStart;
+        group.criticalFinishDate = criticalMaxFinish;
     };
 
     // Calculate filtered summaries for all root groups
@@ -8307,6 +8574,25 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
     };
     for (const rootGroup of this.wbsRootGroups) {
         propagateCounts(rootGroup);
+    }
+
+    // Re-sort groups based on the FILTERED summary dates
+    // This ensures that in Critical Mode, groups are sorted by the earliest
+    // start date of critical tasks, not all tasks
+    const sortByFilteredStartDate = (a: WBSGroup, b: WBSGroup): number => {
+        const aStart = a.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const bStart = b.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        if (aStart !== bStart) return aStart - bStart;
+        // If start dates are equal, fall back to alphabetical for consistency
+        return a.fullPath.localeCompare(b.fullPath);
+    };
+
+    // Sort root groups
+    this.wbsRootGroups.sort(sortByFilteredStartDate);
+
+    // Sort children within each group
+    for (const group of this.wbsGroups) {
+        group.children.sort(sortByFilteredStartDate);
     }
 }
 
@@ -8454,7 +8740,9 @@ private drawWbsGroupHeaders(
     xScale: ScaleTime<number, number>,
     yScale: ScaleBand<string>,
     chartWidth: number,
-    taskHeight: number
+    taskHeight: number,
+    viewportStartIndex?: number,
+    viewportEndIndex?: number
 ): void {
     if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
         // Remove any existing WBS group elements
@@ -8468,6 +8756,11 @@ private drawWbsGroupHeaders(
     const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+    // Get custom group name settings (use taskNameFontSize if groupNameFontSize is 0)
+    const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
+    const groupNameFontSize = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
+    const groupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? '#333333';
+    const criticalPathColor = this.settings.taskAppearance.criticalPathColor.value.value;
 
     // Create a separate layer for WBS headers if it doesn't exist
     if (!this.wbsGroupLayer) {
@@ -8480,10 +8773,17 @@ private drawWbsGroupHeaders(
 
     const self = this;
 
-    // Draw each group that has a yOrder assigned
+    // Draw each group that has a yOrder assigned and is within the visible viewport
     for (const group of this.wbsGroups) {
         // Skip groups without yOrder (they're not visible)
         if (group.yOrder === undefined) continue;
+
+        // If viewport range is provided, only render groups within the visible range
+        if (viewportStartIndex !== undefined && viewportEndIndex !== undefined) {
+            if (group.yOrder < viewportStartIndex || group.yOrder > viewportEndIndex) {
+                continue;
+            }
+        }
 
         // Get Y position from the group's own yOrder
         const domainKey = group.yOrder.toString();
@@ -8521,6 +8821,7 @@ private drawWbsGroupHeaders(
             // Dim the bar if all tasks are filtered out
             const barOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
 
+            // Draw the base (non-critical) summary bar
             headerGroup.append('rect')
                 .attr('class', 'wbs-summary-bar')
                 .attr('x', startX)
@@ -8529,8 +8830,32 @@ private drawWbsGroupHeaders(
                 .attr('height', barHeight)
                 .attr('rx', 3)
                 .attr('ry', 3)
-                .style('fill', group.hasCriticalTasks ? this.settings.taskAppearance.criticalPathColor.value.value : groupSummaryColor)
+                .style('fill', groupSummaryColor)
                 .style('opacity', barOpacity);
+
+            // If there are critical tasks, overlay the critical portion in red
+            if (group.hasCriticalTasks && group.criticalStartDate && group.criticalFinishDate) {
+                const criticalStartX = xScale(group.criticalStartDate);
+                const criticalFinishX = xScale(group.criticalFinishDate);
+                const criticalWidth = Math.max(2, criticalFinishX - criticalStartX);
+
+                // Determine if we need rounded corners on each end
+                // Left rounded if critical starts at or before summary start
+                // Right rounded if critical ends at or after summary finish
+                const criticalStartsAtBeginning = criticalStartX <= startX + 1;
+                const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
+
+                headerGroup.append('rect')
+                    .attr('class', 'wbs-summary-bar-critical')
+                    .attr('x', criticalStartX)
+                    .attr('y', barY)
+                    .attr('width', criticalWidth)
+                    .attr('height', barHeight)
+                    .attr('rx', (criticalStartsAtBeginning || criticalEndsAtEnd) ? 3 : 0)
+                    .attr('ry', (criticalStartsAtBeginning || criticalEndsAtEnd) ? 3 : 0)
+                    .style('fill', criticalPathColor)
+                    .style('opacity', barOpacity);
+            }
         }
 
         // Expand/collapse indicator
@@ -8568,20 +8893,69 @@ private drawWbsGroupHeaders(
             }
         }
 
-        // Determine text color based on visibility
-        const textColor = (group.visibleTaskCount === 0) ? '#999' : '#333';
+        // Determine text color based on visibility (use custom groupNameColor, dimmed if no visible tasks)
+        const textColor = (group.visibleTaskCount === 0) ? '#999' : groupNameColor;
         const textOpacity = (group.visibleTaskCount === 0) ? 0.6 : 1.0;
 
-        headerGroup.append('text')
+        // Calculate available width for group name text (with wrapping)
+        const textX = -currentLeftMargin + indent + 22;
+        const textY = yPos;
+        const availableWidth = currentLeftMargin - indent - 30; // Leave some padding
+        const lineHeight = '1.1em';
+        const maxLines = 2;
+
+        const textElement = headerGroup.append('text')
             .attr('class', 'wbs-group-name')
-            .attr('x', -currentLeftMargin + indent + 22)
-            .attr('y', yPos + taskHeight / 2 - 2)
-            .style('font-size', `${taskNameFontSize + 1}px`)
+            .attr('x', textX)
+            .attr('y', textY)
+            .attr('dominant-baseline', 'central')
+            .style('font-size', `${groupNameFontSize}px`)
             .style('font-family', 'Segoe UI, sans-serif')
             .style('font-weight', '600')
             .style('fill', textColor)
-            .style('opacity', textOpacity)
-            .text(displayName);
+            .style('opacity', textOpacity);
+
+        // Apply text wrapping similar to task names
+        const words = displayName.split(/\s+/).reverse();
+        let word: string | undefined;
+        let line: string[] = [];
+        let tspan = textElement.text(null).append('tspan')
+            .attr('x', textX)
+            .attr('y', textY)
+            .attr('dy', '0em');
+        let lineCount = 1;
+
+        while (word = words.pop()) {
+            line.push(word);
+            tspan.text(line.join(' '));
+            try {
+                const node = tspan.node();
+                if (node && node.getComputedTextLength() > availableWidth && line.length > 1) {
+                    line.pop();
+                    tspan.text(line.join(' '));
+
+                    if (lineCount < maxLines) {
+                        line = [word];
+                        tspan = textElement.append('tspan')
+                            .attr('x', textX)
+                            .attr('dy', lineHeight)
+                            .text(word);
+                        lineCount++;
+                    } else {
+                        // Truncate with ellipsis on last line
+                        const currentText = tspan.text();
+                        if (currentText.length > 3) {
+                            tspan.text(currentText.slice(0, -3) + '...');
+                        }
+                        break;
+                    }
+                }
+            } catch (e) {
+                // Fallback if getComputedTextLength fails
+                tspan.text(line.join(' '));
+                break;
+            }
+        }
 
         // Click handler for expand/collapse
         headerGroup.on('click', function() {
