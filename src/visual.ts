@@ -309,6 +309,7 @@ export class Visual implements IVisual {
 
     private readonly VIEWPORT_CHANGE_THRESHOLD = 0.3; // 30% change triggers full recalculation
     private forceFullUpdate: boolean = false;
+    private preserveScrollOnUpdate: boolean = false; // When true, scroll position is preserved during full update
 
     private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
     private tooltipClassName: string;
@@ -2100,7 +2101,9 @@ private toggleWbsExpandCollapseDisplay(): void {
         this.createWbsExpandCollapseToggleButton();
 
         // Force full update to re-render with new expansion state
+        // Explicitly reset scroll to top when using expand/collapse ALL button
         this.forceFullUpdate = true;
+        this.preserveScrollOnUpdate = false; // Reset scroll to top for expand/collapse all
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
@@ -2612,22 +2615,28 @@ private async updateInternal(options: VisualUpdateOptions) {
         
         if (updateType === UpdateType.Full && this.scrollableContainer?.node()) {
             const node = this.scrollableContainer.node();
-            
-            if (!this.scrollThrottleTimeout && node.scrollTop > 0) {
+
+            // Check if scroll should be preserved (e.g., when expanding/collapsing individual WBS groups)
+            const shouldPreserveScroll = this.preserveScrollOnUpdate;
+            this.preserveScrollOnUpdate = false; // Reset flag after checking
+
+            if (!shouldPreserveScroll && !this.scrollThrottleTimeout && node.scrollTop > 0) {
                 if (this.scrollListener) {
                     this.scrollableContainer.on("scroll", null);
                     this.scrollHandlerBackup = this.scrollListener;
                 }
-                
+
                 this.debugLog("Resetting scroll position for full update");
                 node.scrollTop = 0;
-                
+
                 requestAnimationFrame(() => {
                     if (this.scrollHandlerBackup && this.scrollableContainer) {
                         this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
                         this.scrollHandlerBackup = null;
                     }
                 });
+            } else if (shouldPreserveScroll) {
+                this.debugLog("Preserving scroll position for individual WBS group toggle");
             }
         }
         
@@ -2995,6 +3004,10 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         // Render legend after visual elements are drawn
         this.renderLegend(viewportWidth, viewportHeight);
+
+        // Ensure WBS toggle button is visible now that WBS data has been processed
+        // This fixes timing issue where button may not appear on initial load
+        this.createWbsExpandCollapseToggleButton(viewportWidth);
 
         const renderEndTime = performance.now();
         this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
@@ -8401,9 +8414,10 @@ private toggleWbsGroupExpansion(groupId: string): void {
     group.isExpanded = !group.isExpanded;
     this.wbsExpandedState.set(groupId, group.isExpanded);
 
-    // Trigger re-render
+    // Trigger re-render while preserving scroll position
     if (this.lastUpdateOptions) {
         this.forceFullUpdate = true;
+        this.preserveScrollOnUpdate = true; // Preserve scroll for individual group expansion
         this.updateInternal(this.lastUpdateOptions);
     }
 }
