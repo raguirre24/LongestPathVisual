@@ -263,6 +263,7 @@ export class Visual implements IVisual {
     private scrollThrottleTimeout: any | null = null;
     private scrollListener: any;                // Reference to scroll event handler
     private allTasksToShow: Task[] = [];        // Store full task list to avoid reprocessing
+    private allFilteredTasks: Task[] = [];      // All filtered tasks (before collapse/expand) for project end date
 
     // Update type detection
     private lastViewport: IViewport | null = null;
@@ -2372,14 +2373,15 @@ private createFloatThresholdControl(): void {
     }
 
     // Premium control container with elevated design
-    // Position on second row (below toggle buttons) to avoid overlap
+    // Position after the WBS toggle button (which is at X=764 + 36 = 800)
+    // Using left positioning to avoid overlap with other elements
     const controlContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "float-threshold-wrapper")
         .attr("role", "group")
         .attr("aria-label", "Near-critical threshold setting")
         .style("position", "absolute")
-        .style("right", "10px")
-        .style("top", "50px")
+        .style("left", "812px")
+        .style("top", `${this.UI_TOKENS.spacing.sm}px`)
         .style("display", "flex")
         .style("align-items", "center")
         .style("gap", `${this.UI_TOKENS.spacing.md}px`)
@@ -2887,6 +2889,10 @@ private async updateInternal(options: VisualUpdateOptions) {
                 return true;
             });
         }
+
+        // Store all filtered tasks BEFORE collapse/expand for project end line calculation
+        // This ensures the finish date reflects all filtered tasks, not just visible ones
+        this.allFilteredTasks = [...tasksAfterLegendFilter];
 
         // Update group filtered counts BEFORE ordering (which respects collapse state)
         if (wbsGroupingEnabled) {
@@ -3957,14 +3963,15 @@ private redrawVisibleTasks(): void {
     }
 
     // Redraw project end line if needed (Always SVG)
+    // Use allFilteredTasks to show finish date of all filtered tasks (not just visible/non-collapsed)
     if (this.settings.projectEndLine.show.value) {
         this.drawProjectEndLine(
-            this.xScale.range()[1], 
-            this.xScale, 
-            visibleTasks, 
-            this.allTasksToShow, 
-            this.yScale.range()[1], 
-            this.gridLayer, 
+            this.xScale.range()[1],
+            this.xScale,
+            visibleTasks,
+            this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow,
+            this.yScale.range()[1],
+            this.gridLayer,
             this.headerGridLayer
         );
     }
@@ -4227,7 +4234,9 @@ private drawVisualElements(
 
     if (showProjectEndLine) {
         // Project end line is always drawn in SVG
-        this.drawProjectEndLine(chartWidth, xScale, tasksToShow, this.allTasksToShow, chartHeight, 
+        // Use allFilteredTasks to show finish date of all filtered tasks (not just visible/non-collapsed)
+        const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
+        this.drawProjectEndLine(chartWidth, xScale, tasksToShow, tasksForProjectEnd, chartHeight,
                                 this.gridLayer, this.headerGridLayer);
     }
 }
@@ -6203,7 +6212,8 @@ private drawArrowsCanvas(
         let lineDashArray = "none";
         switch (lineStyle) { case "dashed": lineDashArray = "5,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; }
     
-        // Use allTasks instead of visibleTasks to calculate the latest finish date
+        // Use allTasks (all filtered tasks, including those in collapsed groups) to calculate the latest finish date
+        // This ensures the project finish date reflects all filtered tasks, not just currently visible ones
         let latestFinishTimestamp: number | null = null;
         allTasks.forEach((task: Task) => {
              if (task.finishDate instanceof Date && !isNaN(task.finishDate.getTime())) {
@@ -8607,6 +8617,11 @@ private assignWbsYOrder(tasksToShow: Task[]): void {
     // Reset yOrder for all groups
     for (const group of this.wbsGroups) {
         group.yOrder = undefined;
+    }
+
+    // Reset yOrder for ALL tasks to prevent stale values from conflicting with group yOrders
+    for (const task of this.allTasksData) {
+        task.yOrder = undefined;
     }
 
     // Note: visibleTaskCount is already set by updateWbsFilteredCounts()
