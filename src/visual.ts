@@ -4749,7 +4749,8 @@ private drawTasks(
             // Adjust available width for WBS indentation
             const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
             const adjustedLabelWidth = labelAvailableWidth - indent;
-            let tspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
+            let firstTspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
+            let tspan = firstTspan;
             let lineCount = 1;
             const maxLines = 2;
 
@@ -4782,6 +4783,12 @@ private drawTasks(
                     tspan.text(line.join(" "));
                     break;
                 }
+            }
+
+            // If text wrapped to 2 lines, adjust first line up to center the text block vertically
+            // This prevents wrapped text from extending into the row below (e.g., WBS group headers)
+            if (lineCount > 1) {
+                firstTspan.attr("dy", "-0.55em");
             }
         });
 
