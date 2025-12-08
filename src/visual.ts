@@ -310,6 +310,7 @@ export class Visual implements IVisual {
     private readonly VIEWPORT_CHANGE_THRESHOLD = 0.3; // 30% change triggers full recalculation
     private forceFullUpdate: boolean = false;
     private preserveScrollOnUpdate: boolean = false; // When true, scroll position is preserved during full update
+    private wbsToggleScrollAnchor: { groupId: string; visualOffset: number } | null = null; // Track WBS group position for scroll adjustment
 
     private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
     private tooltipClassName: string;
@@ -3008,6 +3009,9 @@ private async updateInternal(options: VisualUpdateOptions) {
         // Ensure WBS toggle button is visible now that WBS data has been processed
         // This fixes timing issue where button may not appear on initial load
         this.createWbsExpandCollapseToggleButton(viewportWidth);
+
+        // Adjust scroll position to keep toggled WBS group in same visual position
+        this.adjustScrollForWbsToggle();
 
         const renderEndTime = performance.now();
         this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
@@ -8411,6 +8415,16 @@ private toggleWbsGroupExpansion(groupId: string): void {
     const group = this.wbsGroupMap.get(groupId);
     if (!group) return;
 
+    // Before toggling, capture the group's visual position (position relative to viewport)
+    // so we can restore it after re-render
+    if (this.scrollableContainer?.node() && group.yOrder !== undefined) {
+        const scrollTop = this.scrollableContainer.node().scrollTop;
+        const groupAbsoluteY = group.yOrder * this.taskElementHeight;
+        const visualOffset = groupAbsoluteY - scrollTop;
+        this.wbsToggleScrollAnchor = { groupId, visualOffset };
+        this.debugLog(`WBS toggle: Capturing anchor for group ${groupId}, yOrder=${group.yOrder}, visualOffset=${visualOffset}`);
+    }
+
     group.isExpanded = !group.isExpanded;
     this.wbsExpandedState.set(groupId, group.isExpanded);
 
@@ -8420,6 +8434,54 @@ private toggleWbsGroupExpansion(groupId: string): void {
         this.preserveScrollOnUpdate = true; // Preserve scroll for individual group expansion
         this.updateInternal(this.lastUpdateOptions);
     }
+}
+
+/**
+ * WBS GROUPING: Adjust scroll position after toggle to keep the WBS group in same visual position
+ */
+private adjustScrollForWbsToggle(): void {
+    if (!this.wbsToggleScrollAnchor || !this.scrollableContainer?.node()) {
+        return;
+    }
+
+    const { groupId, visualOffset } = this.wbsToggleScrollAnchor;
+    this.wbsToggleScrollAnchor = null; // Clear anchor after use
+
+    const group = this.wbsGroupMap.get(groupId);
+    if (!group || group.yOrder === undefined) {
+        this.debugLog(`WBS scroll adjust: Group ${groupId} not found or no yOrder`);
+        return;
+    }
+
+    // Calculate the new absolute Y position of the group
+    const newAbsoluteY = group.yOrder * this.taskElementHeight;
+
+    // Calculate the new scroll position to keep the group at the same visual offset
+    const newScrollTop = newAbsoluteY - visualOffset;
+
+    // Clamp to valid scroll range
+    const containerNode = this.scrollableContainer.node();
+    const maxScroll = containerNode.scrollHeight - containerNode.clientHeight;
+    const clampedScrollTop = Math.max(0, Math.min(newScrollTop, maxScroll));
+
+    this.debugLog(`WBS scroll adjust: group=${groupId}, newYOrder=${group.yOrder}, newAbsoluteY=${newAbsoluteY}, visualOffset=${visualOffset}, newScrollTop=${clampedScrollTop}`);
+
+    // Temporarily disable scroll handler to avoid triggering recalculations
+    if (this.scrollListener) {
+        this.scrollableContainer.on("scroll", null);
+    }
+
+    containerNode.scrollTop = clampedScrollTop;
+
+    // Re-enable scroll handler after a frame
+    requestAnimationFrame(() => {
+        if (this.scrollListener && this.scrollableContainer) {
+            this.scrollableContainer.on("scroll", this.scrollListener);
+        }
+        // Recalculate visible tasks for the new scroll position
+        this.calculateVisibleTasks();
+        this.redrawVisibleTasks();
+    });
 }
 
 /**
