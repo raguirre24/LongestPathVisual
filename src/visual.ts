@@ -263,6 +263,7 @@ export class Visual implements IVisual {
     private scrollThrottleTimeout: any | null = null;
     private scrollListener: any;                // Reference to scroll event handler
     private allTasksToShow: Task[] = [];        // Store full task list to avoid reprocessing
+    private allFilteredTasks: Task[] = [];      // All filtered tasks (before collapse/expand) for project end date
 
     // Update type detection
     private lastViewport: IViewport | null = null;
@@ -2372,13 +2373,15 @@ private createFloatThresholdControl(): void {
     }
 
     // Premium control container with elevated design
+    // Position after the WBS toggle button (which is at X=764 + 36 = 800)
+    // Using left positioning to avoid overlap with other elements
     const controlContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "float-threshold-wrapper")
         .attr("role", "group")
         .attr("aria-label", "Near-critical threshold setting")
         .style("position", "absolute")
-        .style("right", "10px")
-        .style("top", `${this.UI_TOKENS.spacing.xs}px`)
+        .style("left", "812px")
+        .style("top", `${this.UI_TOKENS.spacing.sm}px`)
         .style("display", "flex")
         .style("align-items", "center")
         .style("gap", `${this.UI_TOKENS.spacing.md}px`)
@@ -2886,6 +2889,10 @@ private async updateInternal(options: VisualUpdateOptions) {
                 return true;
             });
         }
+
+        // Store all filtered tasks BEFORE collapse/expand for project end line calculation
+        // This ensures the finish date reflects all filtered tasks, not just visible ones
+        this.allFilteredTasks = [...tasksAfterLegendFilter];
 
         // Update group filtered counts BEFORE ordering (which respects collapse state)
         if (wbsGroupingEnabled) {
@@ -3956,14 +3963,15 @@ private redrawVisibleTasks(): void {
     }
 
     // Redraw project end line if needed (Always SVG)
+    // Use allFilteredTasks to show finish date of all filtered tasks (not just visible/non-collapsed)
     if (this.settings.projectEndLine.show.value) {
         this.drawProjectEndLine(
-            this.xScale.range()[1], 
-            this.xScale, 
-            visibleTasks, 
-            this.allTasksToShow, 
-            this.yScale.range()[1], 
-            this.gridLayer, 
+            this.xScale.range()[1],
+            this.xScale,
+            visibleTasks,
+            this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow,
+            this.yScale.range()[1],
+            this.gridLayer,
             this.headerGridLayer
         );
     }
@@ -4226,7 +4234,9 @@ private drawVisualElements(
 
     if (showProjectEndLine) {
         // Project end line is always drawn in SVG
-        this.drawProjectEndLine(chartWidth, xScale, tasksToShow, this.allTasksToShow, chartHeight, 
+        // Use allFilteredTasks to show finish date of all filtered tasks (not just visible/non-collapsed)
+        const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
+        this.drawProjectEndLine(chartWidth, xScale, tasksToShow, tasksForProjectEnd, chartHeight,
                                 this.gridLayer, this.headerGridLayer);
     }
 }
@@ -6202,7 +6212,8 @@ private drawArrowsCanvas(
         let lineDashArray = "none";
         switch (lineStyle) { case "dashed": lineDashArray = "5,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; }
     
-        // Use allTasks instead of visibleTasks to calculate the latest finish date
+        // Use allTasks (all filtered tasks, including those in collapsed groups) to calculate the latest finish date
+        // This ensures the project finish date reflects all filtered tasks, not just currently visible ones
         let latestFinishTimestamp: number | null = null;
         allTasks.forEach((task: Task) => {
              if (task.finishDate instanceof Date && !isNaN(task.finishDate.getTime())) {
@@ -8608,6 +8619,11 @@ private assignWbsYOrder(tasksToShow: Task[]): void {
         group.yOrder = undefined;
     }
 
+    // Reset yOrder for ALL tasks to prevent stale values from conflicting with group yOrders
+    for (const task of this.allTasksData) {
+        task.yOrder = undefined;
+    }
+
     // Note: visibleTaskCount is already set by updateWbsFilteredCounts()
     // It represents tasks that passed filtering, NOT tasks currently shown after collapse/expand
     // This is intentional so that collapsed groups remain visible
@@ -8763,8 +8779,9 @@ private drawWbsGroupHeaders(
     const criticalPathColor = this.settings.taskAppearance.criticalPathColor.value.value;
 
     // Create a separate layer for WBS headers if it doesn't exist
+    // Insert AFTER gridLayer so WBS headers appear on top of gridlines
     if (!this.wbsGroupLayer) {
-        this.wbsGroupLayer = this.mainGroup.insert('g', ':first-child')
+        this.wbsGroupLayer = this.mainGroup.insert('g', '.arrow-layer')
             .attr('class', 'wbs-group-layer');
     }
 
@@ -8797,16 +8814,8 @@ private drawWbsGroupHeaders(
             .attr('data-group-id', group.id)
             .style('cursor', 'pointer');
 
-        // Background rectangle for the header (dim if no visible tasks)
+        // Background rectangle will be sized after text is rendered to accommodate wrapping
         const bgOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
-        headerGroup.append('rect')
-            .attr('class', 'wbs-header-bg')
-            .attr('x', -currentLeftMargin + indent)
-            .attr('y', yPos - taskHeight / 2 - 2)
-            .attr('width', currentLeftMargin - indent - 5)
-            .attr('height', taskHeight + 4)
-            .style('fill', groupHeaderColor)
-            .style('opacity', bgOpacity);
 
         // Summary bar - DRAW FIRST so it appears BEHIND the text (SVG z-order)
         // Show summary bar when group is collapsed and has tasks (even if filtered)
@@ -8919,10 +8928,11 @@ private drawWbsGroupHeaders(
         const words = displayName.split(/\s+/).reverse();
         let word: string | undefined;
         let line: string[] = [];
-        let tspan = textElement.text(null).append('tspan')
+        let firstTspan = textElement.text(null).append('tspan')
             .attr('x', textX)
             .attr('y', textY)
             .attr('dy', '0em');
+        let tspan = firstTspan;
         let lineCount = 1;
 
         while (word = words.pop()) {
@@ -8956,6 +8966,27 @@ private drawWbsGroupHeaders(
                 break;
             }
         }
+
+        // If text wrapped to 2 lines, adjust first line up to center the text block
+        if (lineCount > 1) {
+            firstTspan.attr('dy', '-0.55em');
+        }
+
+        // Now draw the background rectangle sized to accommodate the text
+        // Calculate height based on whether text wrapped to 2 lines
+        const lineHeightPx = groupNameFontSize * 1.1;
+        const bgHeight = lineCount > 1 ? taskHeight + lineHeightPx : taskHeight + 4;
+        const bgY = lineCount > 1 ? yPos - bgHeight / 2 : yPos - taskHeight / 2 - 2;
+
+        // Insert background at the beginning of the group so it's behind everything
+        headerGroup.insert('rect', ':first-child')
+            .attr('class', 'wbs-header-bg')
+            .attr('x', -currentLeftMargin + indent)
+            .attr('y', bgY)
+            .attr('width', currentLeftMargin - indent - 5)
+            .attr('height', bgHeight)
+            .style('fill', groupHeaderColor)
+            .style('opacity', bgOpacity);
 
         // Click handler for expand/collapse
         headerGroup.on('click', function() {
