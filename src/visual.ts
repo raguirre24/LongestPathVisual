@@ -8803,10 +8803,14 @@ private drawWbsGroupHeaders(
         }
 
         // Get Y position from the group's own yOrder
+        // yScale returns the START of the band, so we need to position elements within the band
         const domainKey = group.yOrder.toString();
-        const yPos = yScale(domainKey);
+        const bandStart = yScale(domainKey);
 
-        if (yPos === undefined) continue; // Safety check
+        if (bandStart === undefined) continue; // Safety check
+
+        // Calculate center of band for positioning (same as tasks)
+        const bandCenter = bandStart + taskHeight / 2;
 
         const indent = (group.level - 2) * indentPerLevel;
         const headerGroup = this.wbsGroupLayer.append('g')
@@ -8825,7 +8829,7 @@ private drawWbsGroupHeaders(
             const finishX = xScale(group.summaryFinishDate);
             const barWidth = Math.max(2, finishX - startX);
             const barHeight = taskHeight * 0.6; // Make it 60% of task height for better visibility
-            const barY = yPos - barHeight / 2; // Center it vertically on yPos
+            const barY = bandCenter - barHeight / 2; // Center bar within the band
 
             // Dim the bar if all tasks are filtered out
             const barOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
@@ -8874,7 +8878,7 @@ private drawWbsGroupHeaders(
         headerGroup.append('text')
             .attr('class', 'wbs-expand-icon')
             .attr('x', -currentLeftMargin + indent + 8)
-            .attr('y', yPos + taskHeight / 2 - 2)
+            .attr('y', bandCenter - 2)
             .style('font-size', `${taskNameFontSize}px`)
             .style('font-family', 'Segoe UI, sans-serif')
             .style('fill', iconColor)
@@ -8908,7 +8912,7 @@ private drawWbsGroupHeaders(
 
         // Calculate available width for group name text (with wrapping)
         const textX = -currentLeftMargin + indent + 22;
-        const textY = yPos;
+        const textY = bandCenter; // Center text within the band (same as tasks)
         const availableWidth = currentLeftMargin - indent - 30; // Leave some padding
         const lineHeight = '1.1em';
         const maxLines = 2;
@@ -8976,7 +8980,8 @@ private drawWbsGroupHeaders(
         // Calculate height based on whether text wrapped to 2 lines
         const lineHeightPx = groupNameFontSize * 1.1;
         const bgHeight = lineCount > 1 ? taskHeight + lineHeightPx : taskHeight + 4;
-        const bgY = lineCount > 1 ? yPos - bgHeight / 2 : yPos - taskHeight / 2 - 2;
+        // Position background to cover the band, centered around bandCenter
+        const bgY = bandCenter - bgHeight / 2;
 
         // Insert background at the beginning of the group so it's behind everything
         headerGroup.insert('rect', ':first-child')
