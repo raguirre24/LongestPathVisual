@@ -621,6 +621,7 @@ constructor(options: VisualConstructorOptions) {
     this.scrollableContainer = visualWrapper.append("div")
         .attr("class", "criticalPathContainer")
         .style("height", `calc(100% - ${this.headerHeight}px)`)  // Will be updated when legend shown
+        .style("overflow-anchor", "none")  // CRITICAL: Disable browser scroll anchoring to prevent scroll jumping
         .style("width", "100%")
         .style("overflow-y", "auto")
         .style("overflow-x", "hidden")
@@ -8507,6 +8508,10 @@ private toggleWbsGroupExpansion(groupId: string): void {
  * This must be called AFTER the scroll container height is set but BEFORE setupVirtualScroll().
  * The order is critical: container height → scroll restoration → virtual scroll setup
  *
+ * IMPORTANT: This method removes the scroll listener before setting scrollTop to prevent
+ * handleScroll() from firing. setupVirtualScroll() will create and attach a NEW listener,
+ * so we don't need to re-attach the old one.
+ *
  * @param totalSvgHeight - Total height of SVG content for calculating max scroll bounds
  */
 private restoreScrollPosition(totalSvgHeight: number): void {
@@ -8520,6 +8525,14 @@ private restoreScrollPosition(totalSvgHeight: number): void {
     const containerNode = this.scrollableContainer.node();
     const maxScroll = Math.max(0, totalSvgHeight - containerNode.clientHeight);
 
+    // Remove scroll listener BEFORE setting scrollTop to prevent handleScroll() from firing.
+    // setupVirtualScroll() will create and attach a NEW listener after this method returns.
+    if (this.scrollListener) {
+        this.scrollableContainer.on("scroll", null);
+        // Note: We don't null out this.scrollListener here because setupVirtualScroll
+        // will check for it and remove it again (harmless), then create a new one.
+    }
+
     // PRIORITY 1: Strict scroll preservation (baseline/previous update toggles)
     // This is used when the row layout doesn't change, only visual elements do.
     if (this.preservedScrollTop !== null) {
@@ -8531,22 +8544,11 @@ private restoreScrollPosition(totalSvgHeight: number): void {
 
         this.debugLog(`Strict scroll restoration: target=${targetScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
 
-        // CRITICAL: Disable scroll listener temporarily to prevent handleScroll() from firing
-        // during the programmatic scroll position change
-        if (this.scrollListener) {
-            this.scrollableContainer.on("scroll", null);
-        }
-
         containerNode.scrollTop = clampedScrollTop;
 
-        // Re-enable scroll listener in the next frame after layout stabilizes
-        if (this.scrollListener) {
-            requestAnimationFrame(() => {
-                if (this.scrollableContainer && this.scrollListener) {
-                    this.scrollableContainer.on("scroll", this.scrollListener);
-                }
-            });
-        }
+        // Force synchronous layout reflow to ensure browser processes the scroll change
+        // before setupVirtualScroll calls calculateVisibleTasks()
+        void containerNode.scrollTop; // Reading forces reflow
 
         return; // Strict preservation takes priority, skip WBS anchor
     }
@@ -8577,21 +8579,11 @@ private restoreScrollPosition(totalSvgHeight: number): void {
                      `newAbsoluteY=${newAbsoluteY}, visualOffset=${visualOffset}, ` +
                      `newScrollTop=${newScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
 
-        // CRITICAL: Disable scroll listener temporarily
-        if (this.scrollListener) {
-            this.scrollableContainer.on("scroll", null);
-        }
-
         containerNode.scrollTop = clampedScrollTop;
 
-        // Re-enable scroll listener in the next frame
-        if (this.scrollListener) {
-            requestAnimationFrame(() => {
-                if (this.scrollableContainer && this.scrollListener) {
-                    this.scrollableContainer.on("scroll", this.scrollListener);
-                }
-            });
-        }
+        // Force synchronous layout reflow to ensure browser processes the scroll change
+        // before setupVirtualScroll calls calculateVisibleTasks()
+        void containerNode.scrollTop; // Reading forces reflow
     }
 }
 
