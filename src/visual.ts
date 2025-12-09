@@ -286,6 +286,7 @@ export class Visual implements IVisual {
 
     // WBS Grouping properties
     private wbsDataExists: boolean = false;
+    private wbsDataExistsInMetadata: boolean = false;           // WBS columns exist in dataView metadata (for button visibility)
     private wbsGroups: WBSGroup[] = [];                         // Flat list of all WBS groups
     private wbsGroupMap: Map<string, WBSGroup> = new Map();     // groupId -> WBSGroup for quick lookup
     private wbsRootGroups: WBSGroup[] = [];                     // Top-level groups (Level 2)
@@ -310,6 +311,7 @@ export class Visual implements IVisual {
     private readonly VIEWPORT_CHANGE_THRESHOLD = 0.3; // 30% change triggers full recalculation
     private forceFullUpdate: boolean = false;
     private preserveScrollOnUpdate: boolean = false; // When true, scroll position is preserved during full update
+    private preservedScrollTop: number | null = null; // Strict scroll preservation: exact scrollTop to restore after update
     private wbsToggleScrollAnchor: { groupId: string; visualOffset: number } | null = null; // Track WBS group position for scroll adjustment
 
     private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -1261,14 +1263,23 @@ private toggleBaselineDisplayInternal(): void {
             }]
         });
 
-        // Toggling baseline can affect the X-axis scale if baseline dates are outside the range 
+        // STRICT SCROLL PRESERVATION: Capture exact scroll position before update
+        // Unlike WBS toggle (which needs anchor-based restoration), baseline toggle
+        // should preserve the exact same scroll position since row layout doesn't change.
+        if (this.scrollableContainer?.node()) {
+            this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
+            this.debugLog(`Baseline toggle: Captured scrollTop=${this.preservedScrollTop}`);
+        }
+
+        // Toggling baseline can affect the X-axis scale if baseline dates are outside the range
         // of actual dates (because setupTimeBasedSVGAndScales now depends on showBaselineInternal).
         // Therefore, a full update is required to recalculate scales.
         this.forceFullUpdate = true;
+        this.preserveScrollOnUpdate = true; // Preserve scroll during scale recalculation
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
-        
+
         this.debugLog("Visual update triggered by baseline toggle");
     } catch (error) {
         console.error("Error in baseline toggle method:", error);
@@ -1293,12 +1304,21 @@ private togglePreviousUpdateDisplayInternal(): void {
             }]
         });
 
+        // STRICT SCROLL PRESERVATION: Capture exact scroll position before update
+        // Unlike WBS toggle (which needs anchor-based restoration), previous update toggle
+        // should preserve the exact same scroll position since row layout doesn't change.
+        if (this.scrollableContainer?.node()) {
+            this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
+            this.debugLog(`Previous update toggle: Captured scrollTop=${this.preservedScrollTop}`);
+        }
+
         // Force full update as scales may need recalculation
         this.forceFullUpdate = true;
+        this.preserveScrollOnUpdate = true; // Preserve scroll during scale recalculation
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
-        
+
         this.debugLog("Visual update triggered by previous update toggle");
     } catch (error) {
         console.error("Error in previous update toggle method:", error);
@@ -1941,8 +1961,12 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
 
     this.headerSvg.selectAll(".wbs-toggle-group").remove();
 
-    // Only show if WBS grouping is enabled and the toggle setting is enabled
-    const wbsEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+    // FIXED: Use metadata-based check for button visibility.
+    // This ensures the button remains visible even when filters hide all WBS-assigned tasks.
+    // wbsDataExistsInMetadata checks if WBS columns exist in the dataView metadata,
+    // while wbsDataExists checks if current tasks have WBS values (affected by filters).
+    const wbsColumnsExist = this.wbsDataExistsInMetadata;
+    const wbsEnabled = wbsColumnsExist && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
     const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
     if (!wbsEnabled || !showWbsToggle) return;
 
@@ -2668,6 +2692,13 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         this.debugLog("Viewport:", viewportWidth, "x", viewportHeight);
 
+        // METADATA CHECK: Determine if WBS columns exist in metadata (for button visibility)
+        // This is independent of whether filtered tasks have WBS values
+        this.wbsDataExistsInMetadata = this.hasDataRole(dataView, 'wbsLevel2') ||
+                                       this.hasDataRole(dataView, 'wbsLevel3') ||
+                                       this.hasDataRole(dataView, 'wbsLevel4') ||
+                                       this.hasDataRole(dataView, 'wbsLevel5');
+
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
 
         if (this.settings?.taskAppearance?.showBaseline !== undefined) {
@@ -3001,9 +3032,10 @@ private async updateInternal(options: VisualUpdateOptions) {
         // Update taskElementHeight before scroll adjustment (needed for position calculation)
         this.taskElementHeight = taskHeight + taskPadding;
 
-        // CRITICAL: Adjust scroll position BEFORE setupVirtualScroll to avoid double-render
-        // This ensures calculateVisibleTasks() uses the correct scroll position
-        this.adjustScrollForWbsToggle(totalSvgHeight);
+        // SCROLL RESTORATION: Handle both strict preservation and WBS anchor-based restoration
+        // Priority 1: Strict scroll preservation (for baseline/previous update toggles)
+        // Priority 2: WBS anchor-based restoration (for WBS group expand/collapse)
+        this.restoreScrollPosition(totalSvgHeight);
 
         // Pass skipInitialRender=true to prevent requestAnimationFrame double-render
         // since we call drawVisualElements immediately after
@@ -8467,40 +8499,100 @@ private toggleWbsGroupExpansion(groupId: string): void {
 }
 
 /**
- * WBS GROUPING: Adjust scroll position BEFORE setupVirtualScroll to keep WBS group in same visual position
- * This must be called after the scroll container height is set but before calculateVisibleTasks()
- * @param totalSvgHeight - Total height of SVG content for calculating max scroll
+ * SCROLL RESTORATION: Unified scroll position restoration for all update scenarios.
+ * Handles two restoration modes:
+ * 1. STRICT PRESERVATION: Exact scrollTop restoration (baseline/previous update toggles)
+ * 2. WBS ANCHOR-BASED: Smart anchoring that keeps a WBS group at the same visual offset
+ *
+ * This must be called AFTER the scroll container height is set but BEFORE setupVirtualScroll().
+ * The order is critical: container height → scroll restoration → virtual scroll setup
+ *
+ * @param totalSvgHeight - Total height of SVG content for calculating max scroll bounds
  */
-private adjustScrollForWbsToggle(totalSvgHeight: number): void {
-    if (!this.wbsToggleScrollAnchor || !this.scrollableContainer?.node()) {
+private restoreScrollPosition(totalSvgHeight: number): void {
+    if (!this.scrollableContainer?.node()) {
+        // Clear any pending restoration state
+        this.preservedScrollTop = null;
+        this.wbsToggleScrollAnchor = null;
         return;
     }
 
-    const { groupId, visualOffset } = this.wbsToggleScrollAnchor;
-    this.wbsToggleScrollAnchor = null; // Clear anchor after use
-
-    const group = this.wbsGroupMap.get(groupId);
-    if (!group || group.yOrder === undefined) {
-        this.debugLog(`WBS scroll adjust: Group ${groupId} not found or no yOrder`);
-        return;
-    }
-
-    // Calculate the new absolute Y position of the group
-    const newAbsoluteY = group.yOrder * this.taskElementHeight;
-
-    // Calculate the new scroll position to keep the group at the same visual offset
-    const newScrollTop = newAbsoluteY - visualOffset;
-
-    // Calculate max scroll based on the known total SVG height
     const containerNode = this.scrollableContainer.node();
     const maxScroll = Math.max(0, totalSvgHeight - containerNode.clientHeight);
-    const clampedScrollTop = Math.max(0, Math.min(newScrollTop, maxScroll));
 
-    this.debugLog(`WBS scroll adjust: group=${groupId}, newYOrder=${group.yOrder}, newAbsoluteY=${newAbsoluteY}, visualOffset=${visualOffset}, newScrollTop=${clampedScrollTop}, maxScroll=${maxScroll}`);
+    // PRIORITY 1: Strict scroll preservation (baseline/previous update toggles)
+    // This is used when the row layout doesn't change, only visual elements do.
+    if (this.preservedScrollTop !== null) {
+        const targetScrollTop = this.preservedScrollTop;
+        this.preservedScrollTop = null; // Clear after use
 
-    // Set scroll position synchronously BEFORE setupVirtualScroll calculates visible tasks
-    // This ensures the first render uses the correct scroll position (no double-render/flicker)
-    containerNode.scrollTop = clampedScrollTop;
+        // Clamp to valid range (content height may have changed due to scale recalculation)
+        const clampedScrollTop = Math.max(0, Math.min(targetScrollTop, maxScroll));
+
+        this.debugLog(`Strict scroll restoration: target=${targetScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
+
+        // CRITICAL: Disable scroll listener temporarily to prevent handleScroll() from firing
+        // during the programmatic scroll position change
+        if (this.scrollListener) {
+            this.scrollableContainer.on("scroll", null);
+        }
+
+        containerNode.scrollTop = clampedScrollTop;
+
+        // Re-enable scroll listener in the next frame after layout stabilizes
+        if (this.scrollListener) {
+            requestAnimationFrame(() => {
+                if (this.scrollableContainer && this.scrollListener) {
+                    this.scrollableContainer.on("scroll", this.scrollListener);
+                }
+            });
+        }
+
+        return; // Strict preservation takes priority, skip WBS anchor
+    }
+
+    // PRIORITY 2: WBS anchor-based restoration (WBS group expand/collapse)
+    // This is used when expanding/collapsing a WBS group - the clicked group should
+    // remain at the same visual position (pixels from top of viewport).
+    if (this.wbsToggleScrollAnchor) {
+        const { groupId, visualOffset } = this.wbsToggleScrollAnchor;
+        this.wbsToggleScrollAnchor = null; // Clear after use
+
+        const group = this.wbsGroupMap.get(groupId);
+        if (!group || group.yOrder === undefined) {
+            this.debugLog(`WBS scroll anchor: Group ${groupId} not found or no yOrder, skipping`);
+            return;
+        }
+
+        // Calculate the new absolute Y position of the group header
+        const newAbsoluteY = group.yOrder * this.taskElementHeight;
+
+        // Calculate the scroll position that keeps the group at the same visual offset
+        // visualOffset = groupAbsoluteY - scrollTop (captured before expansion)
+        // newScrollTop = newAbsoluteY - visualOffset (to maintain same visual position)
+        const newScrollTop = newAbsoluteY - visualOffset;
+        const clampedScrollTop = Math.max(0, Math.min(newScrollTop, maxScroll));
+
+        this.debugLog(`WBS anchor restoration: group=${groupId}, yOrder=${group.yOrder}, ` +
+                     `newAbsoluteY=${newAbsoluteY}, visualOffset=${visualOffset}, ` +
+                     `newScrollTop=${newScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
+
+        // CRITICAL: Disable scroll listener temporarily
+        if (this.scrollListener) {
+            this.scrollableContainer.on("scroll", null);
+        }
+
+        containerNode.scrollTop = clampedScrollTop;
+
+        // Re-enable scroll listener in the next frame
+        if (this.scrollListener) {
+            requestAnimationFrame(() => {
+                if (this.scrollableContainer && this.scrollListener) {
+                    this.scrollableContainer.on("scroll", this.scrollListener);
+                }
+            });
+        }
+    }
 }
 
 /**
