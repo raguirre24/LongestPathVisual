@@ -312,6 +312,7 @@ export class Visual implements IVisual {
     private forceFullUpdate: boolean = false;
     private preserveScrollOnUpdate: boolean = false; // When true, scroll position is preserved during full update
     private preservedScrollTop: number | null = null; // Strict scroll preservation: exact scrollTop to restore after update
+    private scrollPreservationUntil: number = 0; // Timestamp until which scroll should be preserved (handles Power BI re-triggers)
     private wbsToggleScrollAnchor: { groupId: string; visualOffset: number } | null = null; // Track WBS group position for scroll adjustment
 
     private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -1277,6 +1278,8 @@ private toggleBaselineDisplayInternal(): void {
         // Therefore, a full update is required to recalculate scales.
         this.forceFullUpdate = true;
         this.preserveScrollOnUpdate = true; // Preserve scroll during scale recalculation
+        // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
+        this.scrollPreservationUntil = Date.now() + 500;
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
@@ -1316,6 +1319,8 @@ private togglePreviousUpdateDisplayInternal(): void {
         // Force full update as scales may need recalculation
         this.forceFullUpdate = true;
         this.preserveScrollOnUpdate = true; // Preserve scroll during scale recalculation
+        // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
+        this.scrollPreservationUntil = Date.now() + 500;
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
@@ -2643,7 +2648,13 @@ private async updateInternal(options: VisualUpdateOptions) {
             const node = this.scrollableContainer.node();
 
             // Check if scroll should be preserved (e.g., when expanding/collapsing individual WBS groups)
-            const shouldPreserveScroll = this.preserveScrollOnUpdate;
+            // Use BOTH the boolean flag AND a time-based cooldown to handle Power BI re-triggers
+            const now = Date.now();
+            const inCooldownPeriod = now < this.scrollPreservationUntil;
+            const shouldPreserveScroll = this.preserveScrollOnUpdate || inCooldownPeriod;
+
+            this.debugLog(`Scroll preservation check: flag=${this.preserveScrollOnUpdate}, inCooldown=${inCooldownPeriod}, shouldPreserve=${shouldPreserveScroll}, scrollTop=${node.scrollTop}`);
+
             this.preserveScrollOnUpdate = false; // Reset flag after checking
 
             if (!shouldPreserveScroll && !this.scrollThrottleTimeout && node.scrollTop > 0) {
@@ -8495,6 +8506,8 @@ private toggleWbsGroupExpansion(groupId: string): void {
     if (this.lastUpdateOptions) {
         this.forceFullUpdate = true;
         this.preserveScrollOnUpdate = true; // Preserve scroll for individual group expansion
+        // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
+        this.scrollPreservationUntil = Date.now() + 500;
         this.updateInternal(this.lastUpdateOptions);
     }
 }
