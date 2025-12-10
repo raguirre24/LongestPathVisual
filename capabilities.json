@@ -155,18 +155,23 @@
         "connectorLines": {
             "displayName": "Connector Lines",
             "properties": {
-                "showConnectorToggle": { 
-                    "displayName": "Show Connector Toggle Button", 
-                    "description": "Show or hide the connector lines toggle button in the header", 
-                    "type": { "bool": true } 
+                "showConnectorToggle": {
+                    "displayName": "Show Connector Toggle Button",
+                    "description": "Show or hide the connector lines toggle button in the header",
+                    "type": { "bool": true }
+                },
+                "showConnectorLines": {
+                    "displayName": "Show Connector Lines",
+                    "description": "Display connector lines between dependent tasks",
+                    "type": { "bool": true }
                 },
                 "connectorColor": { "displayName": "Connector Color", "type": { "fill": { "solid": { "color": true } } } },
                 "connectorWidth": { "displayName": "Connector Width", "type": { "numeric": true } },
                 "criticalConnectorWidth": { "displayName": "Longest Path Width", "type": { "numeric": true } },
-                "elbowOffset": { 
-                    "displayName": "Elbow Offset", 
+                "elbowOffset": {
+                    "displayName": "Elbow Offset",
                     "description": "Controls the distance of connector line bends",
-                    "type": { "numeric": true } 
+                    "type": { "numeric": true }
                 }
             }
         },

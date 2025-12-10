@@ -2768,16 +2768,25 @@ private toggleConnectorLinesDisplay(): void {
         this.showConnectorLinesInternal = !this.showConnectorLinesInternal;
         this.debugLog("New showConnectorLinesInternal value:", this.showConnectorLinesInternal);
 
+        // Persist the connector lines state
+        this.host.persistProperties({
+            merge: [{
+                objectName: "connectorLines",
+                properties: { showConnectorLines: this.showConnectorLinesInternal },
+                selector: null
+            }]
+        });
+
         // Update visual immediately without requiring user scroll
         this.redrawVisibleTasks();
-        
+
         // Update button appearance using current viewport width to avoid layout jump
         const viewportWidth = this.lastUpdateOptions?.viewport?.width
             || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
             || 800;
         this.createConnectorLinesToggleButton(viewportWidth);
-        
-        this.debugLog("Connector lines toggled without full update");
+
+        this.debugLog("Connector lines toggled and persisted");
     } catch (error) {
         console.error("Error in connector toggle method:", error);
     }
@@ -2891,6 +2900,11 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         if (this.settings?.taskAppearance?.showPreviousUpdate !== undefined) {
             this.showPreviousUpdateInternal = this.settings.taskAppearance.showPreviousUpdate.value;
+        }
+
+        // Sync connector lines state with settings
+        if (this.settings?.connectorLines?.showConnectorLines !== undefined) {
+            this.showConnectorLinesInternal = this.settings.connectorLines.showConnectorLines.value;
         }
 
         // Sync WBS expand/collapse state with settings

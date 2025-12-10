@@ -112,21 +112,26 @@ class TaskAppearanceCard extends Card {
         description: "Show or hide the connector lines toggle button in the header",
         value: false // Default to hidden
     });
+    showConnectorLines = new ToggleSwitch({
+        name: "showConnectorLines",
+        displayName: "Show Connector Lines",
+        description: "Display connector lines between dependent tasks",
+        value: true // Default to showing connector lines
+    });
     connectorColor = new ColorPicker({ name: "connectorColor", displayName: "Connector Color", value: { value: "#555555" } });
     connectorWidth = new NumUpDown({ name: "connectorWidth", displayName: "Connector Width (px)", value: 0.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
     criticalConnectorWidth = new NumUpDown({ name: "criticalConnectorWidth", displayName: "Longest Path Width (px)", value: 0.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 8 } } });
-    // Remove arrowSize property
-    elbowOffset = new NumUpDown({ 
-        name: "elbowOffset", 
-        displayName: "Elbow Offset (px)", 
+    elbowOffset = new NumUpDown({
+        name: "elbowOffset",
+        displayName: "Elbow Offset (px)",
         description: "Controls the distance of connector line bends",
-        value: 15, 
-        options: { 
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 }, 
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 } 
-        } 
+        value: 15,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 }
+        }
     });
-    slices: Slice[] = [ this.showConnectorToggle, this.connectorColor, this.connectorWidth, this.criticalConnectorWidth, this.elbowOffset ];
+    slices: Slice[] = [ this.showConnectorToggle, this.showConnectorLines, this.connectorColor, this.connectorWidth, this.criticalConnectorWidth, this.elbowOffset ];
 }
 
 class TextAndLabelsCard extends Card {
