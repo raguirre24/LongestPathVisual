@@ -2528,6 +2528,12 @@ private createFloatThresholdControl(): void {
         return;
     }
 
+    // Get responsive layout mode
+    const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
+    const layoutMode = this.getLayoutMode(viewportWidth);
+    const isCompact = layoutMode === 'narrow';
+    const isMedium = layoutMode === 'medium';
+
     // Premium control container with elevated design
     // Position in the right corner of the header
     const controlContainer = this.stickyHeaderContainer.append("div")
@@ -2539,9 +2545,9 @@ private createFloatThresholdControl(): void {
         .style("top", `${this.UI_TOKENS.spacing.sm}px`)
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", `${this.UI_TOKENS.spacing.md}px`)
+        .style("gap", isCompact ? `${this.UI_TOKENS.spacing.sm}px` : `${this.UI_TOKENS.spacing.md}px`)
         .style("height", `${this.UI_TOKENS.height.comfortable}px`)
-        .style("padding", `0 ${this.UI_TOKENS.spacing.xl}px`)
+        .style("padding", isCompact ? `0 ${this.UI_TOKENS.spacing.md}px` : `0 ${this.UI_TOKENS.spacing.xl}px`)
         .style("background-color", this.UI_TOKENS.color.neutral.white)
         .style("border", `2px solid ${this.UI_TOKENS.color.warning.default}`)
         .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
@@ -2568,7 +2574,8 @@ private createFloatThresholdControl(): void {
         .attr("r", iconSize/2)
         .attr("fill", this.UI_TOKENS.color.warning.default);
 
-    // Descriptive label with enhanced typography
+    // Descriptive label with enhanced typography - responsive text
+    const labelText = isCompact ? "NC ≤" : (isMedium ? "Near-Crit ≤" : "Near-Critical ≤");
     labelContainer.append("span")
         .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
         .style("letter-spacing", "0.2px")
@@ -2576,7 +2583,7 @@ private createFloatThresholdControl(): void {
         .style("font-family", "Segoe UI, sans-serif")
         .style("font-weight", this.UI_TOKENS.fontWeight.medium)
         .style("white-space", "nowrap")
-        .text("Near-Critical ≤");
+        .text(labelText);
 
     // Enhanced input field with premium styling
     this.floatThresholdInput = controlContainer.append("input")
@@ -2585,7 +2592,7 @@ private createFloatThresholdControl(): void {
         .attr("step", "1")
         .attr("value", this.floatThreshold)
         .attr("aria-label", "Near-critical threshold in days")
-        .style("width", "56px")
+        .style("width", isCompact ? "44px" : "56px")
         .style("height", "24px")
         .style("padding", `${this.UI_TOKENS.spacing.xs}px ${this.UI_TOKENS.spacing.md}px`)
         .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
@@ -2599,54 +2606,58 @@ private createFloatThresholdControl(): void {
         .style("color", this.UI_TOKENS.color.neutral.grey160)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Unit label with refined styling
-    controlContainer.append("span")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-        .style("letter-spacing", "0.2px")
-        .style("color", this.UI_TOKENS.color.neutral.grey130)
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-weight", this.UI_TOKENS.fontWeight.medium)
-        .style("white-space", "nowrap")
-        .text("days");
+    // Unit label with refined styling - hide in compact mode
+    if (!isCompact) {
+        controlContainer.append("span")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .style("letter-spacing", "0.2px")
+            .style("color", this.UI_TOKENS.color.neutral.grey130)
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-weight", this.UI_TOKENS.fontWeight.medium)
+            .style("white-space", "nowrap")
+            .text("days");
+    }
 
-    // Enhanced help icon with better accessibility
-    const helpIcon = controlContainer.append("div")
-        .attr("role", "button")
-        .attr("aria-label", "Information about near-critical threshold")
-        .attr("tabindex", "0")
-        .style("width", "18px")
-        .style("height", "18px")
-        .style("border-radius", "50%")
-        .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-        .style("background-color", this.UI_TOKENS.color.neutral.grey10)
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("justify-content", "center")
-        .style("cursor", "help")
-        .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
-        .style("color", this.UI_TOKENS.color.neutral.grey130)
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-weight", this.UI_TOKENS.fontWeight.bold)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-        .text("?");
+    // Enhanced help icon with better accessibility - hide in compact mode
+    if (!isCompact) {
+        const helpIcon = controlContainer.append("div")
+            .attr("role", "button")
+            .attr("aria-label", "Information about near-critical threshold")
+            .attr("tabindex", "0")
+            .style("width", "18px")
+            .style("height", "18px")
+            .style("border-radius", "50%")
+            .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+            .style("background-color", this.UI_TOKENS.color.neutral.grey10)
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("cursor", "help")
+            .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
+            .style("color", this.UI_TOKENS.color.neutral.grey130)
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-weight", this.UI_TOKENS.fontWeight.bold)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+            .text("?");
 
-    helpIcon.append("title")
-        .text("Tasks with Total Float less than or equal to this value will be highlighted as near-critical path tasks");
+        helpIcon.append("title")
+            .text("Tasks with Total Float less than or equal to this value will be highlighted as near-critical path tasks");
 
-    // Enhanced hover interactions for help icon
-    helpIcon
-        .on("mouseover", function() {
-            d3.select(this)
-                .style("background-color", this.UI_TOKENS.color.warning.light)
-                .style("border-color", this.UI_TOKENS.color.warning.default)
-                .style("color", this.UI_TOKENS.color.warning.default);
-        }.bind(this))
-        .on("mouseout", function() {
-            d3.select(this)
-                .style("background-color", this.UI_TOKENS.color.neutral.grey10)
-                .style("border-color", this.UI_TOKENS.color.neutral.grey60)
-                .style("color", this.UI_TOKENS.color.neutral.grey130);
-        }.bind(this));
+        // Enhanced hover interactions for help icon
+        helpIcon
+            .on("mouseover", function() {
+                d3.select(this)
+                    .style("background-color", this.UI_TOKENS.color.warning.light)
+                    .style("border-color", this.UI_TOKENS.color.warning.default)
+                    .style("color", this.UI_TOKENS.color.warning.default);
+            }.bind(this))
+            .on("mouseout", function() {
+                d3.select(this)
+                    .style("background-color", this.UI_TOKENS.color.neutral.grey10)
+                    .style("border-color", this.UI_TOKENS.color.neutral.grey60)
+                    .style("color", this.UI_TOKENS.color.neutral.grey130);
+            }.bind(this));
+    }
 
     // Enhanced input interactions
     const self = this;
@@ -6937,6 +6948,17 @@ private updatePathInfoLabel(): void {
         return;
     }
 
+    // Get responsive layout mode
+    const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
+    const layoutMode = this.getLayoutMode(viewportWidth);
+    const isCompact = layoutMode === 'narrow';
+    const isMedium = layoutMode === 'medium';
+
+    // Update container padding based on layout mode
+    this.pathInfoLabel
+        .style("padding", isCompact ? `0 ${this.UI_TOKENS.spacing.sm}px` : `0 ${this.UI_TOKENS.spacing.lg}px`)
+        .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.md}px`);
+
     // Clear existing content
     this.pathInfoLabel.selectAll("*").remove();
 
@@ -6997,35 +7019,42 @@ private updatePathInfoLabel(): void {
         self.navigateToPreviousPath();
     });
 
-    // Professional path info text container
+    // Professional path info text container - responsive layout
     const infoContainer = this.pathInfoLabel.append("div")
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", `${this.UI_TOKENS.spacing.md}px`)
-        .style("padding", "0 6px");
+        .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.md}px`)
+        .style("padding", isCompact ? "0 2px" : "0 6px");
 
+    // Path indicator - always show, but compact in narrow mode
     infoContainer.append("span")
         .style("font-weight", "700")  // Bolder
         .style("letter-spacing", "0.3px")
-        .text(`Path ${pathNumber}/${totalPaths}`);
+        .text(isCompact ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`);
 
-    infoContainer.append("span")
-        .style("color", this.UI_TOKENS.color.primary.default)
-        .style("font-weight", "600")
-        .text("•");
+    // Show additional info only in wide and medium modes
+    if (!isCompact) {
+        infoContainer.append("span")
+            .style("color", this.UI_TOKENS.color.primary.default)
+            .style("font-weight", "600")
+            .text("•");
 
-    infoContainer.append("span")
-        .style("font-weight", "500")
-        .text(`${taskCount} tasks`);
+        infoContainer.append("span")
+            .style("font-weight", "500")
+            .text(`${taskCount} tasks`);
 
-    infoContainer.append("span")
-        .style("color", this.UI_TOKENS.color.primary.default)
-        .style("font-weight", "600")
-        .text("•");
+        // Duration only in wide mode
+        if (!isMedium) {
+            infoContainer.append("span")
+                .style("color", this.UI_TOKENS.color.primary.default)
+                .style("font-weight", "600")
+                .text("•");
 
-    infoContainer.append("span")
-        .style("font-weight", "500")
-        .text(`${duration} days`);
+            infoContainer.append("span")
+                .style("font-weight", "500")
+                .text(`${duration} days`);
+        }
+    }
 
     // Professional Next button with SVG arrow
     const nextButton = this.pathInfoLabel.append("div")
