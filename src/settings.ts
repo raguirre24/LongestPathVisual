@@ -112,21 +112,26 @@ class TaskAppearanceCard extends Card {
         description: "Show or hide the connector lines toggle button in the header",
         value: false // Default to hidden
     });
+    showConnectorLines = new ToggleSwitch({
+        name: "showConnectorLines",
+        displayName: "Show Connector Lines",
+        description: "Display connector lines between dependent tasks",
+        value: true // Default to showing connector lines
+    });
     connectorColor = new ColorPicker({ name: "connectorColor", displayName: "Connector Color", value: { value: "#555555" } });
     connectorWidth = new NumUpDown({ name: "connectorWidth", displayName: "Connector Width (px)", value: 0.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
     criticalConnectorWidth = new NumUpDown({ name: "criticalConnectorWidth", displayName: "Longest Path Width (px)", value: 0.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 8 } } });
-    // Remove arrowSize property
-    elbowOffset = new NumUpDown({ 
-        name: "elbowOffset", 
-        displayName: "Elbow Offset (px)", 
+    elbowOffset = new NumUpDown({
+        name: "elbowOffset",
+        displayName: "Elbow Offset (px)",
         description: "Controls the distance of connector line bends",
-        value: 15, 
-        options: { 
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 }, 
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 } 
-        } 
+        value: 15,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 }
+        }
     });
-    slices: Slice[] = [ this.showConnectorToggle, this.connectorColor, this.connectorWidth, this.criticalConnectorWidth, this.elbowOffset ];
+    slices: Slice[] = [ this.showConnectorToggle, this.showConnectorLines, this.connectorColor, this.connectorWidth, this.criticalConnectorWidth, this.elbowOffset ];
 }
 
 class TextAndLabelsCard extends Card {
@@ -219,10 +224,16 @@ class VerticalGridLinesCard extends Card {
 class ProjectEndLineCard extends Card {
     name: string = "projectEndLine"; displayName: string = "Project End Line";
     show = new ToggleSwitch({ name: "show", displayName: "Show Line", value: true });
-    lineColor = new ColorPicker({ name: "lineColor", displayName: "Color", value: { value: "green" } });
-    lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
-    lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
-    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle];
+    lineColor = new ColorPicker({ name: "lineColor", displayName: "Line Color", value: { value: "#4CAF50" } });
+    lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
+    lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
+    showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", description: "Show the finish date label", value: true });
+    labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", description: "Color of the finish date label text", value: { value: "#333333" } });
+    labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
+    showLabelPrefix = new ToggleSwitch({ name: "showLabelPrefix", displayName: "Show 'Finish:' Prefix", description: "Include 'Finish:' before the date", value: true });
+    labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", description: "Background color for the label", value: { value: "#FFFFFF" } });
+    labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
+    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
 }
 
 class DisplayOptionsCard extends Card {
@@ -267,11 +278,34 @@ class CriticalityModeCard extends Card {
 }
 class TaskSelectionCard extends Card {
     name: string = "taskSelection"; displayName: string = "Task Selection";
-    
+
     enableTaskSelection = new ToggleSwitch({
         name: "enableTaskSelection",
         displayName: "Enable Task Selection",
         value: true
+    });
+
+    dropdownWidth = new NumUpDown({
+        name: "dropdownWidth",
+        displayName: "Dropdown Width (px)",
+        description: "Width of the task selection dropdown",
+        value: 280,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 150 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 500 }
+        }
+    });
+
+    dropdownPosition = new ItemDropdown({
+        name: "dropdownPosition",
+        displayName: "Dropdown Position",
+        description: "Position of the task selection dropdown in the header",
+        items: [
+            { value: "left", displayName: "Left" },
+            { value: "center", displayName: "Center" },
+            { value: "right", displayName: "Right" }
+        ],
+        value: { value: "left", displayName: "Left" }
     });
 
     showSelectedTaskLabel = new ToggleSwitch({
@@ -293,6 +327,8 @@ class TaskSelectionCard extends Card {
 
     slices: Slice[] = [
         this.enableTaskSelection,
+        this.dropdownWidth,
+        this.dropdownPosition,
         this.showSelectedTaskLabel,
         this.traceMode
     ];

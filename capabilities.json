@@ -110,28 +110,10 @@
             "description": "Categorical field to color tasks (e.g., WBS, Department, Phase)"
         },
         {
-            "name": "wbsLevel2",
+            "name": "wbsLevels",
             "kind": "Grouping",
-            "displayName": "WBS Level 2",
-            "description": "Work Breakdown Structure Level 2 grouping field"
-        },
-        {
-            "name": "wbsLevel3",
-            "kind": "Grouping",
-            "displayName": "WBS Level 3",
-            "description": "Work Breakdown Structure Level 3 grouping field"
-        },
-        {
-            "name": "wbsLevel4",
-            "kind": "Grouping",
-            "displayName": "WBS Level 4",
-            "description": "Work Breakdown Structure Level 4 grouping field"
-        },
-        {
-            "name": "wbsLevel5",
-            "kind": "Grouping",
-            "displayName": "WBS Level 5",
-            "description": "Work Breakdown Structure Level 5 grouping field"
+            "displayName": "WBS Levels",
+            "description": "Work Breakdown Structure hierarchy levels - add fields in order from highest to lowest level (e.g., Phase, Discipline, Activity)"
         }
     ],
     "objects": {
@@ -173,18 +155,23 @@
         "connectorLines": {
             "displayName": "Connector Lines",
             "properties": {
-                "showConnectorToggle": { 
-                    "displayName": "Show Connector Toggle Button", 
-                    "description": "Show or hide the connector lines toggle button in the header", 
-                    "type": { "bool": true } 
+                "showConnectorToggle": {
+                    "displayName": "Show Connector Toggle Button",
+                    "description": "Show or hide the connector lines toggle button in the header",
+                    "type": { "bool": true }
+                },
+                "showConnectorLines": {
+                    "displayName": "Show Connector Lines",
+                    "description": "Display connector lines between dependent tasks",
+                    "type": { "bool": true }
                 },
                 "connectorColor": { "displayName": "Connector Color", "type": { "fill": { "solid": { "color": true } } } },
                 "connectorWidth": { "displayName": "Connector Width", "type": { "numeric": true } },
                 "criticalConnectorWidth": { "displayName": "Longest Path Width", "type": { "numeric": true } },
-                "elbowOffset": { 
-                    "displayName": "Elbow Offset", 
+                "elbowOffset": {
+                    "displayName": "Elbow Offset",
                     "description": "Controls the distance of connector line bends",
-                    "type": { "numeric": true } 
+                    "type": { "numeric": true }
                 }
             }
         },
@@ -192,25 +179,33 @@
             "displayName": "Task Selection",
             "properties": {
                 "enableTaskSelection": { "displayName": "Enable Task Selection", "type": { "bool": true } },
-                "dropdownWidth": { "displayName": "Dropdown Width", "type": { "numeric": true } },
-                "dropdownPosition": { "displayName": "Position", "type": { "enumeration": [
-                    { "value": "top", "displayName": "Top" },
-                    { "value": "topRight", "displayName": "Top Right" },
-                    { "value": "topLeft", "displayName": "Top Left" }
-                ] } },
-             "showSelectedTaskLabel": { "displayName": "Show Selected Task Label", "type": { "bool": true } },
-             "traceMode": {
-            "displayName": "Trace Mode", 
-            "description": "Select whether to trace critical path backward to or forward from the selected task",
-            "type": { 
-                "enumeration": [
-                    { "value": "backward", "displayName": "Trace Backward" },
-                    { "value": "forward", "displayName": "Trace Forward" }
-                ] 
+                "dropdownWidth": {
+                    "displayName": "Dropdown Width (px)",
+                    "description": "Width of the task selection dropdown",
+                    "type": { "numeric": true }
+                },
+                "dropdownPosition": {
+                    "displayName": "Dropdown Position",
+                    "description": "Position of the task selection dropdown in the header",
+                    "type": { "enumeration": [
+                        { "value": "left", "displayName": "Left" },
+                        { "value": "center", "displayName": "Center" },
+                        { "value": "right", "displayName": "Right" }
+                    ] }
+                },
+                "showSelectedTaskLabel": { "displayName": "Show Selected Task Label", "type": { "bool": true } },
+                "traceMode": {
+                    "displayName": "Trace Mode",
+                    "description": "Select whether to trace critical path backward to or forward from the selected task",
+                    "type": {
+                        "enumeration": [
+                            { "value": "backward", "displayName": "Trace Backward" },
+                            { "value": "forward", "displayName": "Trace Forward" }
+                        ]
+                    }
+                }
             }
-          }
-       }
-      },
+        },
         "textAndLabels": {
             "displayName": "Text & Labels",
             "properties": {
@@ -256,10 +251,16 @@
         "projectEndLine": {
             "displayName": "Project End Line",
             "properties": {
-                 "show": { "displayName": "Show Line", "description": "Show the vertical line indicating latest finish date", "type": { "bool": true } },
-                 "lineColor": { "displayName": "Color", "description": "Color of the project end line and label", "type": { "fill": { "solid": { "color": true } } } },
-                 "lineWidth": { "displayName": "Width (px)", "description": "Width of the project end line", "type": { "numeric": true } },
-                 "lineStyle": { "displayName": "Style", "description": "Style of the project end line", "type": { "enumeration": [ { "value": "solid", "displayName": "Solid" }, { "value": "dashed", "displayName": "Dashed" }, { "value": "dotted", "displayName": "Dotted" } ] } }
+                "show": { "displayName": "Show Line", "description": "Show the vertical line indicating latest finish date", "type": { "bool": true } },
+                "lineColor": { "displayName": "Line Color", "description": "Color of the project end line", "type": { "fill": { "solid": { "color": true } } } },
+                "lineWidth": { "displayName": "Line Width (px)", "description": "Width of the project end line", "type": { "numeric": true } },
+                "lineStyle": { "displayName": "Line Style", "description": "Style of the project end line", "type": { "enumeration": [ { "value": "solid", "displayName": "Solid" }, { "value": "dashed", "displayName": "Dashed" }, { "value": "dotted", "displayName": "Dotted" } ] } },
+                "showLabel": { "displayName": "Show Label", "description": "Show the finish date label", "type": { "bool": true } },
+                "labelColor": { "displayName": "Label Color", "description": "Color of the finish date label text", "type": { "fill": { "solid": { "color": true } } } },
+                "labelFontSize": { "displayName": "Label Font Size (pt)", "description": "Font size for the finish date label", "type": { "numeric": true } },
+                "showLabelPrefix": { "displayName": "Show 'Finish:' Prefix", "description": "Include 'Finish:' before the date", "type": { "bool": true } },
+                "labelBackgroundColor": { "displayName": "Label Background", "description": "Background color for the label", "type": { "fill": { "solid": { "color": true } } } },
+                "labelBackgroundTransparency": { "displayName": "Label Background Transparency (%)", "description": "Transparency of the label background (0=Opaque, 100=Invisible)", "type": { "numeric": true } }
             }
         },
         "displayOptions": {
@@ -481,10 +482,7 @@
                         { "bind": { "to": "relationshipFreeFloat" } },
                         { "bind": { "to": "tooltip" } },
                         { "bind": { "to": "legend" } },
-                        { "bind": { "to": "wbsLevel2" } },
-                        { "bind": { "to": "wbsLevel3" } },
-                        { "bind": { "to": "wbsLevel4" } },
-                        { "bind": { "to": "wbsLevel5" } }
+                        { "for": { "in": "wbsLevels" } }
                     ],
                     "dataReductionAlgorithm": { "top": { "count": 60000 } }
                 }
