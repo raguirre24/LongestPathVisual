@@ -293,6 +293,7 @@ export class Visual implements IVisual {
     private wbsExpandedState: Map<string, boolean> = new Map(); // Persisted expand/collapse state
     private wbsExpandToLevel: number | null | undefined = undefined; // null = expand all, 0 = collapse all, number = expand to depth
     private wbsAvailableLevels: number[] = [];                  // Unique WBS levels detected in data
+    private wbsManualExpansionOverride: boolean = false;        // When true, honor per-group manual expansion even if global toggle is collapsed
     private wbsGroupLayer: Selection<SVGGElement, unknown, null, undefined>; // SVG layer for group headers
     private lastExpandCollapseAllState: boolean | null = null;  // Track expand/collapse all toggle state
 
@@ -2283,6 +2284,7 @@ private toggleWbsExpandCollapseDisplay(): void {
             availableLevels: this.wbsAvailableLevels
         });
 
+        this.wbsManualExpansionOverride = false;
         this.applyWbsExpandLevel(effectiveNext);
 
         // Persist the general expand/collapse intent for backwards compatibility
@@ -2294,8 +2296,11 @@ private toggleWbsExpandCollapseDisplay(): void {
             }]
         });
 
-        // Update button appearance
-        this.createWbsExpandCollapseToggleButton();
+        // Update button appearance using current viewport width to avoid layout jump
+        const viewportWidth = this.lastUpdateOptions?.viewport?.width
+            || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
+            || 800;
+        this.createWbsExpandCollapseToggleButton(viewportWidth);
 
         // Force full update to re-render with new expansion state
         // Explicitly reset scroll to top when using expand/collapse ALL button
@@ -2763,25 +2768,14 @@ private toggleConnectorLinesDisplay(): void {
         this.showConnectorLinesInternal = !this.showConnectorLinesInternal;
         this.debugLog("New showConnectorLinesInternal value:", this.showConnectorLinesInternal);
 
-        // Update visual immediately without full redraw
-        if (this.showConnectorLinesInternal) {
-            // Show connectors
-            if (this.useCanvasRendering) {
-                this.redrawVisibleTasks();
-            } else {
-                this.arrowLayer?.style("visibility", "visible");
-            }
-        } else {
-            // Hide connectors
-            if (this.useCanvasRendering) {
-                this.redrawVisibleTasks();
-            } else {
-                this.arrowLayer?.style("visibility", "hidden");
-            }
-        }
+        // Update visual immediately without requiring user scroll
+        this.redrawVisibleTasks();
         
-        // Update button appearance
-        this.createConnectorLinesToggleButton();
+        // Update button appearance using current viewport width to avoid layout jump
+        const viewportWidth = this.lastUpdateOptions?.viewport?.width
+            || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
+            || 800;
+        this.createConnectorLinesToggleButton(viewportWidth);
         
         this.debugLog("Connector lines toggled without full update");
     } catch (error) {
@@ -2891,8 +2885,8 @@ private async updateInternal(options: VisualUpdateOptions) {
         // Sync WBS expand/collapse state with settings
         if (this.settings?.wbsGrouping?.expandCollapseAll !== undefined) {
             this.wbsExpandedInternal = this.settings.wbsGrouping.expandCollapseAll.value;
-            // Default expand depth follows existing toggle unless user selects a level later
-            if (this.wbsExpandToLevel === undefined) {
+            // Default expand depth follows existing toggle unless user manually overrode later
+            if (!this.wbsManualExpansionOverride && this.wbsExpandToLevel === undefined) {
                 this.wbsExpandToLevel = this.wbsExpandedInternal ? undefined : 0;
             }
         }
@@ -3205,12 +3199,14 @@ private async updateInternal(options: VisualUpdateOptions) {
         // Create/update the margin resizer after SVG is properly sized
         this.createMarginResizer();
 
-        const availableContentHeight = viewportHeight - this.headerHeight;
-        if (totalSvgHeight > availableContentHeight && totalRows > 1) {
-            this.scrollableContainer.style("height", `${availableContentHeight}px`).style("overflow-y", "scroll");
-        } else {
-            this.scrollableContainer.style("height", `${Math.min(totalSvgHeight, availableContentHeight)}px`).style("overflow-y", "hidden");
-        }
+        const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
+        const legendOffset = legendVisible ? this.legendFooterHeight : 0;
+        const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
+
+        // Always fill the available viewport height (minus header/legend) so the legend stays pinned.
+        this.scrollableContainer
+            .style("height", `${availableContentHeight}px`)
+            .style("overflow-y", totalSvgHeight > availableContentHeight ? "scroll" : "hidden");
 
         // Update taskElementHeight before scroll adjustment (needed for position calculation)
         this.taskElementHeight = taskHeight + taskPadding;
@@ -3262,18 +3258,15 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         
         // Recalculate chart dimensions
         const chartWidth = Math.max(10, viewportWidth - this.settings.layoutSettings.leftMargin.value - this.margin.right);
-        const availableContentHeight = viewportHeight - this.headerHeight;
+        const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
+        const legendOffset = legendVisible ? this.legendFooterHeight : 0;
+        const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
         const totalSvgHeight = this.taskTotalCount * this.taskElementHeight + 
                              this.margin.top + this.margin.bottom;
         
-        // Update scroll container
-        if (totalSvgHeight > availableContentHeight) {
-            this.scrollableContainer.style("height", `${availableContentHeight}px`)
-                                  .style("overflow-y", "scroll");
-        } else {
-            this.scrollableContainer.style("height", `${Math.min(totalSvgHeight, availableContentHeight)}px`)
-                                  .style("overflow-y", "hidden");
-        }
+        // Always fill available height (minus header/legend) to keep legend pinned
+        this.scrollableContainer.style("height", `${availableContentHeight}px`)
+                              .style("overflow-y", totalSvgHeight > availableContentHeight ? "scroll" : "hidden");
         
         // Update SVG dimensions
         this.mainSvg.attr("width", viewportWidth);
@@ -8663,7 +8656,7 @@ private processWBSData(): void {
 
     // Track which levels exist and re-apply any level-based expansion preference
     this.refreshWbsAvailableLevels();
-    if (this.wbsExpandToLevel !== undefined) {
+    if (this.wbsExpandToLevel !== undefined && !this.wbsManualExpansionOverride) {
         this.applyWbsExpandLevel(this.wbsExpandToLevel);
     }
 
@@ -8765,6 +8758,7 @@ private toggleWbsGroupExpansion(groupId: string): void {
 
     // Switching a single group puts us in manual mode (stop enforcing level-based expansion)
     this.wbsExpandToLevel = undefined;
+    this.wbsManualExpansionOverride = true;
 
     group.isExpanded = !group.isExpanded;
     this.wbsExpandedState.set(groupId, group.isExpanded);
@@ -10674,13 +10668,9 @@ private ensureTaskVisible(taskId: string): void {
 
         // Check if legend should be shown
         const showLegend = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
-
-        // Update scrollable container height based on legend visibility
-        if (showLegend) {
-            this.scrollableContainer.style("height", `calc(100% - ${this.headerHeight + this.legendFooterHeight}px)`);
-        } else {
-            this.scrollableContainer.style("height", `calc(100% - ${this.headerHeight}px)`);
-        }
+        const legendOffset = showLegend ? this.legendFooterHeight : 0;
+        const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
+        this.scrollableContainer.style("height", `${availableContentHeight}px`);
 
         if (!showLegend) {
             this.legendContainer.style("display", "none");

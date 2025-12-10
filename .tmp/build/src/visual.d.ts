@@ -91,6 +91,7 @@ export declare class Visual implements IVisual {
     private wbsExpandedState;
     private wbsExpandToLevel;
     private wbsAvailableLevels;
+    private wbsManualExpansionOverride;
     private wbsGroupLayer;
     private lastExpandCollapseAllState;
     private tooltipDebugLogged;
