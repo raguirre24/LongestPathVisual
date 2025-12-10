@@ -483,6 +483,111 @@ export class Visual implements IVisual {
         }
     };
 
+    // ============================================================================
+    // RESPONSIVE LAYOUT SYSTEM - Viewport-aware button sizing and positioning
+    // ============================================================================
+    private readonly LAYOUT_BREAKPOINTS = {
+        wide: 850,      // Full labels on all buttons
+        medium: 650,    // Shorter labels, compact spacing
+        narrow: 0       // Icon-only for secondary buttons
+    };
+
+    /**
+     * Determines the current layout mode based on viewport width
+     */
+    private getLayoutMode(viewportWidth: number): 'wide' | 'medium' | 'narrow' {
+        if (viewportWidth >= this.LAYOUT_BREAKPOINTS.wide) return 'wide';
+        if (viewportWidth >= this.LAYOUT_BREAKPOINTS.medium) return 'medium';
+        return 'narrow';
+    }
+
+    /**
+     * Returns button dimensions and positions based on current layout mode
+     * This centralizes all responsive layout calculations
+     */
+    private getHeaderButtonLayout(viewportWidth: number): {
+        mode: 'wide' | 'medium' | 'narrow';
+        showAllCritical: { x: number; width: number; showText: boolean };
+        modeToggle: { x: number; width: number; showFullLabels: boolean };
+        baseline: { x: number; width: number; iconOnly: boolean };
+        previousUpdate: { x: number; width: number; iconOnly: boolean };
+        connectorLines: { x: number; size: number };
+        wbsToggle: { x: number; size: number };
+        gap: number;
+    } {
+        const mode = this.getLayoutMode(viewportWidth);
+        const gap = mode === 'wide' ? 12 : (mode === 'medium' ? 8 : 6);
+        const iconButtonSize = 36;
+        let x = 10; // Starting position
+
+        // Show All/Critical button
+        const showAllWidth = mode === 'narrow' ? 100 : 140;
+        const showAllCritical = { x, width: showAllWidth, showText: true };
+        x += showAllWidth + gap;
+
+        // Mode Toggle (LP/Float)
+        const modeWidth = mode === 'wide' ? 200 : (mode === 'medium' ? 160 : 120);
+        const modeToggle = { x, width: modeWidth, showFullLabels: mode === 'wide' };
+        x += modeWidth + gap;
+
+        // Baseline button - icon-only in narrow mode
+        const baselineIconOnly = mode === 'narrow';
+        const baselineWidth = baselineIconOnly ? iconButtonSize : (mode === 'medium' ? 90 : 110);
+        const baseline = { x, width: baselineWidth, iconOnly: baselineIconOnly };
+        x += baselineWidth + gap;
+
+        // Previous Update button - icon-only in narrow mode
+        const prevIconOnly = mode === 'narrow';
+        const prevWidth = prevIconOnly ? iconButtonSize : (mode === 'medium' ? 90 : 120);
+        const previousUpdate = { x, width: prevWidth, iconOnly: prevIconOnly };
+        x += prevWidth + gap;
+
+        // Connector Lines button (always icon-only)
+        const connectorLines = { x, size: iconButtonSize };
+        x += iconButtonSize + gap;
+
+        // WBS Toggle button (always icon-only)
+        const wbsToggle = { x, size: iconButtonSize };
+
+        return {
+            mode,
+            showAllCritical,
+            modeToggle,
+            baseline,
+            previousUpdate,
+            connectorLines,
+            wbsToggle,
+            gap
+        };
+    }
+
+    /**
+     * Returns second row layout (dropdown, trace mode toggle) based on viewport width
+     */
+    private getSecondRowLayout(viewportWidth: number): {
+        dropdown: { width: number; left: number };
+        traceModeToggle: { left: number };
+        floatThreshold: { maxWidth: number };
+    } {
+        const mode = this.getLayoutMode(viewportWidth);
+
+        // Dropdown width scales with viewport
+        const dropdownWidth = mode === 'wide' ? 350 : (mode === 'medium' ? 280 : 200);
+        const dropdownLeft = 10;
+
+        // Trace mode toggle positioned after dropdown with gap
+        const traceModeLeft = dropdownLeft + dropdownWidth + 20;
+
+        // Float threshold control max width
+        const floatThresholdMaxWidth = mode === 'narrow' ? 180 : 250;
+
+        return {
+            dropdown: { width: dropdownWidth, left: dropdownLeft },
+            traceModeToggle: { left: traceModeLeft },
+            floatThreshold: { maxWidth: floatThresholdMaxWidth }
+        };
+    }
+
 constructor(options: VisualConstructorOptions) {
     this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
     this.target = options.element;
@@ -1334,6 +1439,7 @@ private togglePreviousUpdateDisplayInternal(): void {
 /**
  * Creates/updates the Show All/Show Critical toggle button with professional Fluent design
  * UPGRADED: Enhanced visuals, better spacing, smoother animations, refined icons
+ * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
  */
 private createOrUpdateToggleButton(viewportWidth: number): void {
     if (!this.toggleButtonGroup || !this.headerSvg) return;
@@ -1346,12 +1452,12 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
 
     this.toggleButtonGroup.selectAll("*").remove();
 
-    // Professional dimensions with upgraded sizing
-    const buttonWidth = 140;  // Increased from 128 for better proportions
+    // Get responsive layout dimensions
+    const layout = this.getHeaderButtonLayout(viewportWidth);
+    const buttonWidth = layout.showAllCritical.width;
     const buttonHeight = this.UI_TOKENS.height.standard;
-    const buttonPadding = { left: this.UI_TOKENS.spacing.md, top: this.UI_TOKENS.spacing.sm };
-    const buttonX = buttonPadding.left;
-    const buttonY = buttonPadding.top;
+    const buttonX = layout.showAllCritical.x;
+    const buttonY = this.UI_TOKENS.spacing.sm;
 
     // Button state logic (text shows what clicking WILL do)
     const isShowingCritical = this.showAllTasksInternal;
@@ -1407,6 +1513,11 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Button text shows what clicking will DO
+    // Use shorter text in narrow mode
+    const buttonText = layout.mode === 'narrow'
+        ? (isShowingCritical ? "Critical" : "All")
+        : (isShowingCritical ? "Show Critical" : "Show All");
+
     this.toggleButtonGroup.append("text")
         .attr("x", buttonWidth / 2 + this.UI_TOKENS.spacing.md)
         .attr("y", buttonHeight / 2)
@@ -1419,7 +1530,7 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .style("letter-spacing", "0.2px")
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-        .text(isShowingCritical ? "Show Critical" : "Show All");
+        .text(buttonText);
 
     // Professional hover states with refined animations
     const self = this;
@@ -1501,6 +1612,10 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
     const hoverBaselineColor = this.lightenColor(baselineColor, 0.85);
     const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
 
+    // Get responsive layout
+    const layout = this.getHeaderButtonLayout(viewportWidth);
+    const { x: buttonX, width: buttonWidth, iconOnly } = layout.baseline;
+
     const baselineToggleGroup = this.headerSvg.append("g")
         .attr("class", "baseline-toggle-group")
         .style("cursor", isAvailable ? "pointer" : "not-allowed")
@@ -1510,10 +1625,7 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         .attr("aria-disabled", (!isAvailable).toString())
         .attr("tabindex", isAvailable ? "0" : "-1");
 
-    const buttonWidth = 138;  // Increased from 118 for better proportions
     const buttonHeight = this.UI_TOKENS.height.standard;
-    // Position after the Mode Toggle Button (10 + 140 + 12 + 230 + 12)
-    const buttonX = 404;
     const buttonY = this.UI_TOKENS.spacing.sm;
 
     baselineToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
@@ -1532,7 +1644,8 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Professional icon container with better visual hierarchy
-    const iconX = this.UI_TOKENS.spacing.lg + 2;
+    // Center icon when in icon-only mode, otherwise position for text
+    const iconX = iconOnly ? (buttonWidth / 2 - 8) : (this.UI_TOKENS.spacing.lg + 2);
     const iconY = buttonHeight / 2;
 
     // Icon background for better visual separation
@@ -1584,19 +1697,21 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Professional typography with better spacing
-    baselineToggleGroup.append("text")
-        .attr("x", iconX + 26)
-        .attr("y", buttonHeight / 2)
-        .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-        .style("fill", this.UI_TOKENS.color.neutral.grey160)
-        .style("font-weight", this.showBaselineInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
-        .style("letter-spacing", "0.2px")
-        .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-        .text(this.showBaselineInternal ? "Baseline" : "Baseline");
+    // Professional typography with better spacing - only show when not icon-only
+    if (!iconOnly) {
+        baselineToggleGroup.append("text")
+            .attr("x", iconX + 26)
+            .attr("y", buttonHeight / 2)
+            .attr("dominant-baseline", "central")
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+            .style("fill", this.UI_TOKENS.color.neutral.grey160)
+            .style("font-weight", this.showBaselineInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
+            .style("letter-spacing", "0.2px")
+            .style("pointer-events", "none")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+            .text("Baseline");
+    }
 
     // Enhanced tooltip
     baselineToggleGroup.append("title")
@@ -1669,6 +1784,10 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
     const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.80);
     const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
 
+    // Get responsive layout
+    const layout = this.getHeaderButtonLayout(viewportWidth);
+    const { x: buttonX, width: buttonWidth, iconOnly } = layout.previousUpdate;
+
     const previousUpdateToggleGroup = this.headerSvg.append("g")
         .attr("class", "previous-update-toggle-group")
         .style("cursor", isAvailable ? "pointer" : "not-allowed")
@@ -1678,10 +1797,7 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("aria-disabled", (!isAvailable).toString())
         .attr("tabindex", isAvailable ? "0" : "-1");
 
-    const buttonWidth = 150;
     const buttonHeight = this.UI_TOKENS.height.standard;
-    // Position after the Baseline Toggle Button (10 + 140 + 12 + 230 + 12 + 138 + 12)
-    const buttonX = 554;
     const buttonY = this.UI_TOKENS.spacing.sm;
 
     previousUpdateToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
@@ -1700,14 +1816,15 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Enhanced icon representing the stacking order (Main -> Previous Update -> Baseline)
-    const iconX = this.UI_TOKENS.spacing.lg;
+    // Center icon when in icon-only mode, otherwise position for text
+    const iconX = iconOnly ? (buttonWidth / 2 - 8) : this.UI_TOKENS.spacing.lg;
     const iconY = buttonHeight / 2;
 
     // Icon background circle
     previousUpdateToggleGroup.append("circle")
         .attr("cx", iconX + 8)
         .attr("cy", iconY)
-        .attr("r", 14)
+        .attr("r", iconOnly ? 11 : 14)
         .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey20)
         .attr("opacity", this.showPreviousUpdateInternal ? 0.15 : 0.5)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
@@ -1747,19 +1864,21 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Enhanced typography
-    previousUpdateToggleGroup.append("text")
-        .attr("x", iconX + 24)
-        .attr("y", buttonHeight / 2)
-        .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-        .style("letter-spacing", "0.2px")
-        .style("fill", this.UI_TOKENS.color.neutral.grey160)
-        .style("font-weight", this.showPreviousUpdateInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
-        .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-        .text("Prev Update");
+    // Enhanced typography - only show when not icon-only
+    if (!iconOnly) {
+        previousUpdateToggleGroup.append("text")
+            .attr("x", iconX + 24)
+            .attr("y", buttonHeight / 2)
+            .attr("dominant-baseline", "central")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+            .style("letter-spacing", "0.2px")
+            .style("fill", this.UI_TOKENS.color.neutral.grey160)
+            .style("font-weight", this.showPreviousUpdateInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
+            .style("pointer-events", "none")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+            .text("Prev Update");
+    }
 
     // Enhanced tooltip
     previousUpdateToggleGroup.append("title")
@@ -1835,6 +1954,10 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
     const showConnectorToggle = this.settings?.connectorLines?.showConnectorToggle?.value ?? false;
     if (!showConnectorToggle) return;
 
+    // Get responsive layout
+    const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+    const { x: buttonX, size: buttonSize } = layout.connectorLines;
+
     const connectorToggleGroup = this.headerSvg.append("g")
         .attr("class", "connector-toggle-group")
         .style("cursor", "pointer")
@@ -1843,10 +1966,6 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
         .attr("aria-pressed", this.showConnectorLinesInternal.toString())
         .attr("tabindex", "0");
 
-    // Modern icon-only button with proper sizing
-    const buttonSize = 36;
-    // Position after Previous Update Toggle (10 + 140 + 12 + 230 + 12 + 138 + 12 + 150 + 12)
-    const buttonX = 716;
     const buttonY = this.UI_TOKENS.spacing.sm;
 
     connectorToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
@@ -1976,6 +2095,10 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
     const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
     if (!wbsEnabled || !showWbsToggle) return;
 
+    // Get responsive layout
+    const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+    const { x: buttonX, size: buttonSize } = layout.wbsToggle;
+
     const wbsToggleGroup = this.headerSvg.append("g")
         .attr("class", "wbs-toggle-group")
         .style("cursor", "pointer")
@@ -1984,10 +2107,6 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
         .attr("aria-pressed", this.wbsExpandedInternal.toString())
         .attr("tabindex", "0");
 
-    // Icon-only button with proper sizing (same as connector toggle)
-    const buttonSize = 36;
-    // Position after Connector Lines Toggle (716 + 36 + 12 = 764)
-    const buttonX = 764;
     const buttonY = this.UI_TOKENS.spacing.sm;
 
     wbsToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
@@ -2148,6 +2267,7 @@ private toggleWbsExpandCollapseDisplay(): void {
 /**
  * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
  * UPGRADED: Professional pill-style toggle with smooth animations and refined visuals
+ * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
  */
 private createModeToggleButton(viewportWidth: number): void {
     if (!this.headerSvg) return;
@@ -2159,6 +2279,13 @@ private createModeToggleButton(viewportWidth: number): void {
     const dataView = this.lastUpdateOptions?.dataViews?.[0];
     const hasTotalFloat = dataView ? this.hasDataRole(dataView, 'taskTotalFloat') : false;
 
+    // Get responsive layout dimensions
+    const layout = this.getHeaderButtonLayout(viewportWidth);
+    const buttonWidth = layout.modeToggle.width;
+    const buttonHeight = this.UI_TOKENS.height.standard;
+    const buttonX = layout.modeToggle.x;
+    const buttonY = this.UI_TOKENS.spacing.sm;
+
     const modeToggleGroup = this.headerSvg.append("g")
         .attr("class", "mode-toggle-group")
         .style("cursor", hasTotalFloat ? "pointer" : "not-allowed")
@@ -2167,12 +2294,6 @@ private createModeToggleButton(viewportWidth: number): void {
         .attr("aria-pressed", isFloatBased.toString())
         .attr("aria-disabled", (!hasTotalFloat).toString())
         .attr("tabindex", hasTotalFloat ? "0" : "-1");
-
-    // Professional dimensions with upgraded sizing
-    const buttonWidth = 230;  // Increased from 210 for better proportions
-    const buttonHeight = this.UI_TOKENS.height.standard;
-    const buttonX = 162;  // After upgraded Show All/Critical toggle (10 + 140 + 12)
-    const buttonY = this.UI_TOKENS.spacing.sm;
 
     modeToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
@@ -2199,11 +2320,12 @@ private createModeToggleButton(viewportWidth: number): void {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Professional mode indicator pill with refined design
+    // Scale pill size based on button width
+    const pillWidth = Math.min(106, buttonWidth - 20);
+    const pillHeight = 22;
     const pillG = buttonG.append("g")
-        .attr("transform", `translate(${this.UI_TOKENS.spacing.lg}, ${buttonHeight/2})`);
+        .attr("transform", `translate(${(buttonWidth - pillWidth) / 2}, ${buttonHeight/2})`);
 
-    const pillWidth = 106;  // Slightly increased
-    const pillHeight = 22;  // Increased from 18 for better visual weight
     const pillX = isFloatBased ? pillWidth/2 : 0;
 
     // Background track with refined styling
@@ -9525,7 +9647,9 @@ private createTaskSelectionDropdown(): void {
     }
 
     const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
-    const dropdownWidth = 350;
+    const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
+    const secondRowLayout = this.getSecondRowLayout(viewportWidth);
+    const dropdownWidth = secondRowLayout.dropdown.width;
     const showSelectedTaskLabel = this.settings.taskSelection.showSelectedTaskLabel.value;
 
     // Show/hide dropdown based on settings
@@ -9537,12 +9661,12 @@ private createTaskSelectionDropdown(): void {
 
     // Remove existing input and list to recreate them
     this.dropdownContainer.selectAll("*").remove();
-    
-    // Position in second row of header - below the first row of toggles
+
+    // Position in second row of header - below the first row of toggles (responsive)
     this.dropdownContainer
         .style("position", "absolute")
         .style("top", "44px")    // Below first row (standard height 32px + spacing 12px)
-        .style("left", "10px")   // Align with other controls
+        .style("left", `${secondRowLayout.dropdown.left}px`)   // Responsive alignment
         .style("right", "auto")
         .style("transform", "none")
         .style("z-index", "20");
@@ -9971,11 +10095,15 @@ private createTraceModeToggle(): void {
     // HIDE the toggle completely when no task is selected (instead of graying out)
     if (!this.selectedTaskId) return;
 
+    // Get responsive layout position
+    const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
+    const secondRowLayout = this.getSecondRowLayout(viewportWidth);
+
     const toggleContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "trace-mode-toggle")
         .style("position", "absolute")
         .style("top", "44px")  // Align with task dropdown in second row
-        .style("left", "370px")
+        .style("left", `${secondRowLayout.traceModeToggle.left}px`)  // Responsive position
         .style("z-index", "20");
 
     const isDisabled = false;  // Never disabled since we only show when task is selected
