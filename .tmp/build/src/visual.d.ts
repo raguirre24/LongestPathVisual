@@ -84,10 +84,13 @@ export declare class Visual implements IVisual {
     private selectedLegendCategories;
     private legendSelectionIds;
     private wbsDataExists;
+    private wbsDataExistsInMetadata;
     private wbsGroups;
     private wbsGroupMap;
     private wbsRootGroups;
     private wbsExpandedState;
+    private wbsExpandToLevel;
+    private wbsAvailableLevels;
     private wbsGroupLayer;
     private lastExpandCollapseAllState;
     private tooltipDebugLogged;
@@ -96,6 +99,10 @@ export declare class Visual implements IVisual {
     private selectedPathIndex;
     private readonly VIEWPORT_CHANGE_THRESHOLD;
     private forceFullUpdate;
+    private preserveScrollOnUpdate;
+    private preservedScrollTop;
+    private scrollPreservationUntil;
+    private wbsToggleScrollAnchor;
     private visualTitle;
     private tooltipClassName;
     private isUpdating;
@@ -111,6 +118,20 @@ export declare class Visual implements IVisual {
     private renderCache;
     private cpmMemo;
     private readonly UI_TOKENS;
+    private readonly LAYOUT_BREAKPOINTS;
+    /**
+     * Determines the current layout mode based on viewport width
+     */
+    private getLayoutMode;
+    /**
+     * Returns button dimensions and positions based on current layout mode
+     * This centralizes all responsive layout calculations
+     */
+    private getHeaderButtonLayout;
+    /**
+     * Returns second row layout (dropdown, trace mode toggle) based on viewport width
+     */
+    private getSecondRowLayout;
     constructor(options: VisualConstructorOptions);
     private forceCanvasRefresh;
     private debouncedUpdate;
@@ -147,6 +168,7 @@ export declare class Visual implements IVisual {
     /**
      * Creates/updates the Show All/Show Critical toggle button with professional Fluent design
      * UPGRADED: Enhanced visuals, better spacing, smoother animations, refined icons
+     * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
      */
     private createOrUpdateToggleButton;
     /**
@@ -169,12 +191,13 @@ export declare class Visual implements IVisual {
      */
     private createWbsExpandCollapseToggleButton;
     /**
-     * Toggles the WBS expand/collapse state for all groups
+     * Cycles the WBS expand depth (collapse -> Level 2/3/4/5 -> expand all)
      */
     private toggleWbsExpandCollapseDisplay;
     /**
      * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
      * UPGRADED: Professional pill-style toggle with smooth animations and refined visuals
+     * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
      */
     private createModeToggleButton;
     private toggleCriticalityMode;
@@ -203,6 +226,12 @@ export declare class Visual implements IVisual {
     private calculateVisibleTasks;
     private handleScroll;
     private canvasHasContent;
+    /**
+     * Get visible tasks based on current viewport indices
+     * When WBS grouping is enabled, filters by yOrder (row number) instead of array index
+     * because WBS group headers occupy rows but aren't in the task array
+     */
+    private getVisibleTasks;
     private redrawVisibleTasks;
     private drawHorizontalGridLinesCanvas;
     private createScales;
@@ -350,9 +379,33 @@ export declare class Visual implements IVisual {
      */
     private processWBSData;
     /**
+     * WBS GROUPING: Helpers for expand-to-level behavior
+     */
+    private refreshWbsAvailableLevels;
+    private getMaxWbsLevel;
+    private getWbsExpandLevelLabel;
+    private getNextWbsExpandLevel;
+    private applyWbsExpandLevel;
+    /**
      * WBS GROUPING: Toggle expansion state for a WBS group
      */
     private toggleWbsGroupExpansion;
+    /**
+     * SCROLL RESTORATION: Unified scroll position restoration for all update scenarios.
+     * Handles two restoration modes:
+     * 1. STRICT PRESERVATION: Exact scrollTop restoration (baseline/previous update toggles)
+     * 2. WBS ANCHOR-BASED: Smart anchoring that keeps a WBS group at the same visual offset
+     *
+     * This must be called AFTER the scroll container height is set but BEFORE setupVirtualScroll().
+     * The order is critical: container height → scroll restoration → virtual scroll setup
+     *
+     * IMPORTANT: This method removes the scroll listener before setting scrollTop to prevent
+     * handleScroll() from firing. setupVirtualScroll() will create and attach a NEW listener,
+     * so we don't need to re-attach the old one.
+     *
+     * @param totalSvgHeight - Total height of SVG content for calculating max scroll bounds
+     */
+    private restoreScrollPosition;
     /**
      * WBS GROUPING: Check if a task should be visible based on WBS group expansion state
      */

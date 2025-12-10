@@ -291,6 +291,8 @@ export class Visual implements IVisual {
     private wbsGroupMap: Map<string, WBSGroup> = new Map();     // groupId -> WBSGroup for quick lookup
     private wbsRootGroups: WBSGroup[] = [];                     // Top-level groups (Level 2)
     private wbsExpandedState: Map<string, boolean> = new Map(); // Persisted expand/collapse state
+    private wbsExpandToLevel: number | null | undefined = undefined; // null = expand all, 0 = collapse all, number = expand to depth
+    private wbsAvailableLevels: number[] = [];                  // Unique WBS levels detected in data
     private wbsGroupLayer: Selection<SVGGElement, unknown, null, undefined>; // SVG layer for group headers
     private lastExpandCollapseAllState: boolean | null = null;  // Track expand/collapse all toggle state
 
@@ -526,7 +528,7 @@ export class Visual implements IVisual {
         x += showAllWidth + gap;
 
         // Mode Toggle (LP/Float)
-        const modeWidth = mode === 'wide' ? 200 : (mode === 'medium' ? 160 : 120);
+        const modeWidth = mode === 'wide' ? 150 : (mode === 'medium' ? 130 : 110);
         const modeToggle = { x, width: modeWidth, showFullLabels: mode === 'wide' };
         x += modeWidth + gap;
 
@@ -2095,6 +2097,17 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
     const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
     if (!wbsEnabled || !showWbsToggle) return;
 
+    if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
+        this.refreshWbsAvailableLevels();
+    }
+
+    const maxLevel = this.getMaxWbsLevel();
+    const currentLevelRaw = this.wbsExpandToLevel ?? (this.wbsExpandedInternal ? (maxLevel || null) : 0);
+    const currentLevel = currentLevelRaw === null && maxLevel > 0 ? maxLevel : currentLevelRaw;
+    const levelLabel = this.getWbsExpandLevelLabel(currentLevel);
+    const nextLevelValue = this.getNextWbsExpandLevel();
+    const nextLevelLabel = nextLevelValue !== null ? this.getWbsExpandLevelLabel(nextLevelValue) : levelLabel;
+
     // Get responsive layout
     const layout = this.getHeaderButtonLayout(viewportWidth || 800);
     const { x: buttonX, size: buttonSize } = layout.wbsToggle;
@@ -2103,7 +2116,7 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
         .attr("class", "wbs-toggle-group")
         .style("cursor", "pointer")
         .attr("role", "button")
-        .attr("aria-label", `${this.wbsExpandedInternal ? 'Collapse' : 'Expand'} all WBS groups`)
+        .attr("aria-label", `${levelLabel} (click to cycle)`)
         .attr("aria-pressed", this.wbsExpandedInternal.toString())
         .attr("tabindex", "0");
 
@@ -2170,11 +2183,29 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
             .attr("stroke-linecap", "round");
     }
 
+    // Small badge to show current depth (0, L2, L3, All)
+    const badgeText = currentLevel === null
+        ? (maxLevel > 0 ? `L${maxLevel}` : "All")
+        : currentLevel === 0
+            ? "0"
+            : `L${currentLevel}`;
+    wbsToggleGroup.append("text")
+        .attr("x", buttonSize / 2)
+        .attr("y", buttonSize - 6)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "central")
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
+        .style("fill", iconColor)
+        .text(badgeText);
+
     // Tooltip
+    const levelsDesc = this.wbsAvailableLevels.length > 0
+        ? this.wbsAvailableLevels.map(l => `L${l}`).join("/")
+        : "no levels";
     wbsToggleGroup.append("title")
-        .text(this.wbsExpandedInternal
-            ? "Click to collapse all WBS groups"
-            : "Click to expand all WBS groups");
+        .text(`${levelLabel}. Next: ${nextLevelLabel}. Cycle order: collapse -> ${levelsDesc}.`);
 
     // Hover interactions
     const self = this;
@@ -2227,18 +2258,34 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
 }
 
 /**
- * Toggles the WBS expand/collapse state for all groups
+ * Cycles the WBS expand depth (collapse -> Level 2/3/4/5 -> expand all)
  */
 private toggleWbsExpandCollapseDisplay(): void {
     try {
-        this.debugLog("WBS Expand/Collapse Toggle method called!");
-        this.wbsExpandedInternal = !this.wbsExpandedInternal;
-        this.debugLog("New wbsExpandedInternal value:", this.wbsExpandedInternal);
+        if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+            return;
+        }
 
-        // Clear persisted states so all groups adopt the new state
-        this.wbsExpandedState.clear();
+        if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
+            this.refreshWbsAvailableLevels();
+        }
 
-        // Persist the state back to the formatting pane setting
+        // Cycle through: collapse -> available levels -> expand all
+        const nextLevel = this.getNextWbsExpandLevel();
+        if (nextLevel === null && this.wbsAvailableLevels.length === 0) {
+            return;
+        }
+        const effectiveNext = nextLevel;
+
+        this.debugLog("WBS expand depth cycle", {
+            current: this.wbsExpandToLevel,
+            next: effectiveNext,
+            availableLevels: this.wbsAvailableLevels
+        });
+
+        this.applyWbsExpandLevel(effectiveNext);
+
+        // Persist the general expand/collapse intent for backwards compatibility
         this.host.persistProperties({
             merge: [{
                 objectName: "wbsGrouping",
@@ -2258,7 +2305,7 @@ private toggleWbsExpandCollapseDisplay(): void {
             this.update(this.lastUpdateOptions);
         }
 
-        this.debugLog("WBS expand/collapse toggled");
+        this.debugLog("WBS expand depth updated", effectiveNext);
     } catch (error) {
         console.error("Error in WBS toggle method:", error);
     }
@@ -2385,19 +2432,6 @@ private createModeToggleButton(viewportWidth: number): void {
         .style("letter-spacing", "0.5px")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .text("Float");
-
-    // Professional mode descriptive text
-    buttonG.append("text")
-        .attr("x", 130)
-        .attr("y", buttonHeight/2)
-        .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-        .style("fill", this.UI_TOKENS.color.neutral.grey160)
-        .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
-        .style("letter-spacing", "0.2px")
-        .style("pointer-events", "none")
-        .text(isFloatBased ? "Float-Based" : "Longest Path");
 
     // Enhanced tooltip
     modeToggleGroup.append("title")
@@ -2857,6 +2891,10 @@ private async updateInternal(options: VisualUpdateOptions) {
         // Sync WBS expand/collapse state with settings
         if (this.settings?.wbsGrouping?.expandCollapseAll !== undefined) {
             this.wbsExpandedInternal = this.settings.wbsGrouping.expandCollapseAll.value;
+            // Default expand depth follows existing toggle unless user selects a level later
+            if (this.wbsExpandToLevel === undefined) {
+                this.wbsExpandToLevel = this.wbsExpandedInternal ? undefined : 0;
+            }
         }
 
         this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
@@ -8422,6 +8460,7 @@ private processWBSData(): void {
     this.wbsGroups = [];
     this.wbsGroupMap.clear();
     this.wbsRootGroups = [];
+    this.wbsAvailableLevels = [];
 
     // Check if any task has WBS data
     const hasWbsData = this.allTasksData.some(task =>
@@ -8622,7 +8661,81 @@ private processWBSData(): void {
         group.children.sort(sortByStartDate);
     }
 
+    // Track which levels exist and re-apply any level-based expansion preference
+    this.refreshWbsAvailableLevels();
+    if (this.wbsExpandToLevel !== undefined) {
+        this.applyWbsExpandLevel(this.wbsExpandToLevel);
+    }
+
     this.debugLog(`WBS processed: ${this.wbsGroups.length} groups found, ${this.wbsRootGroups.length} root groups`);
+}
+
+/**
+ * WBS GROUPING: Helpers for expand-to-level behavior
+ */
+private refreshWbsAvailableLevels(): void {
+    const levelSet = new Set<number>();
+    for (const group of this.wbsGroups) {
+        levelSet.add(group.level);
+    }
+    this.wbsAvailableLevels = Array.from(levelSet).sort((a, b) => a - b);
+}
+
+private getMaxWbsLevel(): number {
+    return this.wbsAvailableLevels.length > 0
+        ? this.wbsAvailableLevels[this.wbsAvailableLevels.length - 1]
+        : 0;
+}
+
+private getWbsExpandLevelLabel(level: number | null | undefined): string {
+    if (level === 0) {
+        return "Collapse all WBS levels";
+    }
+    if (level === null) {
+        const max = this.getMaxWbsLevel();
+        return max > 0 ? `Expand all (to Level ${max})` : "Expand all WBS levels";
+    }
+    if (level === undefined) {
+        return this.wbsExpandedInternal ? "Expand all WBS levels" : "Collapse all WBS levels";
+    }
+    return `Expand to Level ${level}`;
+}
+
+private getNextWbsExpandLevel(): number | null {
+    if (this.wbsAvailableLevels.length === 0) {
+        return null;
+    }
+    const levels = Array.from(new Set(this.wbsAvailableLevels)).sort((a, b) => a - b);
+    const sequence: Array<number> = [0, ...levels]; // collapse -> per-level (no redundant "all")
+    const current = this.wbsExpandToLevel ?? (this.wbsExpandedInternal ? levels[levels.length - 1] : 0);
+    const idx = sequence.findIndex(l => l === current);
+    const nextIdx = idx === -1 ? 0 : (idx + 1) % sequence.length;
+    return sequence[nextIdx];
+}
+
+private applyWbsExpandLevel(targetLevel: number | null): void {
+    // If no groups yet, just store the intent
+    if (!this.wbsGroups.length) {
+        this.wbsExpandToLevel = targetLevel;
+        this.wbsExpandedInternal = targetLevel !== 0;
+        return;
+    }
+
+    const maxLevel = this.getMaxWbsLevel(); // 0 if no available levels
+    const effectiveLevel = targetLevel === null
+        ? null
+        : Math.min(Math.max(targetLevel, 0), maxLevel);
+
+    this.wbsExpandToLevel = effectiveLevel;
+    this.wbsExpandedInternal = effectiveLevel !== 0;
+
+    // Reset and apply new expansion states
+    this.wbsExpandedState.clear();
+    for (const group of this.wbsGroups) {
+        const expanded = effectiveLevel === null ? true : group.level <= effectiveLevel;
+        group.isExpanded = expanded;
+        this.wbsExpandedState.set(group.id, expanded);
+    }
 }
 
 /**
@@ -8650,8 +8763,12 @@ private toggleWbsGroupExpansion(groupId: string): void {
         this.debugLog(`WBS toggle: Capturing anchor for group ${groupId}, yOrder=${group.yOrder}, visualOffset=${visualOffset}`);
     }
 
+    // Switching a single group puts us in manual mode (stop enforcing level-based expansion)
+    this.wbsExpandToLevel = undefined;
+
     group.isExpanded = !group.isExpanded;
     this.wbsExpandedState.set(groupId, group.isExpanded);
+    this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
 
     // Trigger re-render while preserving scroll position
     if (this.lastUpdateOptions) {
