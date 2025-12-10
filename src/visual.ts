@@ -121,19 +121,16 @@ interface Task {
     tooltipData?: Array<{key: string, value: PrimitiveValue}>;  // Array preserves field order
     legendValue?: string;       // Value from legend field for this task
     legendColor?: string;       // Assigned color for this legend value
-    // WBS Grouping fields
-    wbsLevel2?: string;
-    wbsLevel3?: string;
-    wbsLevel4?: string;
-    wbsLevel5?: string;
+    // WBS Grouping fields - dynamic array supporting any number of hierarchy levels
+    wbsLevels?: string[];       // Array of WBS level values (ordered from highest to deepest)
     wbsGroupId?: string;        // Computed: concatenated WBS path for grouping
-    wbsIndentLevel?: number;    // Computed: depth level for indentation (0-4)
+    wbsIndentLevel?: number;    // Computed: depth level for indentation (0-based)
 }
 
 // WBS Group interface for hierarchical grouping
 interface WBSGroup {
-    id: string;                 // Unique group identifier (e.g., "L2:Phase1|L3:Design")
-    level: number;              // Hierarchy level (2, 3, 4, or 5)
+    id: string;                 // Unique group identifier (e.g., "L1:Phase1|L2:Design")
+    level: number;              // Hierarchy level (1-based, dynamic based on WBS columns added)
     name: string;               // Display name of this group level
     fullPath: string;           // Full WBS path for sorting
     parentId: string | null;    // Parent group's id (null for top-level)
@@ -287,9 +284,11 @@ export class Visual implements IVisual {
     // WBS Grouping properties
     private wbsDataExists: boolean = false;
     private wbsDataExistsInMetadata: boolean = false;           // WBS columns exist in dataView metadata (for button visibility)
+    private wbsLevelColumnIndices: number[] = [];               // Column indices for WBS level fields (ordered)
+    private wbsLevelColumnNames: string[] = [];                 // Column display names for WBS levels (for UI)
     private wbsGroups: WBSGroup[] = [];                         // Flat list of all WBS groups
     private wbsGroupMap: Map<string, WBSGroup> = new Map();     // groupId -> WBSGroup for quick lookup
-    private wbsRootGroups: WBSGroup[] = [];                     // Top-level groups (Level 2)
+    private wbsRootGroups: WBSGroup[] = [];                     // Top-level groups (Level 1)
     private wbsExpandedState: Map<string, boolean> = new Map(); // Persisted expand/collapse state
     private wbsExpandToLevel: number | null | undefined = undefined; // null = expand all, 0 = collapse all, number = expand to depth
     private wbsAvailableLevels: number[] = [];                  // Unique WBS levels detected in data
@@ -2259,7 +2258,8 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
 }
 
 /**
- * Cycles the WBS expand depth (collapse -> Level 2/3/4/5 -> expand all)
+ * Cycles the WBS expand depth (collapse -> Level 1/2/3/.../N -> expand all)
+ * Levels are dynamic based on the number of WBS columns added by the user
  */
 private toggleWbsExpandCollapseDisplay(): void {
     try {
@@ -2867,10 +2867,21 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         // METADATA CHECK: Determine if WBS columns exist in metadata (for button visibility)
         // This is independent of whether filtered tasks have WBS values
-        this.wbsDataExistsInMetadata = this.hasDataRole(dataView, 'wbsLevel2') ||
-                                       this.hasDataRole(dataView, 'wbsLevel3') ||
-                                       this.hasDataRole(dataView, 'wbsLevel4') ||
-                                       this.hasDataRole(dataView, 'wbsLevel5');
+        // Also populate WBS level column indices and names for dynamic hierarchy support
+        this.wbsLevelColumnIndices = [];
+        this.wbsLevelColumnNames = [];
+        this.wbsDataExistsInMetadata = this.hasDataRole(dataView, 'wbsLevels');
+
+        if (this.wbsDataExistsInMetadata && dataView.table?.columns) {
+            // Find all columns bound to the 'wbsLevels' data role
+            for (let i = 0; i < dataView.table.columns.length; i++) {
+                const column = dataView.table.columns[i];
+                if (column.roles && column.roles['wbsLevels']) {
+                    this.wbsLevelColumnIndices.push(i);
+                    this.wbsLevelColumnNames.push(column.displayName || `Level ${this.wbsLevelColumnIndices.length}`);
+                }
+            }
+        }
 
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
 
@@ -7823,24 +7834,16 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         ? String(row[legendIdx])
         : undefined;
 
-    // Parse WBS level values
-    const wbsLevel2Idx = this.getColumnIndex(dataView, 'wbsLevel2');
-    const wbsLevel3Idx = this.getColumnIndex(dataView, 'wbsLevel3');
-    const wbsLevel4Idx = this.getColumnIndex(dataView, 'wbsLevel4');
-    const wbsLevel5Idx = this.getColumnIndex(dataView, 'wbsLevel5');
-
-    const wbsLevel2 = (wbsLevel2Idx !== -1 && row[wbsLevel2Idx] != null)
-        ? String(row[wbsLevel2Idx]).trim()
-        : undefined;
-    const wbsLevel3 = (wbsLevel3Idx !== -1 && row[wbsLevel3Idx] != null)
-        ? String(row[wbsLevel3Idx]).trim()
-        : undefined;
-    const wbsLevel4 = (wbsLevel4Idx !== -1 && row[wbsLevel4Idx] != null)
-        ? String(row[wbsLevel4Idx]).trim()
-        : undefined;
-    const wbsLevel5 = (wbsLevel5Idx !== -1 && row[wbsLevel5Idx] != null)
-        ? String(row[wbsLevel5Idx]).trim()
-        : undefined;
+    // Parse WBS level values dynamically from wbsLevelColumnIndices
+    const wbsLevels: string[] = [];
+    for (const colIdx of this.wbsLevelColumnIndices) {
+        if (colIdx !== -1 && row[colIdx] != null) {
+            const value = String(row[colIdx]).trim();
+            if (value) {
+                wbsLevels.push(value);
+            }
+        }
+    }
 
     // Get tooltip data
     const tooltipData = this.extractTooltipData(row, dataView);
@@ -7875,10 +7878,7 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         previousUpdateFinishDate: previousUpdateFinishDate,
         tooltipData: tooltipData,
         legendValue: legendValue,
-        wbsLevel2: wbsLevel2,
-        wbsLevel3: wbsLevel3,
-        wbsLevel4: wbsLevel4,
-        wbsLevel5: wbsLevel5
+        wbsLevels: wbsLevels.length > 0 ? wbsLevels : undefined
     };
 
     return task;
@@ -8455,9 +8455,9 @@ private processWBSData(): void {
     this.wbsRootGroups = [];
     this.wbsAvailableLevels = [];
 
-    // Check if any task has WBS data
+    // Check if any task has WBS data (using dynamic wbsLevels array)
     const hasWbsData = this.allTasksData.some(task =>
-        task.wbsLevel2 || task.wbsLevel3 || task.wbsLevel4 || task.wbsLevel5
+        task.wbsLevels && task.wbsLevels.length > 0
     );
 
     if (!hasWbsData) {
@@ -8483,32 +8483,22 @@ private processWBSData(): void {
     this.lastExpandCollapseAllState = expandCollapseAll;
 
     // Build unique WBS paths and assign to tasks
-    // Path format: "L2:Value2|L3:Value3|L4:Value4|L5:Value5"
+    // Path format: "L1:Value1|L2:Value2|L3:Value3" (dynamic levels based on columns added)
     for (const task of this.allTasksData) {
         const pathParts: string[] = [];
-        let deepestLevel = 0;
 
-        if (task.wbsLevel2) {
-            pathParts.push(`L2:${task.wbsLevel2}`);
-            deepestLevel = 2;
-        }
-        if (task.wbsLevel3) {
-            pathParts.push(`L3:${task.wbsLevel3}`);
-            deepestLevel = 3;
-        }
-        if (task.wbsLevel4) {
-            pathParts.push(`L4:${task.wbsLevel4}`);
-            deepestLevel = 4;
-        }
-        if (task.wbsLevel5) {
-            pathParts.push(`L5:${task.wbsLevel5}`);
-            deepestLevel = 5;
+        if (task.wbsLevels && task.wbsLevels.length > 0) {
+            // Build path from the wbsLevels array - levels are 1-based
+            for (let i = 0; i < task.wbsLevels.length; i++) {
+                const level = i + 1; // 1-based level
+                pathParts.push(`L${level}:${task.wbsLevels[i]}`);
+            }
         }
 
         if (pathParts.length > 0) {
             task.wbsGroupId = pathParts.join('|');
-            // Indent level is 0 for no WBS, 1 for L2 only, 2 for L3, etc.
-            task.wbsIndentLevel = deepestLevel > 0 ? deepestLevel - 1 : 0;
+            // Indent level is the depth in the hierarchy (0-based, equals number of levels - 1)
+            task.wbsIndentLevel = pathParts.length - 1;
         } else {
             task.wbsGroupId = undefined;
             task.wbsIndentLevel = 0;
