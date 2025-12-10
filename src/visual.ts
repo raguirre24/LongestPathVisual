@@ -6472,17 +6472,26 @@ private drawArrowsCanvas(
         headerLayer: Selection<SVGGElement, unknown, null, undefined>
     ): void {
         if (!mainGridLayer?.node() || !headerLayer?.node() || allTasks.length === 0 || !xScale) { return; }
-    
+
         const settings = this.settings.projectEndLine;
         if (!settings.show.value) return;
-    
+
         const lineColor = settings.lineColor.value.value;
         const lineWidth = settings.lineWidth.value;
         const lineStyle = settings.lineStyle.value.value;
-        const generalFontSize = this.settings.textAndLabels.fontSize.value;
+
+        // Label settings with defaults for backwards compatibility
+        const showLabel = settings.showLabel?.value ?? true;
+        const labelColor = settings.labelColor?.value?.value ?? lineColor;
+        const labelFontSize = settings.labelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
+        const showLabelPrefix = settings.showLabelPrefix?.value ?? true;
+        const labelBackgroundColor = settings.labelBackgroundColor?.value?.value ?? "#FFFFFF";
+        const labelBackgroundTransparency = settings.labelBackgroundTransparency?.value ?? 0;
+        const labelBackgroundOpacity = 1 - (labelBackgroundTransparency / 100);
+
         let lineDashArray = "none";
         switch (lineStyle) { case "dashed": lineDashArray = "5,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; }
-    
+
         // Use allTasks (all filtered tasks, including those in collapsed groups) to calculate the latest finish date
         // This ensures the project finish date reflects all filtered tasks, not just currently visible ones
         let latestFinishTimestamp: number | null = null;
@@ -6494,40 +6503,69 @@ private drawArrowsCanvas(
                  }
              }
          });
-    
+
         if (latestFinishTimestamp === null) { console.warn("Cannot draw Project End Line: No valid finish dates."); return; }
-    
+
         const latestFinishDate = new Date(latestFinishTimestamp);
         const endX = xScale(latestFinishDate);
-    
+
         mainGridLayer.select(".project-end-line").remove();
-        headerLayer.select(".project-end-label").remove();
-    
+        headerLayer.selectAll(".project-end-label-group").remove();
+
         if (isNaN(endX) || !isFinite(endX)) { console.warn("Calculated project end line position is invalid:", endX); return; }
-    
+
         // --- Draw the LINE in the MAIN grid layer ---
         mainGridLayer.append("line")
             .attr("class", "project-end-line")
-            .attr("x1", endX).attr("y1", 0) // Adjusted y1 to start from top of content area
+            .attr("x1", endX).attr("y1", 0)
             .attr("x2", endX).attr("y2", chartHeight)
             .attr("stroke", lineColor)
             .attr("stroke-width", lineWidth)
             .attr("stroke-dasharray", lineDashArray)
             .style("pointer-events", "none");
-    
-    
-        // --- Draw the LABEL in the HEADER layer ---
-        const endDateText = `Finish: ${this.formatDate(latestFinishDate)}`;
-        headerLayer.append("text")
-              .attr("class", "project-end-label")
-              .attr("x", endX + 5)
-              .attr("y", this.headerHeight - 45) // Adjust Y pos within header
-              .attr("text-anchor", "start")
-              .style("fill", lineColor)
-              .style("font-size", generalFontSize + "pt")
-              .style("font-weight", "bold")
-              .style("pointer-events", "none")
-              .text(endDateText);
+
+        // --- Draw the LABEL in the HEADER layer (if enabled) ---
+        if (showLabel) {
+            const endDateText = showLabelPrefix
+                ? `Finish: ${this.formatDate(latestFinishDate)}`
+                : this.formatDate(latestFinishDate);
+
+            const labelY = this.headerHeight - 45;
+            const labelX = endX + 5;
+
+            // Create a group for the label with optional background
+            const labelGroup = headerLayer.append("g")
+                .attr("class", "project-end-label-group")
+                .style("pointer-events", "none");
+
+            // First create text to measure it
+            const textElement = labelGroup.append("text")
+                .attr("class", "project-end-label")
+                .attr("x", labelX)
+                .attr("y", labelY)
+                .attr("text-anchor", "start")
+                .style("fill", labelColor)
+                .style("font-size", labelFontSize + "pt")
+                .style("font-weight", "600")
+                .text(endDateText);
+
+            // Add background rectangle if opacity > 0
+            if (labelBackgroundOpacity > 0) {
+                const bbox = (textElement.node() as SVGTextElement)?.getBBox();
+                if (bbox) {
+                    const padding = { h: 4, v: 2 };
+                    labelGroup.insert("rect", ".project-end-label")
+                        .attr("x", bbox.x - padding.h)
+                        .attr("y", bbox.y - padding.v)
+                        .attr("width", bbox.width + padding.h * 2)
+                        .attr("height", bbox.height + padding.v * 2)
+                        .attr("rx", 3)
+                        .attr("ry", 3)
+                        .style("fill", labelBackgroundColor)
+                        .style("fill-opacity", labelBackgroundOpacity);
+                }
+            }
+        }
     }
 
 private async calculateCPMOffThread(): Promise<void> {
