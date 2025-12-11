@@ -590,7 +590,15 @@ class PersistedStateCard extends Card {
         placeholder: "",
         visible: false
     });
-    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode];
+    // BUG-006 FIX: Store selected legend categories as comma-separated string
+    selectedLegendCategories = new TextInput({
+        name: "selectedLegendCategories",
+        displayName: "",
+        value: "",
+        placeholder: "",
+        visible: false
+    });
+    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories];
 }
 
 export class VisualSettings extends Model {

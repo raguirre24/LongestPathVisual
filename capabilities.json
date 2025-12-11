@@ -321,7 +321,8 @@
             "properties": {
                 "selectedTaskId": { "type": { "text": true } },
                 "floatThreshold": { "type": { "numeric": true } },
-                "traceMode": { "type": { "text": true } }
+                "traceMode": { "type": { "text": true } },
+                "selectedLegendCategories": { "type": { "text": true } }
             }
         },
         "legend": {

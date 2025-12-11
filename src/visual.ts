@@ -293,6 +293,7 @@ export class Visual implements IVisual {
     private wbsExpandToLevel: number | null | undefined = undefined; // null = expand all, 0 = collapse all, number = expand to depth
     private wbsAvailableLevels: number[] = [];                  // Unique WBS levels detected in data
     private wbsManualExpansionOverride: boolean = false;        // When true, honor per-group manual expansion even if global toggle is collapsed
+    private wbsManuallyToggledGroups: Set<string> = new Set();  // BUG-007 FIX: Track which groups have been manually toggled
     private wbsGroupLayer: Selection<SVGGElement, unknown, null, undefined>; // SVG layer for group headers
     private lastExpandCollapseAllState: boolean | null = null;  // Track expand/collapse all toggle state
 
@@ -320,6 +321,7 @@ export class Visual implements IVisual {
     private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
     private tooltipClassName: string;
     private isUpdating: boolean = false;
+    private isMarginDragging: boolean = false; // BUG-008 FIX: Track margin drag state to prevent update conflicts
     private scrollHandlerBackup: any = null;
 
     private updateDebounceTimeout: any = null;
@@ -1246,6 +1248,20 @@ public destroy(): void {
 // ==================== Phase 1 & 2: Performance Optimization Methods ====================
 
 /**
+ * Centralized scroll preservation helper.
+ * Call this before any update() that should maintain scroll position.
+ * Sets up both the preserved scroll value and the cooldown to prevent Power BI re-triggers.
+ */
+private captureScrollPosition(): void {
+    if (this.scrollableContainer?.node()) {
+        this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
+        this.preserveScrollOnUpdate = true;
+        this.scrollPreservationUntil = Date.now() + 500;
+        this.debugLog(`Scroll position captured: ${this.preservedScrollTop}`);
+    }
+}
+
+/**
  * Phase 1: Check if enough time has passed since last render (throttling)
  * @returns true if render should proceed, false if should skip
  */
@@ -1361,13 +1377,17 @@ private toggleTaskDisplayInternal(): void {
         
         // Force canvas refresh before update
         this.forceCanvasRefresh();
-        
+
+        // BUG-001 FIX: Preserve scroll position when toggling Show All/Critical
+        // The scroll position will be clamped if content becomes shorter
+        this.captureScrollPosition();
+
         // Force full update
         this.forceFullUpdate = true;
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
-        
+
         this.debugLog("Visual update triggered by internal toggle");
     } catch (error) {
         console.error("Error in internal toggle method:", error);
@@ -2306,6 +2326,14 @@ private toggleWbsExpandCollapseDisplay(): void {
         });
 
         this.wbsManualExpansionOverride = false;
+
+        // BUG-007 FIX: Clear manually toggled groups when going to "collapse all" (level 0)
+        // This gives users a way to reset their manual overrides
+        if (effectiveNext === 0) {
+            this.wbsManuallyToggledGroups.clear();
+            this.debugLog("Cleared manually toggled groups on collapse all");
+        }
+
         this.applyWbsExpandLevel(effectiveNext);
 
         // Persist the general expand/collapse intent for backwards compatibility
@@ -2559,13 +2587,17 @@ private toggleCriticalityMode(): void {
         
         // CRITICAL FIX: Force canvas refresh
         this.forceCanvasRefresh();
-        
+
+        // BUG-002 FIX: Preserve scroll position when changing criticality mode
+        // Mode change doesn't fundamentally reorder tasks, so scroll should be preserved
+        this.captureScrollPosition();
+
         // Request update
         this.forceFullUpdate = true;
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
-        
+
         this.debugLog("Visual update triggered by mode toggle");
         
     } catch (error) {
@@ -2838,7 +2870,14 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.debugLog("Update already in progress, skipping");
         return;
     }
-    
+
+    // BUG-008 FIX: Skip Power BI updates during margin drag to prevent race conditions
+    // The visual is already being updated via handleMarginDragUpdate() during drag
+    if (this.isMarginDragging) {
+        this.debugLog("Margin drag in progress, skipping Power BI update");
+        return;
+    }
+
     this.isUpdating = true;
 
     try {
@@ -2965,6 +3004,16 @@ private async updateInternal(options: VisualUpdateOptions) {
             if (this.settings?.persistedState?.traceMode !== undefined) {
                 const persistedMode = this.settings.persistedState.traceMode.value;
                 this.traceMode = persistedMode ? persistedMode : "backward";
+            }
+            // BUG-006 FIX: Restore persisted legend selection state
+            if (this.settings?.persistedState?.selectedLegendCategories !== undefined) {
+                const savedCategories = this.settings.persistedState.selectedLegendCategories.value;
+                if (savedCategories && savedCategories.trim().length > 0) {
+                    this.selectedLegendCategories = new Set(savedCategories.split(',').filter(c => c.trim()));
+                    this.debugLog(`Restored legend selection: ${savedCategories}`);
+                } else {
+                    this.selectedLegendCategories.clear();
+                }
             }
             this.isInitialLoad = false;
         }
@@ -3294,12 +3343,20 @@ private async updateInternal(options: VisualUpdateOptions) {
     } catch (error) {
         console.error("--- ERROR during visual update ---", error);
         const errorMessage = error instanceof Error ? error.message : String(error);
-        
+
         // ← FIX #7: Clear filter on unexpected errors
         this.applyTaskFilter([]);
         this.displayMessage(`Error updating visual: ${errorMessage}`);
     } finally {
         this.isUpdating = false;
+
+        // BUG-012 FIX: Ensure scroll handler is always restored even if an error occurs
+        // This prevents scroll events from being permanently disabled after an error
+        if (this.scrollHandlerBackup && this.scrollableContainer) {
+            this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
+            this.scrollHandlerBackup = null;
+            this.debugLog("Scroll handler restored in finally block");
+        }
     }
 }
 
@@ -4118,29 +4175,32 @@ private redrawVisibleTasks(): void {
     const visibleTasks = this.getVisibleTasks();
 
     const shouldUseCanvas = visibleTasks.length > this.CANVAS_THRESHOLD;
-    
-    // Only switch rendering mode if it actually changed
-    if (shouldUseCanvas !== this.useCanvasRendering) {
+    const modeChanged = shouldUseCanvas !== this.useCanvasRendering;
+
+    // BUG-011 FIX: Track if we're switching modes to delay hiding until new content is ready
+    if (modeChanged) {
         this.useCanvasRendering = shouldUseCanvas;
-        
-        // Hide both layers during transition
-        if (this.canvasElement) this.canvasElement.style.visibility = 'hidden';
-        this.taskLayer?.style("visibility", "hidden");
-        this.arrowLayer?.style("visibility", "hidden");
-        
-        // Clear the previous renderer
+        // DON'T hide old layer yet - render new content first, then hide old
+        // This prevents flicker by ensuring new content is visible before old is hidden
+    }
+
+    // Clear existing elements in current mode (but don't hide layers yet if mode changed)
+    if (!modeChanged) {
+        // Same mode - just clear existing elements
+        this.arrowLayer?.selectAll("*").remove();
+        this.taskLayer?.selectAll("*").remove();
+    } else {
+        // Mode changed - clear the NEW renderer's old content (if any)
         if (this.useCanvasRendering) {
-            this.taskLayer?.selectAll("*").remove();
-            this.arrowLayer?.selectAll("*").remove();
-        } else {
+            // Switching TO canvas - canvas might have stale content
             if (this.canvasContext && this.canvasElement) {
                 this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
             }
+        } else {
+            // Switching TO SVG - SVG layers might have stale content
+            this.taskLayer?.selectAll("*").remove();
+            this.arrowLayer?.selectAll("*").remove();
         }
-    } else {
-        // Just clear existing elements
-        this.arrowLayer?.selectAll("*").remove();
-        this.taskLayer?.selectAll("*").remove();
     }
 
     // Clear WBS group layer before redrawing
@@ -4161,9 +4221,7 @@ private redrawVisibleTasks(): void {
     
     if (this.useCanvasRendering) {
         // --- Canvas Rendering Path ---
-        this.taskLayer.style("display", "none");
-        this.arrowLayer.style("display", "none");
-        
+        // BUG-011 FIX: Hide SVG layers AFTER canvas content is ready (see below)
         // Position the canvas element with pixel-perfect positioning
         if (this.canvasElement) {
             const leftMargin = Math.round(this.margin.left);
@@ -4217,17 +4275,25 @@ private redrawVisibleTasks(): void {
                     this.settings.taskAppearance.milestoneSize.value,
                 );
             }
+
+            // BUG-011 FIX: NOW hide SVG layers (after canvas content is fully rendered)
+            // This prevents flicker by showing new content before hiding old
+            this.taskLayer.style("display", "none");
+            this.arrowLayer.style("display", "none");
+            // Also clear SVG content to free memory
+            if (modeChanged) {
+                this.taskLayer?.selectAll("*").remove();
+                this.arrowLayer?.selectAll("*").remove();
+            }
         }
     } else {
         // --- SVG Rendering Path ---
-        if (this.canvasElement) {
-            this.canvasElement.style.display = 'none';
-        }
+        // BUG-011 FIX: Show SVG layers first, render content, then hide canvas
         this.taskLayer.style("display", "block");
         this.taskLayer.style("visibility", "visible");
         this.arrowLayer.style("display", "block");
         this.arrowLayer.style("visibility", "visible");
-        
+
         // Apply SVG rendering hints
         this.setupSVGRenderingHints();
 
@@ -4274,6 +4340,16 @@ private redrawVisibleTasks(): void {
             this.viewportStartIndex,
             this.viewportEndIndex
         );
+
+        // BUG-011 FIX: NOW hide canvas (after SVG content is fully rendered)
+        // This prevents flicker by showing new content before hiding old
+        if (this.canvasElement) {
+            this.canvasElement.style.display = 'none';
+        }
+        // Also clear canvas content to free memory
+        if (modeChanged && this.canvasContext && this.canvasElement) {
+            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+        }
     }
 
     // Draw WBS group headers for canvas mode (using SVG overlay) - only for visible viewport range
@@ -8820,13 +8896,26 @@ private applyWbsExpandLevel(targetLevel: number | null): void {
     this.wbsExpandToLevel = effectiveLevel;
     this.wbsExpandedInternal = effectiveLevel !== 0;
 
-    // Reset and apply new expansion states
-    this.wbsExpandedState.clear();
+    // BUG-007 FIX: Preserve manually toggled groups while applying level-based states to others
+    // Only clear states for non-manually-toggled groups
     for (const group of this.wbsGroups) {
-        const expanded = effectiveLevel === null ? true : group.level <= effectiveLevel;
-        group.isExpanded = expanded;
-        this.wbsExpandedState.set(group.id, expanded);
+        // If group was manually toggled, preserve its current state
+        if (this.wbsManuallyToggledGroups.has(group.id)) {
+            // Keep existing state from wbsExpandedState (already set by manual toggle)
+            const existingState = this.wbsExpandedState.get(group.id);
+            if (existingState !== undefined) {
+                group.isExpanded = existingState;
+            }
+        } else {
+            // Apply level-based expansion for non-manually-toggled groups
+            const expanded = effectiveLevel === null ? true : group.level <= effectiveLevel;
+            group.isExpanded = expanded;
+            this.wbsExpandedState.set(group.id, expanded);
+        }
     }
+
+    // Update wbsExpandedInternal based on all groups
+    this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
 }
 
 /**
@@ -8857,6 +8946,9 @@ private toggleWbsGroupExpansion(groupId: string): void {
     // Switching a single group puts us in manual mode (stop enforcing level-based expansion)
     this.wbsExpandToLevel = undefined;
     this.wbsManualExpansionOverride = true;
+
+    // BUG-007 FIX: Track this group as manually toggled so it's preserved on global level cycling
+    this.wbsManuallyToggledGroups.add(groupId);
 
     group.isExpanded = !group.isExpanded;
     this.wbsExpandedState.set(groupId, group.isExpanded);
@@ -10231,20 +10323,20 @@ private createMarginResizer(): void {
         });
 
     // Add drag behavior with proper coordinate handling and real-time visual updates
-    let isDragging = false;
+    // BUG-008 FIX: Use class property instead of local variable to track drag state
     let lastDragTime = 0;
     const dragThrottleMs = 50; // Throttle redraws to every 50ms for performance
 
     const drag = d3.drag<SVGGElement, unknown>()
         .on("start", function(event) {
-            isDragging = true;
+            self.isMarginDragging = true; // BUG-008 FIX: Set class property
             lastDragTime = 0; // Reset throttle timer
             d3.select(this).select(".margin-resizer-line")
                 .attr("fill", self.UI_TOKENS.color.primary.pressed)
                 .attr("width", 4);
         })
         .on("drag", function(event) {
-            if (!isDragging) return;
+            if (!self.isMarginDragging) return; // BUG-008 FIX: Check class property
 
             // Get the SVG bounds for coordinate calculation
             const svgNode = self.mainSvg.node();
@@ -10281,7 +10373,7 @@ private createMarginResizer(): void {
             }
         })
         .on("end", function(event) {
-            isDragging = false;
+            self.isMarginDragging = false; // BUG-008 FIX: Clear class property
             d3.select(this).select(".margin-resizer-line")
                 .attr("fill", self.UI_TOKENS.color.primary.default)
                 .attr("width", 3);
@@ -10520,6 +10612,8 @@ private createTraceModeToggle(): void {
             // Force canvas refresh
             self.forceCanvasRefresh();
 
+            // BUG-004 FIX: Preserve scroll position when changing trace direction
+            self.captureScrollPosition();
             self.forceFullUpdate = true;
             if (self.lastUpdateOptions) {
                 self.update(self.lastUpdateOptions);
@@ -10542,6 +10636,8 @@ private createTraceModeToggle(): void {
             // Force canvas refresh
             self.forceCanvasRefresh();
 
+            // BUG-004 FIX: Preserve scroll position when changing trace direction
+            self.captureScrollPosition();
             self.forceFullUpdate = true;
             if (self.lastUpdateOptions) {
                 self.update(self.lastUpdateOptions);
@@ -10751,6 +10847,22 @@ private ensureTaskVisible(taskId: string): void {
                 }
             }
         }
+
+        // BUG-006 FIX: Persist legend selection state
+        // Convert Set to comma-separated string for storage
+        const selectedCategoriesStr = Array.from(this.selectedLegendCategories).join(',');
+        this.host.persistProperties({
+            merge: [{
+                objectName: "persistedState",
+                properties: { selectedLegendCategories: selectedCategoriesStr },
+                selector: null
+            }]
+        });
+
+        // BUG-005 FIX: Preserve scroll position when toggling legend filter
+        // Legend filtering doesn't reorder tasks, just shows/hides them, so scroll should be preserved
+        this.captureScrollPosition();
+        this.forceFullUpdate = true;
 
         // Re-render the visual with the new filter
         if (this.lastUpdateOptions) {
