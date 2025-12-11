@@ -6585,7 +6585,8 @@ private drawArrowsCanvas(
                 ? `Finish: ${this.formatDate(latestFinishDate)}`
                 : this.formatDate(latestFinishDate);
 
-            const labelY = this.headerHeight - 45;
+            // Position label nearer to the bottom of the header so it sits away from top controls
+            const labelY = this.headerHeight - 12;
             const labelX = endX + 5;
 
             // Create a group for the label with optional background
