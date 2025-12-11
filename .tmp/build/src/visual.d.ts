@@ -85,6 +85,8 @@ export declare class Visual implements IVisual {
     private legendSelectionIds;
     private wbsDataExists;
     private wbsDataExistsInMetadata;
+    private wbsLevelColumnIndices;
+    private wbsLevelColumnNames;
     private wbsGroups;
     private wbsGroupMap;
     private wbsRootGroups;
@@ -192,7 +194,8 @@ export declare class Visual implements IVisual {
      */
     private createWbsExpandCollapseToggleButton;
     /**
-     * Cycles the WBS expand depth (collapse -> Level 2/3/4/5 -> expand all)
+     * Cycles the WBS expand depth (collapse -> Level 1/2/3/.../N -> expand all)
+     * Levels are dynamic based on the number of WBS columns added by the user
      */
     private toggleWbsExpandCollapseDisplay;
     /**

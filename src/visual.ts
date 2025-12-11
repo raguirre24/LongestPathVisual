@@ -573,12 +573,33 @@ export class Visual implements IVisual {
     } {
         const mode = this.getLayoutMode(viewportWidth);
 
-        // Dropdown width scales with viewport
-        const dropdownWidth = mode === 'wide' ? 350 : (mode === 'medium' ? 280 : 200);
-        const dropdownLeft = 10;
+        // Dropdown width respects formatting setting with sensible bounds per viewport
+        const defaultWidth = mode === 'wide' ? 350 : (mode === 'medium' ? 280 : 200);
+        const configuredWidth = this.settings?.taskSelection?.dropdownWidth?.value ?? defaultWidth;
+        const minWidth = 150;
+        const maxWidth = Math.max(minWidth, viewportWidth - 20); // leave breathing room on edges
+        const dropdownWidth = Math.min(Math.max(configuredWidth, minWidth), maxWidth);
+
+        // Horizontal position follows formatting setting (left/center/right)
+        const position = this.settings?.taskSelection?.dropdownPosition?.value?.value || "left";
+        const horizontalPadding = 10;
+        const maxLeft = Math.max(horizontalPadding, viewportWidth - dropdownWidth - horizontalPadding);
+        let dropdownLeft = horizontalPadding;
+
+        if (position === "center") {
+            dropdownLeft = (viewportWidth - dropdownWidth) / 2;
+        } else if (position === "right") {
+            dropdownLeft = viewportWidth - dropdownWidth - horizontalPadding;
+        }
+
+        // Clamp to keep the control inside the header
+        dropdownLeft = Math.max(horizontalPadding, Math.min(dropdownLeft, maxLeft));
 
         // Trace mode toggle positioned after dropdown with gap
-        const traceModeLeft = dropdownLeft + dropdownWidth + 20;
+        const traceGap = 20;
+        const approxTraceWidth = 180; // keep toggle visible even when dropdown is large
+        const maxTraceLeft = Math.max(horizontalPadding, viewportWidth - approxTraceWidth);
+        const traceModeLeft = Math.min(dropdownLeft + dropdownWidth + traceGap, maxTraceLeft);
 
         // Float threshold control max width
         const floatThresholdMaxWidth = mode === 'narrow' ? 180 : 250;
@@ -2768,6 +2789,16 @@ private toggleConnectorLinesDisplay(): void {
         this.showConnectorLinesInternal = !this.showConnectorLinesInternal;
         this.debugLog("New showConnectorLinesInternal value:", this.showConnectorLinesInternal);
 
+        // STRICT SCROLL PRESERVATION: capture current position so toggling doesn't jump to top
+        if (this.scrollableContainer?.node()) {
+            const currentScrollTop = this.scrollableContainer.node().scrollTop;
+            this.preservedScrollTop = currentScrollTop;
+            this.preserveScrollOnUpdate = true;
+            // Guard against subsequent Power BI retriggers
+            this.scrollPreservationUntil = Date.now() + 500;
+            this.debugLog(`Connector toggle: Captured scrollTop=${currentScrollTop}`);
+        }
+
         // Persist the connector lines state
         this.host.persistProperties({
             merge: [{
@@ -3398,6 +3429,30 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.clearVisual();
         // Use the centralized function which includes all header elements
         this.updateHeaderElements(options.viewport.width);
+        this.createFloatThresholdControl();
+        this.createTaskSelectionDropdown();
+
+        // Keep dropdown/labels in sync with the current selection after recreation
+        if (this.dropdownInput) {
+            if (this.selectedTaskId) {
+                this.dropdownInput.property("value", this.selectedTaskName || "");
+            } else {
+                this.dropdownInput.property("value", "");
+            }
+        }
+
+        if (this.selectedTaskLabel) {
+            if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
+                this.selectedTaskLabel
+                    .style("display", "block")
+                    .text(`Selected: ${this.selectedTaskName}`);
+            } else {
+                this.selectedTaskLabel.style("display", "none");
+            }
+        }
+
+        this.populateTaskDropdown();
+        this.createTraceModeToggle();
         
         // Redraw with updated settings
         // We must recalculate scales here because a setting change (like baseline toggle via format pane)

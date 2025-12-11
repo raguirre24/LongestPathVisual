@@ -27,6 +27,7 @@ declare class ConnectorLinesCard extends Card {
     name: string;
     displayName: string;
     showConnectorToggle: formattingSettings.ToggleSwitch;
+    showConnectorLines: formattingSettings.ToggleSwitch;
     connectorColor: formattingSettings.ColorPicker;
     connectorWidth: formattingSettings.NumUpDown;
     criticalConnectorWidth: formattingSettings.NumUpDown;
@@ -82,6 +83,12 @@ declare class ProjectEndLineCard extends Card {
     lineColor: formattingSettings.ColorPicker;
     lineWidth: formattingSettings.NumUpDown;
     lineStyle: formattingSettings.ItemDropdown;
+    showLabel: formattingSettings.ToggleSwitch;
+    labelColor: formattingSettings.ColorPicker;
+    labelFontSize: formattingSettings.NumUpDown;
+    showLabelPrefix: formattingSettings.ToggleSwitch;
+    labelBackgroundColor: formattingSettings.ColorPicker;
+    labelBackgroundTransparency: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 declare class DisplayOptionsCard extends Card {
@@ -102,6 +109,8 @@ declare class TaskSelectionCard extends Card {
     name: string;
     displayName: string;
     enableTaskSelection: formattingSettings.ToggleSwitch;
+    dropdownWidth: formattingSettings.NumUpDown;
+    dropdownPosition: formattingSettings.ItemDropdown;
     showSelectedTaskLabel: formattingSettings.ToggleSwitch;
     traceMode: formattingSettings.ItemDropdown;
     slices: Slice[];
