@@ -182,6 +182,7 @@ declare class PersistedStateCard extends Card {
     selectedTaskId: formattingSettings.TextInput;
     floatThreshold: formattingSettings.NumUpDown;
     traceMode: formattingSettings.TextInput;
+    selectedLegendCategories: formattingSettings.TextInput;
     slices: Slice[];
 }
 export declare class VisualSettings extends Model {

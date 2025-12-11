@@ -144,10 +144,17 @@ interface WBSGroup {
     summaryStartDate?: Date | null;
     summaryFinishDate?: Date | null;
     hasCriticalTasks: boolean;
+    hasNearCriticalTasks?: boolean;
     taskCount: number;
     // Critical date range (for partial highlighting)
     criticalStartDate?: Date | null;
     criticalFinishDate?: Date | null;
+    nearCriticalStartDate?: Date | null;
+    nearCriticalFinishDate?: Date | null;
+    summaryBaselineStartDate?: Date | null;
+    summaryBaselineFinishDate?: Date | null;
+    summaryPreviousUpdateStartDate?: Date | null;
+    summaryPreviousUpdateFinishDate?: Date | null;
 }
 
 interface Relationship {
@@ -2308,6 +2315,8 @@ private toggleWbsExpandCollapseDisplay(): void {
             return;
         }
 
+        this.hideTooltip();
+
         if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
             this.refreshWbsAvailableLevels();
         }
@@ -2865,6 +2874,7 @@ private toggleConnectorLinesDisplay(): void {
 private async updateInternal(options: VisualUpdateOptions) {
     this.debugLog("--- Visual Update Start ---");
     this.renderStartTime = performance.now();
+    this.hideTooltip();
     
     if (this.isUpdating) {
         this.debugLog("Update already in progress, skipping");
@@ -3139,11 +3149,19 @@ private async updateInternal(options: VisualUpdateOptions) {
             }
         }
 
+        const hasValidPlotDates = (task: Task) =>
+            task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
+            task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
+            task.finishDate >= task.startDate;
+
         const tasksSortedByStartDate = this.allTasksData
             .filter(task => task.startDate instanceof Date && !isNaN(task.startDate.getTime()))
             .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
 
-        const criticalAndNearCriticalTasks = tasksSortedByStartDate.filter(task => 
+        // Only use tasks that can actually be plotted for subsequent filtering
+        const plottableTasksSorted = tasksSortedByStartDate.filter(hasValidPlotDates);
+
+        const criticalAndNearCriticalTasks = plottableTasksSorted.filter(task => 
             task.isCritical || task.isNearCritical
         );
 
@@ -3152,27 +3170,41 @@ private async updateInternal(options: VisualUpdateOptions) {
         if (enableTaskSelection && this.selectedTaskId) {
             const effectiveTraceMode = this.traceMode || this.settings.taskSelection.traceMode.value.value;
             const relevantTaskSet = effectiveTraceMode === 'forward' ? successorTaskSet : predecessorTaskSet;
+            const relevantPlottableTasks = plottableTasksSorted.filter(task => relevantTaskSet.has(task.internalId));
 
             if (this.showAllTasksInternal) {
-                tasksToConsider = tasksSortedByStartDate.filter(task => relevantTaskSet.has(task.internalId));
+                tasksToConsider = relevantPlottableTasks.length > 0 ? relevantPlottableTasks : plottableTasksSorted;
             } else {
                 if (mode === 'floatBased') {
-                    tasksToConsider = tasksSortedByStartDate.filter(task => 
-                        relevantTaskSet.has(task.internalId) && (task.isCritical || task.isNearCritical)
-                    );
+                    const criticalTraceTasks = relevantPlottableTasks.filter(task => task.isCritical || task.isNearCritical);
+                    if (criticalTraceTasks.length > 0) {
+                        tasksToConsider = criticalTraceTasks;
+                    } else if (criticalAndNearCriticalTasks.length > 0) {
+                        tasksToConsider = criticalAndNearCriticalTasks;
+                    } else if (relevantPlottableTasks.length > 0) {
+                        tasksToConsider = relevantPlottableTasks;
+                    } else {
+                        tasksToConsider = plottableTasksSorted;
+                    }
                 } else {
-                    tasksToConsider = criticalAndNearCriticalTasks;
+                    if (criticalAndNearCriticalTasks.length > 0) {
+                        tasksToConsider = criticalAndNearCriticalTasks;
+                    } else if (relevantPlottableTasks.length > 0) {
+                        tasksToConsider = relevantPlottableTasks;
+                    } else {
+                        tasksToConsider = plottableTasksSorted;
+                    }
                 }
             }
 
             const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
-            if (selectedTask && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
+            if (selectedTask && hasValidPlotDates(selectedTask) && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
                 tasksToConsider.push(selectedTask);
             }
         } else {
             tasksToConsider = this.showAllTasksInternal 
-                ? tasksSortedByStartDate 
-                : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : tasksSortedByStartDate;
+                ? plottableTasksSorted 
+                : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : plottableTasksSorted;
         }
 
         const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
@@ -3184,11 +3216,7 @@ private async updateInternal(options: VisualUpdateOptions) {
             return;
         }
 
-        const tasksToPlot = limitedTasks.filter(task =>
-            task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
-            task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
-            task.finishDate >= task.startDate
-        );
+        const tasksToPlot = limitedTasks.filter(hasValidPlotDates);
         
         if (tasksToPlot.length === 0) {
             this.applyTaskFilter([]); // ← FIX #5: Clear filter when no valid dates
@@ -3759,13 +3787,31 @@ private setupTimeBasedSVGAndScales(
     // IMPORTANT: For WBS mode, include dates from summary bars of ALL groups
     // This maintains consistent time scale perspective regardless of collapse/expand state
     if (wbsGroupingEnabled && this.wbsGroups.length > 0) {
-        // Add summary dates from all groups (these are already filtered)
         for (const group of this.wbsGroups) {
             if (group.summaryStartDate && !isNaN(group.summaryStartDate.getTime())) {
                 allTimestamps.push(group.summaryStartDate.getTime());
             }
             if (group.summaryFinishDate && !isNaN(group.summaryFinishDate.getTime())) {
                 allTimestamps.push(group.summaryFinishDate.getTime());
+            }
+
+            // Include WBS-level previous update and baseline ranges when toggles are on
+            if (this.showPreviousUpdateInternal) {
+                if (group.summaryPreviousUpdateStartDate && !isNaN(group.summaryPreviousUpdateStartDate.getTime())) {
+                    allTimestamps.push(group.summaryPreviousUpdateStartDate.getTime());
+                }
+                if (group.summaryPreviousUpdateFinishDate && !isNaN(group.summaryPreviousUpdateFinishDate.getTime())) {
+                    allTimestamps.push(group.summaryPreviousUpdateFinishDate.getTime());
+                }
+            }
+
+            if (this.showBaselineInternal) {
+                if (group.summaryBaselineStartDate && !isNaN(group.summaryBaselineStartDate.getTime())) {
+                    allTimestamps.push(group.summaryBaselineStartDate.getTime());
+                }
+                if (group.summaryBaselineFinishDate && !isNaN(group.summaryBaselineFinishDate.getTime())) {
+                    allTimestamps.push(group.summaryBaselineFinishDate.getTime());
+                }
             }
         }
     }
@@ -3809,6 +3855,22 @@ private setupTimeBasedSVGAndScales(
                 }
                 if (group.summaryFinishDate && !isNaN(group.summaryFinishDate.getTime())) {
                     allTimestamps.push(group.summaryFinishDate.getTime());
+                }
+                if (this.showPreviousUpdateInternal) {
+                    if (group.summaryPreviousUpdateStartDate && !isNaN(group.summaryPreviousUpdateStartDate.getTime())) {
+                        allTimestamps.push(group.summaryPreviousUpdateStartDate.getTime());
+                    }
+                    if (group.summaryPreviousUpdateFinishDate && !isNaN(group.summaryPreviousUpdateFinishDate.getTime())) {
+                        allTimestamps.push(group.summaryPreviousUpdateFinishDate.getTime());
+                    }
+                }
+                if (this.showBaselineInternal) {
+                    if (group.summaryBaselineStartDate && !isNaN(group.summaryBaselineStartDate.getTime())) {
+                        allTimestamps.push(group.summaryBaselineStartDate.getTime());
+                    }
+                    if (group.summaryBaselineFinishDate && !isNaN(group.summaryBaselineFinishDate.getTime())) {
+                        allTimestamps.push(group.summaryBaselineFinishDate.getTime());
+                    }
                 }
             }
         }
@@ -4047,6 +4109,12 @@ private showTaskTooltip(task: Task, event: MouseEvent): void {
 
     // Position the tooltip
     this.positionTooltip(tooltip.node(), event);
+}
+
+private hideTooltip(): void {
+    if (this.tooltipDiv) {
+        this.tooltipDiv.style("visibility", "hidden");
+    }
 }
 
 private updateHeaderElements(viewportWidth: number): void {
@@ -8739,7 +8807,14 @@ private processWBSData(): void {
             hasCriticalTasks: false,
             taskCount: 0,
             criticalStartDate: null,
-            criticalFinishDate: null
+            criticalFinishDate: null,
+            hasNearCriticalTasks: false,
+            nearCriticalStartDate: null,
+            nearCriticalFinishDate: null,
+            summaryBaselineStartDate: null,
+            summaryBaselineFinishDate: null,
+            summaryPreviousUpdateStartDate: null,
+            summaryPreviousUpdateFinishDate: null
         };
 
         this.wbsGroups.push(group);
@@ -8783,10 +8858,17 @@ private processWBSData(): void {
         // Calculate summary metrics from all tasks
         group.taskCount = group.allTasks.length;
         group.hasCriticalTasks = group.allTasks.some(t => t.isCritical);
+        group.hasNearCriticalTasks = group.allTasks.some(t => t.isNearCritical);
 
         // Calculate summary dates (earliest start, latest finish)
         let minStart: Date | null = null;
         let maxFinish: Date | null = null;
+        let nearCriticalMinStart: Date | null = null;
+        let nearCriticalMaxFinish: Date | null = null;
+        let baselineMinStart: Date | null = null;
+        let baselineMaxFinish: Date | null = null;
+        let prevUpdateMinStart: Date | null = null;
+        let prevUpdateMaxFinish: Date | null = null;
 
         for (const task of group.allTasks) {
             if (task.startDate) {
@@ -8799,10 +8881,47 @@ private processWBSData(): void {
                     maxFinish = task.finishDate;
                 }
             }
+
+            if (task.baselineStartDate) {
+                if (!baselineMinStart || task.baselineStartDate < baselineMinStart) {
+                    baselineMinStart = task.baselineStartDate;
+                }
+            }
+            if (task.baselineFinishDate) {
+                if (!baselineMaxFinish || task.baselineFinishDate > baselineMaxFinish) {
+                    baselineMaxFinish = task.baselineFinishDate;
+                }
+            }
+
+            if (task.previousUpdateStartDate) {
+                if (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart) {
+                    prevUpdateMinStart = task.previousUpdateStartDate;
+                }
+            }
+            if (task.previousUpdateFinishDate) {
+                if (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish) {
+                    prevUpdateMaxFinish = task.previousUpdateFinishDate;
+                }
+            }
+
+            if (task.isNearCritical) {
+                if (task.startDate && (!nearCriticalMinStart || task.startDate < nearCriticalMinStart)) {
+                    nearCriticalMinStart = task.startDate;
+                }
+                if (task.finishDate && (!nearCriticalMaxFinish || task.finishDate > nearCriticalMaxFinish)) {
+                    nearCriticalMaxFinish = task.finishDate;
+                }
+            }
         }
 
         group.summaryStartDate = minStart;
         group.summaryFinishDate = maxFinish;
+        group.nearCriticalStartDate = nearCriticalMinStart;
+        group.nearCriticalFinishDate = nearCriticalMaxFinish;
+        group.summaryBaselineStartDate = baselineMinStart;
+        group.summaryBaselineFinishDate = baselineMaxFinish;
+        group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
+        group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
     };
 
     // Calculate metrics for all root groups (which recursively calculates for all children)
@@ -8932,6 +9051,8 @@ private toggleWbsGroupExpansion(groupId: string): void {
         clearTimeout(this.scrollThrottleTimeout);
         this.scrollThrottleTimeout = null;
     }
+
+    this.hideTooltip();
 
     // Before toggling, capture the group's visual position (position relative to viewport)
     // so we can restore it after re-render
@@ -9140,6 +9261,13 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         group.hasCriticalTasks = false;
         group.criticalStartDate = null;
         group.criticalFinishDate = null;
+        group.hasNearCriticalTasks = false;
+        group.nearCriticalStartDate = null;
+        group.nearCriticalFinishDate = null;
+        group.summaryBaselineStartDate = null;
+        group.summaryBaselineFinishDate = null;
+        group.summaryPreviousUpdateStartDate = null;
+        group.summaryPreviousUpdateFinishDate = null;
     }
 
     // Create a set of filtered task IDs for quick lookup
@@ -9163,6 +9291,13 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         let hasCritical = false;
         let criticalMinStart: Date | null = null;
         let criticalMaxFinish: Date | null = null;
+        let hasNearCritical = false;
+        let nearCriticalMinStart: Date | null = null;
+        let nearCriticalMaxFinish: Date | null = null;
+        let baselineMinStart: Date | null = null;
+        let baselineMaxFinish: Date | null = null;
+        let prevUpdateMinStart: Date | null = null;
+        let prevUpdateMaxFinish: Date | null = null;
 
         // Check direct tasks
         for (const task of group.tasks) {
@@ -9186,6 +9321,38 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
                     criticalMaxFinish = task.finishDate;
                 }
             }
+
+            if (task.isNearCritical) {
+                hasNearCritical = true;
+                if (task.startDate && (!nearCriticalMinStart || task.startDate < nearCriticalMinStart)) {
+                    nearCriticalMinStart = task.startDate;
+                }
+                if (task.finishDate && (!nearCriticalMaxFinish || task.finishDate > nearCriticalMaxFinish)) {
+                    nearCriticalMaxFinish = task.finishDate;
+                }
+            }
+
+            if (task.baselineStartDate) {
+                if (!baselineMinStart || task.baselineStartDate < baselineMinStart) {
+                    baselineMinStart = task.baselineStartDate;
+                }
+            }
+            if (task.baselineFinishDate) {
+                if (!baselineMaxFinish || task.baselineFinishDate > baselineMaxFinish) {
+                    baselineMaxFinish = task.baselineFinishDate;
+                }
+            }
+
+            if (task.previousUpdateStartDate) {
+                if (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart) {
+                    prevUpdateMinStart = task.previousUpdateStartDate;
+                }
+            }
+            if (task.previousUpdateFinishDate) {
+                if (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish) {
+                    prevUpdateMaxFinish = task.previousUpdateFinishDate;
+                }
+            }
         }
 
         // Recursively process children
@@ -9205,6 +9372,28 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
             if (child.criticalFinishDate && (!criticalMaxFinish || child.criticalFinishDate > criticalMaxFinish)) {
                 criticalMaxFinish = child.criticalFinishDate;
             }
+
+            if (child.hasNearCriticalTasks) hasNearCritical = true;
+            if (child.nearCriticalStartDate && (!nearCriticalMinStart || child.nearCriticalStartDate < nearCriticalMinStart)) {
+                nearCriticalMinStart = child.nearCriticalStartDate;
+            }
+            if (child.nearCriticalFinishDate && (!nearCriticalMaxFinish || child.nearCriticalFinishDate > nearCriticalMaxFinish)) {
+                nearCriticalMaxFinish = child.nearCriticalFinishDate;
+            }
+
+            if (child.summaryBaselineStartDate && (!baselineMinStart || child.summaryBaselineStartDate < baselineMinStart)) {
+                baselineMinStart = child.summaryBaselineStartDate;
+            }
+            if (child.summaryBaselineFinishDate && (!baselineMaxFinish || child.summaryBaselineFinishDate > baselineMaxFinish)) {
+                baselineMaxFinish = child.summaryBaselineFinishDate;
+            }
+
+            if (child.summaryPreviousUpdateStartDate && (!prevUpdateMinStart || child.summaryPreviousUpdateStartDate < prevUpdateMinStart)) {
+                prevUpdateMinStart = child.summaryPreviousUpdateStartDate;
+            }
+            if (child.summaryPreviousUpdateFinishDate && (!prevUpdateMaxFinish || child.summaryPreviousUpdateFinishDate > prevUpdateMaxFinish)) {
+                prevUpdateMaxFinish = child.summaryPreviousUpdateFinishDate;
+            }
         }
 
         group.summaryStartDate = minStart;
@@ -9212,6 +9401,13 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         group.hasCriticalTasks = hasCritical;
         group.criticalStartDate = criticalMinStart;
         group.criticalFinishDate = criticalMaxFinish;
+        group.hasNearCriticalTasks = hasNearCritical;
+        group.nearCriticalStartDate = nearCriticalMinStart;
+        group.nearCriticalFinishDate = nearCriticalMaxFinish;
+        group.summaryBaselineStartDate = baselineMinStart;
+        group.summaryBaselineFinishDate = baselineMaxFinish;
+        group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
+        group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
     };
 
     // Calculate filtered summaries for all root groups
@@ -9412,6 +9608,7 @@ private drawWbsGroupHeaders(
     const showGroupSummary = this.settings.wbsGrouping.showGroupSummary.value;
     const groupHeaderColor = this.settings.wbsGrouping.groupHeaderColor.value.value;
     const groupSummaryColor = this.settings.wbsGrouping.groupSummaryColor.value.value;
+    const nearCriticalColor = this.settings.taskAppearance.nearCriticalColor.value.value;
     const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
@@ -9420,6 +9617,16 @@ private drawWbsGroupHeaders(
     const groupNameFontSize = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
     const groupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? '#333333';
     const criticalPathColor = this.settings.taskAppearance.criticalPathColor.value.value;
+    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+    const showNearCriticalSummary = this.showNearCritical && this.floatThreshold > 0 && mode === 'floatBased';
+    const showBaseline = this.showBaselineInternal;
+    const showPreviousUpdate = this.showPreviousUpdateInternal;
+    const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+    const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
+    const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
+    const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+    const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
+    const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
 
     // Create a separate layer for WBS headers if it doesn't exist
     // Insert AFTER gridLayer so WBS headers appear on top of gridlines
@@ -9477,6 +9684,50 @@ private drawWbsGroupHeaders(
             // Dim the bar if all tasks are filtered out
             const barOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
 
+            // Previous update summary bar (mirrors task-level behavior)
+            if (showPreviousUpdate &&
+                group.summaryPreviousUpdateStartDate && group.summaryPreviousUpdateFinishDate &&
+                group.summaryPreviousUpdateFinishDate >= group.summaryPreviousUpdateStartDate) {
+                const prevStartX = xScale(group.summaryPreviousUpdateStartDate);
+                const prevFinishX = xScale(group.summaryPreviousUpdateFinishDate);
+                const prevWidth = Math.max(2, prevFinishX - prevStartX);
+                const prevY = barY + barHeight + previousUpdateOffset;
+
+                headerGroup.append('rect')
+                    .attr('class', 'wbs-summary-bar-previous-update')
+                    .attr('x', prevStartX)
+                    .attr('y', prevY)
+                    .attr('width', prevWidth)
+                    .attr('height', previousUpdateHeight)
+                    .attr('rx', 3)
+                    .attr('ry', 3)
+                    .style('fill', previousUpdateColor)
+                    .style('opacity', barOpacity);
+            }
+
+            // Baseline summary bar (mirrors task-level behavior)
+            if (showBaseline &&
+                group.summaryBaselineStartDate && group.summaryBaselineFinishDate &&
+                group.summaryBaselineFinishDate >= group.summaryBaselineStartDate) {
+                const baselineStartX = xScale(group.summaryBaselineStartDate);
+                const baselineFinishX = xScale(group.summaryBaselineFinishDate);
+                const baselineWidth = Math.max(2, baselineFinishX - baselineStartX);
+                const baselineY = barY + barHeight +
+                    (showPreviousUpdate ? previousUpdateHeight + previousUpdateOffset : 0) +
+                    baselineOffset;
+
+                headerGroup.append('rect')
+                    .attr('class', 'wbs-summary-bar-baseline')
+                    .attr('x', baselineStartX)
+                    .attr('y', baselineY)
+                    .attr('width', baselineWidth)
+                    .attr('height', baselineHeight)
+                    .attr('rx', 3)
+                    .attr('ry', 3)
+                    .style('fill', baselineColor)
+                    .style('opacity', barOpacity);
+            }
+
             // Draw the base (non-critical) summary bar
             headerGroup.append('rect')
                 .attr('class', 'wbs-summary-bar')
@@ -9488,6 +9739,36 @@ private drawWbsGroupHeaders(
                 .attr('ry', 3)
                 .style('fill', groupSummaryColor)
                 .style('opacity', barOpacity);
+
+            // Highlight near-critical portion when applicable (Float-Based mode, threshold > 0)
+            if (showNearCriticalSummary && group.hasNearCriticalTasks && group.nearCriticalStartDate && group.nearCriticalFinishDate) {
+                const clampedNearStartDate = group.summaryStartDate
+                    ? new Date(Math.max(group.nearCriticalStartDate.getTime(), group.summaryStartDate.getTime()))
+                    : group.nearCriticalStartDate;
+                const clampedNearFinishDate = group.summaryFinishDate
+                    ? new Date(Math.min(group.nearCriticalFinishDate.getTime(), group.summaryFinishDate.getTime()))
+                    : group.nearCriticalFinishDate;
+
+                if (clampedNearStartDate <= clampedNearFinishDate) {
+                    const nearStartX = xScale(clampedNearStartDate);
+                    const nearFinishX = xScale(clampedNearFinishDate);
+                    const nearWidth = Math.max(2, nearFinishX - nearStartX);
+
+                    const nearStartsAtBeginning = nearStartX <= startX + 1;
+                    const nearEndsAtEnd = nearFinishX >= finishX - 1;
+
+                    headerGroup.append('rect')
+                        .attr('class', 'wbs-summary-bar-near-critical')
+                        .attr('x', nearStartX)
+                        .attr('y', barY)
+                        .attr('width', nearWidth)
+                        .attr('height', barHeight)
+                        .attr('rx', (nearStartsAtBeginning || nearEndsAtEnd) ? 3 : 0)
+                        .attr('ry', (nearStartsAtBeginning || nearEndsAtEnd) ? 3 : 0)
+                        .style('fill', nearCriticalColor)
+                        .style('opacity', barOpacity);
+                }
+            }
 
             // If there are critical tasks, overlay the critical portion in red
             if (group.hasCriticalTasks && group.criticalStartDate && group.criticalFinishDate) {
@@ -9638,6 +9919,7 @@ private drawWbsGroupHeaders(
 
         // Click handler for expand/collapse
         headerGroup.on('click', function() {
+            self.hideTooltip();
             self.toggleWbsGroupExpansion(group.id);
         });
     }

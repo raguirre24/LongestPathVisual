@@ -94,6 +94,7 @@ export declare class Visual implements IVisual {
     private wbsExpandToLevel;
     private wbsAvailableLevels;
     private wbsManualExpansionOverride;
+    private wbsManuallyToggledGroups;
     private wbsGroupLayer;
     private lastExpandCollapseAllState;
     private tooltipDebugLogged;
@@ -109,6 +110,7 @@ export declare class Visual implements IVisual {
     private visualTitle;
     private tooltipClassName;
     private isUpdating;
+    private isMarginDragging;
     private scrollHandlerBackup;
     private updateDebounceTimeout;
     private pendingUpdate;
@@ -143,6 +145,12 @@ export declare class Visual implements IVisual {
     private setupSVGRenderingHints;
     private determineUpdateType;
     destroy(): void;
+    /**
+     * Centralized scroll preservation helper.
+     * Call this before any update() that should maintain scroll position.
+     * Sets up both the preserved scroll value and the cooldown to prevent Power BI re-triggers.
+     */
+    private captureScrollPosition;
     /**
      * Phase 1: Check if enough time has passed since last render (throttling)
      * @returns true if render should proceed, false if should skip
@@ -226,6 +234,7 @@ export declare class Visual implements IVisual {
     private setupVirtualScroll;
     private getCanvasMouseCoordinates;
     private showTaskTooltip;
+    private hideTooltip;
     private updateHeaderElements;
     private calculateVisibleTasks;
     private handleScroll;
