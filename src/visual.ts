@@ -238,6 +238,7 @@ export class Visual implements IVisual {
     private taskLabelLineHeight = "1.1em";
     private minTaskWidthPixels = 1;
     private monthYearFormatter = timeFormat("%b-%y");
+    private dataDate: Date | null = null;
 
     // --- Store scales ---
     private xScale: ScaleTime<number, number> | null = null;
@@ -3452,6 +3453,15 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
                 chartWidth,
                 this.yScale.range()[1]
             );
+
+            // Draw Data Date line on viewport-only updates
+            this.drawDataDateLine(
+                this.xScale.range()[1],
+                this.xScale,
+                this.yScale.range()[1],
+                this.gridLayer,
+                this.headerGridLayer
+            );
         }
         
         this.debugLog("--- Visual Update End (Viewport Only) ---");
@@ -3599,6 +3609,15 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
                     this.yScale,
                     chartWidth,
                     calculatedChartHeight
+                );
+
+                // Draw Data Date line on settings-only updates
+                this.drawDataDateLine(
+                    this.xScale.range()[1],
+                    this.xScale,
+                    this.yScale.range()[1],
+                    this.gridLayer,
+                    this.headerGridLayer
                 );
             }
         }
@@ -3779,6 +3798,11 @@ private setupTimeBasedSVGAndScales(
 
     // Collect ALL date timestamps including baseline dates
     const allTimestamps: number[] = [];
+
+    // Include Data Date so scale always accounts for it
+    if (this.dataDate instanceof Date && !isNaN(this.dataDate.getTime())) {
+        allTimestamps.push(this.dataDate.getTime());
+    }
 
     // NEW: Check if baseline should be included based on the internal toggle state
     const includeBaselineInScale = this.showBaselineInternal;
@@ -4344,6 +4368,15 @@ private redrawVisibleTasks(): void {
                 );
             }
 
+            // Draw Data Date line on canvas and header
+            this.drawDataDateLine(
+                chartWidth,
+                this.xScale,
+                chartHeight,
+                this.gridLayer,
+                this.headerGridLayer
+            );
+
             // BUG-011 FIX: NOW hide SVG layers (after canvas content is fully rendered)
             // This prevents flicker by showing new content before hiding old
             this.taskLayer.style("display", "none");
@@ -4445,6 +4478,15 @@ private redrawVisibleTasks(): void {
             this.headerGridLayer
         );
     }
+
+    // Draw Data Date line if provided
+    this.drawDataDateLine(
+        this.xScale.range()[1],
+        this.xScale,
+        this.yScale.range()[1],
+        this.gridLayer,
+        this.headerGridLayer
+    );
 }
 
 private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number): void {
@@ -4695,16 +4737,25 @@ private drawVisualElements(
             tasksToShow, xScale, yScale,
             taskColor, milestoneColor, criticalColor,
             labelColor, showDuration, taskHeight,
-            dateBgColor, dateBgOpacity
-        );
+                dateBgColor, dateBgOpacity
+            );
 
-        // Draw WBS group headers (SVG mode only)
-        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
-    }
+            // Draw WBS group headers (SVG mode only)
+            this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
 
-    if (showProjectEndLine) {
-        // Project end line is always drawn in SVG
-        // Use allFilteredTasks to show finish date of all filtered tasks (not just visible/non-collapsed)
+            // Draw Data Date line when in SVG mode
+            this.drawDataDateLine(
+                chartWidth,
+                xScale,
+                chartHeight,
+                this.gridLayer,
+                this.headerGridLayer
+            );
+        }
+
+        if (showProjectEndLine) {
+            // Project end line is always drawn in SVG
+            // Use allFilteredTasks to show finish date of all filtered tasks (not just visible/non-collapsed)
         const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
         this.drawProjectEndLine(chartWidth, xScale, tasksToShow, tasksForProjectEnd, chartHeight,
                                 this.gridLayer, this.headerGridLayer);
@@ -6768,6 +6819,112 @@ private drawArrowsCanvas(
         }
     }
 
+    private drawDataDateLine(
+        chartWidth: number,
+        xScale: ScaleTime<number, number>,
+        chartHeight: number,
+        mainGridLayer: Selection<SVGGElement, unknown, null, undefined>,
+        headerLayer: Selection<SVGGElement, unknown, null, undefined>
+    ): void {
+        if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
+
+        // Always clear previous render so stale lines don't remain when toggled off or data missing
+        mainGridLayer.select(".data-date-line").remove();
+        headerLayer.selectAll(".data-date-label-group").remove();
+
+        if (!(this.dataDate instanceof Date) || isNaN(this.dataDate.getTime())) { return; }
+
+        const settings = this.settings?.dataDateLine;
+        if (!settings || !settings.show.value) return;
+
+        const lineColor = settings.lineColor.value.value;
+        const lineWidth = settings.lineWidth.value;
+        const lineStyle = settings.lineStyle.value.value;
+        const showLabel = settings.showLabel?.value ?? true;
+        const labelColor = settings.labelColor?.value?.value ?? lineColor;
+        const labelFontSize = settings.labelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
+        const showLabelPrefix = settings.showLabelPrefix?.value ?? true;
+        const labelBackgroundColor = settings.labelBackgroundColor?.value?.value ?? "#FFFFFF";
+        const labelBackgroundTransparency = settings.labelBackgroundTransparency?.value ?? 0;
+        const labelBackgroundOpacity = 1 - (labelBackgroundTransparency / 100);
+
+        let lineDashArray = "none";
+        switch (lineStyle) { case "dashed": lineDashArray = "5,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; }
+
+        const dataDateX = xScale(this.dataDate);
+
+        if (isNaN(dataDateX) || !isFinite(dataDateX)) { console.warn("Calculated Data Date line position is invalid:", dataDateX); return; }
+
+        // Always draw on SVG grid layer (mirrors Project End line behavior)
+        const effectiveHeight = chartHeight > 0 ? chartHeight : (this.mainSvg ? (parseFloat(this.mainSvg.attr("height")) || 0) : 0);
+
+        mainGridLayer.append("line")
+            .attr("class", "data-date-line")
+            .attr("x1", dataDateX).attr("y1", 0)
+            .attr("x2", dataDateX).attr("y2", effectiveHeight)
+            .attr("stroke", lineColor)
+            .attr("stroke-width", lineWidth)
+            .attr("stroke-dasharray", lineDashArray)
+            .style("pointer-events", "none");
+
+        // Also draw on canvas when canvas rendering is active to ensure visibility above the canvas layer
+        if (this.useCanvasRendering && this.canvasContext) {
+            const ctx = this.canvasContext;
+            ctx.save();
+            ctx.strokeStyle = lineColor;
+            ctx.lineWidth = lineWidth;
+            switch (lineStyle) {
+                case "dashed": ctx.setLineDash([5, 3]); break;
+                case "dotted": ctx.setLineDash([1, 2]); break;
+                default: ctx.setLineDash([]); break;
+            }
+            ctx.beginPath();
+            ctx.moveTo(dataDateX, 0);
+            ctx.lineTo(dataDateX, effectiveHeight);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        if (showLabel) {
+            const dataDateText = showLabelPrefix
+                ? `Data Date: ${this.formatDate(this.dataDate)}`
+                : this.formatDate(this.dataDate);
+
+            const labelY = this.headerHeight - 26;
+            const labelX = dataDateX + 5;
+
+            const labelGroup = headerLayer.append("g")
+                .attr("class", "data-date-label-group")
+                .style("pointer-events", "none");
+
+            const textElement = labelGroup.append("text")
+                .attr("class", "data-date-label")
+                .attr("x", labelX)
+                .attr("y", labelY)
+                .attr("text-anchor", "start")
+                .style("fill", labelColor)
+                .style("font-size", labelFontSize + "pt")
+                .style("font-weight", "600")
+                .text(dataDateText);
+
+            if (labelBackgroundOpacity > 0) {
+                const bbox = (textElement.node() as SVGTextElement)?.getBBox();
+                if (bbox) {
+                    const padding = { h: 4, v: 2 };
+                    labelGroup.insert("rect", ".data-date-label")
+                        .attr("x", bbox.x - padding.h)
+                        .attr("y", bbox.y - padding.v)
+                        .attr("width", bbox.width + padding.h * 2)
+                        .attr("height", bbox.height + padding.v * 2)
+                        .attr("rx", 3)
+                        .attr("ry", 3)
+                        .style("fill", labelBackgroundColor)
+                        .style("fill-opacity", labelBackgroundOpacity);
+                }
+            }
+        }
+    }
+
 private async calculateCPMOffThread(): Promise<void> {
     const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
     
@@ -8221,6 +8378,7 @@ private transformDataOptimized(dataView: DataView): void {
     this.taskIdToTask.clear();
     this.predecessorIndex.clear();
     this.relationshipIndex.clear();
+    this.dataDate = null;
 
     if (!dataView.table?.rows || !dataView.metadata?.columns) {
         console.error("Data transformation failed: No table data or columns found.");
@@ -8254,6 +8412,7 @@ private transformDataOptimized(dataView: DataView): void {
     const relTypeIdx = this.getColumnIndex(dataView, "relationshipType");
     const relLagIdx = this.getColumnIndex(dataView, "relationshipLag");
     const relFreeFloatIdx = this.getColumnIndex(dataView, "relationshipFreeFloat");
+    const dataDateIdx = this.getColumnIndex(dataView, "dataDate");
 
     if (idIdx === -1) {
         console.error("Data transformation failed: Missing Task ID column.");
@@ -8286,6 +8445,17 @@ private transformDataOptimized(dataView: DataView): void {
         if (!taskId) {
             console.warn(`Skipping row ${rowIndex}: Invalid or missing Task ID.`);
             continue;
+        }
+
+        // Capture Data Date (use earliest valid value to keep it consistent across rows)
+        if (dataDateIdx !== -1 && row[dataDateIdx] != null) {
+            const parsedDataDate = this.parseDate(row[dataDateIdx]);
+            if (parsedDataDate) {
+                const ts = parsedDataDate.getTime();
+                if (this.dataDate === null || ts < this.dataDate.getTime()) {
+                    this.dataDate = parsedDataDate;
+                }
+            }
         }
 
         // Get or create task data entry

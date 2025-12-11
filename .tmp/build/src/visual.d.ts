@@ -49,6 +49,7 @@ export declare class Visual implements IVisual {
     private taskLabelLineHeight;
     private minTaskWidthPixels;
     private monthYearFormatter;
+    private dataDate;
     private xScale;
     private yScale;
     private selectedTaskId;
@@ -278,6 +279,7 @@ export declare class Visual implements IVisual {
     private positionTooltip;
     private drawArrows;
     private drawProjectEndLine;
+    private drawDataDateLine;
     private calculateCPMOffThread;
     private determineCriticalityMode;
     private applyFloatBasedCriticality;

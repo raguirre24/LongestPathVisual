@@ -91,6 +91,21 @@ declare class ProjectEndLineCard extends Card {
     labelBackgroundTransparency: formattingSettings.NumUpDown;
     slices: Slice[];
 }
+declare class DataDateLineCard extends Card {
+    name: string;
+    displayName: string;
+    show: formattingSettings.ToggleSwitch;
+    lineColor: formattingSettings.ColorPicker;
+    lineWidth: formattingSettings.NumUpDown;
+    lineStyle: formattingSettings.ItemDropdown;
+    showLabel: formattingSettings.ToggleSwitch;
+    labelColor: formattingSettings.ColorPicker;
+    labelFontSize: formattingSettings.NumUpDown;
+    showLabelPrefix: formattingSettings.ToggleSwitch;
+    labelBackgroundColor: formattingSettings.ColorPicker;
+    labelBackgroundTransparency: formattingSettings.NumUpDown;
+    slices: Slice[];
+}
 declare class DisplayOptionsCard extends Card {
     name: string;
     displayName: string;
@@ -193,6 +208,7 @@ export declare class VisualSettings extends Model {
     gridLines: HorizontalGridLinesCard;
     verticalGridLines: VerticalGridLinesCard;
     projectEndLine: ProjectEndLineCard;
+    dataDateLine: DataDateLineCard;
     displayOptions: DisplayOptionsCard;
     criticalityMode: CriticalityModeCard;
     drivingPathSelection: DrivingPathSelectionCard;

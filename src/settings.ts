@@ -236,6 +236,21 @@ class ProjectEndLineCard extends Card {
     slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
 }
 
+class DataDateLineCard extends Card {
+    name: string = "dataDateLine"; displayName: string = "Data Date Line";
+    show = new ToggleSwitch({ name: "show", displayName: "Show Line", value: true });
+    lineColor = new ColorPicker({ name: "lineColor", displayName: "Line Color", value: { value: "#7C3AED" } });
+    lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
+    lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dotted") });
+    showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", description: "Show the data date label", value: true });
+    labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", description: "Color of the data date label text", value: { value: "#333333" } });
+    labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
+    showLabelPrefix = new ToggleSwitch({ name: "showLabelPrefix", displayName: "Show 'Data Date:' Prefix", description: "Include 'Data Date:' before the date", value: true });
+    labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", description: "Background color for the label", value: { value: "#FFFFFF" } });
+    labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
+    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+}
+
 class DisplayOptionsCard extends Card {
     name: string = "displayOptions"; displayName: string = "Display Options";
     showTooltips = new ToggleSwitch({ name: "showTooltips", displayName: "Show Tooltips", value: true });
@@ -610,6 +625,7 @@ export class VisualSettings extends Model {
     gridLines = new HorizontalGridLinesCard();
     verticalGridLines = new VerticalGridLinesCard();
     projectEndLine = new ProjectEndLineCard();
+    dataDateLine = new DataDateLineCard();
     displayOptions = new DisplayOptionsCard();
     criticalityMode = new CriticalityModeCard();
     drivingPathSelection = new DrivingPathSelectionCard();
@@ -628,6 +644,7 @@ export class VisualSettings extends Model {
         this.gridLines,
         this.verticalGridLines,
         this.projectEndLine,
+        this.dataDateLine,
         this.displayOptions,
         this.criticalityMode,
         this.drivingPathSelection,

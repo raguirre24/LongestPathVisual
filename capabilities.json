@@ -62,6 +62,12 @@
             "description": "Finish date from the previous update/snapshot for comparison"
         },
         {
+            "name": "dataDate",
+            "displayName": "Data Date",
+            "kind": "GroupingOrMeasure",
+            "description": "Status date of the schedule snapshot"
+        },
+        {
             "name": "taskName",
             "kind": "Grouping",
             "displayName": "Task Name",
@@ -459,6 +465,22 @@
                 "color20": { "displayName": "Color 20", "type": { "fill": { "solid": { "color": true } } } }
             }
         }
+        ,
+        "dataDateLine": {
+            "displayName": "Data Date Line",
+            "properties": {
+                "show": { "displayName": "Show Line", "type": { "bool": true } },
+                "lineColor": { "displayName": "Line Color", "type": { "fill": { "solid": { "color": true } } } },
+                "lineWidth": { "displayName": "Line Width (px)", "type": { "numeric": true } },
+                "lineStyle": { "displayName": "Line Style", "type": { "enumeration": [ { "displayName": "Solid", "value": "solid" }, { "displayName": "Dashed", "value": "dashed" }, { "displayName": "Dotted", "value": "dotted" } ] } },
+                "showLabel": { "displayName": "Show Label", "type": { "bool": true } },
+                "labelColor": { "displayName": "Label Color", "type": { "fill": { "solid": { "color": true } } } },
+                "labelFontSize": { "displayName": "Label Font Size (pt)", "type": { "numeric": true } },
+                "showLabelPrefix": { "displayName": "Show 'Data Date:' Prefix", "type": { "bool": true } },
+                "labelBackgroundColor": { "displayName": "Label Background", "type": { "fill": { "solid": { "color": true } } } },
+                "labelBackgroundTransparency": { "displayName": "Label Background Transparency (%)", "type": { "numeric": true } }
+            }
+        }
     },
     "dataViewMappings": [
         {
@@ -475,6 +497,7 @@
                         { "bind": { "to": "baselineFinishDate" } },
                         { "bind": { "to": "previousUpdateStartDate" } },
                         { "bind": { "to": "previousUpdateFinishDate" } },
+                        { "bind": { "to": "dataDate" } },
                         { "bind": { "to": "taskName" } },
                         { "bind": { "to": "taskType" } },
                         { "bind": { "to": "predecessorId" } },
