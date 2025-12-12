@@ -370,6 +370,28 @@ export class Visual implements IVisual {
     private cpmMemo: Map<string, number> = new Map();
 
     // ============================================================================
+    // TIMELINE ZOOM SLIDER - Microsoft-style axis zoom control
+    // ============================================================================
+    private zoomSliderContainer: Selection<HTMLDivElement, unknown, null, undefined>;
+    private zoomSliderTrack: Selection<HTMLDivElement, unknown, null, undefined>;
+    private zoomSliderSelection: Selection<HTMLDivElement, unknown, null, undefined>;
+    private zoomSliderLeftHandle: Selection<HTMLDivElement, unknown, null, undefined>;
+    private zoomSliderRightHandle: Selection<HTMLDivElement, unknown, null, undefined>;
+    private zoomSliderMiniChart: Selection<HTMLCanvasElement, unknown, null, undefined>;
+
+    // Zoom state (0-1 percentages of the full timeline)
+    private zoomRangeStart: number = 0;     // 0 = start of full timeline
+    private zoomRangeEnd: number = 1;       // 1 = end of full timeline
+    private fullTimelineDomain: [Date, Date] | null = null;  // Store full domain for reference
+    private isZoomSliderDragging: boolean = false;
+    private zoomDragType: 'left' | 'right' | 'middle' | null = null;
+    private zoomDragStartX: number = 0;
+    private zoomDragStartLeft: number = 0;
+    private zoomDragStartRight: number = 0;
+    private zoomSliderEnabled: boolean = true;
+    private readonly ZOOM_SLIDER_MIN_RANGE: number = 0.02; // Minimum 2% of timeline visible
+
+    // ============================================================================
     // DESIGN TOKENS - Professional UI System (Fluent Design 2)
     // ============================================================================
     private readonly UI_TOKENS = {
@@ -797,6 +819,9 @@ constructor(options: VisualConstructorOptions) {
         .style("box-shadow", "0 -2px 4px rgba(0,0,0,0.1)")
         .style("display", "none")
         .style("overflow", "hidden");
+
+    // --- Timeline Zoom Slider Container (Microsoft-style axis zoom) ---
+    this.createZoomSliderUI(visualWrapper);
 
     // --- Canvas layer for high-performance rendering ---
     this.canvasElement = document.createElement('canvas');
@@ -3015,6 +3040,514 @@ private createFloatThresholdControl(): void {
         });
 }
 
+// ============================================================================
+// TIMELINE ZOOM SLIDER - Microsoft-style axis zoom implementation
+// ============================================================================
+
+/**
+ * Creates the zoom slider UI component with Microsoft Fluent 2 styling
+ */
+private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, null, undefined>): void {
+    const sliderHeight = 40; // Default height, will be updated from settings
+
+    // Main container positioned at the bottom of the scrollable area
+    this.zoomSliderContainer = visualWrapper.append("div")
+        .attr("class", "timeline-zoom-slider-container")
+        .style("position", "relative")
+        .style("width", "100%")
+        .style("height", `${sliderHeight}px`)
+        .style("background-color", "#FAFAFA")
+        .style("border-top", "1px solid #E0E0E0")
+        .style("display", "none") // Hidden by default, shown when enabled
+        .style("z-index", "50")
+        .style("flex-shrink", "0")
+        .style("user-select", "none");
+
+    // Track container (the full timeline background)
+    this.zoomSliderTrack = this.zoomSliderContainer.append("div")
+        .attr("class", "zoom-slider-track")
+        .style("position", "absolute")
+        .style("left", "0")
+        .style("right", "0")
+        .style("top", "8px")
+        .style("bottom", "8px")
+        .style("background-color", "#F3F3F3")
+        .style("border-radius", "4px")
+        .style("overflow", "hidden");
+
+    // Mini chart canvas for task distribution preview
+    const miniChartCanvas = document.createElement('canvas');
+    miniChartCanvas.className = 'zoom-slider-mini-chart';
+    miniChartCanvas.style.position = 'absolute';
+    miniChartCanvas.style.left = '0';
+    miniChartCanvas.style.top = '0';
+    miniChartCanvas.style.width = '100%';
+    miniChartCanvas.style.height = '100%';
+    miniChartCanvas.style.pointerEvents = 'none';
+    this.zoomSliderTrack.node()?.appendChild(miniChartCanvas);
+    this.zoomSliderMiniChart = d3.select(miniChartCanvas);
+
+    // Selection range (the visible portion)
+    this.zoomSliderSelection = this.zoomSliderTrack.append("div")
+        .attr("class", "zoom-slider-selection")
+        .style("position", "absolute")
+        .style("left", "0%")
+        .style("width", "100%")
+        .style("top", "0")
+        .style("bottom", "0")
+        .style("background-color", "rgba(0, 120, 212, 0.08)")
+        .style("border", "2px solid #0078D4")
+        .style("border-radius", "3px")
+        .style("cursor", "grab")
+        .style("box-sizing", "border-box");
+
+    // Left handle
+    this.zoomSliderLeftHandle = this.zoomSliderSelection.append("div")
+        .attr("class", "zoom-slider-handle zoom-slider-handle-left")
+        .style("position", "absolute")
+        .style("left", "-1px")
+        .style("top", "0")
+        .style("bottom", "0")
+        .style("width", "8px")
+        .style("background-color", "#0078D4")
+        .style("border-radius", "3px 0 0 3px")
+        .style("cursor", "ew-resize")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("justify-content", "center");
+
+    // Left handle grip lines
+    this.zoomSliderLeftHandle.append("div")
+        .attr("class", "handle-grip")
+        .style("width", "2px")
+        .style("height", "12px")
+        .style("background-color", "rgba(255,255,255,0.7)")
+        .style("border-radius", "1px");
+
+    // Right handle
+    this.zoomSliderRightHandle = this.zoomSliderSelection.append("div")
+        .attr("class", "zoom-slider-handle zoom-slider-handle-right")
+        .style("position", "absolute")
+        .style("right", "-1px")
+        .style("top", "0")
+        .style("bottom", "0")
+        .style("width", "8px")
+        .style("background-color", "#0078D4")
+        .style("border-radius", "0 3px 3px 0")
+        .style("cursor", "ew-resize")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("justify-content", "center");
+
+    // Right handle grip lines
+    this.zoomSliderRightHandle.append("div")
+        .attr("class", "handle-grip")
+        .style("width", "2px")
+        .style("height", "12px")
+        .style("background-color", "rgba(255,255,255,0.7)")
+        .style("border-radius", "1px");
+
+    // Setup event handlers
+    this.setupZoomSliderEvents();
+}
+
+/**
+ * Sets up mouse and touch event handlers for the zoom slider
+ */
+private setupZoomSliderEvents(): void {
+    const self = this;
+
+    // Left handle drag
+    this.zoomSliderLeftHandle
+        .on("mousedown", function(event: MouseEvent) {
+            event.stopPropagation();
+            event.preventDefault();
+            self.startZoomDrag(event, 'left');
+        })
+        .on("touchstart", function(event: TouchEvent) {
+            event.stopPropagation();
+            event.preventDefault();
+            const touch = event.touches[0];
+            self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'left');
+        });
+
+    // Right handle drag
+    this.zoomSliderRightHandle
+        .on("mousedown", function(event: MouseEvent) {
+            event.stopPropagation();
+            event.preventDefault();
+            self.startZoomDrag(event, 'right');
+        })
+        .on("touchstart", function(event: TouchEvent) {
+            event.stopPropagation();
+            event.preventDefault();
+            const touch = event.touches[0];
+            self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'right');
+        });
+
+    // Middle (selection area) drag for panning
+    this.zoomSliderSelection
+        .on("mousedown", function(event: MouseEvent) {
+            // Only start middle drag if not on handles
+            const target = event.target as HTMLElement;
+            if (target.classList.contains('zoom-slider-handle') ||
+                target.classList.contains('handle-grip')) {
+                return;
+            }
+            event.preventDefault();
+            self.startZoomDrag(event, 'middle');
+        })
+        .on("touchstart", function(event: TouchEvent) {
+            const target = event.target as HTMLElement;
+            if (target.classList.contains('zoom-slider-handle') ||
+                target.classList.contains('handle-grip')) {
+                return;
+            }
+            event.preventDefault();
+            const touch = event.touches[0];
+            self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'middle');
+        });
+
+    // Double-click on track to reset zoom
+    this.zoomSliderTrack
+        .on("dblclick", function() {
+            self.resetZoom();
+        });
+
+    // Click on track outside selection to jump to that position
+    this.zoomSliderTrack
+        .on("mousedown", function(event: MouseEvent) {
+            const target = event.target as HTMLElement;
+            // Only handle clicks directly on the track, not on selection or handles
+            if (!target.classList.contains('zoom-slider-track')) {
+                return;
+            }
+            const trackRect = (self.zoomSliderTrack.node() as HTMLElement).getBoundingClientRect();
+            const clickPercent = (event.clientX - trackRect.left) / trackRect.width;
+            self.jumpZoomTo(clickPercent);
+        });
+
+    // Global mouse/touch move and up handlers (attached to document)
+    document.addEventListener('mousemove', (event) => this.handleZoomDrag(event));
+    document.addEventListener('mouseup', () => this.endZoomDrag());
+    document.addEventListener('touchmove', (event) => {
+        if (this.isZoomSliderDragging && event.touches.length > 0) {
+            const touch = event.touches[0];
+            this.handleZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent);
+        }
+    });
+    document.addEventListener('touchend', () => this.endZoomDrag());
+}
+
+/**
+ * Starts a zoom slider drag operation
+ */
+private startZoomDrag(event: MouseEvent, type: 'left' | 'right' | 'middle'): void {
+    this.isZoomSliderDragging = true;
+    this.zoomDragType = type;
+    this.zoomDragStartX = event.clientX;
+    this.zoomDragStartLeft = this.zoomRangeStart;
+    this.zoomDragStartRight = this.zoomRangeEnd;
+
+    // Update cursor based on drag type
+    if (type === 'middle') {
+        this.zoomSliderSelection.style("cursor", "grabbing");
+    }
+
+    // Add dragging class for visual feedback
+    this.zoomSliderContainer.classed("dragging", true);
+}
+
+/**
+ * Handles zoom slider drag movement
+ */
+private handleZoomDrag(event: MouseEvent): void {
+    if (!this.isZoomSliderDragging || !this.zoomDragType) return;
+
+    const trackRect = (this.zoomSliderTrack.node() as HTMLElement)?.getBoundingClientRect();
+    if (!trackRect) return;
+
+    const deltaX = event.clientX - this.zoomDragStartX;
+    const deltaPercent = deltaX / trackRect.width;
+
+    switch (this.zoomDragType) {
+        case 'left':
+            // Move left handle (start of zoom)
+            let newStart = Math.max(0, Math.min(this.zoomDragStartLeft + deltaPercent,
+                this.zoomRangeEnd - this.ZOOM_SLIDER_MIN_RANGE));
+            this.zoomRangeStart = newStart;
+            break;
+
+        case 'right':
+            // Move right handle (end of zoom)
+            let newEnd = Math.min(1, Math.max(this.zoomDragStartRight + deltaPercent,
+                this.zoomRangeStart + this.ZOOM_SLIDER_MIN_RANGE));
+            this.zoomRangeEnd = newEnd;
+            break;
+
+        case 'middle':
+            // Pan the entire selection
+            const rangeSize = this.zoomDragStartRight - this.zoomDragStartLeft;
+            let newRangeStart = this.zoomDragStartLeft + deltaPercent;
+            let newRangeEnd = this.zoomDragStartRight + deltaPercent;
+
+            // Clamp to boundaries
+            if (newRangeStart < 0) {
+                newRangeStart = 0;
+                newRangeEnd = rangeSize;
+            }
+            if (newRangeEnd > 1) {
+                newRangeEnd = 1;
+                newRangeStart = 1 - rangeSize;
+            }
+
+            this.zoomRangeStart = newRangeStart;
+            this.zoomRangeEnd = newRangeEnd;
+            break;
+    }
+
+    // Update the slider UI
+    this.updateZoomSliderUI();
+
+    // Trigger visual update (throttled)
+    this.onZoomChange();
+}
+
+/**
+ * Ends a zoom slider drag operation
+ */
+private endZoomDrag(): void {
+    if (!this.isZoomSliderDragging) return;
+
+    this.isZoomSliderDragging = false;
+    this.zoomDragType = null;
+    this.zoomSliderSelection.style("cursor", "grab");
+    this.zoomSliderContainer.classed("dragging", false);
+}
+
+/**
+ * Resets zoom to show full timeline
+ */
+private resetZoom(): void {
+    this.zoomRangeStart = 0;
+    this.zoomRangeEnd = 1;
+    this.updateZoomSliderUI();
+    this.onZoomChange();
+}
+
+/**
+ * Jumps the zoom selection to center on a clicked position
+ */
+private jumpZoomTo(clickPercent: number): void {
+    const rangeSize = this.zoomRangeEnd - this.zoomRangeStart;
+    let newStart = clickPercent - rangeSize / 2;
+    let newEnd = clickPercent + rangeSize / 2;
+
+    // Clamp to boundaries
+    if (newStart < 0) {
+        newStart = 0;
+        newEnd = rangeSize;
+    }
+    if (newEnd > 1) {
+        newEnd = 1;
+        newStart = 1 - rangeSize;
+    }
+
+    this.zoomRangeStart = newStart;
+    this.zoomRangeEnd = newEnd;
+    this.updateZoomSliderUI();
+    this.onZoomChange();
+}
+
+/**
+ * Updates the zoom slider UI to reflect current zoom state
+ */
+private updateZoomSliderUI(): void {
+    if (!this.zoomSliderSelection) return;
+
+    const leftPercent = this.zoomRangeStart * 100;
+    const widthPercent = (this.zoomRangeEnd - this.zoomRangeStart) * 100;
+
+    this.zoomSliderSelection
+        .style("left", `${leftPercent}%`)
+        .style("width", `${widthPercent}%`);
+}
+
+/**
+ * Called when zoom changes - triggers visual update with throttling
+ */
+private zoomChangeTimeout: any = null;
+private onZoomChange(): void {
+    // Throttle the visual updates
+    if (this.zoomChangeTimeout) {
+        clearTimeout(this.zoomChangeTimeout);
+    }
+
+    this.zoomChangeTimeout = setTimeout(() => {
+        this.zoomChangeTimeout = null;
+        // Force a re-render with the new zoom settings
+        if (this.lastUpdateOptions) {
+            this.forceFullUpdate = true;
+            this.preserveScrollOnUpdate = true;
+            if (this.scrollableContainer?.node()) {
+                this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
+            }
+            this.update(this.lastUpdateOptions);
+        }
+    }, 16); // ~60fps throttle
+}
+
+/**
+ * Updates the zoom slider visibility and styling based on settings
+ */
+private updateZoomSliderVisibility(): void {
+    if (!this.zoomSliderContainer) return;
+
+    const isEnabled = this.settings?.timelineZoom?.enableZoomSlider?.value ?? true;
+    const sliderHeight = this.settings?.timelineZoom?.sliderHeight?.value ?? 40;
+    const trackColor = this.settings?.timelineZoom?.sliderTrackColor?.value?.value ?? "#F3F3F3";
+    const selectedColor = this.settings?.timelineZoom?.sliderSelectedColor?.value?.value ?? "#E8E8E8";
+    const handleColor = this.settings?.timelineZoom?.sliderHandleColor?.value?.value ?? "#666666";
+    const borderColor = this.settings?.timelineZoom?.sliderBorderColor?.value?.value ?? "#0078D4";
+
+    this.zoomSliderEnabled = isEnabled;
+
+    this.zoomSliderContainer
+        .style("display", isEnabled ? "block" : "none")
+        .style("height", `${sliderHeight}px`);
+
+    if (this.zoomSliderTrack) {
+        this.zoomSliderTrack.style("background-color", trackColor);
+    }
+
+    if (this.zoomSliderSelection) {
+        this.zoomSliderSelection
+            .style("background-color", `${selectedColor}`)
+            .style("border-color", borderColor);
+    }
+
+    if (this.zoomSliderLeftHandle) {
+        this.zoomSliderLeftHandle.style("background-color", handleColor);
+    }
+
+    if (this.zoomSliderRightHandle) {
+        this.zoomSliderRightHandle.style("background-color", handleColor);
+    }
+
+    // Update scrollable container height to account for slider
+    this.updateScrollableContainerHeight();
+}
+
+/**
+ * Updates the scrollable container height based on visible components
+ */
+private updateScrollableContainerHeight(): void {
+    if (!this.scrollableContainer) return;
+
+    let totalOffset = this.headerHeight;
+
+    // Account for legend footer if visible
+    if (this.legendContainer?.style("display") !== "none") {
+        totalOffset += this.legendFooterHeight;
+    }
+
+    // Account for zoom slider if visible
+    const sliderHeight = this.settings?.timelineZoom?.sliderHeight?.value ?? 40;
+    if (this.zoomSliderEnabled && this.zoomSliderContainer?.style("display") !== "none") {
+        totalOffset += sliderHeight;
+    }
+
+    this.scrollableContainer.style("height", `calc(100% - ${totalOffset}px)`);
+}
+
+/**
+ * Draws the mini chart preview in the zoom slider showing task distribution
+ */
+private drawZoomSliderMiniChart(): void {
+    if (!this.zoomSliderMiniChart || !this.fullTimelineDomain || !this.settings?.timelineZoom?.showMiniChart?.value) {
+        return;
+    }
+
+    const canvas = this.zoomSliderMiniChart.node() as HTMLCanvasElement;
+    if (!canvas) return;
+
+    const rect = canvas.parentElement?.getBoundingClientRect();
+    if (!rect) return;
+
+    // Set canvas size with device pixel ratio for sharp rendering
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    // Get all tasks to draw
+    const tasksToShow = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
+    if (tasksToShow.length === 0 || !this.fullTimelineDomain) return;
+
+    const [minDate, maxDate] = this.fullTimelineDomain;
+    const timeRange = maxDate.getTime() - minDate.getTime();
+    if (timeRange <= 0) return;
+
+    // Draw task bars as thin lines
+    const barHeight = Math.max(1, rect.height / Math.max(tasksToShow.length, 50));
+    const criticalColor = this.settings?.taskAppearance?.criticalPathColor?.value?.value ?? "#E81123";
+    const taskColor = this.settings?.taskAppearance?.taskColor?.value?.value ?? "#0078D4";
+
+    ctx.globalAlpha = 0.5;
+
+    tasksToShow.forEach((task, index) => {
+        if (!task.startDate || !task.finishDate) return;
+
+        const startPercent = (task.startDate.getTime() - minDate.getTime()) / timeRange;
+        const endPercent = (task.finishDate.getTime() - minDate.getTime()) / timeRange;
+
+        const x = startPercent * rect.width;
+        const width = Math.max(1, (endPercent - startPercent) * rect.width);
+        const y = (index / tasksToShow.length) * rect.height;
+
+        ctx.fillStyle = task.isCritical ? criticalColor : taskColor;
+        ctx.fillRect(x, y, width, barHeight);
+    });
+
+    ctx.globalAlpha = 1;
+}
+
+/**
+ * Gets the zoomed date domain based on current zoom state
+ */
+private getZoomedDomain(): [Date, Date] | null {
+    if (!this.fullTimelineDomain) return null;
+
+    const [fullMin, fullMax] = this.fullTimelineDomain;
+    const fullRange = fullMax.getTime() - fullMin.getTime();
+
+    const zoomedMin = new Date(fullMin.getTime() + fullRange * this.zoomRangeStart);
+    const zoomedMax = new Date(fullMin.getTime() + fullRange * this.zoomRangeEnd);
+
+    return [zoomedMin, zoomedMax];
+}
+
+/**
+ * Updates the zoom slider track margins to align with the chart area
+ */
+private updateZoomSliderTrackMargins(): void {
+    if (!this.zoomSliderTrack || !this.settings) return;
+
+    const leftMargin = this.settings.layoutSettings?.leftMargin?.value ?? 280;
+    const rightMargin = this.margin.right ?? 100;
+
+    this.zoomSliderTrack
+        .style("left", `${leftMargin}px`)
+        .style("right", `${rightMargin}px`);
+}
+
 private toggleConnectorLinesDisplay(): void {
     try {
         this.debugLog("Connector Lines Toggle method called!");
@@ -3190,6 +3723,9 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
 
         this.applyPublishModeOptimizations();
+
+        // Update zoom slider visibility and styling from settings
+        this.updateZoomSliderVisibility();
 
         if (this.isInitialLoad) {
             if (this.settings?.displayOptions?.showAllTasks !== undefined) {
@@ -3555,6 +4091,11 @@ private async updateInternal(options: VisualUpdateOptions) {
         // Ensure WBS toggle button is visible now that WBS data has been processed
         // This fixes timing issue where button may not appear on initial load
         this.renderWbsCycleButtons(viewportWidth);
+
+        // Update zoom slider UI and draw mini chart preview
+        this.updateZoomSliderUI();
+        this.drawZoomSliderMiniChart();
+        this.updateZoomSliderTrackMargins();
 
         const renderEndTime = performance.now();
         this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
@@ -4120,15 +4661,31 @@ private setupTimeBasedSVGAndScales(
         domainMaxDate = new Date(maxTimestamp + domainPaddingMilliseconds);
     }
 
+    // Store the full timeline domain for the zoom slider
+    this.fullTimelineDomain = [domainMinDate, domainMaxDate];
+
+    // Apply zoom state to calculate visible domain
+    let visibleMinDate = domainMinDate;
+    let visibleMaxDate = domainMaxDate;
+
+    const isZoomed = this.zoomSliderEnabled && (this.zoomRangeStart > 0 || this.zoomRangeEnd < 1);
+    if (isZoomed) {
+        const fullRange = domainMaxDate.getTime() - domainMinDate.getTime();
+        visibleMinDate = new Date(domainMinDate.getTime() + fullRange * this.zoomRangeStart);
+        visibleMaxDate = new Date(domainMinDate.getTime() + fullRange * this.zoomRangeEnd);
+    }
+
     // Log for debugging
     this.debugLog(`X-axis domain calculation:
         - Regular dates found: ${tasksToShow.filter(t => t.startDate || t.finishDate).length} tasks
         - Baseline dates included: ${includeBaselineInScale}
         - Total timestamps considered: ${validTimestamps.length}
-        - Domain: ${domainMinDate.toISOString()} to ${domainMaxDate.toISOString()}`);
+        - Full Domain: ${domainMinDate.toISOString()} to ${domainMaxDate.toISOString()}
+        - Zoomed: ${isZoomed} (${(this.zoomRangeStart * 100).toFixed(1)}% - ${(this.zoomRangeEnd * 100).toFixed(1)}%)
+        - Visible Domain: ${visibleMinDate.toISOString()} to ${visibleMaxDate.toISOString()}`);
 
     return this.createScales(
-        domainMinDate, domainMaxDate,
+        visibleMinDate, visibleMaxDate,
         chartWidth, tasksToShow, calculatedChartHeight,
         taskHeight, taskPadding
     );
