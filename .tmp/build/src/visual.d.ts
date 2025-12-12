@@ -123,6 +123,22 @@ export declare class Visual implements IVisual {
     private scrollContainer;
     private renderCache;
     private cpmMemo;
+    private zoomSliderContainer;
+    private zoomSliderTrack;
+    private zoomSliderSelection;
+    private zoomSliderLeftHandle;
+    private zoomSliderRightHandle;
+    private zoomSliderMiniChart;
+    private zoomRangeStart;
+    private zoomRangeEnd;
+    private fullTimelineDomain;
+    private isZoomSliderDragging;
+    private zoomDragType;
+    private zoomDragStartX;
+    private zoomDragStartLeft;
+    private zoomDragStartRight;
+    private zoomSliderEnabled;
+    private readonly ZOOM_SLIDER_MIN_RANGE;
     private readonly UI_TOKENS;
     private readonly LAYOUT_BREAKPOINTS;
     /**
@@ -231,6 +247,65 @@ export declare class Visual implements IVisual {
      * UPGRADED: Creates the Float Threshold control with premium input design and enhanced UX
      */
     private createFloatThresholdControl;
+    /**
+     * Creates the zoom slider UI component with Microsoft Fluent 2 styling
+     */
+    private createZoomSliderUI;
+    /**
+     * Sets up mouse and touch event handlers for the zoom slider
+     */
+    private setupZoomSliderEvents;
+    /**
+     * Starts a zoom slider drag operation
+     */
+    private startZoomDrag;
+    /**
+     * Handles zoom slider drag movement
+     */
+    private handleZoomDrag;
+    /**
+     * Ends a zoom slider drag operation
+     */
+    private endZoomDrag;
+    /**
+     * Resets zoom to show full timeline
+     */
+    private resetZoom;
+    /**
+     * Jumps the zoom selection to center on a clicked position
+     */
+    private jumpZoomTo;
+    /**
+     * Updates the zoom slider UI to reflect current zoom state
+     */
+    private updateZoomSliderUI;
+    /**
+     * Called when zoom changes - triggers visual update with throttling
+     */
+    private zoomChangeTimeout;
+    private onZoomChange;
+    /**
+     * Updates the zoom slider visibility and styling based on settings
+     */
+    private updateZoomSliderVisibility;
+    /**
+     * Updates the scrollable container height based on visible components
+     * Note: With flexbox layout, height is automatically managed.
+     * This method is kept for backwards compatibility but flexbox handles the layout.
+     */
+    private updateScrollableContainerHeight;
+    /**
+     * Draws the mini chart preview in the zoom slider showing task distribution
+     */
+    private drawZoomSliderMiniChart;
+    /**
+     * Gets the zoomed date domain based on current zoom state
+     */
+    private getZoomedDomain;
+    /**
+     * Updates the zoom slider track margins to align with the chart area
+     */
+    private updateZoomSliderTrackMargins;
     private toggleConnectorLinesDisplay;
     update(options: VisualUpdateOptions): void;
     private updateInternal;
