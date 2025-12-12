@@ -498,6 +498,47 @@
                 "labelBackgroundColor": { "displayName": "Label Background", "type": { "fill": { "solid": { "color": true } } } },
                 "labelBackgroundTransparency": { "displayName": "Label Background Transparency (%)", "type": { "numeric": true } }
             }
+        },
+        "timelineZoom": {
+            "displayName": "Timeline Zoom Slider",
+            "description": "Microsoft-style axis zoom slider for the timeline",
+            "properties": {
+                "enableZoomSlider": {
+                    "displayName": "Enable Zoom Slider",
+                    "description": "Show zoom slider below the timeline for adjusting visible date range",
+                    "type": { "bool": true }
+                },
+                "sliderHeight": {
+                    "displayName": "Slider Height (px)",
+                    "description": "Height of the zoom slider control",
+                    "type": { "numeric": true }
+                },
+                "sliderTrackColor": {
+                    "displayName": "Track Color",
+                    "description": "Background color of the slider track",
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "sliderSelectedColor": {
+                    "displayName": "Selected Range Color",
+                    "description": "Color of the selected/visible range area",
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "sliderHandleColor": {
+                    "displayName": "Handle Color",
+                    "description": "Color of the drag handles",
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "sliderBorderColor": {
+                    "displayName": "Border Color",
+                    "description": "Border color of the selected range",
+                    "type": { "fill": { "solid": { "color": true } } }
+                },
+                "showMiniChart": {
+                    "displayName": "Show Mini Preview",
+                    "description": "Show a miniature preview of task distribution in the slider",
+                    "type": { "bool": true }
+                }
+            }
         }
     },
     "dataViewMappings": [

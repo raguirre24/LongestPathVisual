@@ -608,6 +608,75 @@ class LegendColorsCard extends Card {
     ];
 }
 
+// Timeline Zoom Slider Card - Microsoft-style axis zoom control
+class TimelineZoomCard extends Card {
+    name: string = "timelineZoom";
+    displayName: string = "Timeline Zoom Slider";
+
+    enableZoomSlider = new ToggleSwitch({
+        name: "enableZoomSlider",
+        displayName: "Enable Zoom Slider",
+        description: "Show zoom slider below the timeline for adjusting visible date range",
+        value: true
+    });
+
+    sliderHeight = new NumUpDown({
+        name: "sliderHeight",
+        displayName: "Slider Height (px)",
+        description: "Height of the zoom slider control",
+        value: 40,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 24 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 60 }
+        }
+    });
+
+    sliderTrackColor = new ColorPicker({
+        name: "sliderTrackColor",
+        displayName: "Track Color",
+        description: "Background color of the slider track",
+        value: { value: "#F3F3F3" }
+    });
+
+    sliderSelectedColor = new ColorPicker({
+        name: "sliderSelectedColor",
+        displayName: "Selected Range Color",
+        description: "Color of the selected/visible range area",
+        value: { value: "#E8E8E8" }
+    });
+
+    sliderHandleColor = new ColorPicker({
+        name: "sliderHandleColor",
+        displayName: "Handle Color",
+        description: "Color of the drag handles",
+        value: { value: "#666666" }
+    });
+
+    sliderBorderColor = new ColorPicker({
+        name: "sliderBorderColor",
+        displayName: "Border Color",
+        description: "Border color of the selected range",
+        value: { value: "#0078D4" }
+    });
+
+    showMiniChart = new ToggleSwitch({
+        name: "showMiniChart",
+        displayName: "Show Mini Preview",
+        description: "Show a miniature preview of task distribution in the slider",
+        value: true
+    });
+
+    slices: Slice[] = [
+        this.enableZoomSlider,
+        this.sliderHeight,
+        this.showMiniChart,
+        this.sliderTrackColor,
+        this.sliderSelectedColor,
+        this.sliderHandleColor,
+        this.sliderBorderColor
+    ];
+}
+
 class PersistedStateCard extends Card {
     name: string = "persistedState";
     displayName: string = "Persisted State";
@@ -660,6 +729,7 @@ export class VisualSettings extends Model {
     wbsGrouping = new WBSGroupingCard();
     legend = new LegendCard();
     legendColors = new LegendColorsCard();
+    timelineZoom = new TimelineZoomCard();
     persistedState = new PersistedStateCard();
 
     // Update the cards array
@@ -679,6 +749,7 @@ export class VisualSettings extends Model {
         this.wbsGrouping,
         this.legend,
         this.legendColors,
+        this.timelineZoom,
         this.persistedState
     ];
 }
