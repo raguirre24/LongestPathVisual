@@ -2531,6 +2531,9 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
             this.debugLog("Cleared manually toggled groups on collapse all");
         }
 
+        // Capture an anchor so the viewport stays roughly centered on a nearby group
+        this.captureWbsAnchorForGlobalToggle();
+
         this.applyWbsExpandLevel(effectiveNext);
 
         // Persist the general expand/collapse intent for backwards compatibility
@@ -2549,9 +2552,9 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
         this.renderWbsCycleButtons(viewportWidth);
 
         // Force full update to re-render with new expansion state
-        // Explicitly reset scroll to top when using expand/collapse ALL button
         this.forceFullUpdate = true;
-        this.preserveScrollOnUpdate = false; // Reset scroll to top for expand/collapse all
+        // Preserve scroll via captured anchor during the full update
+        this.preserveScrollOnUpdate = true;
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
@@ -4652,19 +4655,25 @@ private redrawVisibleTasks(): void {
         );
     }
 
-    // Redraw project end line if needed (Always SVG)
+    // Redraw project end and reference lines (Always SVG; clears when toggled off)
     // Use allFilteredTasks to show finish date of all filtered tasks (not just visible/non-collapsed)
-    if (this.settings.projectEndLine.show.value) {
-        this.drawProjectEndLine(
-            this.xScale.range()[1],
-            this.xScale,
-            visibleTasks,
-            this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow,
-            this.yScale.range()[1],
-            this.gridLayer,
-            this.headerGridLayer
-        );
-    }
+    const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
+    this.drawBaselineAndPreviousEndLines(
+        this.xScale,
+        tasksForProjectEnd,
+        this.yScale.range()[1],
+        this.gridLayer,
+        this.headerGridLayer
+    );
+    this.drawProjectEndLine(
+        this.xScale.range()[1],
+        this.xScale,
+        visibleTasks,
+        tasksForProjectEnd,
+        this.yScale.range()[1],
+        this.gridLayer,
+        this.headerGridLayer
+    );
 
     // Draw Data Date line if provided
     this.drawDataDateLine(
@@ -4832,7 +4841,6 @@ private drawVisualElements(
     const showHorzGridLines = this.settings.gridLines.showGridLines.value;
     const showVertGridLines = this.settings.verticalGridLines.show.value;
     const showDuration = this.settings.textAndLabels.showDuration.value;
-    const showProjectEndLine = this.settings.projectEndLine.show.value;
     // MODIFICATION: Ensure currentLeftMargin is defined here for conditional use.
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     
@@ -4940,13 +4948,17 @@ private drawVisualElements(
             );
         }
 
-        if (showProjectEndLine) {
-            // Project end line is always drawn in SVG
-            // Use allFilteredTasks to show finish date of all filtered tasks (not just visible/non-collapsed)
+        // Project end and reference lines are always drawn in SVG (clears when toggled off)
         const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
+        this.drawBaselineAndPreviousEndLines(
+            xScale,
+            tasksForProjectEnd,
+            chartHeight,
+            this.gridLayer,
+            this.headerGridLayer
+        );
         this.drawProjectEndLine(chartWidth, xScale, tasksToShow, tasksForProjectEnd, chartHeight,
                                 this.gridLayer, this.headerGridLayer);
-    }
 }
 
 private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
@@ -5012,7 +5024,7 @@ private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartW
     
         const lineColor = settings.lineColor.value.value;
         const lineWidth = settings.lineWidth.value;
-        const lineStyle = settings.lineStyle.value.value;
+        const lineStyle = settings.lineStyle.value.value as string;
         const showMonthLabels = settings.showMonthLabels.value;
         const labelColorSetting = settings.labelColor.value.value;
         const labelColor = labelColorSetting || lineColor;
@@ -6899,61 +6911,69 @@ private drawArrowsCanvas(
             });
     }
 
-    private drawProjectEndLine(
-        chartWidth: number,
-        xScale: ScaleTime<number, number>,
-        visibleTasks: Task[],
-        allTasks: Task[],  // Added parameter for all tasks
-        chartHeight: number,
-        mainGridLayer: Selection<SVGGElement, unknown, null, undefined>,
-        headerLayer: Selection<SVGGElement, unknown, null, undefined>
-    ): void {
-        if (!mainGridLayer?.node() || !headerLayer?.node() || allTasks.length === 0 || !xScale) { return; }
+    private getLineDashArray(style: string): string {
+        switch (style) {
+            case "dashed": return "5,3";
+            case "dotted": return "1,2";
+            default: return "none";
+        }
+    }
 
-        const settings = this.settings.projectEndLine;
-        if (!settings.show.value) return;
-
-        const lineColor = settings.lineColor.value.value;
-        const lineWidth = settings.lineWidth.value;
-        const lineStyle = settings.lineStyle.value.value;
-
-        // Label settings with defaults for backwards compatibility
-        const showLabel = settings.showLabel?.value ?? true;
-        const labelColor = settings.labelColor?.value?.value ?? lineColor;
-        const labelFontSize = settings.labelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
-        const showLabelPrefix = settings.showLabelPrefix?.value ?? true;
-        const labelBackgroundColor = settings.labelBackgroundColor?.value?.value ?? "#FFFFFF";
-        const labelBackgroundTransparency = settings.labelBackgroundTransparency?.value ?? 0;
-        const labelBackgroundOpacity = 1 - (labelBackgroundTransparency / 100);
-
-        let lineDashArray = "none";
-        switch (lineStyle) { case "dashed": lineDashArray = "5,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; }
-
-        // Use allTasks (all filtered tasks, including those in collapsed groups) to calculate the latest finish date
-        // This ensures the project finish date reflects all filtered tasks, not just currently visible ones
+    private getLatestFinishDate(allTasks: Task[], selector: (task: Task) => Date | null | undefined): Date | null {
         let latestFinishTimestamp: number | null = null;
-        allTasks.forEach((task: Task) => {
-             if (task.finishDate instanceof Date && !isNaN(task.finishDate.getTime())) {
-                 const currentTimestamp = task.finishDate.getTime();
-                 if (latestFinishTimestamp === null || currentTimestamp > latestFinishTimestamp) {
-                     latestFinishTimestamp = currentTimestamp;
-                 }
-             }
-         });
+        for (const task of allTasks) {
+            const candidate = selector(task);
+            if (candidate instanceof Date && !isNaN(candidate.getTime())) {
+                const ts = candidate.getTime();
+                if (latestFinishTimestamp === null || ts > latestFinishTimestamp) {
+                    latestFinishTimestamp = ts;
+                }
+            }
+        }
+        return latestFinishTimestamp !== null ? new Date(latestFinishTimestamp) : null;
+    }
 
-        if (latestFinishTimestamp === null) { console.warn("Cannot draw Project End Line: No valid finish dates."); return; }
+    private drawFinishLine(config: {
+        className: string;
+        targetDate: Date | null;
+        lineColor: string;
+        lineWidth: number;
+        lineStyle: string;
+        showLabel: boolean;
+        labelColor: string;
+        labelFontSize: number;
+        labelBackgroundColor: string;
+        labelBackgroundOpacity: number;
+        labelY: number;
+        labelXOffset?: number;
+        labelFormatter?: (date: Date) => string;
+        xScale: ScaleTime<number, number>;
+        chartHeight: number;
+        mainGridLayer: Selection<SVGGElement, unknown, null, undefined>;
+        headerLayer: Selection<SVGGElement, unknown, null, undefined>;
+    }): void {
+        const {
+            className, targetDate, lineColor, lineWidth, lineStyle, showLabel,
+            labelColor, labelFontSize, labelBackgroundColor, labelBackgroundOpacity,
+            labelY, labelXOffset = 5, labelFormatter,
+            xScale, chartHeight, mainGridLayer, headerLayer
+        } = config;
 
-        const latestFinishDate = new Date(latestFinishTimestamp);
-        const endX = xScale(latestFinishDate);
+        if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
 
-        mainGridLayer.select(".project-end-line").remove();
-        headerLayer.selectAll(".project-end-label-group").remove();
+        // Always clear previous render so toggles don't leave stale lines
+        mainGridLayer.select(`.${className}-line`).remove();
+        headerLayer.selectAll(`.${className}-label-group`).remove();
 
-        if (isNaN(endX) || !isFinite(endX)) { console.warn("Calculated project end line position is invalid:", endX); return; }
+        if (!(targetDate instanceof Date) || isNaN(targetDate.getTime())) { return; }
 
-        // --- Draw the LINE in the MAIN grid layer ---
+        const endX = xScale(targetDate);
+        if (!isFinite(endX)) { console.warn(`Calculated ${className} line position is invalid:`, endX); return; }
+
+        const lineDashArray = this.getLineDashArray(lineStyle);
+
         mainGridLayer.append("line")
-            .attr("class", "project-end-line")
+            .attr("class", `${className}-line`)
             .attr("x1", endX).attr("y1", 0)
             .attr("x2", endX).attr("y2", chartHeight)
             .attr("stroke", lineColor)
@@ -6961,38 +6981,29 @@ private drawArrowsCanvas(
             .attr("stroke-dasharray", lineDashArray)
             .style("pointer-events", "none");
 
-        // --- Draw the LABEL in the HEADER layer (if enabled) ---
         if (showLabel) {
-            const endDateText = showLabelPrefix
-                ? `Finish: ${this.formatDate(latestFinishDate)}`
-                : this.formatDate(latestFinishDate);
+            const labelText = labelFormatter ? labelFormatter(targetDate) : this.formatDate(targetDate);
+            const labelX = endX + labelXOffset;
 
-            // Position label nearer to the bottom of the header so it sits away from top controls
-            const labelY = this.headerHeight - 12;
-            const labelX = endX + 5;
-
-            // Create a group for the label with optional background
             const labelGroup = headerLayer.append("g")
-                .attr("class", "project-end-label-group")
+                .attr("class", `${className}-label-group`)
                 .style("pointer-events", "none");
 
-            // First create text to measure it
             const textElement = labelGroup.append("text")
-                .attr("class", "project-end-label")
+                .attr("class", `${className}-label`)
                 .attr("x", labelX)
                 .attr("y", labelY)
                 .attr("text-anchor", "start")
                 .style("fill", labelColor)
-                .style("font-size", labelFontSize + "pt")
+                .style("font-size", `${labelFontSize}pt`)
                 .style("font-weight", "600")
-                .text(endDateText);
+                .text(labelText);
 
-            // Add background rectangle if opacity > 0
             if (labelBackgroundOpacity > 0) {
                 const bbox = (textElement.node() as SVGTextElement)?.getBBox();
                 if (bbox) {
                     const padding = { h: 4, v: 2 };
-                    labelGroup.insert("rect", ".project-end-label")
+                    labelGroup.insert("rect", `.${className}-label`)
                         .attr("x", bbox.x - padding.h)
                         .attr("y", bbox.y - padding.v)
                         .attr("width", bbox.width + padding.h * 2)
@@ -7004,6 +7015,55 @@ private drawArrowsCanvas(
                 }
             }
         }
+    }
+
+    private drawProjectEndLine(
+        chartWidth: number,
+        xScale: ScaleTime<number, number>,
+        visibleTasks: Task[],
+        allTasks: Task[],  // Added parameter for all tasks
+        chartHeight: number,
+        mainGridLayer: Selection<SVGGElement, unknown, null, undefined>,
+        headerLayer: Selection<SVGGElement, unknown, null, undefined>
+    ): void {
+        if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
+
+        const settings = this.settings.projectEndLine;
+
+        const lineColor = settings.lineColor.value.value;
+        const lineWidth = settings.lineWidth.value;
+        const lineStyle = settings.lineStyle.value.value as string;
+
+        const showLabel = settings.showLabel?.value ?? true;
+        const labelColor = settings.labelColor?.value?.value ?? lineColor;
+        const labelFontSize = settings.labelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
+        const showLabelPrefix = settings.showLabelPrefix?.value ?? true;
+        const labelBackgroundColor = settings.labelBackgroundColor?.value?.value ?? "#FFFFFF";
+        const labelBackgroundTransparency = settings.labelBackgroundTransparency?.value ?? 0;
+        const labelBackgroundOpacity = 1 - (labelBackgroundTransparency / 100);
+
+        const latestFinishDate = settings.show.value
+            ? this.getLatestFinishDate(allTasks, (t: Task) => t.finishDate)
+            : null;
+
+        this.drawFinishLine({
+            className: "project-end",
+            targetDate: latestFinishDate,
+            lineColor,
+            lineWidth,
+            lineStyle,
+            showLabel,
+            labelColor,
+            labelFontSize,
+            labelBackgroundColor,
+            labelBackgroundOpacity,
+            labelY: this.headerHeight - 12,
+            labelFormatter: (d: Date) => showLabelPrefix ? `Finish: ${this.formatDate(d)}` : this.formatDate(d),
+            xScale,
+            chartHeight,
+            mainGridLayer,
+            headerLayer
+        });
     }
 
     private drawDataDateLine(
@@ -7110,6 +7170,92 @@ private drawArrowsCanvas(
                 }
             }
         }
+    }
+
+    private drawBaselineAndPreviousEndLines(
+        xScale: ScaleTime<number, number>,
+        allTasks: Task[],
+        chartHeight: number,
+        mainGridLayer: Selection<SVGGElement, unknown, null, undefined>,
+        headerLayer: Selection<SVGGElement, unknown, null, undefined>
+    ): void {
+        if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
+
+        const lineSettings = this.settings.projectEndLine;
+
+        // Baseline finish line (requires baseline toggle ON)
+        const baselineToggleOn = this.showBaselineInternal;
+        const baselineShowSetting = lineSettings.baselineShow?.value ?? false;
+        const baselineTargetDate = (baselineToggleOn && baselineShowSetting)
+            ? this.getLatestFinishDate(allTasks, (t: Task) => t.baselineFinishDate)
+            : null;
+
+        const baselineLineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineLineWidth = lineSettings.baselineLineWidth?.value ?? lineSettings.lineWidth.value;
+        const baselineLineStyle = (lineSettings.baselineLineStyle?.value?.value as string | undefined) ?? lineSettings.lineStyle.value.value as string;
+        const baselineShowLabel = (lineSettings.baselineShowLabel?.value ?? true) && baselineToggleOn && baselineShowSetting;
+        const baselineLabelColor = lineSettings.baselineLabelColor?.value?.value ?? baselineLineColor;
+        const baselineLabelFontSize = lineSettings.baselineLabelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
+        const baselineShowLabelPrefix = lineSettings.baselineShowLabelPrefix?.value ?? true;
+        const baselineLabelBackgroundColor = lineSettings.baselineLabelBackgroundColor?.value?.value ?? "#FFFFFF";
+        const baselineLabelBackgroundTransparency = lineSettings.baselineLabelBackgroundTransparency?.value ?? 0;
+        const baselineLabelBackgroundOpacity = 1 - (baselineLabelBackgroundTransparency / 100);
+
+        this.drawFinishLine({
+            className: "baseline-end",
+            targetDate: baselineTargetDate,
+            lineColor: baselineLineColor,
+            lineWidth: baselineLineWidth,
+            lineStyle: baselineLineStyle,
+            showLabel: baselineShowLabel,
+            labelColor: baselineLabelColor,
+            labelFontSize: baselineLabelFontSize,
+            labelBackgroundColor: baselineLabelBackgroundColor,
+            labelBackgroundOpacity: baselineLabelBackgroundOpacity,
+            labelY: this.headerHeight - 36, // stagger labels to reduce overlap
+            labelFormatter: (d: Date) => baselineShowLabelPrefix ? `Baseline Finish: ${this.formatDate(d)}` : `Baseline: ${this.formatDate(d)}`,
+            xScale,
+            chartHeight,
+            mainGridLayer,
+            headerLayer
+        });
+
+        // Previous Update finish line (requires previous update toggle ON)
+        const prevToggleOn = this.showPreviousUpdateInternal;
+        const prevShowSetting = lineSettings.previousUpdateShow?.value ?? false;
+        const prevTargetDate = (prevToggleOn && prevShowSetting)
+            ? this.getLatestFinishDate(allTasks, (t: Task) => t.previousUpdateFinishDate)
+            : null;
+
+        const prevLineColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+        const prevLineWidth = lineSettings.previousUpdateLineWidth?.value ?? lineSettings.lineWidth.value;
+        const prevLineStyle = (lineSettings.previousUpdateLineStyle?.value?.value as string | undefined) ?? lineSettings.lineStyle.value.value as string;
+        const prevShowLabel = (lineSettings.previousUpdateShowLabel?.value ?? true) && prevToggleOn && prevShowSetting;
+        const prevLabelColor = lineSettings.previousUpdateLabelColor?.value?.value ?? prevLineColor;
+        const prevLabelFontSize = lineSettings.previousUpdateLabelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
+        const prevShowLabelPrefix = lineSettings.previousUpdateShowLabelPrefix?.value ?? true;
+        const prevLabelBackgroundColor = lineSettings.previousUpdateLabelBackgroundColor?.value?.value ?? "#FFFFFF";
+        const prevLabelBackgroundTransparency = lineSettings.previousUpdateLabelBackgroundTransparency?.value ?? 0;
+        const prevLabelBackgroundOpacity = 1 - (prevLabelBackgroundTransparency / 100);
+
+        this.drawFinishLine({
+            className: "previous-update-end",
+            targetDate: prevTargetDate,
+            lineColor: prevLineColor,
+            lineWidth: prevLineWidth,
+            lineStyle: prevLineStyle,
+            showLabel: prevShowLabel,
+            labelColor: prevLabelColor,
+            labelFontSize: prevLabelFontSize,
+            labelBackgroundColor: prevLabelBackgroundColor,
+            labelBackgroundOpacity: prevLabelBackgroundOpacity,
+            labelY: this.headerHeight - 50, // stagger labels to reduce overlap
+            labelFormatter: (d: Date) => prevShowLabelPrefix ? `Previous Finish: ${this.formatDate(d)}` : `Previous: ${this.formatDate(d)}`,
+            xScale,
+            chartHeight,
+            mainGridLayer,
+            headerLayer
+        });
     }
 
 private async calculateCPMOffThread(): Promise<void> {
@@ -9404,6 +9550,48 @@ private applyWbsExpandLevel(targetLevel: number | null): void {
 
     // Update wbsExpandedInternal based on all groups
     this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
+}
+
+/**
+ * Capture a WBS anchor near the middle of the current viewport so global
+ * expand/collapse cycles keep the user roughly in place.
+ */
+private captureWbsAnchorForGlobalToggle(): void {
+    if (!this.scrollableContainer?.node()) return;
+    if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) return;
+
+    const container = this.scrollableContainer.node();
+    const scrollTop = container.scrollTop;
+    const viewportHeight = container.clientHeight || 0;
+    const targetY = scrollTop + viewportHeight / 2; // aim for middle of viewport
+
+    let bestGroup: WBSGroup | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const group of this.wbsGroups) {
+        if (group.yOrder === undefined) continue;
+        const rowY = group.yOrder * this.taskElementHeight;
+        const distance = Math.abs(rowY - targetY);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            bestGroup = group;
+        }
+    }
+
+    if (bestGroup && bestGroup.yOrder !== undefined) {
+        const groupAbsoluteY = bestGroup.yOrder * this.taskElementHeight;
+        const visualOffset = groupAbsoluteY - scrollTop;
+        this.wbsToggleScrollAnchor = { groupId: bestGroup.id, visualOffset };
+        this.preserveScrollOnUpdate = true;
+        this.scrollPreservationUntil = Date.now() + 500; // guard against retriggers
+        this.debugLog(`Global WBS anchor captured: group=${bestGroup.id}, yOrder=${bestGroup.yOrder}, offset=${visualOffset}`);
+    } else {
+        // Fallback: preserve current scrollTop strictly
+        this.preservedScrollTop = scrollTop;
+        this.preserveScrollOnUpdate = true;
+        this.scrollPreservationUntil = Date.now() + 500;
+        this.debugLog("Global WBS anchor fallback: preserving current scrollTop");
+    }
 }
 
 /**

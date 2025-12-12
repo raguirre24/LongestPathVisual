@@ -89,6 +89,24 @@ declare class ProjectEndLineCard extends Card {
     showLabelPrefix: formattingSettings.ToggleSwitch;
     labelBackgroundColor: formattingSettings.ColorPicker;
     labelBackgroundTransparency: formattingSettings.NumUpDown;
+    baselineShow: formattingSettings.ToggleSwitch;
+    baselineLineWidth: formattingSettings.NumUpDown;
+    baselineLineStyle: formattingSettings.ItemDropdown;
+    baselineShowLabel: formattingSettings.ToggleSwitch;
+    baselineLabelColor: formattingSettings.ColorPicker;
+    baselineLabelFontSize: formattingSettings.NumUpDown;
+    baselineShowLabelPrefix: formattingSettings.ToggleSwitch;
+    baselineLabelBackgroundColor: formattingSettings.ColorPicker;
+    baselineLabelBackgroundTransparency: formattingSettings.NumUpDown;
+    previousUpdateShow: formattingSettings.ToggleSwitch;
+    previousUpdateLineWidth: formattingSettings.NumUpDown;
+    previousUpdateLineStyle: formattingSettings.ItemDropdown;
+    previousUpdateShowLabel: formattingSettings.ToggleSwitch;
+    previousUpdateLabelColor: formattingSettings.ColorPicker;
+    previousUpdateLabelFontSize: formattingSettings.NumUpDown;
+    previousUpdateShowLabelPrefix: formattingSettings.ToggleSwitch;
+    previousUpdateLabelBackgroundColor: formattingSettings.ColorPicker;
+    previousUpdateLabelBackgroundTransparency: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 declare class DataDateLineCard extends Card {

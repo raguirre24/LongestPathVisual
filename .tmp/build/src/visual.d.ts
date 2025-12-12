@@ -291,8 +291,12 @@ export declare class Visual implements IVisual {
      */
     private positionTooltip;
     private drawArrows;
+    private getLineDashArray;
+    private getLatestFinishDate;
+    private drawFinishLine;
     private drawProjectEndLine;
     private drawDataDateLine;
+    private drawBaselineAndPreviousEndLines;
     private calculateCPMOffThread;
     private determineCriticalityMode;
     private applyFloatBasedCriticality;
@@ -415,6 +419,11 @@ export declare class Visual implements IVisual {
     private getNextWbsExpandLevel;
     private getPreviousWbsExpandLevel;
     private applyWbsExpandLevel;
+    /**
+     * Capture a WBS anchor near the middle of the current viewport so global
+     * expand/collapse cycles keep the user roughly in place.
+     */
+    private captureWbsAnchorForGlobalToggle;
     /**
      * WBS GROUPING: Toggle expansion state for a WBS group
      */

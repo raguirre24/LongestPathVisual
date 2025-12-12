@@ -233,7 +233,34 @@ class ProjectEndLineCard extends Card {
     showLabelPrefix = new ToggleSwitch({ name: "showLabelPrefix", displayName: "Show 'Finish:' Prefix", description: "Include 'Finish:' before the date", value: true });
     labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", description: "Background color for the label", value: { value: "#FFFFFF" } });
     labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
-    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+
+    // Baseline Finish Line settings (inherits project end line UI, color comes from baseline color)
+    baselineShow = new ToggleSwitch({ name: "baselineShow", displayName: "Show Baseline Finish Line", value: true });
+    baselineLineWidth = new NumUpDown({ name: "baselineLineWidth", displayName: "Baseline Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
+    baselineLineStyle = new ItemDropdown({ name: "baselineLineStyle", displayName: "Baseline Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
+    baselineShowLabel = new ToggleSwitch({ name: "baselineShowLabel", displayName: "Show Baseline Label", value: true });
+    baselineLabelColor = new ColorPicker({ name: "baselineLabelColor", displayName: "Baseline Label Color", value: { value: "#2E8B57" } });
+    baselineLabelFontSize = new NumUpDown({ name: "baselineLabelFontSize", displayName: "Baseline Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
+    baselineShowLabelPrefix = new ToggleSwitch({ name: "baselineShowLabelPrefix", displayName: "Show 'Finish:' Prefix (Baseline)", value: true });
+    baselineLabelBackgroundColor = new ColorPicker({ name: "baselineLabelBackgroundColor", displayName: "Baseline Label Background", value: { value: "#FFFFFF" } });
+    baselineLabelBackgroundTransparency = new NumUpDown({ name: "baselineLabelBackgroundTransparency", displayName: "Baseline Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
+
+    // Previous Update Finish Line settings (color comes from previous update color)
+    previousUpdateShow = new ToggleSwitch({ name: "previousUpdateShow", displayName: "Show Previous Update Finish Line", value: true });
+    previousUpdateLineWidth = new NumUpDown({ name: "previousUpdateLineWidth", displayName: "Previous Update Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
+    previousUpdateLineStyle = new ItemDropdown({ name: "previousUpdateLineStyle", displayName: "Previous Update Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
+    previousUpdateShowLabel = new ToggleSwitch({ name: "previousUpdateShowLabel", displayName: "Show Previous Update Label", value: true });
+    previousUpdateLabelColor = new ColorPicker({ name: "previousUpdateLabelColor", displayName: "Previous Update Label Color", value: { value: "#9400D3" } });
+    previousUpdateLabelFontSize = new NumUpDown({ name: "previousUpdateLabelFontSize", displayName: "Previous Update Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
+    previousUpdateShowLabelPrefix = new ToggleSwitch({ name: "previousUpdateShowLabelPrefix", displayName: "Show 'Finish:' Prefix (Previous Update)", value: true });
+    previousUpdateLabelBackgroundColor = new ColorPicker({ name: "previousUpdateLabelBackgroundColor", displayName: "Previous Update Label Background", value: { value: "#FFFFFF" } });
+    previousUpdateLabelBackgroundTransparency = new NumUpDown({ name: "previousUpdateLabelBackgroundTransparency", displayName: "Previous Update Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
+
+    slices: Slice[] = [
+        this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency,
+        this.baselineShow, this.baselineLineWidth, this.baselineLineStyle, this.baselineShowLabel, this.baselineLabelColor, this.baselineLabelFontSize, this.baselineShowLabelPrefix, this.baselineLabelBackgroundColor, this.baselineLabelBackgroundTransparency,
+        this.previousUpdateShow, this.previousUpdateLineWidth, this.previousUpdateLineStyle, this.previousUpdateShowLabel, this.previousUpdateLabelColor, this.previousUpdateLabelFontSize, this.previousUpdateShowLabelPrefix, this.previousUpdateLabelBackgroundColor, this.previousUpdateLabelBackgroundTransparency
+    ];
 }
 
 class DataDateLineCard extends Card {

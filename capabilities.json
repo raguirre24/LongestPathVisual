@@ -266,7 +266,25 @@
                 "labelFontSize": { "displayName": "Label Font Size (pt)", "description": "Font size for the finish date label", "type": { "numeric": true } },
                 "showLabelPrefix": { "displayName": "Show 'Finish:' Prefix", "description": "Include 'Finish:' before the date", "type": { "bool": true } },
                 "labelBackgroundColor": { "displayName": "Label Background", "description": "Background color for the label", "type": { "fill": { "solid": { "color": true } } } },
-                "labelBackgroundTransparency": { "displayName": "Label Background Transparency (%)", "description": "Transparency of the label background (0=Opaque, 100=Invisible)", "type": { "numeric": true } }
+                "labelBackgroundTransparency": { "displayName": "Label Background Transparency (%)", "description": "Transparency of the label background (0=Opaque, 100=Invisible)", "type": { "numeric": true } },
+                "baselineShow": { "displayName": "Show Baseline Finish Line", "description": "Show the vertical line indicating baseline latest finish date", "type": { "bool": true } },
+                "baselineLineWidth": { "displayName": "Baseline Line Width (px)", "type": { "numeric": true } },
+                "baselineLineStyle": { "displayName": "Baseline Line Style", "type": { "enumeration": [ { "value": "solid", "displayName": "Solid" }, { "value": "dashed", "displayName": "Dashed" }, { "value": "dotted", "displayName": "Dotted" } ] } },
+                "baselineShowLabel": { "displayName": "Show Baseline Label", "type": { "bool": true } },
+                "baselineLabelColor": { "displayName": "Baseline Label Color", "type": { "fill": { "solid": { "color": true } } } },
+                "baselineLabelFontSize": { "displayName": "Baseline Label Font Size (pt)", "type": { "numeric": true } },
+                "baselineShowLabelPrefix": { "displayName": "Show 'Finish:' Prefix (Baseline)", "type": { "bool": true } },
+                "baselineLabelBackgroundColor": { "displayName": "Baseline Label Background", "type": { "fill": { "solid": { "color": true } } } },
+                "baselineLabelBackgroundTransparency": { "displayName": "Baseline Label Background Transparency (%)", "type": { "numeric": true } },
+                "previousUpdateShow": { "displayName": "Show Previous Update Finish Line", "description": "Show the vertical line indicating previous update latest finish date", "type": { "bool": true } },
+                "previousUpdateLineWidth": { "displayName": "Previous Update Line Width (px)", "type": { "numeric": true } },
+                "previousUpdateLineStyle": { "displayName": "Previous Update Line Style", "type": { "enumeration": [ { "value": "solid", "displayName": "Solid" }, { "value": "dashed", "displayName": "Dashed" }, { "value": "dotted", "displayName": "Dotted" } ] } },
+                "previousUpdateShowLabel": { "displayName": "Show Previous Update Label", "type": { "bool": true } },
+                "previousUpdateLabelColor": { "displayName": "Previous Update Label Color", "type": { "fill": { "solid": { "color": true } } } },
+                "previousUpdateLabelFontSize": { "displayName": "Previous Update Label Font Size (pt)", "type": { "numeric": true } },
+                "previousUpdateShowLabelPrefix": { "displayName": "Show 'Finish:' Prefix (Previous Update)", "type": { "bool": true } },
+                "previousUpdateLabelBackgroundColor": { "displayName": "Previous Update Label Background", "type": { "fill": { "solid": { "color": true } } } },
+                "previousUpdateLabelBackgroundTransparency": { "displayName": "Previous Update Label Background Transparency (%)", "type": { "numeric": true } }
             }
         },
         "displayOptions": {
