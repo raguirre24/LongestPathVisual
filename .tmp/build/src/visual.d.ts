@@ -198,15 +198,28 @@ export declare class Visual implements IVisual {
      */
     private createConnectorLinesToggleButton;
     /**
-     * Creates the WBS Expand/Collapse toggle button with icon-only design
+     * Creates both WBS expand (forward cycle) and collapse (reverse cycle) buttons
+     */
+    private renderWbsCycleButtons;
+    /**
+     * Creates the WBS Expand cycle toggle button with icon-only design
      * Similar styling to Connector Lines toggle for visual consistency
      */
-    private createWbsExpandCollapseToggleButton;
+    private createWbsExpandCycleToggleButton;
+    /**
+     * Creates the WBS Collapse cycle toggle button with icon-only design (reverse order)
+     */
+    private createWbsCollapseCycleToggleButton;
     /**
      * Cycles the WBS expand depth (collapse -> Level 1/2/3/.../N -> expand all)
      * Levels are dynamic based on the number of WBS columns added by the user
      */
     private toggleWbsExpandCollapseDisplay;
+    /**
+     * Cycles the WBS expand depth in reverse order (expand all -> ... -> collapse)
+     */
+    private toggleWbsCollapseCycleDisplay;
+    private cycleWbsExpandLevel;
     /**
      * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
      * UPGRADED: Professional pill-style toggle with smooth animations and refined visuals
@@ -400,6 +413,7 @@ export declare class Visual implements IVisual {
     private getMaxWbsLevel;
     private getWbsExpandLevelLabel;
     private getNextWbsExpandLevel;
+    private getPreviousWbsExpandLevel;
     private applyWbsExpandLevel;
     /**
      * WBS GROUPING: Toggle expansion state for a WBS group

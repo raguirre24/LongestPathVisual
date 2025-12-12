@@ -524,7 +524,8 @@ export class Visual implements IVisual {
         baseline: { x: number; width: number; iconOnly: boolean };
         previousUpdate: { x: number; width: number; iconOnly: boolean };
         connectorLines: { x: number; size: number };
-        wbsToggle: { x: number; size: number };
+        wbsExpandToggle: { x: number; size: number };
+        wbsCollapseToggle: { x: number; size: number };
         gap: number;
     } {
         const mode = this.getLayoutMode(viewportWidth);
@@ -558,8 +559,10 @@ export class Visual implements IVisual {
         const connectorLines = { x, size: iconButtonSize };
         x += iconButtonSize + gap;
 
-        // WBS Toggle button (always icon-only)
-        const wbsToggle = { x, size: iconButtonSize };
+        // WBS Toggle buttons (always icon-only)
+        const wbsExpandToggle = { x, size: iconButtonSize };
+        x += iconButtonSize + gap;
+        const wbsCollapseToggle = { x, size: iconButtonSize };
 
         return {
             mode,
@@ -568,7 +571,8 @@ export class Visual implements IVisual {
             baseline,
             previousUpdate,
             connectorLines,
-            wbsToggle,
+            wbsExpandToggle,
+            wbsCollapseToggle,
             gap
         };
     }
@@ -2038,7 +2042,8 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // Enhanced connector icon with better visibility
-    const iconCenter = buttonSize / 2;
+    // Nudge icon up to leave more breathing room for badge label
+    const iconCenter = (buttonSize / 2) - 2;
     const iconG = connectorToggleGroup.append("g")
         .attr("transform", `translate(${iconCenter}, ${iconCenter})`);
 
@@ -2129,13 +2134,21 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
 }
 
 /**
- * Creates the WBS Expand/Collapse toggle button with icon-only design
+ * Creates both WBS expand (forward cycle) and collapse (reverse cycle) buttons
+ */
+private renderWbsCycleButtons(viewportWidth?: number): void {
+    this.createWbsExpandCycleToggleButton(viewportWidth);
+    this.createWbsCollapseCycleToggleButton(viewportWidth);
+}
+
+/**
+ * Creates the WBS Expand cycle toggle button with icon-only design
  * Similar styling to Connector Lines toggle for visual consistency
  */
-private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
+private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
     if (!this.headerSvg) return;
 
-    this.headerSvg.selectAll(".wbs-toggle-group").remove();
+    this.headerSvg.selectAll(".wbs-expand-toggle-group").remove();
 
     // FIXED: Use metadata-based check for button visibility.
     // This ensures the button remains visible even when filters hide all WBS-assigned tasks.
@@ -2159,10 +2172,10 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
 
     // Get responsive layout
     const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-    const { x: buttonX, size: buttonSize } = layout.wbsToggle;
+    const { x: buttonX, size: buttonSize } = layout.wbsExpandToggle;
 
     const wbsToggleGroup = this.headerSvg.append("g")
-        .attr("class", "wbs-toggle-group")
+        .attr("class", "wbs-expand-toggle-group")
         .style("cursor", "pointer")
         .attr("role", "button")
         .attr("aria-label", `${levelLabel} (click to cycle)`)
@@ -2189,48 +2202,38 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
         .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // WBS expand/collapse icon
-    const iconCenter = buttonSize / 2;
+    // WBS expand icon: plus with downward chevron
+    const iconCenterX = buttonSize / 2;
+    const iconCenterY = (buttonSize / 2) - 4; // Nudge up for badge breathing room
     const iconG = wbsToggleGroup.append("g")
-        .attr("transform", `translate(${iconCenter}, ${iconCenter})`);
+        .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
 
     const iconColor = this.wbsExpandedInternal
         ? this.UI_TOKENS.color.primary.default
         : this.UI_TOKENS.color.neutral.grey130;
 
-    if (this.wbsExpandedInternal) {
-        // Expanded state: show collapse icon (tree with minus)
-        // Tree structure lines
-        iconG.append("path")
-            .attr("d", "M-8,-6 L-8,6 M-8,-6 L-2,-6 M-8,0 L-2,0 M-8,6 L-2,6")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 1.5)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round");
-        // Minus sign
-        iconG.append("path")
-            .attr("d", "M3,0 L9,0")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 2)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round");
-    } else {
-        // Collapsed state: show expand icon (tree with plus)
-        // Tree structure lines
-        iconG.append("path")
-            .attr("d", "M-8,-6 L-8,6 M-8,-6 L-2,-6 M-8,0 L-2,0 M-8,6 L-2,6")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 1.5)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round");
-        // Plus sign
-        iconG.append("path")
-            .attr("d", "M3,0 L9,0 M6,-3 L6,3")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 2)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round");
-    }
+    // Soft background circle for contrast
+    iconG.append("circle")
+        .attr("r", 11)
+        .attr("fill", this.wbsExpandedInternal ? this.UI_TOKENS.color.primary.subtle : this.UI_TOKENS.color.neutral.grey10)
+        .attr("opacity", 0.7);
+
+    // Plus sign
+    iconG.append("path")
+        .attr("d", "M-4,0 L4,0 M0,-4 L0,4")
+        .attr("stroke", iconColor)
+        .attr("stroke-width", 2.2)
+        .attr("fill", "none")
+        .attr("stroke-linecap", "round");
+
+    // Downward chevron to indicate expanding
+    iconG.append("path")
+        .attr("d", "M-4,5 L0,8 L4,5")
+        .attr("stroke", iconColor)
+        .attr("stroke-width", 1.8)
+        .attr("fill", "none")
+        .attr("stroke-linecap", "round")
+        .attr("stroke-linejoin", "round");
 
     // Small badge to show current depth (0, L2, L3, All)
     const badgeText = currentLevel === null
@@ -2240,7 +2243,7 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
             : `L${currentLevel}`;
     wbsToggleGroup.append("text")
         .attr("x", buttonSize / 2)
-        .attr("y", buttonSize - 6)
+        .attr("y", buttonSize - 10) // lift badge off the border
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "central")
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
@@ -2307,10 +2310,190 @@ private createWbsExpandCollapseToggleButton(viewportWidth?: number): void {
 }
 
 /**
+ * Creates the WBS Collapse cycle toggle button with icon-only design (reverse order)
+ */
+private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
+    if (!this.headerSvg) return;
+
+    this.headerSvg.selectAll(".wbs-collapse-toggle-group").remove();
+
+    // Use same visibility rules as expand button
+    const wbsColumnsExist = this.wbsDataExistsInMetadata;
+    const wbsEnabled = wbsColumnsExist && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+    const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
+    if (!wbsEnabled || !showWbsToggle) return;
+
+    if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
+        this.refreshWbsAvailableLevels();
+    }
+
+    const maxLevel = this.getMaxWbsLevel();
+    const currentLevelRaw = this.wbsExpandToLevel ?? (this.wbsExpandedInternal ? (maxLevel || null) : 0);
+    const currentLevel = currentLevelRaw === null && maxLevel > 0 ? maxLevel : currentLevelRaw;
+    const levelLabel = this.getWbsExpandLevelLabel(currentLevel);
+    const previousLevelValue = this.getPreviousWbsExpandLevel();
+    const previousLevelLabel = previousLevelValue !== null ? this.getWbsExpandLevelLabel(previousLevelValue) : levelLabel;
+
+    // Get responsive layout
+    const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+    const { x: buttonX, size: buttonSize } = layout.wbsCollapseToggle;
+
+    const isCollapsed = this.wbsExpandToLevel === 0 || !this.wbsExpandedInternal;
+
+    const wbsCollapseGroup = this.headerSvg.append("g")
+        .attr("class", "wbs-collapse-toggle-group")
+        .style("cursor", "pointer")
+        .attr("role", "button")
+        .attr("aria-label", `${levelLabel} (reverse cycle)`)
+        .attr("aria-pressed", isCollapsed.toString())
+        .attr("tabindex", "0");
+
+    const buttonY = this.UI_TOKENS.spacing.sm;
+
+    wbsCollapseGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+    // Button background with active/inactive states
+    wbsCollapseGroup.append("rect")
+        .attr("width", buttonSize)
+        .attr("height", buttonSize)
+        .attr("rx", this.UI_TOKENS.radius.medium)
+        .attr("ry", this.UI_TOKENS.radius.medium)
+        .style("fill", isCollapsed
+            ? this.UI_TOKENS.color.primary.light
+            : this.UI_TOKENS.color.neutral.white)
+        .style("stroke", isCollapsed
+            ? this.UI_TOKENS.color.primary.default
+            : this.UI_TOKENS.color.neutral.grey60)
+        .style("stroke-width", isCollapsed ? 2 : 1.5)
+        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+    // Collapse icon: minus with upward chevron
+    const iconCenterX = buttonSize / 2;
+    const iconCenterY = (buttonSize / 2) - 4; // Nudge up for badge breathing room
+    const iconG = wbsCollapseGroup.append("g")
+        .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
+
+    const iconColor = isCollapsed
+        ? this.UI_TOKENS.color.primary.default
+        : this.UI_TOKENS.color.neutral.grey130;
+
+    // Soft background circle for contrast
+    iconG.append("circle")
+        .attr("r", 11)
+        .attr("fill", isCollapsed ? this.UI_TOKENS.color.primary.subtle : this.UI_TOKENS.color.neutral.grey10)
+        .attr("opacity", 0.7);
+
+    // Minus sign
+    iconG.append("path")
+        .attr("d", "M-5,0 L5,0")
+        .attr("stroke", iconColor)
+        .attr("stroke-width", 2.2)
+        .attr("fill", "none")
+        .attr("stroke-linecap", "round");
+
+    // Upward chevron to indicate collapsing direction
+    iconG.append("path")
+        .attr("d", "M-4,-3 L0,-7 L4,-3")
+        .attr("stroke", iconColor)
+        .attr("stroke-width", 1.8)
+        .attr("fill", "none")
+        .attr("stroke-linecap", "round")
+        .attr("stroke-linejoin", "round");
+
+    // Small badge to show current depth (0, L2, L3, All)
+    const badgeText = currentLevel === null
+        ? (maxLevel > 0 ? `L${maxLevel}` : "All")
+        : currentLevel === 0
+            ? "0"
+            : `L${currentLevel}`;
+    wbsCollapseGroup.append("text")
+        .attr("x", buttonSize / 2)
+        .attr("y", buttonSize - 10) // lift badge off the border
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "central")
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
+        .style("fill", iconColor)
+        .text(badgeText);
+
+    // Tooltip
+    const levelsDesc = this.wbsAvailableLevels.length > 0
+        ? [...this.wbsAvailableLevels].sort((a, b) => b - a).map(l => `L${l}`).join("/")
+        : "no levels";
+    const reverseCycle = this.wbsAvailableLevels.length > 0
+        ? `expand all -> ${levelsDesc} -> collapse`
+        : "collapse";
+    wbsCollapseGroup.append("title")
+        .text(`${levelLabel}. Previous: ${previousLevelLabel}. Reverse cycle: ${reverseCycle}.`);
+
+    // Hover interactions
+    const self = this;
+    wbsCollapseGroup
+        .on("mouseover", function() {
+            d3.select(this).select("rect")
+                .style("fill", isCollapsed
+                    ? self.UI_TOKENS.color.primary.default
+                    : self.UI_TOKENS.color.neutral.grey20)
+                .style("transform", "translateY(-2px)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+
+            if (isCollapsed) {
+                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+            }
+        })
+        .on("mouseout", function() {
+            d3.select(this).select("rect")
+                .style("fill", isCollapsed
+                    ? self.UI_TOKENS.color.primary.light
+                    : self.UI_TOKENS.color.neutral.white)
+                .style("transform", "translateY(0)")
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+            if (isCollapsed) {
+                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
+            }
+        })
+        .on("mousedown", function() {
+            d3.select(this).select("rect")
+                .style("transform", "translateY(0) scale(0.95)");
+        })
+        .on("mouseup", function() {
+            d3.select(this).select("rect")
+                .style("transform", "translateY(-2px) scale(1)");
+        });
+
+    wbsCollapseGroup.on("click", function(event) {
+        if (event) event.stopPropagation();
+        self.toggleWbsCollapseCycleDisplay();
+    });
+
+    // Keyboard support
+    wbsCollapseGroup.on("keydown", function(event) {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            self.toggleWbsCollapseCycleDisplay();
+        }
+    });
+}
+
+/**
  * Cycles the WBS expand depth (collapse -> Level 1/2/3/.../N -> expand all)
  * Levels are dynamic based on the number of WBS columns added by the user
  */
 private toggleWbsExpandCollapseDisplay(): void {
+    this.cycleWbsExpandLevel("next");
+}
+
+/**
+ * Cycles the WBS expand depth in reverse order (expand all -> ... -> collapse)
+ */
+private toggleWbsCollapseCycleDisplay(): void {
+    this.cycleWbsExpandLevel("previous");
+}
+
+private cycleWbsExpandLevel(direction: "next" | "previous"): void {
     try {
         if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
             return;
@@ -2322,8 +2505,11 @@ private toggleWbsExpandCollapseDisplay(): void {
             this.refreshWbsAvailableLevels();
         }
 
-        // Cycle through: collapse -> available levels -> expand all
-        const nextLevel = this.getNextWbsExpandLevel();
+        const levelGetter = direction === "previous"
+            ? this.getPreviousWbsExpandLevel.bind(this)
+            : this.getNextWbsExpandLevel.bind(this);
+
+        const nextLevel = levelGetter();
         if (nextLevel === null && this.wbsAvailableLevels.length === 0) {
             return;
         }
@@ -2332,6 +2518,7 @@ private toggleWbsExpandCollapseDisplay(): void {
         this.debugLog("WBS expand depth cycle", {
             current: this.wbsExpandToLevel,
             next: effectiveNext,
+            direction,
             availableLevels: this.wbsAvailableLevels
         });
 
@@ -2359,7 +2546,7 @@ private toggleWbsExpandCollapseDisplay(): void {
         const viewportWidth = this.lastUpdateOptions?.viewport?.width
             || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
             || 800;
-        this.createWbsExpandCollapseToggleButton(viewportWidth);
+        this.renderWbsCycleButtons(viewportWidth);
 
         // Force full update to re-render with new expansion state
         // Explicitly reset scroll to top when using expand/collapse ALL button
@@ -2369,9 +2556,9 @@ private toggleWbsExpandCollapseDisplay(): void {
             this.update(this.lastUpdateOptions);
         }
 
-        this.debugLog("WBS expand depth updated", effectiveNext);
+        this.debugLog("WBS expand depth updated", { level: effectiveNext, direction });
     } catch (error) {
-        console.error("Error in WBS toggle method:", error);
+        console.error(`Error in WBS toggle method (${direction}):`, error);
     }
 }
 
@@ -3364,7 +3551,7 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         // Ensure WBS toggle button is visible now that WBS data has been processed
         // This fixes timing issue where button may not appear on initial load
-        this.createWbsExpandCollapseToggleButton(viewportWidth);
+        this.renderWbsCycleButtons(viewportWidth);
 
         const renderEndTime = performance.now();
         this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
@@ -4177,7 +4364,7 @@ private updateHeaderElements(viewportWidth: number): void {
     this.createOrUpdateBaselineToggleButton(viewportWidth);
     this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
     this.createConnectorLinesToggleButton(viewportWidth);
-    this.createWbsExpandCollapseToggleButton(viewportWidth);
+    this.renderWbsCycleButtons(viewportWidth);
 }
 
     private calculateVisibleTasks(): void {
@@ -9167,6 +9354,18 @@ private getNextWbsExpandLevel(): number | null {
     const idx = sequence.findIndex(l => l === current);
     const nextIdx = idx === -1 ? 0 : (idx + 1) % sequence.length;
     return sequence[nextIdx];
+}
+
+private getPreviousWbsExpandLevel(): number | null {
+    if (this.wbsAvailableLevels.length === 0) {
+        return null;
+    }
+    const levels = Array.from(new Set(this.wbsAvailableLevels)).sort((a, b) => a - b);
+    const sequence: Array<number> = [0, ...levels];
+    const current = this.wbsExpandToLevel ?? (this.wbsExpandedInternal ? levels[levels.length - 1] : 0);
+    const idx = sequence.findIndex(l => l === current);
+    const prevIdx = idx === -1 ? sequence.length - 1 : (idx - 1 + sequence.length) % sequence.length;
+    return sequence[prevIdx];
 }
 
 private applyWbsExpandLevel(targetLevel: number | null): void {
