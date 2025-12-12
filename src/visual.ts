@@ -666,11 +666,14 @@ constructor(options: VisualConstructorOptions) {
     this.tooltipClassName = `critical-path-tooltip-${Date.now()}`;
 
     // --- Overall wrapper ---
+    // Use flexbox layout for proper stacking of header, content, slider, and legend
     const visualWrapper = d3.select(this.target).append("div")
         .attr("class", "visual-wrapper")
         .style("height", "100%")
         .style("width", "100%")
-        .style("overflow", "hidden");
+        .style("overflow", "hidden")
+        .style("display", "flex")
+        .style("flex-direction", "column");
 
     // --- Sticky Header Container ---
     this.stickyHeaderContainer = visualWrapper.append("div")
@@ -680,6 +683,8 @@ constructor(options: VisualConstructorOptions) {
         .style("left", "0")
         .style("width", "100%")
         .style("height", `${this.headerHeight}px`)
+        .style("min-height", `${this.headerHeight}px`)
+        .style("flex-shrink", "0")  // Don't shrink the header
         .style("z-index", "100")  // High z-index to ensure it's always above resizer
         .style("background-color", "white")  // Solid background to cover anything behind it
         .style("overflow", "visible");
@@ -782,10 +787,11 @@ constructor(options: VisualConstructorOptions) {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
     // --- Scrollable Container for main chart content ---
-    // Will be dynamically sized based on header + legend footer
+    // Uses flex: 1 to take remaining space after header, slider, and legend
     this.scrollableContainer = visualWrapper.append("div")
         .attr("class", "criticalPathContainer")
-        .style("height", `calc(100% - ${this.headerHeight}px)`)  // Will be updated when legend shown
+        .style("flex", "1")  // Take remaining space in flexbox
+        .style("min-height", "0")  // Allow flex child to shrink below content size
         .style("overflow-anchor", "none")  // CRITICAL: Disable browser scroll anchoring to prevent scroll jumping
         .style("width", "100%")
         .style("overflow-y", "auto")
@@ -805,23 +811,24 @@ constructor(options: VisualConstructorOptions) {
     this.arrowLayer = this.mainGroup.append("g").attr("class", "arrow-layer");
     this.taskLayer = this.mainGroup.append("g").attr("class", "task-layer");
 
+    // --- Timeline Zoom Slider Container (Microsoft-style axis zoom) ---
+    // Created BEFORE legend so it appears above the legend in the visual
+    this.createZoomSliderUI(visualWrapper);
+
     // --- Sticky Legend Footer Container (similar to header) ---
+    // Positioned at the very bottom of the visual
     this.legendContainer = visualWrapper.append("div")
         .attr("class", "sticky-legend-footer")
-        .style("position", "sticky")
-        .style("bottom", "0")
-        .style("left", "0")
         .style("width", "100%")
         .style("height", `${this.legendFooterHeight}px`)
+        .style("min-height", `${this.legendFooterHeight}px`)
+        .style("flex-shrink", "0")  // Don't shrink the legend
         .style("z-index", "100")
         .style("background-color", "white")
         .style("border-top", "2px solid #e0e0e0")
         .style("box-shadow", "0 -2px 4px rgba(0,0,0,0.1)")
         .style("display", "none")
         .style("overflow", "hidden");
-
-    // --- Timeline Zoom Slider Container (Microsoft-style axis zoom) ---
-    this.createZoomSliderUI(visualWrapper);
 
     // --- Canvas layer for high-performance rendering ---
     this.canvasElement = document.createElement('canvas');
@@ -3440,24 +3447,13 @@ private updateZoomSliderVisibility(): void {
 
 /**
  * Updates the scrollable container height based on visible components
+ * Note: With flexbox layout, height is automatically managed.
+ * This method is kept for backwards compatibility but flexbox handles the layout.
  */
 private updateScrollableContainerHeight(): void {
-    if (!this.scrollableContainer) return;
-
-    let totalOffset = this.headerHeight;
-
-    // Account for legend footer if visible
-    if (this.legendContainer?.style("display") !== "none") {
-        totalOffset += this.legendFooterHeight;
-    }
-
-    // Account for zoom slider if visible
-    const sliderHeight = this.settings?.timelineZoom?.sliderHeight?.value ?? 40;
-    if (this.zoomSliderEnabled && this.zoomSliderContainer?.style("display") !== "none") {
-        totalOffset += sliderHeight;
-    }
-
-    this.scrollableContainer.style("height", `calc(100% - ${totalOffset}px)`);
+    // With flexbox layout (flex: 1 on scrollable container), the height is
+    // automatically calculated based on available space after header,
+    // zoom slider, and legend. No manual height calculation needed.
 }
 
 /**
@@ -12274,14 +12270,14 @@ private ensureTaskVisible(taskId: string): void {
 
         // Check if legend should be shown
         const showLegend = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
-        const legendOffset = showLegend ? this.legendFooterHeight : 0;
-        const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
-        this.scrollableContainer.style("height", `${availableContentHeight}px`);
 
         if (!showLegend) {
             this.legendContainer.style("display", "none");
             return;
         }
+
+        // Show legend container - flexbox handles height automatically
+        this.legendContainer.style("display", "block");
 
         // Get legend settings
         const fontSize = this.settings.legend.fontSize.value;
@@ -12522,9 +12518,6 @@ private ensureTaskVisible(taskId: string): void {
         }).on("mouseleave", function() {
             d3.select(this).style("background-color", "#f0f0f0");
         });
-
-        // Show legend and initialize arrow states
-        this.legendContainer.style("display", "block");
 
         // Wait a frame for layout to settle, then update arrow states
         setTimeout(() => updateArrowStates(), 0);

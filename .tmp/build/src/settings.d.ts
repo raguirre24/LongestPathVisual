@@ -208,6 +208,18 @@ declare class LegendColorsCard extends Card {
     color20: formattingSettings.ColorPicker;
     slices: Slice[];
 }
+declare class TimelineZoomCard extends Card {
+    name: string;
+    displayName: string;
+    enableZoomSlider: formattingSettings.ToggleSwitch;
+    sliderHeight: formattingSettings.NumUpDown;
+    sliderTrackColor: formattingSettings.ColorPicker;
+    sliderSelectedColor: formattingSettings.ColorPicker;
+    sliderHandleColor: formattingSettings.ColorPicker;
+    sliderBorderColor: formattingSettings.ColorPicker;
+    showMiniChart: formattingSettings.ToggleSwitch;
+    slices: Slice[];
+}
 declare class PersistedStateCard extends Card {
     name: string;
     displayName: string;
@@ -234,6 +246,7 @@ export declare class VisualSettings extends Model {
     wbsGrouping: WBSGroupingCard;
     legend: LegendCard;
     legendColors: LegendColorsCard;
+    timelineZoom: TimelineZoomCard;
     persistedState: PersistedStateCard;
     cards: Card[];
 }
