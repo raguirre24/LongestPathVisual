@@ -79,7 +79,7 @@
   }
 
 // ============================================================================
-// TIMELINE ZOOM SLIDER - Microsoft-style axis zoom control
+// TIMELINE ZOOM SLIDER - Microsoft Power BI standard style
 // ============================================================================
 
 .timeline-zoom-slider-container {
@@ -99,66 +99,56 @@
 }
 
 .zoom-slider-track {
-    // Ensure track stays within container
     box-sizing: border-box;
-
-    // Subtle shadow for depth
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
-
-    // Transition for smooth margin changes
+    // Transition for smooth margin changes when layout updates
     transition: left 0.15s ease, right 0.15s ease;
 }
 
 .zoom-slider-selection {
     // Smooth transitions during drag
-    transition: background-color 0.15s ease, border-color 0.15s ease;
-
-    // Subtle inner shadow for depth
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+    transition: background-color 0.15s ease, left 0.05s ease, width 0.05s ease;
 
     &:hover {
-        background-color: rgba(0, 120, 212, 0.12) !important;
+        background-color: #A19F9D !important;
     }
 
     &:active {
-        background-color: rgba(0, 120, 212, 0.15) !important;
+        cursor: grabbing;
     }
 }
 
 .zoom-slider-handle {
-    // Smooth hover/active transitions
-    transition: background-color 0.15s ease, transform 0.1s ease, width 0.1s ease;
+    // Smooth hover/active transitions for circular handles
+    transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 
     &:hover {
-        width: 10px !important;
-        background-color: #005A9E !important;
-
-        .handle-grip {
-            height: 14px;
-        }
+        background-color: #323130 !important;
+        transform: translate(-50%, -50%) scale(1.2);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
     }
 
     &:active {
-        background-color: #004578 !important;
-        transform: scaleX(1.1);
+        background-color: #201F1E !important;
+        transform: translate(-50%, -50%) scale(1.1);
     }
 }
 
 .zoom-slider-handle-left {
     &:hover {
-        margin-left: -1px;
+        transform: translate(-50%, -50%) scale(1.2);
+    }
+    &:active {
+        transform: translate(-50%, -50%) scale(1.1);
     }
 }
 
 .zoom-slider-handle-right {
     &:hover {
-        margin-right: -1px;
+        transform: translate(50%, -50%) scale(1.2);
     }
-}
-
-.handle-grip {
-    transition: height 0.15s ease, opacity 0.15s ease;
-    pointer-events: none;
+    &:active {
+        transform: translate(50%, -50%) scale(1.1);
+    }
 }
 
 .zoom-slider-mini-chart {

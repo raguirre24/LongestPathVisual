@@ -248,7 +248,8 @@ export declare class Visual implements IVisual {
      */
     private createFloatThresholdControl;
     /**
-     * Creates the zoom slider UI component with Microsoft Fluent 2 styling
+     * Creates the zoom slider UI component matching Microsoft Power BI standard style
+     * Design: Thin track line with circular handles at each end
      */
     private createZoomSliderUI;
     /**
