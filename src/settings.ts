@@ -608,7 +608,7 @@ class LegendColorsCard extends Card {
     ];
 }
 
-// Timeline Zoom Slider Card - Microsoft-style axis zoom control
+// Timeline Zoom Slider Card - Microsoft Power BI standard style
 class TimelineZoomCard extends Card {
     name: string = "timelineZoom";
     displayName: string = "Timeline Zoom Slider";
@@ -624,7 +624,7 @@ class TimelineZoomCard extends Card {
         name: "sliderHeight",
         displayName: "Slider Height (px)",
         description: "Height of the zoom slider control",
-        value: 40,
+        value: 32,
         options: {
             minValue: { type: powerbi.visuals.ValidatorType.Min, value: 24 },
             maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 60 }
@@ -635,35 +635,35 @@ class TimelineZoomCard extends Card {
         name: "sliderTrackColor",
         displayName: "Track Color",
         description: "Background color of the slider track",
-        value: { value: "#F3F3F3" }
+        value: { value: "#E1DFDD" }
     });
 
     sliderSelectedColor = new ColorPicker({
         name: "sliderSelectedColor",
         displayName: "Selected Range Color",
         description: "Color of the selected/visible range area",
-        value: { value: "#E8E8E8" }
+        value: { value: "#C8C6C4" }
     });
 
     sliderHandleColor = new ColorPicker({
         name: "sliderHandleColor",
         displayName: "Handle Color",
-        description: "Color of the drag handles",
-        value: { value: "#666666" }
+        description: "Color of the circular drag handles",
+        value: { value: "#605E5C" }
     });
 
     sliderBorderColor = new ColorPicker({
         name: "sliderBorderColor",
         displayName: "Border Color",
-        description: "Border color of the selected range",
-        value: { value: "#0078D4" }
+        description: "Border color of the handles",
+        value: { value: "#FFFFFF" }
     });
 
     showMiniChart = new ToggleSwitch({
         name: "showMiniChart",
         displayName: "Show Mini Preview",
         description: "Show a miniature preview of task distribution in the slider",
-        value: true
+        value: false
     });
 
     slices: Slice[] = [

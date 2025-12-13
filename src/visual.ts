@@ -3052,10 +3052,11 @@ private createFloatThresholdControl(): void {
 // ============================================================================
 
 /**
- * Creates the zoom slider UI component with Microsoft Fluent 2 styling
+ * Creates the zoom slider UI component matching Microsoft Power BI standard style
+ * Design: Thin track line with circular handles at each end
  */
 private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, null, undefined>): void {
-    const sliderHeight = 40; // Default height, will be updated from settings
+    const sliderHeight = 32; // Compact height for Microsoft-style slider
 
     // Main container positioned at the bottom of the scrollable area
     this.zoomSliderContainer = visualWrapper.append("div")
@@ -3063,26 +3064,27 @@ private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, nul
         .style("position", "relative")
         .style("width", "100%")
         .style("height", `${sliderHeight}px`)
-        .style("background-color", "#FAFAFA")
-        .style("border-top", "1px solid #E0E0E0")
+        .style("background-color", "#FFFFFF")
+        .style("border-top", "1px solid #EDEBE9")
         .style("display", "none") // Hidden by default, shown when enabled
         .style("z-index", "50")
         .style("flex-shrink", "0")
         .style("user-select", "none");
 
-    // Track container (the full timeline background)
+    // Track container - will have margins applied to align with chart
+    // This is positioned using left/right margins to match the chart area
     this.zoomSliderTrack = this.zoomSliderContainer.append("div")
         .attr("class", "zoom-slider-track")
         .style("position", "absolute")
-        .style("left", "0")
-        .style("right", "0")
-        .style("top", "8px")
-        .style("bottom", "8px")
-        .style("background-color", "#F3F3F3")
-        .style("border-radius", "4px")
-        .style("overflow", "hidden");
+        .style("left", "280px")  // Default, will be updated by updateZoomSliderTrackMargins
+        .style("right", "100px") // Default, will be updated by updateZoomSliderTrackMargins
+        .style("top", "50%")
+        .style("transform", "translateY(-50%)")
+        .style("height", "4px")
+        .style("background-color", "#E1DFDD")
+        .style("border-radius", "2px");
 
-    // Mini chart canvas for task distribution preview
+    // Mini chart canvas for task distribution preview (hidden in Microsoft style)
     const miniChartCanvas = document.createElement('canvas');
     miniChartCanvas.className = 'zoom-slider-mini-chart';
     miniChartCanvas.style.position = 'absolute';
@@ -3091,10 +3093,11 @@ private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, nul
     miniChartCanvas.style.width = '100%';
     miniChartCanvas.style.height = '100%';
     miniChartCanvas.style.pointerEvents = 'none';
+    miniChartCanvas.style.display = 'none'; // Hidden by default for clean Microsoft look
     this.zoomSliderTrack.node()?.appendChild(miniChartCanvas);
     this.zoomSliderMiniChart = d3.select(miniChartCanvas);
 
-    // Selection range (the visible portion)
+    // Selection range (the visible/selected portion between handles)
     this.zoomSliderSelection = this.zoomSliderTrack.append("div")
         .attr("class", "zoom-slider-selection")
         .style("position", "absolute")
@@ -3102,57 +3105,41 @@ private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, nul
         .style("width", "100%")
         .style("top", "0")
         .style("bottom", "0")
-        .style("background-color", "rgba(0, 120, 212, 0.08)")
-        .style("border", "2px solid #0078D4")
-        .style("border-radius", "3px")
-        .style("cursor", "grab")
-        .style("box-sizing", "border-box");
+        .style("background-color", "#C8C6C4")  // Darker gray for selected area
+        .style("border-radius", "2px")
+        .style("cursor", "grab");
 
-    // Left handle
+    // Left handle - circular Microsoft-style
     this.zoomSliderLeftHandle = this.zoomSliderSelection.append("div")
         .attr("class", "zoom-slider-handle zoom-slider-handle-left")
         .style("position", "absolute")
-        .style("left", "-1px")
-        .style("top", "0")
-        .style("bottom", "0")
-        .style("width", "8px")
-        .style("background-color", "#0078D4")
-        .style("border-radius", "3px 0 0 3px")
-        .style("cursor", "ew-resize")
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("justify-content", "center");
-
-    // Left handle grip lines
-    this.zoomSliderLeftHandle.append("div")
-        .attr("class", "handle-grip")
-        .style("width", "2px")
+        .style("left", "0")
+        .style("top", "50%")
+        .style("transform", "translate(-50%, -50%)")
+        .style("width", "12px")
         .style("height", "12px")
-        .style("background-color", "rgba(255,255,255,0.7)")
-        .style("border-radius", "1px");
+        .style("background-color", "#605E5C")
+        .style("border", "2px solid #FFFFFF")
+        .style("border-radius", "50%")
+        .style("cursor", "ew-resize")
+        .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
+        .style("z-index", "10");
 
-    // Right handle
+    // Right handle - circular Microsoft-style
     this.zoomSliderRightHandle = this.zoomSliderSelection.append("div")
         .attr("class", "zoom-slider-handle zoom-slider-handle-right")
         .style("position", "absolute")
-        .style("right", "-1px")
-        .style("top", "0")
-        .style("bottom", "0")
-        .style("width", "8px")
-        .style("background-color", "#0078D4")
-        .style("border-radius", "0 3px 3px 0")
-        .style("cursor", "ew-resize")
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("justify-content", "center");
-
-    // Right handle grip lines
-    this.zoomSliderRightHandle.append("div")
-        .attr("class", "handle-grip")
-        .style("width", "2px")
+        .style("right", "0")
+        .style("top", "50%")
+        .style("transform", "translate(50%, -50%)")
+        .style("width", "12px")
         .style("height", "12px")
-        .style("background-color", "rgba(255,255,255,0.7)")
-        .style("border-radius", "1px");
+        .style("background-color", "#605E5C")
+        .style("border", "2px solid #FFFFFF")
+        .style("border-radius", "50%")
+        .style("cursor", "ew-resize")
+        .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
+        .style("z-index", "10");
 
     // Setup event handlers
     this.setupZoomSliderEvents();
@@ -3411,11 +3398,10 @@ private updateZoomSliderVisibility(): void {
     if (!this.zoomSliderContainer) return;
 
     const isEnabled = this.settings?.timelineZoom?.enableZoomSlider?.value ?? true;
-    const sliderHeight = this.settings?.timelineZoom?.sliderHeight?.value ?? 40;
-    const trackColor = this.settings?.timelineZoom?.sliderTrackColor?.value?.value ?? "#F3F3F3";
-    const selectedColor = this.settings?.timelineZoom?.sliderSelectedColor?.value?.value ?? "#E8E8E8";
-    const handleColor = this.settings?.timelineZoom?.sliderHandleColor?.value?.value ?? "#666666";
-    const borderColor = this.settings?.timelineZoom?.sliderBorderColor?.value?.value ?? "#0078D4";
+    const sliderHeight = this.settings?.timelineZoom?.sliderHeight?.value ?? 32;
+    const trackColor = this.settings?.timelineZoom?.sliderTrackColor?.value?.value ?? "#E1DFDD";
+    const selectedColor = this.settings?.timelineZoom?.sliderSelectedColor?.value?.value ?? "#C8C6C4";
+    const handleColor = this.settings?.timelineZoom?.sliderHandleColor?.value?.value ?? "#605E5C";
 
     this.zoomSliderEnabled = isEnabled;
 
@@ -3428,9 +3414,7 @@ private updateZoomSliderVisibility(): void {
     }
 
     if (this.zoomSliderSelection) {
-        this.zoomSliderSelection
-            .style("background-color", `${selectedColor}`)
-            .style("border-color", borderColor);
+        this.zoomSliderSelection.style("background-color", selectedColor);
     }
 
     if (this.zoomSliderLeftHandle) {
