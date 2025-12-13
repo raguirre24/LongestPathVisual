@@ -100,6 +100,7 @@ export declare class Visual implements IVisual {
     private wbsAvailableLevels;
     private wbsManualExpansionOverride;
     private wbsManuallyToggledGroups;
+    private wbsEnableOverride;
     private wbsGroupLayer;
     private lastExpandCollapseAllState;
     private tooltipDebugLogged;
@@ -218,9 +219,18 @@ export declare class Visual implements IVisual {
      */
     private createConnectorLinesToggleButton;
     /**
+     * Creates/updates the WBS enable/disable toggle button (viewer-facing).
+     * This lets report viewers switch WBS grouping on/off without using the formatting pane.
+     */
+    private createOrUpdateWbsEnableToggleButton;
+    /**
      * Creates both WBS expand (forward cycle) and collapse (reverse cycle) buttons
      */
     private renderWbsCycleButtons;
+    /**
+     * Toggles WBS grouping on/off for the viewer (persisted in formatting properties).
+     */
+    private toggleWbsEnabled;
     /**
      * Creates the WBS Expand cycle toggle button with icon-only design
      * Similar styling to Connector Lines toggle for visual consistency

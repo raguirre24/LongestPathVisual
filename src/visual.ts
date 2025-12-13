@@ -306,6 +306,7 @@ export class Visual implements IVisual {
     private wbsAvailableLevels: number[] = [];                  // Unique WBS levels detected in data
     private wbsManualExpansionOverride: boolean = false;        // When true, honor per-group manual expansion even if global toggle is collapsed
     private wbsManuallyToggledGroups: Set<string> = new Set();  // BUG-007 FIX: Track which groups have been manually toggled
+    private wbsEnableOverride: boolean | null = null;           // Viewer toggle override (immediate apply before formatting sync)
     private wbsGroupLayer: Selection<SVGGElement, unknown, null, undefined>; // SVG layer for group headers
     private lastExpandCollapseAllState: boolean | null = null;  // Track expand/collapse all toggle state
 
@@ -550,6 +551,7 @@ export class Visual implements IVisual {
         baseline: { x: number; width: number; iconOnly: boolean };
         previousUpdate: { x: number; width: number; iconOnly: boolean };
         connectorLines: { x: number; size: number };
+        wbsEnable: { x: number; width: number };
         wbsExpandToggle: { x: number; size: number };
         wbsCollapseToggle: { x: number; size: number };
         gap: number;
@@ -585,6 +587,11 @@ export class Visual implements IVisual {
         const connectorLines = { x, size: iconButtonSize };
         x += iconButtonSize + gap;
 
+        // WBS enable/disable button (text-only, compact)
+        const wbsEnableWidth = mode === 'narrow' ? 60 : 70;
+        const wbsEnable = { x, width: wbsEnableWidth };
+        x += wbsEnableWidth + gap;
+
         // WBS Toggle buttons (always icon-only)
         const wbsExpandToggle = { x, size: iconButtonSize };
         x += iconButtonSize + gap;
@@ -597,6 +604,7 @@ export class Visual implements IVisual {
             baseline,
             previousUpdate,
             connectorLines,
+            wbsEnable,
             wbsExpandToggle,
             wbsCollapseToggle,
             gap
@@ -1332,7 +1340,7 @@ private captureScrollPosition(): void {
     if (this.scrollableContainer?.node()) {
         this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
         this.preserveScrollOnUpdate = true;
-        this.scrollPreservationUntil = Date.now() + 500;
+        this.scrollPreservationUntil = Date.now() + 1500;
         this.debugLog(`Scroll position captured: ${this.preservedScrollTop}`);
     }
 }
@@ -1503,7 +1511,7 @@ private toggleBaselineDisplayInternal(): void {
         this.forceFullUpdate = true;
         this.preserveScrollOnUpdate = true; // Preserve scroll during scale recalculation
         // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
-        this.scrollPreservationUntil = Date.now() + 500;
+        this.scrollPreservationUntil = Date.now() + 1500;
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
@@ -1544,7 +1552,7 @@ private togglePreviousUpdateDisplayInternal(): void {
         this.forceFullUpdate = true;
         this.preserveScrollOnUpdate = true; // Preserve scroll during scale recalculation
         // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
-        this.scrollPreservationUntil = Date.now() + 500;
+        this.scrollPreservationUntil = Date.now() + 1500;
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
@@ -2198,11 +2206,154 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
 }
 
 /**
+ * Creates/updates the WBS enable/disable toggle button (viewer-facing).
+ * This lets report viewers switch WBS grouping on/off without using the formatting pane.
+ */
+private createOrUpdateWbsEnableToggleButton(viewportWidth?: number): void {
+    if (!this.headerSvg) return;
+
+    this.headerSvg.selectAll(".wbs-enable-toggle-group").remove();
+
+    // Only show when WBS columns exist in metadata and the toggle is allowed
+    const wbsColumnsExist = this.wbsDataExistsInMetadata;
+    const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
+    if (!wbsColumnsExist || !showWbsToggle) return;
+
+    const isEnabled = !!this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+    const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+    const { x: buttonX, width: buttonWidth } = layout.wbsEnable;
+    const buttonHeight = this.UI_TOKENS.height.standard;
+    const buttonY = this.UI_TOKENS.spacing.sm;
+
+    const group = this.headerSvg.append("g")
+        .attr("class", "wbs-enable-toggle-group")
+        .style("cursor", "pointer")
+        .attr("role", "button")
+        .attr("aria-pressed", isEnabled.toString())
+        .attr("aria-label", isEnabled ? "Turn off WBS grouping" : "Turn on WBS grouping")
+        .attr("tabindex", "0")
+        .attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+    const fill = isEnabled ? this.UI_TOKENS.color.primary.light : this.UI_TOKENS.color.neutral.white;
+    const stroke = isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey60;
+    const textColor = isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey130;
+
+    group.append("rect")
+        .attr("width", buttonWidth)
+        .attr("height", buttonHeight)
+        .attr("rx", this.UI_TOKENS.radius.medium)
+        .attr("ry", this.UI_TOKENS.radius.medium)
+        .style("fill", fill)
+        .style("stroke", stroke)
+        .style("stroke-width", isEnabled ? 2 : 1.5)
+        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+    const textY = buttonHeight / 2;
+    group.append("text")
+        .attr("x", buttonWidth / 2 + 6) // nudge right to leave room for state dot
+        .attr("y", textY)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "central")
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
+        .style("fill", textColor)
+        .text("WBS");
+
+    // State dot on the left edge for quick visual cue
+    group.append("circle")
+        .attr("cx", 10)
+        .attr("cy", textY)
+        .attr("r", 4)
+        .style("fill", isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey60);
+
+    const self = this;
+    group.on("mouseover", function() {
+        d3.select(this).select("rect")
+            .style("fill", isEnabled ? self.UI_TOKENS.color.primary.default : self.UI_TOKENS.color.neutral.grey20)
+            .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[6]})`);
+    }).on("mouseout", function() {
+        d3.select(this).select("rect")
+            .style("fill", fill)
+            .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+    });
+
+    group.on("click", function(event) {
+        if (event) event.stopPropagation();
+        self.toggleWbsEnabled();
+    });
+
+    group.on("keydown", function(event: KeyboardEvent) {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            self.toggleWbsEnabled();
+        }
+    });
+}
+
+/**
  * Creates both WBS expand (forward cycle) and collapse (reverse cycle) buttons
  */
 private renderWbsCycleButtons(viewportWidth?: number): void {
     this.createWbsExpandCycleToggleButton(viewportWidth);
     this.createWbsCollapseCycleToggleButton(viewportWidth);
+}
+
+/**
+ * Toggles WBS grouping on/off for the viewer (persisted in formatting properties).
+ */
+private toggleWbsEnabled(): void {
+    try {
+        const wbsColumnsExist = this.wbsDataExistsInMetadata;
+        if (!wbsColumnsExist || !this.settings?.wbsGrouping?.enableWbsGrouping) return;
+
+        const newEnabled = !this.settings.wbsGrouping.enableWbsGrouping.value;
+        this.settings.wbsGrouping.enableWbsGrouping.value = newEnabled;
+        this.wbsEnableOverride = newEnabled; // ensure immediate application on next update
+
+        // Clear WBS headers immediately when turning off
+        if (!newEnabled) {
+            this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
+            this.wbsExpandedInternal = false;
+            this.wbsExpandToLevel = undefined;
+            this.wbsManualExpansionOverride = false;
+            this.wbsManuallyToggledGroups.clear();
+            this.wbsToggleScrollAnchor = null;
+        }
+
+        // Persist the state so it sticks in reading mode
+        this.host.persistProperties({
+            merge: [{
+                objectName: "wbsGrouping",
+                properties: { enableWbsGrouping: newEnabled },
+                selector: null
+            }]
+        });
+
+        // Preserve scroll where possible
+        if (this.scrollableContainer?.node()) {
+            this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
+            this.preserveScrollOnUpdate = true;
+            this.scrollPreservationUntil = Date.now() + 1500;
+        }
+
+        this.forceFullUpdate = true;
+
+        // Update the button appearance immediately
+        const viewportWidth = this.lastUpdateOptions?.viewport.width || 800;
+        this.createOrUpdateWbsEnableToggleButton(viewportWidth);
+
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        } else {
+            // Fallback: at least clear visible WBS headers
+            this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
+        }
+    } catch (error) {
+        console.error("Error toggling WBS grouping:", error);
+    }
 }
 
 /**
@@ -3682,7 +3833,7 @@ private async updateInternal(options: VisualUpdateOptions) {
 
             this.preserveScrollOnUpdate = false; // Reset flag after checking
 
-            if (!shouldPreserveScroll && !this.scrollThrottleTimeout && node.scrollTop > 0) {
+            if (!shouldPreserveScroll && !this.scrollThrottleTimeout && node.scrollTop > 0 && this.preservedScrollTop === null && this.wbsToggleScrollAnchor === null) {
                 if (this.scrollListener) {
                     this.scrollableContainer.on("scroll", null);
                     this.scrollHandlerBackup = this.scrollListener;
@@ -3835,6 +3986,11 @@ private async updateInternal(options: VisualUpdateOptions) {
         // CRITICAL FIX: Re-populate settings model now that SelectionIds exist.
         // This ensures the formatting pane gets valid selectors for the color pickers.
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+        // Apply any immediate viewer override for WBS enable before proceeding
+        if (this.wbsEnableOverride !== null && this.settings?.wbsGrouping?.enableWbsGrouping) {
+            this.settings.wbsGrouping.enableWbsGrouping.value = this.wbsEnableOverride;
+            this.wbsEnableOverride = null;
+        }
 
         // Phase 2: Invalidate render cache after data transformation
         this.invalidateRenderCache();
@@ -4985,6 +5141,7 @@ private updateHeaderElements(viewportWidth: number): void {
     this.createOrUpdateBaselineToggleButton(viewportWidth);
     this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
     this.createConnectorLinesToggleButton(viewportWidth);
+    this.createOrUpdateWbsEnableToggleButton(viewportWidth);
     this.renderWbsCycleButtons(viewportWidth);
 }
 
@@ -5267,15 +5424,15 @@ private redrawVisibleTasks(): void {
             1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
         );
 
-        // Draw WBS group headers (SVG mode) - only for visible viewport range
-        this.drawWbsGroupHeaders(
-            this.xScale,
-            this.yScale,
-            chartWidth,
-            this.settings.taskAppearance.taskHeight.value,
-            this.viewportStartIndex,
-            this.viewportEndIndex
-        );
+    // Draw WBS group headers (SVG mode) - only for visible viewport range
+    this.drawWbsGroupHeaders(
+        this.xScale,
+        this.yScale,
+        chartWidth,
+        this.settings.taskAppearance.taskHeight.value,
+        this.viewportStartIndex,
+        this.viewportEndIndex
+    );
 
         // BUG-011 FIX: NOW hide canvas (after SVG content is fully rendered)
         // This prevents flicker by showing new content before hiding old
@@ -5541,6 +5698,10 @@ private drawVisualElements(
     const selectionLabelColor = selectionHighlightColor;
     const selectionLabelWeight = "bold";
     const lineHeight = this.taskLabelLineHeight;
+    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+    if (!wbsGroupingEnabled) {
+        this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
+    }
     
     // Decide whether to use Canvas or SVG based on task count
     this.useCanvasRendering = tasksToShow.length > this.CANVAS_THRESHOLD;
@@ -5632,24 +5793,24 @@ private drawVisualElements(
             this.drawHorizontalGridLines(tasksToShow, yScale, chartWidth, currentLeftMargin, chartHeight);
         }
         
-        // Draw arrows first so they appear behind tasks
-        if (this.showConnectorLinesInternal) {
-            this.drawArrows(
-                tasksToShow, xScale, yScale,
-                criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
-                taskHeight, this.settings.taskAppearance.milestoneSize.value
-            );
-        }
-        
-        this.drawTasks(
+    // Draw arrows first so they appear behind tasks
+    if (this.showConnectorLinesInternal) {
+        this.drawArrows(
             tasksToShow, xScale, yScale,
-            taskColor, milestoneColor, criticalColor,
-            labelColor, showDuration, taskHeight,
-                dateBgColor, dateBgOpacity
-            );
+            criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
+            taskHeight, this.settings.taskAppearance.milestoneSize.value
+        );
+    }
+    
+    this.drawTasks(
+        tasksToShow, xScale, yScale,
+        taskColor, milestoneColor, criticalColor,
+        labelColor, showDuration, taskHeight,
+            dateBgColor, dateBgOpacity
+        );
 
-            // Draw WBS group headers (SVG mode only)
-            this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
+        // Draw WBS group headers (SVG mode only)
+        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
 
             // Draw Data Date line when in SVG mode
             this.drawDataDateLine(
@@ -10442,7 +10603,7 @@ private toggleWbsGroupExpansion(groupId: string): void {
         this.forceFullUpdate = true;
         this.preserveScrollOnUpdate = true; // Preserve scroll for individual group expansion
         // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
-        this.scrollPreservationUntil = Date.now() + 500;
+        this.scrollPreservationUntil = Date.now() + 1500;
         this.updateInternal(this.lastUpdateOptions);
     }
 }
