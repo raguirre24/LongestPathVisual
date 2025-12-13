@@ -190,8 +190,10 @@ export class Visual implements IVisual {
 
     private mainGroup: Selection<SVGGElement, unknown, null, undefined>;
     private gridLayer: Selection<SVGGElement, unknown, null, undefined>;
+    private labelGridLayer: Selection<SVGGElement, unknown, null, undefined>; // Unclipped grid for label margin
     private arrowLayer: Selection<SVGGElement, unknown, null, undefined>;
     private taskLayer: Selection<SVGGElement, unknown, null, undefined>;
+    private taskLabelLayer: Selection<SVGGElement, unknown, null, undefined>; // Unclipped labels
     private chartClipPath: Selection<SVGClipPathElement, unknown, null, undefined>;
     private chartClipRect: Selection<SVGRectElement, unknown, null, undefined>;
     private toggleButtonGroup: Selection<SVGGElement, unknown, null, undefined>;
@@ -819,13 +821,21 @@ constructor(options: VisualConstructorOptions) {
         .attr("height", 10000);
 
     // --- Layers within the main SVG ---
-    this.gridLayer = this.mainGroup.append("g").attr("class", "grid-layer");
+    this.gridLayer = this.mainGroup.append("g")
+        .attr("class", "grid-layer")
+        .attr("clip-path", "url(#chart-area-clip)");
+    // Unclipped horizontal grid behind labels (extends into left margin)
+    this.labelGridLayer = this.mainGroup.append("g")
+        .attr("class", "label-grid-layer");
     this.arrowLayer = this.mainGroup.append("g")
         .attr("class", "arrow-layer")
         .attr("clip-path", "url(#chart-area-clip)");
     this.taskLayer = this.mainGroup.append("g")
         .attr("class", "task-layer")
         .attr("clip-path", "url(#chart-area-clip)");
+    // Task labels live in their own layer without clipping so they remain visible in the left margin
+    this.taskLabelLayer = this.mainGroup.append("g")
+        .attr("class", "task-label-layer");
 
     // --- Timeline Zoom Slider Container (Microsoft-style axis zoom) ---
     // Created BEFORE legend so it appears above the legend in the visual
@@ -1046,6 +1056,12 @@ private forceCanvasRefresh(): void {
     }
     if (this.arrowLayer) {
         this.arrowLayer.selectAll("*").remove();
+    }
+    if (this.taskLabelLayer) {
+        this.taskLabelLayer.selectAll("*").remove();
+    }
+    if (this.labelGridLayer) {
+        this.labelGridLayer.selectAll("*").remove();
     }
 
     // Clear WBS group layer
@@ -3545,10 +3561,35 @@ private updateZoomSliderTrackMargins(): void {
 }
 
 /**
+ * Ensures the chart clip path/rect exist. Recreates them if a previous clear removed <defs>.
+ */
+private ensureChartClipPath(): void {
+    if (!this.mainSvg) return;
+
+    let defs = this.mainSvg.select("defs");
+    if (defs.empty()) {
+        defs = this.mainSvg.append("defs");
+    }
+
+    let clipPath = defs.select<SVGClipPathElement>("clipPath#chart-area-clip");
+    if (clipPath.empty()) {
+        clipPath = defs.append("clipPath").attr("id", "chart-area-clip");
+    }
+    this.chartClipPath = clipPath;
+
+    let clipRect = clipPath.select<SVGRectElement>("rect");
+    if (clipRect.empty()) {
+        clipRect = clipPath.append("rect").attr("x", 0).attr("y", 0).attr("width", 0).attr("height", 0);
+    }
+    this.chartClipRect = clipRect;
+}
+
+/**
  * Updates the SVG clip rect to match the current chart dimensions.
  * This prevents bars from rendering past the left margin when zoomed.
  */
 private updateChartClipRect(chartWidth: number, chartHeight: number): void {
+    this.ensureChartClipPath();
     if (!this.chartClipRect) return;
 
     this.chartClipRect
@@ -4392,8 +4433,10 @@ private handleMarginDragUpdate(newLeftMargin: number): void {
 
     // Clear only the drawing layers, NOT the resizer
     this.gridLayer?.selectAll("*").remove();
+    this.labelGridLayer?.selectAll("*").remove();
     this.arrowLayer?.selectAll("*").remove();
     this.taskLayer?.selectAll("*").remove();
+    this.taskLabelLayer?.selectAll("*").remove();
     this.headerGridLayer?.selectAll("*").remove();
 
     // Redraw with new dimensions
@@ -4410,28 +4453,29 @@ private handleMarginDragUpdate(newLeftMargin: number): void {
 }
 
 private clearVisual(): void {
-            this.gridLayer?.selectAll("*").remove();
-            this.arrowLayer?.selectAll("*").remove();
-            this.taskLayer?.selectAll("*").remove();
-            this.mainSvg?.select("defs").remove();
-        
-            this.headerGridLayer?.selectAll("*").remove();
+    this.gridLayer?.selectAll("*").remove();
+    this.arrowLayer?.selectAll("*").remove();
+    this.taskLayer?.selectAll("*").remove();
 
-            /* MODIFICATION: Stop removing persistent header elements. They will be updated in place.
-            this.headerSvg?.selectAll(".divider-line").remove();
-            this.headerSvg?.selectAll(".connector-toggle-group").remove(); // Clear connector toggle
-            this.stickyHeaderContainer?.selectAll(".visual-title").remove();
-            */
-        
-            this.mainSvg?.selectAll(".message-text").remove();
-            this.headerSvg?.selectAll(".message-text").remove();
-            
-            // NEW: Clear canvas
-            if (this.canvasElement && this.canvasContext) {
-                this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
-                this.canvasElement.style.display = 'none';
-            }
-        }
+    // IMPORTANT: Do NOT remove <defs> so the chart clipPath stays intact.
+    // Removing defs here broke the clip that keeps zoomed bars inside the timeline area.
+    this.headerGridLayer?.selectAll("*").remove();
+
+    /* MODIFICATION: Stop removing persistent header elements. They will be updated in place.
+    this.headerSvg?.selectAll(".divider-line").remove();
+    this.headerSvg?.selectAll(".connector-toggle-group").remove(); // Clear connector toggle
+    this.stickyHeaderContainer?.selectAll(".visual-title").remove();
+    */
+
+    this.mainSvg?.selectAll(".message-text").remove();
+    this.headerSvg?.selectAll(".message-text").remove();
+    
+    // NEW: Clear canvas
+    if (this.canvasElement && this.canvasContext) {
+        this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+        this.canvasElement.style.display = 'none';
+    }
+}
 
 private drawHeaderDivider(viewportWidth: number): void {
         if (!this.headerSvg) return;
@@ -4463,8 +4507,15 @@ private drawHeaderDivider(viewportWidth: number): void {
         connectorColor: string
     ): void {
         if (!targetSvg) return;
-        targetSvg.select("defs").remove();
-        const defs = targetSvg.append("defs");
+
+        // Reuse existing defs so we don't blow away the clipPath.
+        let defs = targetSvg.select("defs");
+        if (defs.empty()) {
+            defs = targetSvg.append("defs");
+        }
+
+        // Clear any existing markers without touching other defs entries.
+        defs.selectAll("#arrowhead-critical, #arrowhead").remove();
         
         // Create critical path marker - LARGER and more visible
         defs.append("marker")
@@ -5056,12 +5107,22 @@ private redrawVisibleTasks(): void {
     if (this.wbsGroupLayer) {
         this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
     }
+    // Clear label grid before redraw
+    if (this.labelGridLayer) {
+        this.labelGridLayer.selectAll(".label-grid-line").remove();
+    }
 
     // MODIFICATION: Prepare for Gridline redraw
     const showHorzGridLines = this.settings.gridLines.showGridLines.value;
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const chartWidth = this.xScale.range()[1];
     const chartHeight = this.yScale.range()[1];
+    const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
+    const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+    const selectionHighlightColor = "#8A2BE2"; // Bright blue for selected task
+    const selectionLabelColor = selectionHighlightColor;
+    const selectionLabelWeight = "bold";
+    const lineHeight = this.taskLabelLineHeight;
 
     // MODIFICATION: Always clear stale SVG gridlines before redrawing in either mode.
     if (showHorzGridLines) {
@@ -5090,6 +5151,8 @@ private redrawVisibleTasks(): void {
             // MODIFICATION: Draw Gridlines on Canvas
             if (showHorzGridLines) {
                 this.drawHorizontalGridLinesCanvas(visibleTasks, this.yScale, chartWidth, currentLeftMargin);
+                // Draw label-margin gridlines via SVG fallback (unclipped)
+                this.drawLabelMarginGridLinesCanvasFallback(visibleTasks, this.yScale, currentLeftMargin);
             }
 
             // Draw tasks on the prepared canvas
@@ -5124,6 +5187,21 @@ private redrawVisibleTasks(): void {
                     this.settings.taskAppearance.milestoneSize.value,
                 );
             }
+
+            // Draw task name labels in unclipped SVG layer so they stay visible in the left margin
+            this.drawTaskLabelsLayer(
+                visibleTasks,
+                this.yScale,
+                this.settings.taskAppearance.taskHeight.value,
+                currentLeftMargin,
+                labelAvailableWidth,
+                taskNameFontSize,
+                this.settings.textAndLabels.labelColor.value.value,
+                selectionHighlightColor,
+                selectionLabelColor,
+                selectionLabelWeight,
+                lineHeight
+            );
 
             // Draw Data Date line on canvas and header
             this.drawDataDateLine(
@@ -5273,7 +5351,7 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         }
 
         // Define the horizontal span
-        const x1 = -currentLeftMargin;
+        const x1 = 0;
         const x2 = chartWidth;
 
         // Collect all yOrder values from tasks
@@ -5307,6 +5385,50 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         });
 
         ctx.restore();
+    }
+
+    // Unclipped grid lines in the label margin for canvas mode (drawn in SVG)
+    private drawLabelMarginGridLinesCanvasFallback(tasks: Task[], yScale: ScaleBand<string>, currentLeftMargin: number): void {
+        if (!this.labelGridLayer || !yScale) return;
+        this.labelGridLayer.selectAll(".label-grid-line").remove();
+
+        const settings = this.settings.gridLines;
+        const lineColor = settings.gridLineColor.value.value;
+        const lineWidth = settings.gridLineWidth.value;
+        const style = settings.gridLineStyle.value.value;
+        let lineDashArray: string | undefined;
+        switch (style) {
+            case "dashed": lineDashArray = "4,3"; break;
+            case "dotted": lineDashArray = "1,2"; break;
+            default: lineDashArray = undefined; break;
+        }
+
+        const taskYOrders = tasks
+            .filter(t => t.yOrder !== undefined && t.yOrder > 0)
+            .map(t => t.yOrder as number);
+        let allYOrders: number[] = [...taskYOrders];
+        if (this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+            const groupYOrders = this.wbsGroups
+                .filter(g => g.yOrder !== undefined && g.yOrder > 0 &&
+                    g.yOrder >= this.viewportStartIndex && g.yOrder <= this.viewportEndIndex)
+                .map(g => g.yOrder as number);
+            allYOrders = [...allYOrders, ...groupYOrders];
+        }
+        const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
+
+        this.labelGridLayer.selectAll(".label-grid-line")
+            .data(uniqueYOrders)
+            .enter()
+            .append("line")
+            .attr("class", "label-grid-line")
+            .attr("x1", -currentLeftMargin)
+            .attr("x2", 0)
+            .attr("y1", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
+            .attr("y2", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
+            .style("stroke", lineColor)
+            .style("stroke-width", lineWidth)
+            .style("stroke-dasharray", lineDashArray)
+            .style("pointer-events", "none");
     }
     
     private createScales(
@@ -5413,6 +5535,12 @@ private drawVisualElements(
     const showDuration = this.settings.textAndLabels.showDuration.value;
     // MODIFICATION: Ensure currentLeftMargin is defined here for conditional use.
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+    const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
+    const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+    const selectionHighlightColor = "#8A2BE2"; // Bright blue for selected task
+    const selectionLabelColor = selectionHighlightColor;
+    const selectionLabelWeight = "bold";
+    const lineHeight = this.taskLabelLineHeight;
     
     // Decide whether to use Canvas or SVG based on task count
     this.useCanvasRendering = tasksToShow.length > this.CANVAS_THRESHOLD;
@@ -5469,6 +5597,21 @@ private drawVisualElements(
                     taskHeight, this.settings.taskAppearance.milestoneSize.value
                 );
             }
+
+            // Draw task name labels in unclipped SVG layer so they remain visible in the margin
+            this.drawTaskLabelsLayer(
+                tasksToShow,
+                yScale,
+                taskHeight,
+                currentLeftMargin,
+                labelAvailableWidth,
+                taskNameFontSize,
+                labelColor,
+                selectionHighlightColor,
+                selectionLabelColor,
+                selectionLabelWeight,
+                lineHeight
+            );
         }
     } else {
         // --- SVG Rendering Path ---
@@ -5531,9 +5674,10 @@ private drawVisualElements(
                                 this.gridLayer, this.headerGridLayer);
 }
 
-private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
+    private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
         if (!this.gridLayer?.node() || !yScale) { console.warn("Skipping horizontal grid lines: Missing layer or Y scale."); return; }
         this.gridLayer.selectAll(".grid-line.horizontal").remove();
+        this.labelGridLayer?.selectAll(".label-grid-line").remove();
 
         const settings = this.settings.gridLines;
         const lineColor = settings.gridLineColor.value.value;
@@ -5559,13 +5703,13 @@ private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartW
         // Remove duplicates and sort
         const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
 
-        // Draw gridlines for each yOrder
+        // Draw clipped gridlines for each yOrder (chart area only)
         this.gridLayer.selectAll(".grid-line.horizontal")
             .data(uniqueYOrders)
             .enter()
             .append("line")
             .attr("class", "grid-line horizontal")
-            .attr("x1", -currentLeftMargin)
+            .attr("x1", 0)
             .attr("x2", chartWidth)
             .attr("y1", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
             .attr("y2", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
@@ -5573,6 +5717,23 @@ private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartW
             .style("stroke-width", lineWidth)
             .style("stroke-dasharray", lineDashArray)
             .style("pointer-events", "none");
+
+        // Unclipped label-area grid lines to keep row guides behind labels
+        if (this.labelGridLayer) {
+            this.labelGridLayer.selectAll(".label-grid-line")
+                .data(uniqueYOrders)
+                .enter()
+                .append("line")
+                .attr("class", "label-grid-line")
+                .attr("x1", -currentLeftMargin)
+                .attr("x2", 0)
+                .attr("y1", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
+                .attr("y2", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
+                .style("stroke", lineColor)
+                .style("stroke-width", lineWidth)
+                .style("stroke-dasharray", lineDashArray)
+                .style("pointer-events", "none");
+        }
     }
 
     private drawVerticalGridLines(
@@ -6004,91 +6165,20 @@ private drawTasks(
             return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
         });
 
-    // --- Update Task Labels ---
-    // First remove existing labels to avoid updating complex wrapped text
-    allTaskGroups.selectAll(".task-label").remove();
-
-    // WBS indentation settings
-    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-    const wbsIndentPerLevel = wbsGroupingEnabled ? (this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20) : 0;
-
-    // Draw task labels
-    const taskLabels = allTaskGroups.append("text")
-        .attr("class", "task-label")
-        .attr("x", (d: Task) => {
-            // Apply WBS indentation if grouping is enabled
-            const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
-            return -currentLeftMargin + this.labelPaddingLeft + indent;
-        })
-        .attr("y", taskHeight / 2)
-        .attr("text-anchor", "start")
-        .attr("dominant-baseline", "central")
-        .style("font-size", `${taskNameFontSize}pt`)
-        .style("fill", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelColor : labelColor)
-        .style("font-weight", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelWeight : "normal")
-        .style("pointer-events", "auto")
-        .style("cursor", "pointer")
-        .each(function(d: Task) {
-            const textElement = d3.select(this);
-            const words = (d.name || "").split(/\s+/).reverse();
-            let word: string | undefined;
-            let line: string[] = [];
-            const x = parseFloat(textElement.attr("x"));
-            const y = parseFloat(textElement.attr("y"));
-            const dy = 0;
-            // Adjust available width for WBS indentation
-            const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
-            const adjustedLabelWidth = labelAvailableWidth - indent;
-            let tspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
-            let lineCount = 1;
-            const maxLines = 2;
-
-            while (word = words.pop()) {
-                line.push(word);
-                tspan.text(line.join(" "));
-                try {
-                    const node = tspan.node();
-                    if (node && node.getComputedTextLength() > adjustedLabelWidth && line.length > 1) {
-                        line.pop();
-                        tspan.text(line.join(" "));
-
-                        if (lineCount < maxLines) {
-                            line = [word];
-                            tspan = textElement.append("tspan")
-                                .attr("x", x)
-                                .attr("dy", lineHeight)
-                                .text(word);
-                            lineCount++;
-                        } else {
-                            const currentText = tspan.text();
-                            if (currentText.length > 3) {
-                                tspan.text(currentText.slice(0, -3) + "...");
-                            }
-                            break;
-                        }
-                    }
-                } catch (e) {
-                    console.warn("Could not get computed text length for wrapping:", e);
-                    tspan.text(line.join(" "));
-                    break;
-                }
-            }
-        });
-
-    // Add click handler to task labels
-    taskLabels.on("click", (event: MouseEvent, d: Task) => {
-        if (this.selectedTaskId === d.internalId) {
-            this.selectTask(null, null);
-        } else {
-            this.selectTask(d.internalId, d.name);
-        }
-        
-        if (this.dropdownInput) {
-            this.dropdownInput.property("value", this.selectedTaskName || "");
-        }
-        
-        event.stopPropagation();
-    });
+    // Task labels are drawn in a dedicated unclipped layer so they remain visible in the margin
+    this.drawTaskLabelsLayer(
+        tasks,
+        yScale,
+        taskHeight,
+        currentLeftMargin,
+        labelAvailableWidth,
+        taskNameFontSize,
+        labelColor,
+        selectionHighlightColor,
+        selectionLabelColor,
+        selectionLabelWeight,
+        this.taskLabelLineHeight
+    );
     
     // --- Finish Date Labels (easier to redraw than update) ---
     if (showFinishDates) {
@@ -6462,6 +6552,139 @@ private drawTasks(
 
     // Apply interactivity to both task bars and milestones
     setupInteractivity(allTaskGroups.selectAll(".task-bar, .milestone"));
+}
+
+/**
+ * Draws task name labels in an unclipped layer so they stay visible in the left margin.
+ */
+private drawTaskLabelsLayer(
+    tasks: Task[],
+    yScale: ScaleBand<string>,
+    taskHeight: number,
+    currentLeftMargin: number,
+    labelAvailableWidth: number,
+    taskNameFontSize: number,
+    labelColor: string,
+    selectionHighlightColor: string,
+    selectionLabelColor: string,
+    selectionLabelWeight: string,
+    lineHeight: string
+): void {
+    if (!this.taskLabelLayer || !yScale) return;
+
+    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+    const wbsIndentPerLevel = wbsGroupingEnabled ? (this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20) : 0;
+
+    // Data join on label groups, one per task
+    const labelGroups = this.taskLabelLayer
+        .selectAll<SVGGElement, Task>(".task-label-group")
+        .data(tasks, (d: Task) => d.internalId);
+
+    labelGroups.exit().remove();
+
+    const enterGroups = labelGroups.enter()
+        .append("g")
+        .attr("class", "task-label-group")
+        .attr("transform", (d: Task) => {
+            const domainKey = d.yOrder?.toString() ?? "";
+            const yPosition = yScale(domainKey);
+            if (yPosition === undefined || isNaN(yPosition)) return null;
+            return `translate(0, ${yPosition})`;
+        })
+        .filter(function() { return d3.select(this).attr("transform") !== null; });
+
+    const mergedGroups = enterGroups.merge(labelGroups);
+
+    // Update transforms for existing groups
+    mergedGroups.attr("transform", (d: Task) => {
+        const domainKey = d.yOrder?.toString() ?? "";
+        const yPosition = yScale(domainKey);
+        if (yPosition === undefined || isNaN(yPosition)) return null;
+        return `translate(0, ${yPosition})`;
+    });
+
+    // Remove any groups that ended up without a valid transform
+    mergedGroups.filter(function() {
+        return d3.select(this).attr("transform") === null;
+    }).remove();
+
+    // Clear previous labels before re-rendering
+    mergedGroups.selectAll(".task-label").remove();
+
+    // Draw labels with wrapping
+    const taskLabels = mergedGroups.append("text")
+        .attr("class", "task-label")
+        .attr("x", (d: Task) => {
+            const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
+            return -currentLeftMargin + this.labelPaddingLeft + indent;
+        })
+        .attr("y", taskHeight / 2)
+        .attr("text-anchor", "start")
+        .attr("dominant-baseline", "central")
+        .style("font-size", `${taskNameFontSize}pt`)
+        .style("fill", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelColor : labelColor)
+        .style("font-weight", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelWeight : "normal")
+        .style("pointer-events", "auto")
+        .style("cursor", "pointer")
+        .each((d: Task, _i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
+            const textElement = d3.select(nodes[_i] as SVGTextElement);
+            const words = (d.name || "").split(/\s+/).reverse();
+            let word: string | undefined;
+            let line: string[] = [];
+            const x = parseFloat(textElement.attr("x"));
+            const y = parseFloat(textElement.attr("y"));
+            const dy = 0;
+            const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
+            const adjustedLabelWidth = labelAvailableWidth - indent;
+            let tspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
+            let lineCount = 1;
+            const maxLines = 2;
+
+            while (word = words.pop()) {
+                line.push(word);
+                tspan.text(line.join(" "));
+                try {
+                    const node = tspan.node();
+                    if (node && node.getComputedTextLength() > adjustedLabelWidth && line.length > 1) {
+                        line.pop();
+                        tspan.text(line.join(" "));
+
+                        if (lineCount < maxLines) {
+                            line = [word];
+                            tspan = textElement.append("tspan")
+                                .attr("x", x)
+                                .attr("dy", lineHeight)
+                                .text(word);
+                            lineCount++;
+                        } else {
+                            const currentText = tspan.text();
+                            if (currentText.length > 3) {
+                                tspan.text(currentText.slice(0, -3) + "...");
+                            }
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Could not get computed text length for wrapping:", e);
+                    tspan.text(line.join(" "));
+                    break;
+                }
+            }
+        });
+
+    taskLabels.on("click", (event: MouseEvent, d: Task) => {
+        if (this.selectedTaskId === d.internalId) {
+            this.selectTask(null, null);
+        } else {
+            this.selectTask(d.internalId, d.name);
+        }
+        
+        if (this.dropdownInput) {
+            this.dropdownInput.property("value", this.selectedTaskName || "");
+        }
+        
+        event.stopPropagation();
+    });
 }
 
 private drawTasksCanvas(
@@ -7558,6 +7781,7 @@ private drawArrowsCanvas(
             .attr("stroke", lineColor)
             .attr("stroke-width", lineWidth)
             .attr("stroke-dasharray", lineDashArray)
+            .attr("clip-path", "url(#chart-area-clip)")
             .style("pointer-events", "none");
 
         if (showLabel) {
@@ -7679,7 +7903,8 @@ private drawArrowsCanvas(
 
         const dataDateX = xScale(this.dataDate);
 
-        if (isNaN(dataDateX) || !isFinite(dataDateX)) { console.warn("Calculated Data Date line position is invalid:", dataDateX); return; }
+        // If the data date is outside the visible range, don't render to avoid overflow into the label margin
+        if (!isFinite(dataDateX) || dataDateX < 0 || dataDateX > chartWidth) { return; }
 
         // Always draw on SVG grid layer (mirrors Project End line behavior)
         const effectiveHeight = chartHeight > 0 ? chartHeight : (this.mainSvg ? (parseFloat(this.mainSvg.attr("height")) || 0) : 0);
@@ -7691,6 +7916,7 @@ private drawArrowsCanvas(
             .attr("stroke", lineColor)
             .attr("stroke-width", lineWidth)
             .attr("stroke-dasharray", lineDashArray)
+            .attr("clip-path", "url(#chart-area-clip)")
             .style("pointer-events", "none");
 
         // Also draw on canvas when canvas rendering is active to ensure visibility above the canvas layer
@@ -10807,6 +11033,11 @@ private drawWbsGroupHeaders(
         // Background rectangle will be sized after text is rendered to accommodate wrapping
         const bgOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
 
+        // Summary bars are drawn inside a clipped sublayer so they never spill into the label margin
+        const barsGroup = headerGroup.append('g')
+            .attr('class', 'wbs-summary-bars')
+            .attr('clip-path', 'url(#chart-area-clip)');
+
         // Summary bar - DRAW FIRST so it appears BEHIND the text (SVG z-order)
         // Show summary bar when group is collapsed and has tasks (even if filtered)
         if (!group.isExpanded && showGroupSummary && group.taskCount > 0 &&
@@ -10829,7 +11060,7 @@ private drawWbsGroupHeaders(
                 const prevWidth = Math.max(2, prevFinishX - prevStartX);
                 const prevY = barY + barHeight + previousUpdateOffset;
 
-                headerGroup.append('rect')
+                barsGroup.append('rect')
                     .attr('class', 'wbs-summary-bar-previous-update')
                     .attr('x', prevStartX)
                     .attr('y', prevY)
@@ -10852,7 +11083,7 @@ private drawWbsGroupHeaders(
                     (showPreviousUpdate ? previousUpdateHeight + previousUpdateOffset : 0) +
                     baselineOffset;
 
-                headerGroup.append('rect')
+                barsGroup.append('rect')
                     .attr('class', 'wbs-summary-bar-baseline')
                     .attr('x', baselineStartX)
                     .attr('y', baselineY)
@@ -10865,7 +11096,7 @@ private drawWbsGroupHeaders(
             }
 
             // Draw the base (non-critical) summary bar
-            headerGroup.append('rect')
+            barsGroup.append('rect')
                 .attr('class', 'wbs-summary-bar')
                 .attr('x', startX)
                 .attr('y', barY)
@@ -10893,7 +11124,7 @@ private drawWbsGroupHeaders(
                     const nearStartsAtBeginning = nearStartX <= startX + 1;
                     const nearEndsAtEnd = nearFinishX >= finishX - 1;
 
-                    headerGroup.append('rect')
+                    barsGroup.append('rect')
                         .attr('class', 'wbs-summary-bar-near-critical')
                         .attr('x', nearStartX)
                         .attr('y', barY)
@@ -10918,7 +11149,7 @@ private drawWbsGroupHeaders(
                 const criticalStartsAtBeginning = criticalStartX <= startX + 1;
                 const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
 
-                headerGroup.append('rect')
+                barsGroup.append('rect')
                     .attr('class', 'wbs-summary-bar-critical')
                     .attr('x', criticalStartX)
                     .attr('y', barY)

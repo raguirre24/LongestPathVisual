@@ -13,8 +13,12 @@ export declare class Visual implements IVisual {
     private mainSvg;
     private mainGroup;
     private gridLayer;
+    private labelGridLayer;
     private arrowLayer;
     private taskLayer;
+    private taskLabelLayer;
+    private chartClipPath;
+    private chartClipRect;
     private toggleButtonGroup;
     private headerGridLayer;
     private tooltipDiv;
@@ -307,6 +311,15 @@ export declare class Visual implements IVisual {
      * Updates the zoom slider track margins to align with the chart area
      */
     private updateZoomSliderTrackMargins;
+    /**
+     * Ensures the chart clip path/rect exist. Recreates them if a previous clear removed <defs>.
+     */
+    private ensureChartClipPath;
+    /**
+     * Updates the SVG clip rect to match the current chart dimensions.
+     * This prevents bars from rendering past the left margin when zoomed.
+     */
+    private updateChartClipRect;
     private toggleConnectorLinesDisplay;
     update(options: VisualUpdateOptions): void;
     private updateInternal;
@@ -337,12 +350,17 @@ export declare class Visual implements IVisual {
     private getVisibleTasks;
     private redrawVisibleTasks;
     private drawHorizontalGridLinesCanvas;
+    private drawLabelMarginGridLinesCanvasFallback;
     private createScales;
     private drawVisualElements;
     private drawHorizontalGridLines;
     private drawVerticalGridLines;
     /** Draws task bars, milestones, and associated labels */
     private drawTasks;
+    /**
+     * Draws task name labels in an unclipped layer so they stay visible in the left margin.
+     */
+    private drawTaskLabelsLayer;
     private drawTasksCanvas;
     /**
      * ACCESSIBILITY: Creates an invisible but screen-reader accessible fallback for canvas rendering.
