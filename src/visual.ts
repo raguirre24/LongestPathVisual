@@ -192,6 +192,8 @@ export class Visual implements IVisual {
     private gridLayer: Selection<SVGGElement, unknown, null, undefined>;
     private arrowLayer: Selection<SVGGElement, unknown, null, undefined>;
     private taskLayer: Selection<SVGGElement, unknown, null, undefined>;
+    private chartClipPath: Selection<SVGClipPathElement, unknown, null, undefined>;
+    private chartClipRect: Selection<SVGRectElement, unknown, null, undefined>;
     private toggleButtonGroup: Selection<SVGGElement, unknown, null, undefined>;
     private headerGridLayer: Selection<SVGGElement, unknown, null, undefined>;
     private tooltipDiv: Selection<HTMLDivElement, unknown, HTMLElement, any>;
@@ -806,10 +808,24 @@ constructor(options: VisualConstructorOptions) {
     // --- Group for chart content ---
     this.mainGroup = this.mainSvg.append("g").classed("main-group", true);
 
+    // --- SVG ClipPath for chart area (prevents bars from rendering past left margin when zoomed) ---
+    const defs = this.mainSvg.append("defs");
+    this.chartClipPath = defs.append("clipPath")
+        .attr("id", "chart-area-clip");
+    this.chartClipRect = this.chartClipPath.append("rect")
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("width", 1000)  // Will be updated in setupTimeBasedSVGAndScales
+        .attr("height", 10000);
+
     // --- Layers within the main SVG ---
     this.gridLayer = this.mainGroup.append("g").attr("class", "grid-layer");
-    this.arrowLayer = this.mainGroup.append("g").attr("class", "arrow-layer");
-    this.taskLayer = this.mainGroup.append("g").attr("class", "task-layer");
+    this.arrowLayer = this.mainGroup.append("g")
+        .attr("class", "arrow-layer")
+        .attr("clip-path", "url(#chart-area-clip)");
+    this.taskLayer = this.mainGroup.append("g")
+        .attr("class", "task-layer")
+        .attr("clip-path", "url(#chart-area-clip)");
 
     // --- Timeline Zoom Slider Container (Microsoft-style axis zoom) ---
     // Created BEFORE legend so it appears above the legend in the visual
@@ -3528,6 +3544,20 @@ private updateZoomSliderTrackMargins(): void {
         .style("right", `${rightMargin}px`);
 }
 
+/**
+ * Updates the SVG clip rect to match the current chart dimensions.
+ * This prevents bars from rendering past the left margin when zoomed.
+ */
+private updateChartClipRect(chartWidth: number, chartHeight: number): void {
+    if (!this.chartClipRect) return;
+
+    this.chartClipRect
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("width", chartWidth)
+        .attr("height", chartHeight + 1000); // Extra height to account for scroll
+}
+
 private toggleConnectorLinesDisplay(): void {
     try {
         this.debugLog("Connector Lines Toggle method called!");
@@ -5363,7 +5393,10 @@ private drawVisualElements(
         this.displayMessage("Error during drawing setup.");
         return;
     }
-    
+
+    // Update SVG clip rect to prevent bars from rendering past left margin when zoomed
+    this.updateChartClipRect(chartWidth, chartHeight);
+
     const taskColor = this.settings.taskAppearance.taskColor.value.value;
     const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
     const milestoneColor = this.settings.taskAppearance.milestoneColor.value.value;
@@ -6907,16 +6940,25 @@ private _setupCanvasForDrawing(chartWidth: number, chartHeight: number): boolean
 
     // Reset and scale the context
     this.canvasContext.setTransform(ratio, 0, 0, ratio, 0, 0);
-    
+
+    // Clear the canvas with white background
+    this.canvasContext.fillStyle = '#FFFFFF';
+    this.canvasContext.fillRect(0, 0, displayWidth, displayHeight);
+
+    // Set up clipping region to prevent drawing past chart boundaries (fixes zoom overflow)
+    this.canvasContext.beginPath();
+    this.canvasContext.rect(0, 0, displayWidth, displayHeight);
+    this.canvasContext.clip();
+
     // Set rendering quality hints
     this.canvasContext.imageSmoothingEnabled = false; // Disable for crisper text
     this.canvasContext.imageSmoothingQuality = 'high';
-    
+
     // Additional rendering hints for text
     (this.canvasContext as any).textRendering = 'optimizeLegibility';
     (this.canvasContext as any).webkitFontSmoothing = 'antialiased';
     (this.canvasContext as any).mozOsxFontSmoothing = 'grayscale';
-    
+
     this.debugLog(`Canvas setup: Ratio=${ratio}, Display=${displayWidth}x${displayHeight}, Canvas=${canvasWidth}x${canvasHeight}`);
     return true;
 }
