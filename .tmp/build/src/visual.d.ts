@@ -112,6 +112,7 @@ export declare class Visual implements IVisual {
     private preserveScrollOnUpdate;
     private preservedScrollTop;
     private scrollPreservationUntil;
+    private lastWbsToggleTimestamp;
     private wbsToggleScrollAnchor;
     private visualTitle;
     private tooltipClassName;

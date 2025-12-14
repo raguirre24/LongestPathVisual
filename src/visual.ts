@@ -329,6 +329,7 @@ export class Visual implements IVisual {
     private preserveScrollOnUpdate: boolean = false; // When true, scroll position is preserved during full update
     private preservedScrollTop: number | null = null; // Strict scroll preservation: exact scrollTop to restore after update
     private scrollPreservationUntil: number = 0; // Timestamp until which scroll should be preserved (handles Power BI re-triggers)
+    private lastWbsToggleTimestamp: number = 0; // Tracks last WBS toggle to suppress scroll reset immediately after
     private wbsToggleScrollAnchor: { groupId: string; visualOffset: number } | null = null; // Track WBS group position for scroll adjustment
 
     private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -2326,10 +2327,14 @@ private toggleWbsEnabled(): void {
         const newEnabled = !this.settings.wbsGrouping.enableWbsGrouping.value;
         this.settings.wbsGrouping.enableWbsGrouping.value = newEnabled;
         this.wbsEnableOverride = newEnabled; // ensure immediate application on next update
+        this.lastWbsToggleTimestamp = Date.now();
+        this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
 
         // Clear WBS headers immediately when turning off
         if (!newEnabled) {
             this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
+            this.taskLabelLayer?.selectAll("*").remove();
+            this.labelGridLayer?.selectAll("*").remove();
             this.wbsExpandedInternal = false;
             this.wbsExpandToLevel = undefined;
             this.wbsManualExpansionOverride = false;
@@ -2735,6 +2740,8 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
         }
 
         this.hideTooltip();
+        this.lastWbsToggleTimestamp = Date.now();
+        this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
 
         if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
             this.refreshWbsAvailableLevels();
@@ -2770,6 +2777,11 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
         this.captureWbsAnchorForGlobalToggle();
 
         this.applyWbsExpandLevel(effectiveNext);
+
+        // Clear overlay layers so upcoming render starts from a clean state
+        this.taskLabelLayer?.selectAll("*").remove();
+        this.labelGridLayer?.selectAll("*").remove();
+        this.wbsGroupLayer?.selectAll("*").remove();
 
         // Persist the general expand/collapse intent for backwards compatibility
         this.host.persistProperties({
@@ -3861,9 +3873,10 @@ private async updateInternal(options: VisualUpdateOptions) {
             // Use BOTH the boolean flag AND a time-based cooldown to handle Power BI re-triggers
             const now = Date.now();
             const inCooldownPeriod = now < this.scrollPreservationUntil;
-            const shouldPreserveScroll = this.preserveScrollOnUpdate || inCooldownPeriod;
+            const wbsToggleRecent = this.lastWbsToggleTimestamp > 0 && (now - this.lastWbsToggleTimestamp) < 2000;
+            const shouldPreserveScroll = this.preserveScrollOnUpdate || inCooldownPeriod || wbsToggleRecent;
 
-            this.debugLog(`Scroll preservation check: flag=${this.preserveScrollOnUpdate}, inCooldown=${inCooldownPeriod}, shouldPreserve=${shouldPreserveScroll}, scrollTop=${node.scrollTop}`);
+            this.debugLog(`Scroll preservation check: flag=${this.preserveScrollOnUpdate}, inCooldown=${inCooldownPeriod}, wbsRecent=${wbsToggleRecent}, shouldPreserve=${shouldPreserveScroll}, scrollTop=${node.scrollTop}`);
 
             this.preserveScrollOnUpdate = false; // Reset flag after checking
 
@@ -4404,10 +4417,11 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         
         // Get visible tasks using the centralized WBS-aware helper
         const visibleTasks = this.getVisibleTasks();
+        const renderableTasks = visibleTasks.filter(t => t.yOrder !== undefined);
 
         if (showHorzGridLines && this.yScale) {
             const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-            this.drawHorizontalGridLines(visibleTasks, this.yScale, chartWidth, currentLeftMargin,
+            this.drawHorizontalGridLines(renderableTasks, this.yScale, chartWidth, currentLeftMargin,
                                         this.yScale.range()[1]);
         }
 
@@ -4419,7 +4433,7 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         // Redraw visible tasks with updated dimensions
         if (this.xScale && this.yScale) {
             this.drawVisualElements(
-                visibleTasks,
+                renderableTasks,
                 this.xScale,
                 this.yScale,
                 chartWidth,
@@ -4646,6 +4660,9 @@ private clearVisual(): void {
     this.gridLayer?.selectAll("*").remove();
     this.arrowLayer?.selectAll("*").remove();
     this.taskLayer?.selectAll("*").remove();
+    this.taskLabelLayer?.selectAll("*").remove();
+    this.labelGridLayer?.selectAll("*").remove();
+    this.wbsGroupLayer?.selectAll("*").remove();
 
     // IMPORTANT: Do NOT remove <defs> so the chart clipPath stays intact.
     // Removing defs here broke the clip that keeps zoomed bars inside the timeline area.
@@ -5252,7 +5269,9 @@ private getVisibleTasks(): Task[] {
         );
     } else {
         // Original behavior: slice by array index
-        return this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+        return this.allTasksToShow
+            .slice(this.viewportStartIndex, this.viewportEndIndex + 1)
+            .filter(t => t.yOrder !== undefined);
     }
 }
 
@@ -5273,13 +5292,14 @@ private redrawVisibleTasks(): void {
 
     // Use centralized helper for WBS-aware visible task calculation
     const visibleTasks = this.getVisibleTasks();
+    const renderableTasks = visibleTasks.filter(t => t.yOrder !== undefined);
 
     // Add safety check: if no visible tasks, log warning
-    if (visibleTasks.length === 0 && allTasksToShow.length > 0) {
-        this.debugLog(`WARNING: getVisibleTasks() returned 0 tasks but allTasksToShow has ${allTasksToShow.length} tasks. Viewport indices: ${this.viewportStartIndex}-${this.viewportEndIndex}, Total count: ${this.taskTotalCount}`);
+    if (renderableTasks.length === 0 && allTasksToShow.length > 0) {
+        this.debugLog(`WARNING: getVisibleTasks() returned 0 renderable tasks but allTasksToShow has ${allTasksToShow.length} tasks. Viewport indices: ${this.viewportStartIndex}-${this.viewportEndIndex}, Total count: ${this.taskTotalCount}`);
     }
 
-    const shouldUseCanvas = visibleTasks.length > this.CANVAS_THRESHOLD;
+    const shouldUseCanvas = renderableTasks.length > this.CANVAS_THRESHOLD;
     const modeChanged = shouldUseCanvas !== this.useCanvasRendering;
 
     // BUG-011 FIX: Track if we're switching modes to delay hiding until new content is ready
@@ -5362,14 +5382,14 @@ private redrawVisibleTasks(): void {
 
             // MODIFICATION: Draw Gridlines on Canvas
             if (showHorzGridLines) {
-                this.drawHorizontalGridLinesCanvas(visibleTasks, yScale, chartWidth, currentLeftMargin);
+                this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
                 // Draw label-margin gridlines via SVG fallback (unclipped)
-                this.drawLabelMarginGridLinesCanvasFallback(visibleTasks, yScale, currentLeftMargin);
+                this.drawLabelMarginGridLinesCanvasFallback(renderableTasks, yScale, currentLeftMargin);
             }
 
             // Draw tasks on the prepared canvas
             this.drawTasksCanvas(
-                visibleTasks,
+                renderableTasks,
                 xScale,
                 yScale,
                 this.settings.taskAppearance.taskColor.value.value,
@@ -5383,12 +5403,12 @@ private redrawVisibleTasks(): void {
             );
 
             // ACCESSIBILITY: Create fallback for canvas rendering
-            this.createAccessibleCanvasFallback(visibleTasks, yScale);
+            this.createAccessibleCanvasFallback(renderableTasks, yScale);
 
             if (this.showConnectorLinesInternal) {
                 // Draw arrows on the prepared canvas
                 this.drawArrowsCanvas(
-                    visibleTasks,
+                    renderableTasks,
                     xScale,
                     yScale,
                     this.settings.taskAppearance.criticalPathColor.value.value,
@@ -5402,7 +5422,7 @@ private redrawVisibleTasks(): void {
 
             // Draw task name labels in unclipped SVG layer so they stay visible in the left margin
             this.drawTaskLabelsLayer(
-                visibleTasks,
+                renderableTasks,
                 yScale,
                 this.settings.taskAppearance.taskHeight.value,
                 currentLeftMargin,
@@ -5447,13 +5467,13 @@ private redrawVisibleTasks(): void {
 
         // MODIFICATION: Draw Gridlines on SVG
         if (showHorzGridLines) {
-            this.drawHorizontalGridLines(visibleTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
+            this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
         }
 
         // Draw arrows first so they appear behind tasks
         if (this.showConnectorLinesInternal) {
             this.drawArrows(
-                visibleTasks,
+                renderableTasks,
                 xScale,
                 yScale,
                 this.settings.taskAppearance.criticalPathColor.value.value,
@@ -5466,7 +5486,7 @@ private redrawVisibleTasks(): void {
         }
 
         this.drawTasks(
-            visibleTasks,
+            renderableTasks,
             xScale,
             yScale,
             this.settings.taskAppearance.taskColor.value.value,
@@ -5525,7 +5545,7 @@ private redrawVisibleTasks(): void {
     this.drawProjectEndLine(
         xScale.range()[1],
         xScale,
-        visibleTasks,
+        renderableTasks,
         tasksForProjectEnd,
         yScale.range()[1],
         this.gridLayer,
@@ -5728,6 +5748,11 @@ private drawVisualElements(
         return;
     }
 
+    // Always start from a clean overlay state so WBS and labels don't ghost across toggles
+    this.taskLabelLayer?.selectAll("*").remove();
+    this.labelGridLayer?.selectAll("*").remove();
+    this.wbsGroupLayer?.selectAll("*").remove();
+
     // Update SVG clip rect to prevent bars from rendering past left margin when zoomed
     this.updateChartClipRect(chartWidth, chartHeight);
 
@@ -5754,13 +5779,14 @@ private drawVisualElements(
     const selectionLabelWeight = "bold";
     const lineHeight = this.taskLabelLineHeight;
     const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+    const renderableTasks = tasksToShow.filter(t => t.yOrder !== undefined);
     if (!wbsGroupingEnabled) {
         this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
     }
     
     // Decide whether to use Canvas or SVG based on task count
-    this.useCanvasRendering = tasksToShow.length > this.CANVAS_THRESHOLD;
-    this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${tasksToShow.length} tasks`);
+    this.useCanvasRendering = renderableTasks.length > this.CANVAS_THRESHOLD;
+    this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${renderableTasks.length} tasks`);
     
     /* MODIFICATION: Remove the unconditional SVG draw. It is handled conditionally below.
     if (showHorzGridLines) {
@@ -5794,12 +5820,12 @@ private drawVisualElements(
 
             // MODIFICATION: Draw horizontal gridlines on Canvas
             if (showHorzGridLines) {
-                this.drawHorizontalGridLinesCanvas(tasksToShow, yScale, chartWidth, currentLeftMargin);
+                this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
             }
 
             // Draw tasks on the prepared canvas
             this.drawTasksCanvas(
-                tasksToShow, xScale, yScale,
+                renderableTasks, xScale, yScale,
                 taskColor, milestoneColor, criticalColor,
                 labelColor, showDuration, taskHeight,
                 dateBgColor, dateBgOpacity
@@ -5808,7 +5834,7 @@ private drawVisualElements(
             // Draw arrows on the prepared canvas if needed
             if (this.showConnectorLinesInternal) {
                 this.drawArrowsCanvas(
-                    tasksToShow, xScale, yScale,
+                    renderableTasks, xScale, yScale,
                     criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
                     taskHeight, this.settings.taskAppearance.milestoneSize.value
                 );
@@ -5816,7 +5842,7 @@ private drawVisualElements(
 
             // Draw task name labels in unclipped SVG layer so they remain visible in the margin
             this.drawTaskLabelsLayer(
-                tasksToShow,
+                renderableTasks,
                 yScale,
                 taskHeight,
                 currentLeftMargin,
@@ -5845,20 +5871,20 @@ private drawVisualElements(
 
         // MODIFICATION: Draw horizontal gridlines on SVG
         if (showHorzGridLines) {
-            this.drawHorizontalGridLines(tasksToShow, yScale, chartWidth, currentLeftMargin, chartHeight);
+            this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
         }
         
     // Draw arrows first so they appear behind tasks
     if (this.showConnectorLinesInternal) {
         this.drawArrows(
-            tasksToShow, xScale, yScale,
+            renderableTasks, xScale, yScale,
             criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
             taskHeight, this.settings.taskAppearance.milestoneSize.value
         );
     }
     
     this.drawTasks(
-        tasksToShow, xScale, yScale,
+        renderableTasks, xScale, yScale,
         taskColor, milestoneColor, criticalColor,
         labelColor, showDuration, taskHeight,
             dateBgColor, dateBgOpacity
@@ -5886,7 +5912,7 @@ private drawVisualElements(
             this.gridLayer,
             this.headerGridLayer
         );
-        this.drawProjectEndLine(chartWidth, xScale, tasksToShow, tasksForProjectEnd, chartHeight,
+        this.drawProjectEndLine(chartWidth, xScale, renderableTasks, tasksForProjectEnd, chartHeight,
                                 this.gridLayer, this.headerGridLayer);
 }
 
@@ -6790,11 +6816,17 @@ private drawTaskLabelsLayer(
 
     const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
     const wbsIndentPerLevel = wbsGroupingEnabled ? (this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20) : 0;
+    const renderableTasks = tasks.filter(t => {
+        if (t.yOrder === undefined) return false;
+        const domainKey = t.yOrder.toString();
+        const yPosition = yScale(domainKey);
+        return yPosition !== undefined && !isNaN(yPosition);
+    });
 
     // Data join on label groups, one per task
     const labelGroups = this.taskLabelLayer
         .selectAll<SVGGElement, Task>(".task-label-group")
-        .data(tasks, (d: Task) => d.internalId);
+        .data(renderableTasks, (d: Task) => d.internalId);
 
     labelGroups.exit().remove();
 
@@ -10604,13 +10636,13 @@ private captureWbsAnchorForGlobalToggle(): void {
         const visualOffset = groupAbsoluteY - scrollTop;
         this.wbsToggleScrollAnchor = { groupId: bestGroup.id, visualOffset };
         this.preserveScrollOnUpdate = true;
-        this.scrollPreservationUntil = Date.now() + 500; // guard against retriggers
+        this.scrollPreservationUntil = Date.now() + 2000; // guard against retriggers
         this.debugLog(`Global WBS anchor captured: group=${bestGroup.id}, yOrder=${bestGroup.yOrder}, offset=${visualOffset}`);
     } else {
         // Fallback: preserve current scrollTop strictly
         this.preservedScrollTop = scrollTop;
         this.preserveScrollOnUpdate = true;
-        this.scrollPreservationUntil = Date.now() + 500;
+        this.scrollPreservationUntil = Date.now() + 2000;
         this.debugLog("Global WBS anchor fallback: preserving current scrollTop");
     }
 }
@@ -10621,6 +10653,8 @@ private captureWbsAnchorForGlobalToggle(): void {
 private toggleWbsGroupExpansion(groupId: string): void {
     const group = this.wbsGroupMap.get(groupId);
     if (!group) return;
+    this.lastWbsToggleTimestamp = Date.now();
+    this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
 
     // CRITICAL: Clear any pending scroll throttle timeout to prevent it from
     // interfering with the WBS toggle update. Without this, drawVisualElements()
@@ -10653,12 +10687,17 @@ private toggleWbsGroupExpansion(groupId: string): void {
     this.wbsExpandedState.set(groupId, group.isExpanded);
     this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
 
+    // Clear overlay layers so collapsed tasks don't leave lingering labels while we rerender
+    this.taskLabelLayer?.selectAll("*").remove();
+    this.labelGridLayer?.selectAll("*").remove();
+    this.wbsGroupLayer?.selectAll("*").remove();
+
     // Trigger re-render while preserving scroll position
     if (this.lastUpdateOptions) {
         this.forceFullUpdate = true;
         this.preserveScrollOnUpdate = true; // Preserve scroll for individual group expansion
-        // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
-        this.scrollPreservationUntil = Date.now() + 1500;
+        // Set a cooldown to prevent scroll reset from Power BI re-triggered updates
+        this.scrollPreservationUntil = Date.now() + 2000;
         this.updateInternal(this.lastUpdateOptions);
     }
 }
