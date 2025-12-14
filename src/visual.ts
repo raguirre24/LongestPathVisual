@@ -3250,6 +3250,12 @@ private createFloatThresholdControl(): void {
         }
 
         floatThresholdTimeout = setTimeout(() => {
+            // Ensure any scroll throttling does not block the redraw triggered by this setting change
+            if (self.scrollThrottleTimeout) {
+                clearTimeout(self.scrollThrottleTimeout);
+                self.scrollThrottleTimeout = null;
+            }
+
             self.host.persistProperties({
                 merge: [{
                     objectName: "persistedState",
@@ -3851,6 +3857,12 @@ private async updateInternal(options: VisualUpdateOptions) {
     if (this.isUpdating) {
         this.debugLog("Update already in progress, skipping");
         return;
+    }
+
+    // If a throttled scroll timer is pending, clear it so it doesn't block the redraw we are about to do
+    if (this.scrollThrottleTimeout) {
+        clearTimeout(this.scrollThrottleTimeout);
+        this.scrollThrottleTimeout = null;
     }
 
     // BUG-008 FIX: Skip Power BI updates during margin drag to prevent race conditions
