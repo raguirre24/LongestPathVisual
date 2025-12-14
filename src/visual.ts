@@ -5318,6 +5318,11 @@ private redrawVisibleTasks(): void {
     if (this.labelGridLayer) {
         this.labelGridLayer.selectAll(".label-grid-line").remove();
     }
+    // FIX #6: Clear task label layer before redrawing to prevent label collisions
+    // This ensures old labels don't overlap with WBS headers or persist after toggles
+    if (this.taskLabelLayer) {
+        this.taskLabelLayer.selectAll("*").remove();
+    }
 
     // MODIFICATION: Prepare for Gridline redraw
     const showHorzGridLines = this.settings.gridLines.showGridLines.value;
