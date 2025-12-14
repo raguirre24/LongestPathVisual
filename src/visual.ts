@@ -1512,6 +1512,13 @@ private toggleBaselineDisplayInternal(): void {
         this.preserveScrollOnUpdate = true; // Preserve scroll during scale recalculation
         // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
         this.scrollPreservationUntil = Date.now() + 1500;
+
+        // FIX #5: Clear any pending scroll throttle to ensure full update executes
+        if (this.scrollThrottleTimeout) {
+            clearTimeout(this.scrollThrottleTimeout);
+            this.scrollThrottleTimeout = null;
+        }
+
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
@@ -1553,6 +1560,13 @@ private togglePreviousUpdateDisplayInternal(): void {
         this.preserveScrollOnUpdate = true; // Preserve scroll during scale recalculation
         // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
         this.scrollPreservationUntil = Date.now() + 1500;
+
+        // FIX #5: Clear any pending scroll throttle to ensure full update executes
+        if (this.scrollThrottleTimeout) {
+            clearTimeout(this.scrollThrottleTimeout);
+            this.scrollThrottleTimeout = null;
+        }
+
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
@@ -2341,6 +2355,12 @@ private toggleWbsEnabled(): void {
 
         this.forceFullUpdate = true;
 
+        // FIX #5: Clear any pending scroll throttle to ensure full update executes
+        if (this.scrollThrottleTimeout) {
+            clearTimeout(this.scrollThrottleTimeout);
+            this.scrollThrottleTimeout = null;
+        }
+
         // Update the button appearance immediately
         const viewportWidth = this.lastUpdateOptions?.viewport.width || 800;
         this.createOrUpdateWbsEnableToggleButton(viewportWidth);
@@ -2770,6 +2790,13 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
         this.forceFullUpdate = true;
         // Preserve scroll via captured anchor during the full update
         this.preserveScrollOnUpdate = true;
+
+        // FIX #5: Clear any pending scroll throttle to ensure full update executes
+        if (this.scrollThrottleTimeout) {
+            clearTimeout(this.scrollThrottleTimeout);
+            this.scrollThrottleTimeout = null;
+        }
+
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
@@ -3009,6 +3036,13 @@ private toggleCriticalityMode(): void {
 
         // Request update
         this.forceFullUpdate = true;
+
+        // FIX #5: Clear any pending scroll throttle to ensure full update executes
+        if (this.scrollThrottleTimeout) {
+            clearTimeout(this.scrollThrottleTimeout);
+            this.scrollThrottleTimeout = null;
+        }
+
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
@@ -5223,13 +5257,27 @@ private getVisibleTasks(): Task[] {
 }
 
 private redrawVisibleTasks(): void {
-    if (!this.xScale || !this.yScale || !this.allTasksToShow) {
+    // FIX #3 (TOCTOU): Cache scales at method entry to prevent TOCTOU issues
+    const xScale = this.xScale;
+    const yScale = this.yScale;
+    const allTasksToShow = this.allTasksToShow;
+
+    if (!xScale || !yScale || !allTasksToShow) {
         console.warn("Cannot redraw: Missing scales or task data");
         return;
     }
 
+    // FIX #1: Recalculate visible task indices BEFORE filtering
+    // This ensures viewportStartIndex/viewportEndIndex match current yOrder values
+    this.calculateVisibleTasks();
+
     // Use centralized helper for WBS-aware visible task calculation
     const visibleTasks = this.getVisibleTasks();
+
+    // Add safety check: if no visible tasks, log warning
+    if (visibleTasks.length === 0 && allTasksToShow.length > 0) {
+        this.debugLog(`WARNING: getVisibleTasks() returned 0 tasks but allTasksToShow has ${allTasksToShow.length} tasks. Viewport indices: ${this.viewportStartIndex}-${this.viewportEndIndex}, Total count: ${this.taskTotalCount}`);
+    }
 
     const shouldUseCanvas = visibleTasks.length > this.CANVAS_THRESHOLD;
     const modeChanged = shouldUseCanvas !== this.useCanvasRendering;
@@ -5241,22 +5289,24 @@ private redrawVisibleTasks(): void {
         // This prevents flicker by ensuring new content is visible before old is hidden
     }
 
-    // Clear existing elements in current mode (but don't hide layers yet if mode changed)
-    if (!modeChanged) {
-        // Same mode - just clear existing elements
-        this.arrowLayer?.selectAll("*").remove();
-        this.taskLayer?.selectAll("*").remove();
-    } else {
-        // Mode changed - clear the NEW renderer's old content (if any)
-        if (this.useCanvasRendering) {
-            // Switching TO canvas - canvas might have stale content
-            if (this.canvasContext && this.canvasElement) {
-                this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
-            }
-        } else {
-            // Switching TO SVG - SVG layers might have stale content
+    // FIX #4: Clear ONLY the target renderer, BEFORE drawing
+    if (this.useCanvasRendering) {
+        // Switching TO or STAYING IN canvas mode - clear canvas first
+        if (this.canvasContext && this.canvasElement) {
+            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+        }
+        // If we just switched FROM SVG, clear SVG content (will be hidden later)
+        if (modeChanged) {
             this.taskLayer?.selectAll("*").remove();
             this.arrowLayer?.selectAll("*").remove();
+        }
+    } else {
+        // Switching TO or STAYING IN SVG mode - clear SVG first
+        this.arrowLayer?.selectAll("*").remove();
+        this.taskLayer?.selectAll("*").remove();
+        // If we just switched FROM canvas, clear canvas (will be hidden later)
+        if (modeChanged && this.canvasContext && this.canvasElement) {
+            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
         }
     }
 
@@ -5272,8 +5322,8 @@ private redrawVisibleTasks(): void {
     // MODIFICATION: Prepare for Gridline redraw
     const showHorzGridLines = this.settings.gridLines.showGridLines.value;
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-    const chartWidth = this.xScale.range()[1];
-    const chartHeight = this.yScale.range()[1];
+    const chartWidth = xScale.range()[1];
+    const chartHeight = yScale.range()[1];
     const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
     const selectionHighlightColor = "#8A2BE2"; // Bright blue for selected task
@@ -5307,16 +5357,16 @@ private redrawVisibleTasks(): void {
 
             // MODIFICATION: Draw Gridlines on Canvas
             if (showHorzGridLines) {
-                this.drawHorizontalGridLinesCanvas(visibleTasks, this.yScale, chartWidth, currentLeftMargin);
+                this.drawHorizontalGridLinesCanvas(visibleTasks, yScale, chartWidth, currentLeftMargin);
                 // Draw label-margin gridlines via SVG fallback (unclipped)
-                this.drawLabelMarginGridLinesCanvasFallback(visibleTasks, this.yScale, currentLeftMargin);
+                this.drawLabelMarginGridLinesCanvasFallback(visibleTasks, yScale, currentLeftMargin);
             }
 
             // Draw tasks on the prepared canvas
             this.drawTasksCanvas(
                 visibleTasks,
-                this.xScale,
-                this.yScale,
+                xScale,
+                yScale,
                 this.settings.taskAppearance.taskColor.value.value,
                 this.settings.taskAppearance.milestoneColor.value.value,
                 this.settings.taskAppearance.criticalPathColor.value.value,
@@ -5328,14 +5378,14 @@ private redrawVisibleTasks(): void {
             );
 
             // ACCESSIBILITY: Create fallback for canvas rendering
-            this.createAccessibleCanvasFallback(visibleTasks, this.yScale);
+            this.createAccessibleCanvasFallback(visibleTasks, yScale);
 
             if (this.showConnectorLinesInternal) {
                 // Draw arrows on the prepared canvas
                 this.drawArrowsCanvas(
                     visibleTasks,
-                    this.xScale,
-                    this.yScale,
+                    xScale,
+                    yScale,
                     this.settings.taskAppearance.criticalPathColor.value.value,
                     this.settings.connectorLines.connectorColor.value.value,
                     this.settings.connectorLines.connectorWidth.value,
@@ -5348,7 +5398,7 @@ private redrawVisibleTasks(): void {
             // Draw task name labels in unclipped SVG layer so they stay visible in the left margin
             this.drawTaskLabelsLayer(
                 visibleTasks,
-                this.yScale,
+                yScale,
                 this.settings.taskAppearance.taskHeight.value,
                 currentLeftMargin,
                 labelAvailableWidth,
@@ -5363,7 +5413,7 @@ private redrawVisibleTasks(): void {
             // Draw Data Date line on canvas and header
             this.drawDataDateLine(
                 chartWidth,
-                this.xScale,
+                xScale,
                 chartHeight,
                 this.gridLayer,
                 this.headerGridLayer
@@ -5392,15 +5442,15 @@ private redrawVisibleTasks(): void {
 
         // MODIFICATION: Draw Gridlines on SVG
         if (showHorzGridLines) {
-            this.drawHorizontalGridLines(visibleTasks, this.yScale, chartWidth, currentLeftMargin, chartHeight);
+            this.drawHorizontalGridLines(visibleTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
         }
-        
+
         // Draw arrows first so they appear behind tasks
         if (this.showConnectorLinesInternal) {
             this.drawArrows(
                 visibleTasks,
-                this.xScale,
-                this.yScale,
+                xScale,
+                yScale,
                 this.settings.taskAppearance.criticalPathColor.value.value,
                 this.settings.connectorLines.connectorColor.value.value,
                 this.settings.connectorLines.connectorWidth.value,
@@ -5409,11 +5459,11 @@ private redrawVisibleTasks(): void {
                 this.settings.taskAppearance.milestoneSize.value,
             );
         }
-        
+
         this.drawTasks(
             visibleTasks,
-            this.xScale,
-            this.yScale,
+            xScale,
+            yScale,
             this.settings.taskAppearance.taskColor.value.value,
             this.settings.taskAppearance.milestoneColor.value.value,
             this.settings.taskAppearance.criticalPathColor.value.value,
@@ -5426,8 +5476,8 @@ private redrawVisibleTasks(): void {
 
     // Draw WBS group headers (SVG mode) - only for visible viewport range
     this.drawWbsGroupHeaders(
-        this.xScale,
-        this.yScale,
+        xScale,
+        yScale,
         chartWidth,
         this.settings.taskAppearance.taskHeight.value,
         this.viewportStartIndex,
@@ -5448,8 +5498,8 @@ private redrawVisibleTasks(): void {
     // Draw WBS group headers for canvas mode (using SVG overlay) - only for visible viewport range
     if (this.useCanvasRendering) {
         this.drawWbsGroupHeaders(
-            this.xScale,
-            this.yScale,
+            xScale,
+            yScale,
             chartWidth,
             this.settings.taskAppearance.taskHeight.value,
             this.viewportStartIndex,
@@ -5459,29 +5509,29 @@ private redrawVisibleTasks(): void {
 
     // Redraw project end and reference lines (Always SVG; clears when toggled off)
     // Use allFilteredTasks to show finish date of all filtered tasks (not just visible/non-collapsed)
-    const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
+    const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : allTasksToShow;
     this.drawBaselineAndPreviousEndLines(
-        this.xScale,
+        xScale,
         tasksForProjectEnd,
-        this.yScale.range()[1],
+        yScale.range()[1],
         this.gridLayer,
         this.headerGridLayer
     );
     this.drawProjectEndLine(
-        this.xScale.range()[1],
-        this.xScale,
+        xScale.range()[1],
+        xScale,
         visibleTasks,
         tasksForProjectEnd,
-        this.yScale.range()[1],
+        yScale.range()[1],
         this.gridLayer,
         this.headerGridLayer
     );
 
     // Draw Data Date line if provided
     this.drawDataDateLine(
-        this.xScale.range()[1],
-        this.xScale,
-        this.yScale.range()[1],
+        xScale.range()[1],
+        xScale,
+        yScale.range()[1],
         this.gridLayer,
         this.headerGridLayer
     );
@@ -11122,6 +11172,14 @@ private drawWbsGroupHeaders(
     viewportStartIndex?: number,
     viewportEndIndex?: number
 ): void {
+    // FIX #2: Validate scales are non-null before proceeding
+    if (!xScale || !yScale) {
+        console.warn("drawWbsGroupHeaders: Skipping render - xScale or yScale is null");
+        // Remove any existing WBS group elements to prevent stale rendering
+        this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
+        return;
+    }
+
     if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
         // Remove any existing WBS group elements
         this.taskLayer?.selectAll('.wbs-group-header').remove();
