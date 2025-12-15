@@ -1,82 +1,505 @@
-// Import normalize.css (optional but good practice)
-// @import (less) "node_modules/normalize.css/normalize.css";
+// ============================================================================
+// PREMIUM GANTT CHART STYLES - Microsoft Fluent Design System
+// ============================================================================
+
+// Design Tokens
+@primary-color: #0078D4;
+@primary-light: #DEECF9;
+@primary-lighter: #EFF6FC;
+@danger-color: #D13438;
+@danger-light: #FDE7E9;
+@warning-color: #F7A800;
+@warning-light: #FFF4CE;
+@success-color: #107C10;
+@success-light: #DFF6DD;
+@neutral-black: #201F1E;
+@neutral-grey160: #323130;
+@neutral-grey130: #605E5C;
+@neutral-grey90: #A19F9D;
+@neutral-grey60: #C8C6C4;
+@neutral-grey40: #D2D0CE;
+@neutral-grey30: #EDEBE9;
+@neutral-grey20: #F3F2F1;
+@neutral-grey10: #FAF9F8;
+@neutral-white: #FFFFFF;
+
+// Shadow System
+@shadow-2: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0.5px 1px rgba(0, 0, 0, 0.04);
+@shadow-4: 0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+@shadow-8: 0 4px 8px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08);
+@shadow-16: 0 8px 16px rgba(0, 0, 0, 0.14), 0 4px 8px rgba(0, 0, 0, 0.1);
+
+// Motion
+@duration-fast: 120ms;
+@duration-normal: 200ms;
+@duration-slow: 350ms;
+@easing-smooth: cubic-bezier(0.4, 0.14, 0.3, 1);
+@easing-standard: cubic-bezier(0.4, 0, 0.2, 1);
 
 // Base styles for the visual container
 .criticalPathVisual {
-    font-family: 'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif;
-    overflow: visible; // Allow elements like labels to go outside the main SVG bounds if needed
-  }
-  
-  // Styles for SVG text elements (labels, dates, etc.)
-  text {
-    fill: #333; // Default text color
-    dominant-baseline: middle; // Vertically center text
-    text-anchor: start; // Align text to the start (left)
-  }
-  
-  // Specific style for task duration text inside bars
-  .task-duration-text {
-    fill: white;
-    font-size: 9px;
-    font-weight: bold;
-    text-anchor: middle; // Center text horizontally
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, wf_segoe-ui_normal, helvetica, arial, sans-serif;
+    overflow: visible;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+// Visual Wrapper Premium Styling
+.visual-wrapper {
+    background: linear-gradient(180deg, @neutral-white 0%, @neutral-grey10 100%);
+}
+
+// Sticky Header Premium Styling
+.sticky-header-container {
+    background: linear-gradient(180deg, @neutral-white 0%, @neutral-grey10 100%);
+    border-bottom: 1px solid @neutral-grey30;
+    box-shadow: @shadow-2;
+}
+
+// ============================================================================
+// SCROLLBAR STYLING - Microsoft Fluent Design
+// ============================================================================
+.criticalPathContainer {
+    scrollbar-width: thin;
+    scrollbar-color: @neutral-grey60 transparent;
+
+    &::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: transparent;
+        border-radius: 5px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: @neutral-grey60;
+        border-radius: 5px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+        transition: background @duration-fast @easing-smooth;
+
+        &:hover {
+            background: @neutral-grey90;
+            border: 2px solid transparent;
+            background-clip: content-box;
+        }
+
+        &:active {
+            background: @neutral-grey130;
+        }
+    }
+
+    &::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+}
+
+// ============================================================================
+// SVG TEXT ELEMENTS - Premium Typography
+// ============================================================================
+text {
+    fill: @neutral-grey160;
     dominant-baseline: middle;
-    pointer-events: none; // Prevent text from blocking mouse events on the bar
-  }
-  
-  // Style for the project end line text
-  .project-end-text {
-      font-size: 11px;
-      font-weight: bold;
-      text-anchor: end; // Align to the right of the line position
-  }
-  
-  // Style for the project duration text at the bottom
-  .project-duration-text {
-      font-size: 12px;
-      font-weight: bold;
-      text-anchor: middle; // Center align
-  }
-  
-  // Style for task labels (left side)
-  .task-label {
-      font-size: 11px; // Default, can be overridden by format pane
-      text-anchor: end; // Align to the right, before the chart starts
-  }
-  
-  // Style for finish date labels (right side)
-  .finish-date-label {
-      font-size: 11px; // Default, can be overridden by format pane
-      text-anchor: start; // Align to the left, after the bar/milestone
-  }
-  
-  // Style for milestone shapes (e.g., diamonds)
-  .milestone-shape {
-      stroke: #333;
-      stroke-width: 1px;
-  }
-  
-  // Style for task bars
-  .task-bar {
-      stroke: #333;
-      stroke-width: 0.5px;
-  }
-  
-  // Style for dependency arrows
-  .dependency-arrow {
-      stroke-width: 1.5px;
-      fill: none; // Arrows are typically lines/paths, no fill needed
-  }
-  
-  .dependency-arrow-critical {
-      stroke-width: 2px; // Make critical arrows slightly thicker
-  }
-  
-  // Style for the project end line
-  .project-end-line {
-      stroke-dasharray: 4, 2; // Dashed line style
-      stroke-width: 1.5px;
-  }
+    text-anchor: start;
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+// Task Duration Text - Enhanced with better contrast
+.task-duration-text {
+    fill: @neutral-white;
+    font-size: 9px;
+    font-weight: 600;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+// Project End Text - Premium styling
+.project-end-text {
+    font-size: 11px;
+    font-weight: 600;
+    text-anchor: end;
+    fill: @neutral-grey160;
+}
+
+// Project Duration Text
+.project-duration-text {
+    font-size: 12px;
+    font-weight: 600;
+    text-anchor: middle;
+    fill: @neutral-grey160;
+}
+
+// Task Labels - Enhanced with better readability
+.task-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-anchor: end;
+    fill: @neutral-grey160;
+    transition: fill @duration-fast @easing-smooth;
+
+    &:hover {
+        fill: @neutral-black;
+    }
+}
+
+// Finish Date Labels - Premium styling
+.finish-date-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-anchor: start;
+    fill: @neutral-grey130;
+}
+
+// ============================================================================
+// TASK BARS - Premium Gantt Bar Styling
+// ============================================================================
+.task-bar {
+    stroke: rgba(0, 0, 0, 0.15);
+    stroke-width: 0.5px;
+    transition: filter @duration-normal @easing-smooth,
+                stroke-width @duration-fast @easing-smooth,
+                transform @duration-fast @easing-smooth;
+
+    &:hover {
+        stroke-width: 1.5px;
+        stroke: rgba(0, 0, 0, 0.25);
+    }
+
+    &.critical {
+        stroke: @danger-color;
+        stroke-width: 1px;
+
+        &:hover {
+            stroke-width: 2px;
+        }
+    }
+
+    &.near-critical {
+        stroke: @warning-color;
+        stroke-width: 1px;
+
+        &:hover {
+            stroke-width: 2px;
+        }
+    }
+}
+
+// Baseline Bars - Refined styling
+.baseline-bar {
+    opacity: 0.85;
+    stroke: none;
+    rx: 2px;
+    ry: 2px;
+}
+
+// Previous Update Bars
+.previous-update-bar {
+    opacity: 0.85;
+    stroke: none;
+    rx: 2px;
+    ry: 2px;
+}
+
+// ============================================================================
+// MILESTONE SHAPES - Premium Diamond Styling
+// ============================================================================
+.milestone-shape,
+.milestone {
+    stroke: rgba(0, 0, 0, 0.2);
+    stroke-width: 1.5px;
+    transition: filter @duration-normal @easing-smooth,
+                stroke-width @duration-fast @easing-smooth,
+                transform @duration-fast @easing-smooth;
+
+    &:hover {
+        stroke-width: 2.5px;
+        stroke: rgba(0, 0, 0, 0.35);
+        transform: scale(1.1);
+    }
+
+    &.critical {
+        stroke: @danger-color;
+        stroke-width: 2px;
+
+        &:hover {
+            stroke-width: 3px;
+        }
+    }
+
+    &.near-critical {
+        stroke: @warning-color;
+        stroke-width: 2px;
+
+        &:hover {
+            stroke-width: 3px;
+        }
+    }
+}
+
+// ============================================================================
+// DEPENDENCY ARROWS - Premium Connector Styling
+// ============================================================================
+.dependency-arrow {
+    stroke-width: 1.5px;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke-width @duration-fast @easing-smooth,
+                opacity @duration-fast @easing-smooth;
+
+    &:hover {
+        stroke-width: 2.5px;
+    }
+}
+
+.dependency-arrow-critical {
+    stroke-width: 2.5px;
+
+    &:hover {
+        stroke-width: 3.5px;
+    }
+}
+
+// Project End Line - Premium styling
+.project-end-line {
+    stroke-dasharray: 6, 4;
+    stroke-width: 2px;
+    stroke-linecap: round;
+}
+
+// ============================================================================
+// TASK SELECTION DROPDOWN - Premium Input & List Styling
+// ============================================================================
+.task-selection-dropdown-container {
+    z-index: 1000 !important;
+}
+
+.task-selection-input {
+    width: 100%;
+    padding: 10px 14px 10px 36px !important;
+    border: 1.5px solid @neutral-grey60 !important;
+    border-radius: 8px !important;
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    color: @neutral-grey160 !important;
+    background-color: @neutral-white !important;
+    box-shadow: @shadow-2 !important;
+    transition: all @duration-normal @easing-smooth !important;
+    outline: none !important;
+
+    &::placeholder {
+        color: @neutral-grey90;
+        font-weight: 400;
+    }
+
+    &:hover {
+        border-color: @neutral-grey90 !important;
+        box-shadow: @shadow-4 !important;
+    }
+
+    &:focus {
+        border-color: @primary-color !important;
+        box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.15), @shadow-4 !important;
+    }
+}
+
+.task-selection-list {
+    border: 1.5px solid @neutral-grey40 !important;
+    border-top: none !important;
+    border-radius: 0 0 8px 8px !important;
+    box-shadow: @shadow-8 !important;
+    background: @neutral-white !important;
+    max-height: 240px !important;
+    overflow-y: auto !important;
+    scrollbar-width: thin;
+    scrollbar-color: @neutral-grey60 transparent;
+
+    &::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: @neutral-grey60;
+        border-radius: 4px;
+
+        &:hover {
+            background: @neutral-grey90;
+        }
+    }
+}
+
+// Dropdown List Items - Premium styling
+.task-dropdown-item {
+    padding: 10px 14px !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    color: @neutral-grey160 !important;
+    cursor: pointer !important;
+    transition: all @duration-fast @easing-smooth !important;
+    border-bottom: 1px solid @neutral-grey20 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+
+    &:last-child {
+        border-bottom: none !important;
+    }
+
+    &:hover {
+        background: @primary-lighter !important;
+        color: @primary-color !important;
+    }
+
+    &.selected,
+    &:active {
+        background: @primary-light !important;
+        color: @primary-color !important;
+        font-weight: 600 !important;
+    }
+
+    // Critical task indicator
+    &.critical {
+        &::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: @danger-color;
+            flex-shrink: 0;
+        }
+    }
+
+    // Near-critical task indicator
+    &.near-critical {
+        &::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: @warning-color;
+            flex-shrink: 0;
+        }
+    }
+}
+
+// ============================================================================
+// WBS GROUP HEADERS - Premium Styling
+// ============================================================================
+.wbs-group-header {
+    cursor: pointer;
+
+    rect {
+        transition: fill @duration-fast @easing-smooth,
+                    stroke @duration-fast @easing-smooth;
+    }
+
+    text {
+        transition: fill @duration-fast @easing-smooth,
+                    font-weight @duration-fast @easing-smooth;
+    }
+
+    &:hover {
+        rect {
+            filter: brightness(0.97);
+        }
+
+        text {
+            fill: @neutral-black !important;
+        }
+    }
+}
+
+// WBS Summary Bar - Premium gradient styling
+.wbs-summary-bar {
+    rx: 4px;
+    ry: 4px;
+    opacity: 0.85;
+    transition: opacity @duration-fast @easing-smooth;
+
+    &:hover {
+        opacity: 1;
+    }
+}
+
+// WBS Expand/Collapse Icon
+.wbs-expand-icon {
+    transition: transform @duration-normal @easing-smooth;
+
+    &.collapsed {
+        transform: rotate(-90deg);
+    }
+}
+
+// ============================================================================
+// LEGEND FOOTER - Premium Styling
+// ============================================================================
+.sticky-legend-footer {
+    background: linear-gradient(180deg, @neutral-grey10 0%, @neutral-white 100%) !important;
+    border-top: 1px solid @neutral-grey30 !important;
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06) !important;
+}
+
+.legend-item {
+    padding: 6px 12px !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    transition: all @duration-fast @easing-smooth !important;
+
+    &:hover {
+        background: @neutral-grey20 !important;
+    }
+
+    &.selected {
+        background: @primary-lighter !important;
+        box-shadow: inset 0 0 0 1.5px @primary-color !important;
+    }
+
+    &.deselected {
+        opacity: 0.5 !important;
+
+        &:hover {
+            opacity: 0.75 !important;
+        }
+    }
+}
+
+// ============================================================================
+// TOOLTIP - Premium Styling
+// ============================================================================
+.critical-path-tooltip {
+    background: @neutral-white !important;
+    border: 1px solid @neutral-grey40 !important;
+    border-radius: 8px !important;
+    padding: 14px 16px !important;
+    box-shadow: @shadow-16 !important;
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+    color: @neutral-grey160 !important;
+    max-width: 320px !important;
+    backdrop-filter: blur(8px);
+
+    strong {
+        color: @neutral-black;
+        font-weight: 600;
+    }
+
+    .tooltip-mode-info {
+        margin-top: 10px !important;
+        padding-top: 10px !important;
+        border-top: 1px solid @neutral-grey30 !important;
+    }
+}
 
 // ============================================================================
 // TIMELINE ZOOM SLIDER - Microsoft Power BI standard style

@@ -6273,7 +6273,11 @@ private drawTasks(
                 return Math.max(this.minTaskWidthPixels, finishPos - startPos);
             })
             .attr("height", previousUpdateHeight)
-            .style("fill", previousUpdateColor);
+            // UPGRADED: Add corner radius for refined appearance
+            .attr("rx", Math.min(3, previousUpdateHeight * 0.3))
+            .attr("ry", Math.min(3, previousUpdateHeight * 0.3))
+            .style("fill", previousUpdateColor)
+            .style("opacity", 0.9);
     } else {
         allTaskGroups.selectAll(".previous-update-bar").remove();
     }
@@ -6312,7 +6316,11 @@ private drawTasks(
                 return Math.max(this.minTaskWidthPixels, finishPos - startPos);
             })
             .attr("height", baselineHeight)
-            .style("fill", baselineColor);
+            // UPGRADED: Add corner radius for refined appearance
+            .attr("rx", Math.min(3, baselineHeight * 0.3))
+            .attr("ry", Math.min(3, baselineHeight * 0.3))
+            .style("fill", baselineColor)
+            .style("opacity", 0.9);
     } else {
         allTaskGroups.selectAll(".baseline-bar").remove();
     }
@@ -11603,17 +11611,28 @@ private drawWbsGroupHeaders(
             }
         }
 
-        // Expand/collapse indicator
+        // UPGRADED: Expand/collapse indicator with better styling
         const expandIcon = group.isExpanded ? '\u25BC' : '\u25B6'; // ▼ or ▶
-        const iconColor = (group.visibleTaskCount === 0) ? '#999' : '#333';
+        const iconColor = (group.visibleTaskCount === 0) ? this.UI_TOKENS.color.neutral.grey90 : this.UI_TOKENS.color.neutral.grey160;
+
+        // Add icon background circle for better visibility
+        headerGroup.append('circle')
+            .attr('class', 'wbs-expand-icon-bg')
+            .attr('cx', -currentLeftMargin + indent + 12)
+            .attr('cy', bandCenter)
+            .attr('r', 10)
+            .style('fill', (group.visibleTaskCount === 0) ? this.UI_TOKENS.color.neutral.grey20 : this.UI_TOKENS.color.neutral.grey10)
+            .style('transition', `fill ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
         headerGroup.append('text')
             .attr('class', 'wbs-expand-icon')
             .attr('x', -currentLeftMargin + indent + 8)
-            .attr('y', bandCenter - 2)
-            .style('font-size', `${taskNameFontSize}px`)
+            .attr('y', bandCenter)
+            .attr('dominant-baseline', 'central')
+            .style('font-size', `${taskNameFontSize - 2}px`)
             .style('font-family', 'Segoe UI, sans-serif')
             .style('fill', iconColor)
+            .style('transition', `fill ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
             .text(expandIcon);
 
         // Group name with task count (show visible vs total if different)
@@ -11638,14 +11657,14 @@ private drawWbsGroupHeaders(
             }
         }
 
-        // Determine text color based on visibility (use custom groupNameColor, dimmed if no visible tasks)
-        const textColor = (group.visibleTaskCount === 0) ? '#999' : groupNameColor;
+        // UPGRADED: Determine text color based on visibility (use custom groupNameColor, dimmed if no visible tasks)
+        const textColor = (group.visibleTaskCount === 0) ? this.UI_TOKENS.color.neutral.grey90 : groupNameColor;
         const textOpacity = (group.visibleTaskCount === 0) ? 0.6 : 1.0;
 
         // Calculate available width for group name text (with wrapping)
-        const textX = -currentLeftMargin + indent + 22;
+        const textX = -currentLeftMargin + indent + 26;  // Adjusted for icon background
         const textY = bandCenter; // Center text within the band (same as tasks)
-        const availableWidth = currentLeftMargin - indent - 30; // Leave some padding
+        const availableWidth = currentLeftMargin - indent - 35; // Leave some padding
         const lineHeight = '1.1em';
         const maxLines = 2;
 
@@ -11655,10 +11674,12 @@ private drawWbsGroupHeaders(
             .attr('y', textY)
             .attr('dominant-baseline', 'central')
             .style('font-size', `${groupNameFontSize}px`)
-            .style('font-family', 'Segoe UI, sans-serif')
-            .style('font-weight', '600')
+            .style('font-family', 'Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif')
+            .style('font-weight', this.UI_TOKENS.fontWeight.semibold)
             .style('fill', textColor)
-            .style('opacity', textOpacity);
+            .style('opacity', textOpacity)
+            .style('letter-spacing', '0.2px')
+            .style('transition', `fill ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
         // Apply text wrapping similar to task names
         const words = displayName.split(/\s+/).reverse();
@@ -11708,7 +11729,7 @@ private drawWbsGroupHeaders(
             firstTspan.attr('dy', '-0.55em');
         }
 
-        // Now draw the background rectangle sized to accommodate the text
+        // UPGRADED: Now draw the background rectangle sized to accommodate the text
         // Calculate height based on whether text wrapped to 2 lines
         const lineHeightPx = groupNameFontSize * 1.1;
         const bgHeight = lineCount > 1 ? taskHeight + lineHeightPx : taskHeight + 4;
@@ -11716,14 +11737,43 @@ private drawWbsGroupHeaders(
         const bgY = bandCenter - bgHeight / 2;
 
         // Insert background at the beginning of the group so it's behind everything
+        // UPGRADED: Add rounded corners, subtle border, and better visual separation
         headerGroup.insert('rect', ':first-child')
             .attr('class', 'wbs-header-bg')
             .attr('x', -currentLeftMargin + indent)
             .attr('y', bgY)
             .attr('width', currentLeftMargin - indent - 5)
             .attr('height', bgHeight)
+            .attr('rx', this.UI_TOKENS.radius.small)
+            .attr('ry', this.UI_TOKENS.radius.small)
             .style('fill', groupHeaderColor)
-            .style('opacity', bgOpacity);
+            .style('opacity', bgOpacity)
+            .style('stroke', this.UI_TOKENS.color.neutral.grey40)
+            .style('stroke-width', 0.5)
+            .style('transition', `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        // UPGRADED: Add hover effects for better interactivity
+        headerGroup
+            .on('mouseenter', function() {
+                d3.select(this).select('.wbs-header-bg')
+                    .style('fill', self.lightenColor(groupHeaderColor, 0.1))
+                    .style('stroke', self.UI_TOKENS.color.neutral.grey60)
+                    .style('stroke-width', 1);
+                d3.select(this).select('.wbs-expand-icon-bg')
+                    .style('fill', self.UI_TOKENS.color.primary.lighter);
+                d3.select(this).select('.wbs-expand-icon')
+                    .style('fill', self.UI_TOKENS.color.primary.default);
+            })
+            .on('mouseleave', function() {
+                d3.select(this).select('.wbs-header-bg')
+                    .style('fill', groupHeaderColor)
+                    .style('stroke', self.UI_TOKENS.color.neutral.grey40)
+                    .style('stroke-width', 0.5);
+                d3.select(this).select('.wbs-expand-icon-bg')
+                    .style('fill', (group.visibleTaskCount === 0) ? self.UI_TOKENS.color.neutral.grey20 : self.UI_TOKENS.color.neutral.grey10);
+                d3.select(this).select('.wbs-expand-icon')
+                    .style('fill', iconColor);
+            });
 
         // Click handler for expand/collapse
         headerGroup.on('click', function() {
@@ -12091,18 +12141,44 @@ private createTaskSelectionDropdown(): void {
         .style("transform", "none")
         .style("z-index", "20");
 
-    // Create the input with unified professional styling
-    this.dropdownInput = this.dropdownContainer.append("input")
+    // UPGRADED: Create input wrapper for search icon positioning
+    const inputWrapper = this.dropdownContainer.append("div")
+        .attr("class", "task-input-wrapper")
+        .style("position", "relative")
+        .style("width", `${dropdownWidth}px`);
+
+    // UPGRADED: Add search icon SVG
+    const searchIcon = inputWrapper.append("svg")
+        .attr("class", "search-icon")
+        .attr("width", "16")
+        .attr("height", "16")
+        .attr("viewBox", "0 0 16 16")
+        .style("position", "absolute")
+        .style("left", "12px")
+        .style("top", "50%")
+        .style("transform", "translateY(-50%)")
+        .style("pointer-events", "none")
+        .style("z-index", "1")
+        .style("opacity", "0.5")
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+    searchIcon.append("path")
+        .attr("d", "M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z")
+        .attr("fill", this.UI_TOKENS.color.neutral.grey130);
+
+    // Create the input with unified professional styling - UPGRADED with better padding for icon
+    this.dropdownInput = inputWrapper.append("input")
         .attr("type", "text")
         .attr("class", "task-selection-input")
         .attr("placeholder", "Search for a task...")
-        .style("width", `${dropdownWidth}px`)
-        .style("height", `${this.UI_TOKENS.height.standard}px`)  // Match standard height
-        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
+        .style("width", "100%")
+        .style("height", `${this.UI_TOKENS.height.comfortable}px`)  // Comfortable height for better touch
+        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px 0 38px`)  // Left padding for icon
         .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
         .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.lg}px`)
+        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("font-weight", this.UI_TOKENS.fontWeight.medium)
         .style("color", this.UI_TOKENS.color.neutral.grey160)
         .style("background", this.UI_TOKENS.color.neutral.white)
         .style("box-sizing", "border-box")
@@ -12110,39 +12186,51 @@ private createTaskSelectionDropdown(): void {
         .style("box-shadow", this.UI_TOKENS.shadow[2])
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Add focus effects with unified design
+    // UPGRADED: Add focus effects with search icon highlighting
     const selfRef = this;
     this.dropdownInput
         .on("focus", function() {
             d3.select(this)
                 .style("border-color", selfRef.UI_TOKENS.color.primary.default)
                 .style("border-width", "2px")
-                .style("box-shadow", selfRef.UI_TOKENS.shadow[4]);
+                .style("box-shadow", `0 0 0 3px rgba(0, 120, 212, 0.15), ${selfRef.UI_TOKENS.shadow[4]}`);
+            // Highlight search icon on focus
+            inputWrapper.select(".search-icon")
+                .style("opacity", "1")
+                .select("path")
+                .attr("fill", selfRef.UI_TOKENS.color.primary.default);
         })
         .on("blur", function() {
             d3.select(this)
                 .style("border-color", selfRef.UI_TOKENS.color.neutral.grey60)
                 .style("border-width", "1.5px")
                 .style("box-shadow", selfRef.UI_TOKENS.shadow[2]);
+            // Reset search icon on blur
+            inputWrapper.select(".search-icon")
+                .style("opacity", "0.5")
+                .select("path")
+                .attr("fill", selfRef.UI_TOKENS.color.neutral.grey130);
         });
 
-    // Create dropdown list with unified professional styling
+    // UPGRADED: Create dropdown list with premium styling and smoother scrolling
     this.dropdownList = this.dropdownContainer.append("div")
         .attr("class", "task-selection-list")
         .style("position", "absolute")
         .style("top", "100%")
         .style("left", "0")
         .style("width", `${dropdownWidth}px`)
-        .style("max-height", "400px")
-        .style("margin-top", `${this.UI_TOKENS.spacing.xs}px`)
+        .style("max-height", "320px")
+        .style("margin-top", `${this.UI_TOKENS.spacing.sm}px`)
         .style("overflow-y", "auto")
         .style("background", this.UI_TOKENS.color.neutral.white)
-        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey40}`)
         .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
-        .style("box-shadow", this.UI_TOKENS.shadow[8])
+        .style("box-shadow", this.UI_TOKENS.shadow[16])
         .style("display", "none")
         .style("z-index", "1000")
-        .style("box-sizing", "border-box");
+        .style("box-sizing", "border-box")
+        .style("scrollbar-width", "thin")
+        .style("scrollbar-color", `${this.UI_TOKENS.color.neutral.grey60} transparent`);
 
     // Rest of the method remains the same...
     const self = this;
@@ -12264,25 +12352,46 @@ private populateTaskDropdown(): void {
 
     const self = this;
     
-    // Add "Clear Selection" option FIRST (at the top)
+    // UPGRADED: Add "Clear Selection" option FIRST (at the top) with premium styling
     const clearOption = this.dropdownList.append("div")
         .attr("class", "dropdown-item clear-selection")
-        .style("padding", "8px 10px")
+        .style("padding", `${this.UI_TOKENS.spacing.md}px ${this.UI_TOKENS.spacing.lg}px`)
         .style("cursor", "pointer")
-        .style("color", "#666")
-        .style("font-style", "italic")
-        .style("border-bottom", "1px solid #eee")
-        .style("font-size", "10px")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("background-color", "white")
-        .text("× Clear Selection");
-    
+        .style("color", this.UI_TOKENS.color.neutral.grey130)
+        .style("font-style", "normal")
+        .style("border-bottom", `1px solid ${this.UI_TOKENS.color.neutral.grey30}`)
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("font-weight", this.UI_TOKENS.fontWeight.medium)
+        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+        .style("background-color", this.UI_TOKENS.color.neutral.white)
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("gap", `${this.UI_TOKENS.spacing.sm}px`)
+        .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+    // Add X icon using proper DOM manipulation (security-compliant)
+    const clearIconSvg = clearOption.append("svg")
+        .attr("width", "12")
+        .attr("height", "12")
+        .attr("viewBox", "0 0 12 12")
+        .attr("fill", "none");
+    clearIconSvg.append("path")
+        .attr("d", "M9 3L3 9M3 3L9 9")
+        .attr("stroke", this.UI_TOKENS.color.neutral.grey130)
+        .attr("stroke-width", "1.5")
+        .attr("stroke-linecap", "round");
+    clearOption.append("span").text("Clear Selection");
+
     clearOption
         .on("mouseover", function() {
-            d3.select(this).style("background-color", "#f0f0f0");
+            d3.select(this)
+                .style("background-color", self.UI_TOKENS.color.neutral.grey20)
+                .style("color", self.UI_TOKENS.color.danger.default);
         })
         .on("mouseout", function() {
-            d3.select(this).style("background-color", "white");
+            d3.select(this)
+                .style("background-color", self.UI_TOKENS.color.neutral.white)
+                .style("color", self.UI_TOKENS.color.neutral.grey130);
         })
         .on("mousedown", function() {
             // Use mousedown instead of click to fire before blur
@@ -12298,37 +12407,102 @@ private populateTaskDropdown(): void {
                 .style("pointer-events", "auto");
         });
     
-    // Create dropdown items for tasks (synthetic tasks already filtered out)
+    // UPGRADED: Create dropdown items for tasks with premium styling and criticality indicators
     sortedTasks.forEach(task => {
         const taskName = task.name || `Task ${task.internalId}`;
+        const isSelected = task.internalId === self.selectedTaskId;
+        const isCritical = task.isCritical;
+        const isNearCritical = task.isNearCritical;
+
+        // Determine indicator color
+        let indicatorColor = "transparent";
+        if (isCritical) indicatorColor = this.UI_TOKENS.color.danger.default;
+        else if (isNearCritical) indicatorColor = this.UI_TOKENS.color.warning.default;
+
+        // Determine task type icon
+        const isMilestone = task.type === 'TT_Mile' || task.type === 'TT_FinMile';
+
         const item = this.dropdownList.append("div")
-            .attr("class", "dropdown-item")
+            .attr("class", `dropdown-item task-dropdown-item${isCritical ? ' critical' : ''}${isNearCritical ? ' near-critical' : ''}`)
             .attr("data-task-id", task.internalId)
             .attr("data-task-name", taskName)
             .attr("title", taskName)
-            .style("padding", "6px 10px")
+            .style("padding", `${this.UI_TOKENS.spacing.md}px ${this.UI_TOKENS.spacing.lg}px`)
             .style("cursor", "pointer")
-            .style("border-bottom", "1px solid #f5f5f5")
-            .style("white-space", "normal")
-            .style("word-wrap", "break-word")
-            .style("overflow-wrap", "break-word")
+            .style("border-bottom", `1px solid ${this.UI_TOKENS.color.neutral.grey20}`)
+            .style("white-space", "nowrap")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
             .style("line-height", "1.4")
-            .style("font-size", "11px")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("background-color", task.internalId === self.selectedTaskId ? "#f0f0f0" : "white")
-            .style("font-weight", task.internalId === self.selectedTaskId ? "600" : "normal")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .style("font-weight", isSelected ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("background-color", isSelected ? this.UI_TOKENS.color.primary.lighter : this.UI_TOKENS.color.neutral.white)
+            .style("color", isSelected ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey160)
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", `${this.UI_TOKENS.spacing.sm}px`)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        // UPGRADED: Add criticality indicator dot
+        if (isCritical || isNearCritical) {
+            item.append("span")
+                .attr("class", "criticality-indicator")
+                .style("width", "6px")
+                .style("height", "6px")
+                .style("border-radius", "50%")
+                .style("background-color", indicatorColor)
+                .style("flex-shrink", "0");
+        }
+
+        // Add task type icon using proper DOM manipulation (security-compliant)
+        const iconContainer = item.append("span")
+            .attr("class", "task-type-icon")
+            .style("flex-shrink", "0")
+            .style("display", "flex")
+            .style("align-items", "center");
+
+        if (isMilestone) {
+            // Diamond icon for milestones
+            const mileIconSvg = iconContainer.append("svg")
+                .attr("width", "10")
+                .attr("height", "10")
+                .attr("viewBox", "0 0 10 10")
+                .attr("fill", this.UI_TOKENS.color.neutral.grey90);
+            mileIconSvg.append("path").attr("d", "M5 0L10 5L5 10L0 5Z");
+        } else {
+            // Bar icon for tasks
+            const taskIconSvg = iconContainer.append("svg")
+                .attr("width", "10")
+                .attr("height", "4")
+                .attr("viewBox", "0 0 10 4");
+            taskIconSvg.append("rect")
+                .attr("width", "10")
+                .attr("height", "4")
+                .attr("rx", "1")
+                .attr("fill", this.UI_TOKENS.color.neutral.grey90);
+        }
+
+        // Add task name
+        item.append("span")
+            .attr("class", "task-name")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
             .text(taskName);
-        
-        // Add hover effects
+
+        // UPGRADED: Add hover effects with better visual feedback
         item.on("mouseover", function() {
-            d3.select(this).style("background-color", "#e6f7ff");
+            d3.select(this)
+                .style("background-color", self.UI_TOKENS.color.primary.lighter)
+                .style("color", self.UI_TOKENS.color.primary.default);
         });
-        
+
         item.on("mouseout", function() {
-            d3.select(this).style("background-color", 
-                task.internalId === self.selectedTaskId ? "#f0f0f0" : "white");
+            d3.select(this)
+                .style("background-color", isSelected ? self.UI_TOKENS.color.primary.lighter : self.UI_TOKENS.color.neutral.white)
+                .style("color", isSelected ? self.UI_TOKENS.color.primary.default : self.UI_TOKENS.color.neutral.grey160);
         });
-        
+
         // Use mousedown instead of click to fire before blur
         item.on("mousedown", function() {
             event?.preventDefault();
