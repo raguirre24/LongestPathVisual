@@ -778,26 +778,26 @@ constructor(options: VisualConstructorOptions) {
         .style("display", "none");
 
     // --- Driving Path Info Label (Path Selection Control) ---
-    // UPGRADED: Professional path selection control with enhanced design
+    // UPGRADED: Compact professional path selection control
     this.pathInfoLabel = this.stickyHeaderContainer.append("div")
         .attr("class", "path-info-label")
         .style("position", "absolute")
-        .style("top", "6px")  // Updated for better alignment
+        .style("top", "6px")
         .style("right", "10px")
-        .style("height", `${this.UI_TOKENS.height.standard}px`)  // Using design tokens
-        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
+        .style("height", `${this.UI_TOKENS.height.compact}px`)  // Compact height (24px)
+        .style("padding", `0 ${this.UI_TOKENS.spacing.sm}px`)   // Reduced padding
         .style("display", "none")
         .style("align-items", "center")
-        .style("gap", `${this.UI_TOKENS.spacing.md}px`)
+        .style("gap", `${this.UI_TOKENS.spacing.xs}px`)         // Minimal gap
         .style("background-color", this.UI_TOKENS.color.neutral.white)
-        .style("border", `2px solid ${this.UI_TOKENS.color.primary.default}`)  // Heavier border
-        .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)  // More rounded
-        .style("box-shadow", this.UI_TOKENS.shadow[4])  // Better shadow
+        .style("border", `1.5px solid ${this.UI_TOKENS.color.primary.default}`)  // Slightly thinner border
+        .style("border-radius", `${this.UI_TOKENS.radius.large}px`)  // Slightly less rounded
+        .style("box-shadow", this.UI_TOKENS.shadow[2])          // Lighter shadow
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)  // Smaller font
         .style("color", this.UI_TOKENS.color.primary.default)
-        .style("font-weight", "600")  // Bolder
-        .style("letter-spacing", "0.2px")
+        .style("font-weight", "600")
+        .style("letter-spacing", "0.1px")
         .style("white-space", "nowrap")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
@@ -3103,7 +3103,7 @@ private createFloatThresholdControl(): void {
     const isCompact = layoutMode === 'narrow';
     const isMedium = layoutMode === 'medium';
 
-    // Premium control container with elevated design
+    // Compact control container with elevated design
     // Position in the right corner of the header
     const controlContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "float-threshold-wrapper")
@@ -3114,23 +3114,23 @@ private createFloatThresholdControl(): void {
         .style("top", `${this.UI_TOKENS.spacing.sm}px`)
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", isCompact ? `${this.UI_TOKENS.spacing.sm}px` : `${this.UI_TOKENS.spacing.md}px`)
-        .style("height", `${this.UI_TOKENS.height.comfortable}px`)
-        .style("padding", isCompact ? `0 ${this.UI_TOKENS.spacing.md}px` : `0 ${this.UI_TOKENS.spacing.xl}px`)
+        .style("gap", `${this.UI_TOKENS.spacing.xs}px`)
+        .style("height", `${this.UI_TOKENS.height.compact}px`)  // Compact height (24px)
+        .style("padding", `0 ${this.UI_TOKENS.spacing.sm}px`)   // Reduced padding
         .style("background-color", this.UI_TOKENS.color.neutral.white)
-        .style("border", `2px solid ${this.UI_TOKENS.color.warning.default}`)
-        .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
-        .style("box-shadow", this.UI_TOKENS.shadow[4])
+        .style("border", `1.5px solid ${this.UI_TOKENS.color.warning.default}`)  // Slightly thinner border
+        .style("border-radius", `${this.UI_TOKENS.radius.large}px`)  // Slightly less rounded
+        .style("box-shadow", this.UI_TOKENS.shadow[2])          // Lighter shadow
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Icon and label container
+    // Icon and label container - compact
     const labelContainer = controlContainer.append("div")
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", `${this.UI_TOKENS.spacing.sm}px`);
+        .style("gap", `${this.UI_TOKENS.spacing.xs}px`);
 
-    // Near-critical indicator - solid color for consistency
-    const iconSize = 12;
+    // Near-critical indicator - smaller icon
+    const iconSize = 10;
     const iconSvg = labelContainer.append("svg")
         .attr("width", iconSize)
         .attr("height", iconSize)
@@ -3143,30 +3143,30 @@ private createFloatThresholdControl(): void {
         .attr("r", iconSize/2)
         .attr("fill", this.UI_TOKENS.color.warning.default);
 
-    // Descriptive label with enhanced typography - responsive text
-    const labelText = isCompact ? "NC ≤" : (isMedium ? "Near-Crit ≤" : "Near-Critical ≤");
+    // Compact label - responsive text
+    const labelText = isCompact ? "NC≤" : "Near-Critical ≤";
     labelContainer.append("span")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-        .style("letter-spacing", "0.2px")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .style("letter-spacing", "0.1px")
         .style("color", this.UI_TOKENS.color.neutral.grey160)
         .style("font-family", "Segoe UI, sans-serif")
         .style("font-weight", this.UI_TOKENS.fontWeight.medium)
         .style("white-space", "nowrap")
         .text(labelText);
 
-    // Enhanced input field with premium styling
+    // Compact input field
     this.floatThresholdInput = controlContainer.append("input")
         .attr("type", "number")
         .attr("min", "0")
         .attr("step", "1")
         .attr("value", this.floatThreshold)
         .attr("aria-label", "Near-critical threshold in days")
-        .style("width", isCompact ? "44px" : "56px")
-        .style("height", "24px")
-        .style("padding", `${this.UI_TOKENS.spacing.xs}px ${this.UI_TOKENS.spacing.md}px`)
-        .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+        .style("width", isCompact ? "36px" : "42px")
+        .style("height", "18px")
+        .style("padding", `1px ${this.UI_TOKENS.spacing.xs}px`)
+        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
         .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
         .style("font-family", "Segoe UI, sans-serif")
         .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
         .style("text-align", "center")
@@ -3175,28 +3175,26 @@ private createFloatThresholdControl(): void {
         .style("color", this.UI_TOKENS.color.neutral.grey160)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Unit label with refined styling - hide in compact mode
+    // Unit label - compact styling, hide in compact mode
     if (!isCompact) {
         controlContainer.append("span")
-            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-            .style("letter-spacing", "0.2px")
+            .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
             .style("color", this.UI_TOKENS.color.neutral.grey130)
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-weight", this.UI_TOKENS.fontWeight.medium)
-            .style("white-space", "nowrap")
             .text("days");
     }
 
-    // Enhanced help icon with better accessibility - hide in compact mode
+    // Compact help icon - hide in compact mode
     if (!isCompact) {
         const helpIcon = controlContainer.append("div")
             .attr("role", "button")
             .attr("aria-label", "Information about near-critical threshold")
             .attr("tabindex", "0")
-            .style("width", "18px")
-            .style("height", "18px")
+            .style("width", "14px")
+            .style("height", "14px")
             .style("border-radius", "50%")
-            .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
             .style("background-color", this.UI_TOKENS.color.neutral.grey10)
             .style("display", "flex")
             .style("align-items", "center")
@@ -8895,10 +8893,10 @@ private updatePathInfoLabel(): void {
     const isCompact = layoutMode === 'narrow';
     const isMedium = layoutMode === 'medium';
 
-    // Update container padding based on layout mode
+    // Update container padding based on layout mode - compact styling
     this.pathInfoLabel
-        .style("padding", isCompact ? `0 ${this.UI_TOKENS.spacing.sm}px` : `0 ${this.UI_TOKENS.spacing.lg}px`)
-        .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.md}px`);
+        .style("padding", `0 ${this.UI_TOKENS.spacing.xs}px`)
+        .style("gap", `${this.UI_TOKENS.spacing.xs}px`);
 
     // Clear existing content
     this.pathInfoLabel.selectAll("*").remove();
@@ -8914,31 +8912,31 @@ private updatePathInfoLabel(): void {
     const buttonCursor = hasMultiplePaths ? "pointer" : "default";
     const buttonTitle = hasMultiplePaths ? "Previous driving path" : "Only one driving path";
 
-    // Professional Previous button with SVG arrow
+    // Compact Previous button with SVG arrow
     const prevButton = this.pathInfoLabel.append("div")
         .style("cursor", buttonCursor)
         .style("opacity", buttonOpacity)
-        .style("padding", "6px")
+        .style("padding", "3px")
         .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
         .style("display", "flex")
         .style("align-items", "center")
         .style("justify-content", "center")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .style("user-select", "none")
-        .style("width", "24px")
-        .style("height", "24px")
+        .style("width", "18px")
+        .style("height", "18px")
         .attr("title", buttonTitle);
 
-    // SVG arrow for previous button
+    // SVG arrow for previous button - smaller
     const prevSvg = prevButton.append("svg")
-        .attr("width", "12")
-        .attr("height", "12")
-        .attr("viewBox", "0 0 12 12");
+        .attr("width", "10")
+        .attr("height", "10")
+        .attr("viewBox", "0 0 10 10");
 
     prevSvg.append("path")
-        .attr("d", "M 8 2 L 4 6 L 8 10")
+        .attr("d", "M 7 1.5 L 3 5 L 7 8.5")
         .attr("stroke", this.UI_TOKENS.color.primary.default)
-        .attr("stroke-width", "2")
+        .attr("stroke-width", "1.5")
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .attr("fill", "none");
@@ -8971,69 +8969,71 @@ private updatePathInfoLabel(): void {
         });
     }
 
-    // Professional path info text container - responsive layout
+    // Compact path info text container
     const infoContainer = this.pathInfoLabel.append("div")
         .style("display", "flex")
         .style("align-items", "center")
-        .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.md}px`)
-        .style("padding", isCompact ? "0 2px" : "0 6px");
+        .style("gap", `${this.UI_TOKENS.spacing.xs}px`)
+        .style("padding", "0 2px");
 
-    // Path indicator - always show, but compact in narrow mode
+    // Path indicator - compact format
     infoContainer.append("span")
-        .style("font-weight", "700")  // Bolder
-        .style("letter-spacing", "0.3px")
-        .text(isCompact ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`);
+        .style("font-weight", "600")
+        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+        .text(`${pathNumber}/${totalPaths}`);
 
-    // Show additional info only in wide and medium modes
+    // Show task count with separator - only in non-compact mode
     if (!isCompact) {
         infoContainer.append("span")
             .style("color", this.UI_TOKENS.color.primary.default)
-            .style("font-weight", "600")
+            .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
             .text("•");
 
         infoContainer.append("span")
             .style("font-weight", "500")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
             .text(`${taskCount} tasks`);
 
         // Duration only in wide mode
         if (!isMedium) {
             infoContainer.append("span")
                 .style("color", this.UI_TOKENS.color.primary.default)
-                .style("font-weight", "600")
+                .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
                 .text("•");
 
             infoContainer.append("span")
                 .style("font-weight", "500")
-                .text(`${duration} days`);
+                .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+                .text(`${duration}d`);
         }
     }
 
-    // Professional Next button with SVG arrow (disabled when single path)
+    // Compact Next button with SVG arrow (disabled when single path)
     const nextButtonTitle = hasMultiplePaths ? "Next driving path" : "Only one driving path";
     const nextButton = this.pathInfoLabel.append("div")
         .style("cursor", buttonCursor)
         .style("opacity", buttonOpacity)
-        .style("padding", "6px")
+        .style("padding", "3px")
         .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
         .style("display", "flex")
         .style("align-items", "center")
         .style("justify-content", "center")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .style("user-select", "none")
-        .style("width", "24px")
-        .style("height", "24px")
+        .style("width", "18px")
+        .style("height", "18px")
         .attr("title", nextButtonTitle);
 
-    // SVG arrow for next button
+    // SVG arrow for next button - smaller
     const nextSvg = nextButton.append("svg")
-        .attr("width", "12")
-        .attr("height", "12")
-        .attr("viewBox", "0 0 12 12");
+        .attr("width", "10")
+        .attr("height", "10")
+        .attr("viewBox", "0 0 10 10");
 
     nextSvg.append("path")
-        .attr("d", "M 4 2 L 8 6 L 4 10")
+        .attr("d", "M 3 1.5 L 7 5 L 3 8.5")
         .attr("stroke", this.UI_TOKENS.color.primary.default)
-        .attr("stroke-width", "2")
+        .attr("stroke-width", "1.5")
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .attr("fill", "none");
