@@ -203,6 +203,7 @@ export class Visual implements IVisual {
     private canvasContext: CanvasRenderingContext2D | null = null;
     private useCanvasRendering: boolean = false;
     private CANVAS_THRESHOLD: number = 250; // Switch to canvas when more than 250 tasks (Phase 1 optimization)
+    private readonly MODE_TRANSITION_DURATION: number = 150; // ms - Duration for Canvas/SVG mode transition animation
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
 
     // --- Data properties remain the same ---
@@ -257,6 +258,7 @@ export class Visual implements IVisual {
     private marginResizer: Selection<HTMLDivElement, unknown, null, undefined>;
     private selectedTaskLabel: Selection<HTMLDivElement, unknown, null, undefined>;
     private pathInfoLabel: Selection<HTMLDivElement, unknown, null, undefined>;
+    private isDropdownInteracting: boolean = false;  // FIX BUG-010: Track dropdown interaction state
 
     private traceMode: string = "backward"; // Default to "backward"
 
@@ -1472,6 +1474,9 @@ private toggleTaskDisplayInternal(): void {
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
+
+        // FIX BUG-014: Update mini chart after toggle to reflect filtered data
+        this.drawZoomSliderMiniChart();
 
         this.debugLog("Visual update triggered by internal toggle");
     } catch (error) {
@@ -3003,13 +3008,24 @@ private toggleCriticalityMode(): void {
         if (newMode === 'longestPath' && this.floatThreshold > 0) {
             this.debugLog(`Resetting float threshold from ${this.floatThreshold} to 0`);
             this.floatThreshold = 0;
-            
+
             // Update float threshold input if it exists
             if (this.floatThresholdInput) {
                 this.floatThresholdInput.property("value", "0");
             }
         }
-        
+
+        // FIX BUG-009: Clear stale near-critical flags when switching modes
+        // This ensures Float-Based near-critical state doesn't persist into LP mode
+        // and vice versa - LP's proximity-based near-critical doesn't persist to Float
+        this.allTasksData.forEach(task => {
+            task.isNearCritical = false;
+            // Also reset Float-Based specific flags if switching away
+            if (newMode === 'longestPath') {
+                task.isCriticalByFloat = false;
+            }
+        });
+
         // Update the settings value locally
         if (this.settings?.criticalityMode?.calculationMode) {
             this.settings.criticalityMode.calculationMode.value = {
@@ -5380,7 +5396,13 @@ private redrawVisibleTasks(): void {
         if (this.canvasElement) {
             const leftMargin = Math.round(this.margin.left);
             const topMargin = Math.round(this.margin.top);
-            
+
+            // ENHANCEMENT: Start canvas hidden (opacity 0) for fade-in transition when switching modes
+            if (modeChanged) {
+                this.canvasElement.style.opacity = '0';
+                this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
+            }
+
             this.canvasElement.style.display = 'block';
             this.canvasElement.style.visibility = 'visible';
             this.canvasElement.style.left = `${leftMargin}px`;
@@ -5457,22 +5479,60 @@ private redrawVisibleTasks(): void {
             );
 
             // BUG-011 FIX: NOW hide SVG layers (after canvas content is fully rendered)
-            // This prevents flicker by showing new content before hiding old
-            this.taskLayer.style("display", "none");
-            this.arrowLayer.style("display", "none");
-            // Also clear SVG content to free memory
-            if (modeChanged) {
-                this.taskLayer?.selectAll("*").remove();
-                this.arrowLayer?.selectAll("*").remove();
+            // ENHANCEMENT: Animate the mode transition with fade effects
+            if (modeChanged && this.canvasElement) {
+                // Fade in canvas while fading out SVG
+                requestAnimationFrame(() => {
+                    if (this.canvasElement) {
+                        this.canvasElement.style.opacity = '1';
+                    }
+
+                    // Fade out SVG layers
+                    this.taskLayer
+                        .transition()
+                        .duration(this.MODE_TRANSITION_DURATION)
+                        .style("opacity", 0)
+                        .on("end", () => {
+                            this.taskLayer.style("display", "none");
+                            this.taskLayer.style("opacity", null);  // Reset for next use
+                            this.taskLayer?.selectAll("*").remove();
+                        });
+
+                    this.arrowLayer
+                        .transition()
+                        .duration(this.MODE_TRANSITION_DURATION)
+                        .style("opacity", 0)
+                        .on("end", () => {
+                            this.arrowLayer.style("display", "none");
+                            this.arrowLayer.style("opacity", null);  // Reset for next use
+                            this.arrowLayer?.selectAll("*").remove();
+                        });
+                });
+            } else {
+                // No mode change - just hide immediately
+                this.taskLayer.style("display", "none");
+                this.arrowLayer.style("display", "none");
             }
         }
     } else {
         // --- SVG Rendering Path ---
         // BUG-011 FIX: Show SVG layers first, render content, then hide canvas
-        this.taskLayer.style("display", "block");
-        this.taskLayer.style("visibility", "visible");
-        this.arrowLayer.style("display", "block");
-        this.arrowLayer.style("visibility", "visible");
+        // ENHANCEMENT: Start SVG layers hidden (opacity 0) for fade-in transition when switching modes
+        if (modeChanged) {
+            this.taskLayer
+                .style("opacity", 0)
+                .style("display", "block")
+                .style("visibility", "visible");
+            this.arrowLayer
+                .style("opacity", 0)
+                .style("display", "block")
+                .style("visibility", "visible");
+        } else {
+            this.taskLayer.style("display", "block");
+            this.taskLayer.style("visibility", "visible");
+            this.arrowLayer.style("display", "block");
+            this.arrowLayer.style("visibility", "visible");
+        }
 
         // Apply SVG rendering hints
         this.setupSVGRenderingHints();
@@ -5522,13 +5582,42 @@ private redrawVisibleTasks(): void {
     );
 
         // BUG-011 FIX: NOW hide canvas (after SVG content is fully rendered)
-        // This prevents flicker by showing new content before hiding old
-        if (this.canvasElement) {
+        // ENHANCEMENT: Animate the mode transition with fade effects
+        if (modeChanged && this.canvasElement) {
+            // Fade in SVG layers while fading out canvas
+            requestAnimationFrame(() => {
+                // Fade in SVG layers
+                this.taskLayer
+                    .transition()
+                    .duration(this.MODE_TRANSITION_DURATION)
+                    .style("opacity", 1);
+
+                this.arrowLayer
+                    .transition()
+                    .duration(this.MODE_TRANSITION_DURATION)
+                    .style("opacity", 1);
+
+                // Fade out canvas
+                if (this.canvasElement) {
+                    this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
+                    this.canvasElement.style.opacity = '0';
+
+                    // After transition, hide canvas and clear
+                    setTimeout(() => {
+                        if (this.canvasElement) {
+                            this.canvasElement.style.display = 'none';
+                            this.canvasElement.style.transition = '';  // Reset for next use
+                        }
+                        // Clear canvas content to free memory
+                        if (this.canvasContext && this.canvasElement) {
+                            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+                        }
+                    }, this.MODE_TRANSITION_DURATION);
+                }
+            });
+        } else if (this.canvasElement) {
+            // No mode change - just hide immediately
             this.canvasElement.style.display = 'none';
-        }
-        // Also clear canvas content to free memory
-        if (modeChanged && this.canvasContext && this.canvasElement) {
-            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
         }
     }
 
@@ -8960,9 +9049,20 @@ private updatePathInfoLabel(): void {
 
 /**
  * Navigate to the previous driving path
+ * FIX BUG-015: Provides feedback when navigation is not possible
  */
 private navigateToPreviousPath(): void {
-    if (this.allDrivingChains.length <= 1) return;
+    // FIX BUG-015: Provide feedback when navigation not possible
+    if (this.allDrivingChains.length === 0) {
+        this.debugLog("[Path Navigation] No driving chains available");
+        return;
+    }
+
+    if (this.allDrivingChains.length === 1) {
+        this.debugLog("[Path Navigation] Only one path exists - navigation disabled");
+        this.showPathNavigationFeedback("Only one driving path exists");
+        return;
+    }
 
     // Move to previous path (with wrapping)
     this.selectedPathIndex = this.selectedPathIndex === 0
@@ -8986,9 +9086,20 @@ private navigateToPreviousPath(): void {
 
 /**
  * Navigate to the next driving path
+ * FIX BUG-015: Provides feedback when navigation is not possible
  */
 private navigateToNextPath(): void {
-    if (this.allDrivingChains.length <= 1) return;
+    // FIX BUG-015: Provide feedback when navigation not possible
+    if (this.allDrivingChains.length === 0) {
+        this.debugLog("[Path Navigation] No driving chains available");
+        return;
+    }
+
+    if (this.allDrivingChains.length === 1) {
+        this.debugLog("[Path Navigation] Only one path exists - navigation disabled");
+        this.showPathNavigationFeedback("Only one driving path exists");
+        return;
+    }
 
     // Move to next path (with wrapping)
     this.selectedPathIndex = (this.selectedPathIndex + 1) % this.allDrivingChains.length;
@@ -9005,6 +9116,34 @@ private navigateToNextPath(): void {
     this.forceFullUpdate = true;
     if (this.lastUpdateOptions) {
         this.update(this.lastUpdateOptions);
+    }
+}
+
+/**
+ * FIX BUG-015: Helper method for user feedback when navigation not possible
+ * Shows a brief message in the path info label
+ */
+private showPathNavigationFeedback(message: string): void {
+    if (this.pathInfoLabel) {
+        // Store original content
+        const originalDisplay = this.pathInfoLabel.style("display");
+
+        // Show feedback message temporarily
+        this.pathInfoLabel
+            .style("display", "flex")
+            .selectAll("*").remove();
+
+        this.pathInfoLabel.append("span")
+            .style("color", this.UI_TOKENS.color.warning?.default || "#C87800")
+            .style("font-weight", "500")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .text(message);
+
+        // Restore original state after 2 seconds
+        setTimeout(() => {
+            this.pathInfoLabel.style("display", originalDisplay);
+            this.updatePathInfoLabel();
+        }, 2000);
     }
 }
 
@@ -11980,13 +12119,25 @@ private createTaskSelectionDropdown(): void {
 
     // Rest of the method remains the same...
     const self = this;
-    
+
+    // FIX BUG-010: Track mousedown on dropdown to prevent premature closing
+    this.dropdownList
+        .on("mousedown", () => {
+            this.isDropdownInteracting = true;
+        })
+        .on("mouseup", () => {
+            // Reset after a brief delay to allow click to process
+            setTimeout(() => {
+                this.isDropdownInteracting = false;
+            }, 50);
+        });
+
     // Input event handlers
     this.dropdownInput
         .on("input", function() {
             const inputValue = (this as HTMLInputElement).value.trim();
             self.filterTaskDropdown(inputValue);
-            
+
             // Show dropdown when typing
             if (self.dropdownList) {
                 self.dropdownList.style("display", "block");
@@ -11995,32 +12146,34 @@ private createTaskSelectionDropdown(): void {
         .on("focus", function() {
             self.dropdownList.style("display", "block");
             self.populateTaskDropdown();
-            
+
             // Disable pointer events on the trace toggle while dropdown is open
             self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                 .style("pointer-events", "none");
         })
         .on("blur", function() {
-            // Delay hiding to allow click events on dropdown items
+            // FIX BUG-010: Check if user is clicking inside dropdown before closing
             setTimeout(() => {
-                if (self.dropdownList) {
+                // Only close if not interacting with dropdown
+                if (!self.isDropdownInteracting && self.dropdownList) {
                     self.dropdownList.style("display", "none");
                 }
-                // Re-enable trace toggle
+                // Re-enable trace toggle regardless
                 self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                     .style("pointer-events", "auto");
-            }, 200);
+            }, 150); // Reduced from 200ms for better responsiveness
         })
         .on("keydown", function(event: KeyboardEvent) {
             if (event.key === "Escape") {
+                self.isDropdownInteracting = false;  // FIX BUG-010: Reset interaction state
                 self.selectTask(null, null);
                 self.dropdownInput.property("value", "");
                 self.dropdownList.style("display", "none");
-                
+
                 // Re-enable trace toggle
                 self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                     .style("pointer-events", "auto");
-                
+
                 event.preventDefault();
             }
         });
@@ -12111,7 +12264,8 @@ private populateTaskDropdown(): void {
             self.selectTask(null, null);
             self.dropdownInput.property("value", "");
             self.dropdownList.style("display", "none");
-            
+            self.isDropdownInteracting = false;  // FIX BUG-010: Reset interaction state
+
             // Re-enable trace toggle
             self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                 .style("pointer-events", "auto");
@@ -12155,7 +12309,8 @@ private populateTaskDropdown(): void {
             self.selectTask(task.internalId, task.name);
             self.dropdownInput.property("value", taskName);
             self.dropdownList.style("display", "none");
-            
+            self.isDropdownInteracting = false;  // FIX BUG-010: Reset interaction state
+
             // Re-enable trace toggle
             self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                 .style("pointer-events", "auto");
@@ -12792,6 +12947,12 @@ private ensureTaskVisible(taskId: string): void {
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
+
+        // FIX BUG-014: Update mini chart after legend filter change
+        // Must be called after update completes to reflect filtered data
+        requestAnimationFrame(() => {
+            this.drawZoomSliderMiniChart();
+        });
     }
 
     /**

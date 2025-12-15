@@ -26,6 +26,7 @@ export declare class Visual implements IVisual {
     private canvasContext;
     private useCanvasRendering;
     private CANVAS_THRESHOLD;
+    private readonly MODE_TRANSITION_DURATION;
     private canvasLayer;
     private allTasksData;
     private relationships;
@@ -64,6 +65,7 @@ export declare class Visual implements IVisual {
     private marginResizer;
     private selectedTaskLabel;
     private pathInfoLabel;
+    private isDropdownInteracting;
     private traceMode;
     private floatThresholdInput;
     private floatThreshold;
@@ -442,12 +444,19 @@ export declare class Visual implements IVisual {
     private updatePathInfoLabel;
     /**
      * Navigate to the previous driving path
+     * FIX BUG-015: Provides feedback when navigation is not possible
      */
     private navigateToPreviousPath;
     /**
      * Navigate to the next driving path
+     * FIX BUG-015: Provides feedback when navigation is not possible
      */
     private navigateToNextPath;
+    /**
+     * FIX BUG-015: Helper method for user feedback when navigation not possible
+     * Shows a brief message in the path info label
+     */
+    private showPathNavigationFeedback;
     /**
      * Persist the selected path index to settings
      */
