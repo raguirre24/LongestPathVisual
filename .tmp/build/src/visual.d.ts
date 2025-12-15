@@ -26,6 +26,7 @@ export declare class Visual implements IVisual {
     private canvasContext;
     private useCanvasRendering;
     private CANVAS_THRESHOLD;
+    private readonly MODE_TRANSITION_DURATION;
     private canvasLayer;
     private allTasksData;
     private relationships;

@@ -203,6 +203,7 @@ export class Visual implements IVisual {
     private canvasContext: CanvasRenderingContext2D | null = null;
     private useCanvasRendering: boolean = false;
     private CANVAS_THRESHOLD: number = 250; // Switch to canvas when more than 250 tasks (Phase 1 optimization)
+    private readonly MODE_TRANSITION_DURATION: number = 150; // ms - Duration for Canvas/SVG mode transition animation
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
 
     // --- Data properties remain the same ---
@@ -5395,7 +5396,13 @@ private redrawVisibleTasks(): void {
         if (this.canvasElement) {
             const leftMargin = Math.round(this.margin.left);
             const topMargin = Math.round(this.margin.top);
-            
+
+            // ENHANCEMENT: Start canvas hidden (opacity 0) for fade-in transition when switching modes
+            if (modeChanged) {
+                this.canvasElement.style.opacity = '0';
+                this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
+            }
+
             this.canvasElement.style.display = 'block';
             this.canvasElement.style.visibility = 'visible';
             this.canvasElement.style.left = `${leftMargin}px`;
@@ -5472,22 +5479,60 @@ private redrawVisibleTasks(): void {
             );
 
             // BUG-011 FIX: NOW hide SVG layers (after canvas content is fully rendered)
-            // This prevents flicker by showing new content before hiding old
-            this.taskLayer.style("display", "none");
-            this.arrowLayer.style("display", "none");
-            // Also clear SVG content to free memory
-            if (modeChanged) {
-                this.taskLayer?.selectAll("*").remove();
-                this.arrowLayer?.selectAll("*").remove();
+            // ENHANCEMENT: Animate the mode transition with fade effects
+            if (modeChanged && this.canvasElement) {
+                // Fade in canvas while fading out SVG
+                requestAnimationFrame(() => {
+                    if (this.canvasElement) {
+                        this.canvasElement.style.opacity = '1';
+                    }
+
+                    // Fade out SVG layers
+                    this.taskLayer
+                        .transition()
+                        .duration(this.MODE_TRANSITION_DURATION)
+                        .style("opacity", 0)
+                        .on("end", () => {
+                            this.taskLayer.style("display", "none");
+                            this.taskLayer.style("opacity", null);  // Reset for next use
+                            this.taskLayer?.selectAll("*").remove();
+                        });
+
+                    this.arrowLayer
+                        .transition()
+                        .duration(this.MODE_TRANSITION_DURATION)
+                        .style("opacity", 0)
+                        .on("end", () => {
+                            this.arrowLayer.style("display", "none");
+                            this.arrowLayer.style("opacity", null);  // Reset for next use
+                            this.arrowLayer?.selectAll("*").remove();
+                        });
+                });
+            } else {
+                // No mode change - just hide immediately
+                this.taskLayer.style("display", "none");
+                this.arrowLayer.style("display", "none");
             }
         }
     } else {
         // --- SVG Rendering Path ---
         // BUG-011 FIX: Show SVG layers first, render content, then hide canvas
-        this.taskLayer.style("display", "block");
-        this.taskLayer.style("visibility", "visible");
-        this.arrowLayer.style("display", "block");
-        this.arrowLayer.style("visibility", "visible");
+        // ENHANCEMENT: Start SVG layers hidden (opacity 0) for fade-in transition when switching modes
+        if (modeChanged) {
+            this.taskLayer
+                .style("opacity", 0)
+                .style("display", "block")
+                .style("visibility", "visible");
+            this.arrowLayer
+                .style("opacity", 0)
+                .style("display", "block")
+                .style("visibility", "visible");
+        } else {
+            this.taskLayer.style("display", "block");
+            this.taskLayer.style("visibility", "visible");
+            this.arrowLayer.style("display", "block");
+            this.arrowLayer.style("visibility", "visible");
+        }
 
         // Apply SVG rendering hints
         this.setupSVGRenderingHints();
@@ -5537,13 +5582,42 @@ private redrawVisibleTasks(): void {
     );
 
         // BUG-011 FIX: NOW hide canvas (after SVG content is fully rendered)
-        // This prevents flicker by showing new content before hiding old
-        if (this.canvasElement) {
+        // ENHANCEMENT: Animate the mode transition with fade effects
+        if (modeChanged && this.canvasElement) {
+            // Fade in SVG layers while fading out canvas
+            requestAnimationFrame(() => {
+                // Fade in SVG layers
+                this.taskLayer
+                    .transition()
+                    .duration(this.MODE_TRANSITION_DURATION)
+                    .style("opacity", 1);
+
+                this.arrowLayer
+                    .transition()
+                    .duration(this.MODE_TRANSITION_DURATION)
+                    .style("opacity", 1);
+
+                // Fade out canvas
+                if (this.canvasElement) {
+                    this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
+                    this.canvasElement.style.opacity = '0';
+
+                    // After transition, hide canvas and clear
+                    setTimeout(() => {
+                        if (this.canvasElement) {
+                            this.canvasElement.style.display = 'none';
+                            this.canvasElement.style.transition = '';  // Reset for next use
+                        }
+                        // Clear canvas content to free memory
+                        if (this.canvasContext && this.canvasElement) {
+                            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+                        }
+                    }, this.MODE_TRANSITION_DURATION);
+                }
+            });
+        } else if (this.canvasElement) {
+            // No mode change - just hide immediately
             this.canvasElement.style.display = 'none';
-        }
-        // Also clear canvas content to free memory
-        if (modeChanged && this.canvasContext && this.canvasElement) {
-            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
         }
     }
 
