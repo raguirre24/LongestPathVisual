@@ -8862,6 +8862,7 @@ private getSelectedDrivingChain(): {
 /**
  * Updates the path information label display with interactive navigation
  * UPGRADED: Professional navigation buttons with enhanced design and smooth animations
+ * Shows "Path 1/1" even with single path so users understand there's only one driving path
  */
 private updatePathInfoLabel(): void {
     if (!this.pathInfoLabel) return;
@@ -8870,11 +8871,13 @@ private updatePathInfoLabel(): void {
     const showPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value ?? true;
     const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
 
-    // Only show if enabled and in Longest Path mode with multiple paths
+    // Show if enabled and in Longest Path mode (even with single path)
     const mode = this.settings?.criticalityMode?.calculationMode?.value?.value ?? 'longestPath';
     const hasMultiplePaths = this.allDrivingChains.length > 1;
+    const hasAnyPaths = this.allDrivingChains.length > 0;
 
-    if (!showPathInfo || mode !== 'longestPath' || !hasMultiplePaths || !multiPathEnabled) {
+    // Hide only if: no paths, not in LP mode, or display disabled
+    if (!showPathInfo || mode !== 'longestPath' || !hasAnyPaths || !multiPathEnabled) {
         this.pathInfoLabel.style("display", "none");
         return;
     }
@@ -8906,10 +8909,16 @@ private updatePathInfoLabel(): void {
     const duration = currentChain.totalDuration.toFixed(1);
     const taskCount = currentChain.tasks.size;
 
+    // Determine button styles based on whether navigation is possible
+    const buttonOpacity = hasMultiplePaths ? "1" : "0.35";
+    const buttonCursor = hasMultiplePaths ? "pointer" : "default";
+    const buttonTitle = hasMultiplePaths ? "Previous driving path" : "Only one driving path";
+
     // Professional Previous button with SVG arrow
     const prevButton = this.pathInfoLabel.append("div")
-        .style("cursor", "pointer")
-        .style("padding", "6px")  // Increased from 4px 8px
+        .style("cursor", buttonCursor)
+        .style("opacity", buttonOpacity)
+        .style("padding", "6px")
         .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
         .style("display", "flex")
         .style("align-items", "center")
@@ -8917,7 +8926,8 @@ private updatePathInfoLabel(): void {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .style("user-select", "none")
         .style("width", "24px")
-        .style("height", "24px");
+        .style("height", "24px")
+        .attr("title", buttonTitle);
 
     // SVG arrow for previous button
     const prevSvg = prevButton.append("svg")
@@ -8934,28 +8944,32 @@ private updatePathInfoLabel(): void {
         .attr("fill", "none");
 
     const self = this;
-    prevButton
-        .on("mouseover", function() {
-            d3.select(this)
-                .style("background-color", self.UI_TOKENS.color.primary.light)
-                .style("transform", "scale(1.1)");
-        })
-        .on("mouseout", function() {
-            d3.select(this)
-                .style("background-color", "transparent")
-                .style("transform", "scale(1)");
-        })
-        .on("mousedown", function() {
-            d3.select(this).style("transform", "scale(0.95)");
-        })
-        .on("mouseup", function() {
-            d3.select(this).style("transform", "scale(1.1)");
-        });
 
-    prevButton.on("click", function(event) {
-        event.stopPropagation();
-        self.navigateToPreviousPath();
-    });
+    // Only add hover/click handlers if navigation is possible
+    if (hasMultiplePaths) {
+        prevButton
+            .on("mouseover", function() {
+                d3.select(this)
+                    .style("background-color", self.UI_TOKENS.color.primary.light)
+                    .style("transform", "scale(1.1)");
+            })
+            .on("mouseout", function() {
+                d3.select(this)
+                    .style("background-color", "transparent")
+                    .style("transform", "scale(1)");
+            })
+            .on("mousedown", function() {
+                d3.select(this).style("transform", "scale(0.95)");
+            })
+            .on("mouseup", function() {
+                d3.select(this).style("transform", "scale(1.1)");
+            });
+
+        prevButton.on("click", function(event) {
+            event.stopPropagation();
+            self.navigateToPreviousPath();
+        });
+    }
 
     // Professional path info text container - responsive layout
     const infoContainer = this.pathInfoLabel.append("div")
@@ -8994,9 +9008,11 @@ private updatePathInfoLabel(): void {
         }
     }
 
-    // Professional Next button with SVG arrow
+    // Professional Next button with SVG arrow (disabled when single path)
+    const nextButtonTitle = hasMultiplePaths ? "Next driving path" : "Only one driving path";
     const nextButton = this.pathInfoLabel.append("div")
-        .style("cursor", "pointer")
+        .style("cursor", buttonCursor)
+        .style("opacity", buttonOpacity)
         .style("padding", "6px")
         .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
         .style("display", "flex")
@@ -9005,7 +9021,8 @@ private updatePathInfoLabel(): void {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .style("user-select", "none")
         .style("width", "24px")
-        .style("height", "24px");
+        .style("height", "24px")
+        .attr("title", nextButtonTitle);
 
     // SVG arrow for next button
     const nextSvg = nextButton.append("svg")
@@ -9021,28 +9038,31 @@ private updatePathInfoLabel(): void {
         .attr("stroke-linejoin", "round")
         .attr("fill", "none");
 
-    nextButton
-        .on("mouseover", function() {
-            d3.select(this)
-                .style("background-color", self.UI_TOKENS.color.primary.light)
-                .style("transform", "scale(1.1)");
-        })
-        .on("mouseout", function() {
-            d3.select(this)
-                .style("background-color", "transparent")
-                .style("transform", "scale(1)");
-        })
-        .on("mousedown", function() {
-            d3.select(this).style("transform", "scale(0.95)");
-        })
-        .on("mouseup", function() {
-            d3.select(this).style("transform", "scale(1.1)");
-        });
+    // Only add hover/click handlers if navigation is possible
+    if (hasMultiplePaths) {
+        nextButton
+            .on("mouseover", function() {
+                d3.select(this)
+                    .style("background-color", self.UI_TOKENS.color.primary.light)
+                    .style("transform", "scale(1.1)");
+            })
+            .on("mouseout", function() {
+                d3.select(this)
+                    .style("background-color", "transparent")
+                    .style("transform", "scale(1)");
+            })
+            .on("mousedown", function() {
+                d3.select(this).style("transform", "scale(0.95)");
+            })
+            .on("mouseup", function() {
+                d3.select(this).style("transform", "scale(1.1)");
+            });
 
-    nextButton.on("click", function(event) {
-        event.stopPropagation();
-        self.navigateToNextPath();
-    });
+        nextButton.on("click", function(event) {
+            event.stopPropagation();
+            self.navigateToNextPath();
+        });
+    }
 
     this.pathInfoLabel.style("display", "flex");
 }

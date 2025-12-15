@@ -440,6 +440,7 @@ export declare class Visual implements IVisual {
     /**
      * Updates the path information label display with interactive navigation
      * UPGRADED: Professional navigation buttons with enhanced design and smooth animations
+     * Shows "Path 1/1" even with single path so users understand there's only one driving path
      */
     private updatePathInfoLabel;
     /**
