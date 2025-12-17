@@ -28,6 +28,10 @@ export declare class Visual implements IVisual {
     private CANVAS_THRESHOLD;
     private readonly MODE_TRANSITION_DURATION;
     private canvasLayer;
+    private loadingOverlay;
+    private loadingBar;
+    private loadingText;
+    private isLoadingVisible;
     private allTasksData;
     private relationships;
     private taskIdToTask;
@@ -345,6 +349,14 @@ export declare class Visual implements IVisual {
      * Request additional segments, but continue rendering with what we have so the visual never goes blank.
      */
     private handleSegmentedDataView;
+    /**
+     * Determine if more data is expected (additional segments pending).
+     */
+    private isDataLoading;
+    /**
+     * Show/hide the loading overlay to avoid users seeing incremental task pop-in.
+     */
+    private setLoadingOverlayVisible;
     update(options: VisualUpdateOptions): void;
     private updateInternal;
     private handleViewportOnlyUpdate;

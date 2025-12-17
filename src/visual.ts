@@ -205,6 +205,10 @@ export class Visual implements IVisual {
     private CANVAS_THRESHOLD: number = 250; // Switch to canvas when more than 250 tasks (Phase 1 optimization)
     private readonly MODE_TRANSITION_DURATION: number = 150; // ms - Duration for Canvas/SVG mode transition animation
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
+    private loadingOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
+    private loadingBar: Selection<HTMLDivElement, unknown, null, undefined>;
+    private loadingText: Selection<HTMLDivElement, unknown, null, undefined>;
+    private isLoadingVisible: boolean = false;
 
     // --- Data properties remain the same ---
     private allTasksData: Task[] = [];
@@ -817,7 +821,64 @@ constructor(options: VisualConstructorOptions) {
         .style("width", "100%")
         .style("overflow-y", "auto")
         .style("overflow-x", "hidden")
-        .style("padding-top", `0px`);
+        .style("padding-top", `0px`)
+        .style("position", "relative"); // Needed for loading overlay positioning
+
+    // --- Loading overlay (covers chart area while additional segments load) ---
+    this.loadingOverlay = this.scrollableContainer.append("div")
+        .attr("class", "loading-overlay")
+        .style("position", "absolute")
+        .style("top", "0")
+        .style("left", "0")
+        .style("width", "100%")
+        .style("height", "100%")
+        .style("display", "none")
+        .style("align-items", "center")
+        .style("justify-content", "center")
+        .style("flex-direction", "column")
+        .style("background", "rgba(255,255,255,0.92)")
+        .style("backdrop-filter", "blur(2px)")
+        .style("z-index", "50");
+
+    const overlayContent = this.loadingOverlay.append("div")
+        .style("min-width", "260px")
+        .style("padding", "12px 16px")
+        .style("border-radius", "10px")
+        .style("box-shadow", "0 4px 12px rgba(0,0,0,0.12)")
+        .style("background", "#ffffff")
+        .style("display", "flex")
+        .style("flex-direction", "column")
+        .style("gap", "10px");
+
+    this.loadingText = overlayContent.append("div")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "12px")
+        .style("color", "#323130")
+        .style("font-weight", "600")
+        .text("Loading tasks…");
+
+    const barTrack = overlayContent.append("div")
+        .style("height", "6px")
+        .style("width", "100%")
+        .style("border-radius", "999px")
+        .style("background", "#f3f2f1")
+        .style("overflow", "hidden");
+
+    this.loadingBar = barTrack.append("div")
+        .style("height", "100%")
+        .style("width", "35%")
+        .style("border-radius", "999px")
+        .style("background", "linear-gradient(90deg, #0078D4, #1890F5)")
+        .style("animation", "loadingBarPulse 1.2s ease-in-out infinite")
+        .style("transform", "translateX(-30%)");
+
+    // Keyframes for the loading bar animation (added once)
+    if (!document.getElementById("loading-bar-pulse-style")) {
+        const styleEl = document.createElement("style");
+        styleEl.id = "loading-bar-pulse-style";
+        styleEl.textContent = `@keyframes loadingBarPulse { 0% { transform: translateX(-40%); } 50% { transform: translateX(20%); } 100% { transform: translateX(100%); } }`;
+        document.head.appendChild(styleEl);
+    }
 
     // --- Main SVG for the chart content ---
     this.mainSvg = this.scrollableContainer.append("svg")
@@ -3959,6 +4020,38 @@ private async handleSegmentedDataView(dataView: DataView): Promise<void> {
     }
 }
 
+/**
+ * Determine if more data is expected (additional segments pending).
+ */
+private isDataLoading(dataView: DataView): boolean {
+    const hasSegment = !!dataView.metadata?.segment;
+    const awaitingRequestedRows = this.lastFetchRequestedRowCount !== null &&
+        (dataView.table?.rows?.length || 0) <= this.lastFetchRequestedRowCount;
+    return hasSegment || this.isFetchingMoreData || awaitingRequestedRows;
+}
+
+/**
+ * Show/hide the loading overlay to avoid users seeing incremental task pop-in.
+ */
+private setLoadingOverlayVisible(show: boolean, message?: string): void {
+    if (!this.loadingOverlay) return;
+
+    if (show) {
+        if (message && this.loadingText) {
+            this.loadingText.text(message);
+        }
+        this.loadingOverlay.style("display", "flex");
+        this.mainSvg?.style("visibility", "hidden");
+        this.canvasLayer?.style("visibility", "hidden");
+        this.isLoadingVisible = true;
+    } else {
+        this.loadingOverlay.style("display", "none");
+        this.mainSvg?.style("visibility", "visible");
+        this.canvasLayer?.style("visibility", "visible");
+        this.isLoadingVisible = false;
+    }
+}
+
     public update(options: VisualUpdateOptions) {
         console.log("===== UPDATE() CALLED =====");
         console.log("Update type:", options.type);
@@ -4072,6 +4165,14 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         // Large tables arrive in 30k-row chunks; request additional segments, but keep rendering current data
         await this.handleSegmentedDataView(dataView);
+
+        // If more data is expected, show loading overlay and defer rendering to avoid incremental pop-in
+        const loadingData = this.isDataLoading(dataView);
+        this.setLoadingOverlayVisible(loadingData, "Loading tasks…");
+        if (loadingData) {
+            return;
+        }
+        this.setLoadingOverlayVisible(false);
 
         // METADATA CHECK: Determine if WBS columns exist in metadata (for button visibility)
         // This is independent of whether filtered tasks have WBS values
