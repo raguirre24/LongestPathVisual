@@ -208,7 +208,10 @@ export class Visual implements IVisual {
     private loadingOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingBar: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingText: Selection<HTMLDivElement, unknown, null, undefined>;
+    private loadingRowsText: Selection<HTMLDivElement, unknown, null, undefined>;
+    private loadingProgressText: Selection<HTMLDivElement, unknown, null, undefined>;
     private isLoadingVisible: boolean = false;
+    private loadingStartTime: number | null = null;
 
     // --- Data properties remain the same ---
     private allTasksData: Task[] = [];
@@ -852,10 +855,20 @@ constructor(options: VisualConstructorOptions) {
 
     this.loadingText = overlayContent.append("div")
         .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "12px")
+        .style("font-size", "13px")
         .style("color", "#323130")
         .style("font-weight", "600")
-        .text("Loading tasks…");
+        .text("Loading data…");
+
+    // Row count display
+    this.loadingRowsText = overlayContent.append("div")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "20px")
+        .style("color", "#0078D4")
+        .style("font-weight", "700")
+        .style("text-align", "center")
+        .style("margin", "4px 0")
+        .text("0 rows");
 
     const barTrack = overlayContent.append("div")
         .style("height", "6px")
@@ -872,11 +885,19 @@ constructor(options: VisualConstructorOptions) {
         .style("animation", "loadingBarPulse 1.2s ease-in-out infinite")
         .style("transform", "translateX(-30%)");
 
+    // Progress details (segments, time elapsed)
+    this.loadingProgressText = overlayContent.append("div")
+        .style("font-family", "Segoe UI, sans-serif")
+        .style("font-size", "11px")
+        .style("color", "#605E5C")
+        .style("text-align", "center")
+        .text("");
+
     // Keyframes for the loading bar animation (added once)
     if (!document.getElementById("loading-bar-pulse-style")) {
         const styleEl = document.createElement("style");
         styleEl.id = "loading-bar-pulse-style";
-        styleEl.textContent = `@keyframes loadingBarPulse { 0% { transform: translateX(-40%); } 50% { transform: translateX(20%); } 100% { transform: translateX(100%); } }`;
+        styleEl.textContent = `@keyframes loadingBarPulse { 0% { transform: translateX(-40%); } 50% { transform: translateX(20%); } 100% { transform: translateX(100%); } } @keyframes loadingBarDeterminate { from { width: 0%; } }`;
         document.head.appendChild(styleEl);
     }
 
@@ -4031,24 +4052,97 @@ private isDataLoading(dataView: DataView): boolean {
 }
 
 /**
- * Show/hide the loading overlay to avoid users seeing incremental task pop-in.
+ * Format a number with thousands separators for display.
  */
-private setLoadingOverlayVisible(show: boolean, message?: string): void {
+private formatNumber(num: number): string {
+    return num.toLocaleString();
+}
+
+/**
+ * Format elapsed time in a human-readable way.
+ */
+private formatElapsedTime(ms: number): string {
+    if (ms < 1000) return "< 1s";
+    const seconds = Math.floor(ms / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
+}
+
+/**
+ * Show/hide the loading overlay with detailed progress information.
+ */
+private setLoadingOverlayVisible(
+    show: boolean,
+    options?: {
+        message?: string;
+        rowCount?: number;
+        segmentNumber?: number;
+        hasMoreSegments?: boolean;
+    }
+): void {
     if (!this.loadingOverlay) return;
 
     if (show) {
-        if (message && this.loadingText) {
-            this.loadingText.text(message);
+        // Start timing on first show
+        if (!this.loadingStartTime) {
+            this.loadingStartTime = performance.now();
         }
+
+        // Update main message
+        if (options?.message && this.loadingText) {
+            this.loadingText.text(options.message);
+        }
+
+        // Update row count with animation effect
+        if (this.loadingRowsText && options?.rowCount !== undefined) {
+            const rowText = options.rowCount > 0
+                ? `${this.formatNumber(options.rowCount)} rows`
+                : "Initializing…";
+            this.loadingRowsText.text(rowText);
+        }
+
+        // Update progress details
+        if (this.loadingProgressText) {
+            const elapsed = performance.now() - (this.loadingStartTime || performance.now());
+            const elapsedText = this.formatElapsedTime(elapsed);
+
+            let progressDetails = "";
+            if (options?.segmentNumber !== undefined && options.segmentNumber > 0) {
+                const segmentText = options.hasMoreSegments
+                    ? `Segment ${options.segmentNumber} of ${options.segmentNumber}+`
+                    : `Segment ${options.segmentNumber}`;
+                progressDetails = `${segmentText} • ${elapsedText} elapsed`;
+            } else if (elapsed >= 1000) {
+                progressDetails = `${elapsedText} elapsed`;
+            }
+
+            this.loadingProgressText.text(progressDetails);
+        }
+
+        // Show overlay
         this.loadingOverlay.style("display", "flex");
         this.mainSvg?.style("visibility", "hidden");
         this.canvasLayer?.style("visibility", "hidden");
         this.isLoadingVisible = true;
     } else {
+        // Reset timing when hiding
+        this.loadingStartTime = null;
+
+        // Hide overlay
         this.loadingOverlay.style("display", "none");
         this.mainSvg?.style("visibility", "visible");
         this.canvasLayer?.style("visibility", "visible");
         this.isLoadingVisible = false;
+
+        // Reset progress text
+        if (this.loadingRowsText) {
+            this.loadingRowsText.text("0 rows");
+        }
+        if (this.loadingProgressText) {
+            this.loadingProgressText.text("");
+        }
     }
 }
 
@@ -4168,7 +4262,16 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         // If more data is expected, show loading overlay and defer rendering to avoid incremental pop-in
         const loadingData = this.isDataLoading(dataView);
-        this.setLoadingOverlayVisible(loadingData, "Loading tasks…");
+        const rowCount = dataView.table?.rows?.length || 0;
+        const hasMoreSegments = !!dataView.metadata?.segment;
+
+        this.setLoadingOverlayVisible(loadingData, {
+            message: hasMoreSegments ? "Fetching additional data…" : "Loading data…",
+            rowCount: rowCount,
+            segmentNumber: this.fetchMoreRetryCount > 0 ? this.fetchMoreRetryCount : (rowCount > 0 ? 1 : 0),
+            hasMoreSegments: hasMoreSegments
+        });
+
         if (loadingData) {
             return;
         }
