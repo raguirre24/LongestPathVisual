@@ -346,10 +346,13 @@ export class Visual implements IVisual {
     private isUpdating: boolean = false;
     private isFetchingMoreData: boolean = false; // Prevent parallel fetchMoreData calls
     private fetchMoreRetryCount: number = 0; // Track how many extra segments we have requested
-    private readonly MAX_FETCH_MORE_REQUESTS: number = 40; // Covers ~1M rows at 30k/page with buffer
+    private readonly MAX_FETCH_MORE_REQUESTS: number = 40; // Covers ~2M rows at 50k/page with buffer
     private fallbackFetchAttemptsWithoutSegment: number = 0; // Guardrail when PBI omits metadata.segment
-    private readonly DEFAULT_PBI_SEGMENT_SIZE: number = 50000; // Target chunk size based on window reduction
+    private readonly MAX_FALLBACK_FETCH_ATTEMPTS: number = 20; // Allow more fallback attempts for large datasets
+    private readonly DEFAULT_PBI_SEGMENT_SIZE: number = 30000; // Lowered threshold to catch smaller segment sizes
     private lastFetchRequestedRowCount: number | null = null; // Detect when fetchMoreData returns no additional rows
+    private consecutiveStallCount: number = 0; // Track consecutive stalls before giving up
+    private readonly MAX_CONSECUTIVE_STALLS: number = 2; // Allow 2 stalls before stopping (PBI sometimes needs a retry)
     private isMarginDragging: boolean = false; // BUG-008 FIX: Track margin drag state to prevent update conflicts
     private scrollHandlerBackup: any = null;
 
@@ -3964,29 +3967,43 @@ private async handleSegmentedDataView(dataView: DataView): Promise<void> {
     const rowCount = dataView.table?.rows?.length || 0;
     const hasSegment = !!dataView.metadata.segment;
 
-    // Fallback: if Power BI truncates to the default 30k but doesn't set metadata.segment,
-    // attempt a limited number of fetchMoreData calls anyway.
+    // Fallback: if Power BI truncates but doesn't set metadata.segment,
+    // attempt additional fetchMoreData calls with improved stall detection.
     if (!hasSegment) {
-        // If we already asked for more rows and nothing changed, stop blocking rendering.
+        // Check for stall: same row count as last request
         if (this.lastFetchRequestedRowCount !== null && rowCount <= this.lastFetchRequestedRowCount) {
-            this.fetchMoreRetryCount = 0;
-            this.fallbackFetchAttemptsWithoutSegment = 0;
-            this.lastFetchRequestedRowCount = null;
-            this.isFetchingMoreData = false;
-            return;
+            this.consecutiveStallCount++;
+            console.warn(
+                `[WBS] Stall detected: rows=${rowCount}, lastRequested=${this.lastFetchRequestedRowCount}, stalls=${this.consecutiveStallCount}/${this.MAX_CONSECUTIVE_STALLS}`
+            );
+
+            // Allow a few stalls before giving up (PBI sometimes needs retries)
+            if (this.consecutiveStallCount >= this.MAX_CONSECUTIVE_STALLS) {
+                console.warn(`[WBS] Max consecutive stalls reached. Stopping fetch attempts.`);
+                this.fetchMoreRetryCount = 0;
+                this.fallbackFetchAttemptsWithoutSegment = 0;
+                this.lastFetchRequestedRowCount = null;
+                this.consecutiveStallCount = 0;
+                this.isFetchingMoreData = false;
+                return;
+            }
+        } else if (rowCount > (this.lastFetchRequestedRowCount || 0)) {
+            // New rows arrived, reset stall counter
+            this.consecutiveStallCount = 0;
         }
 
+        // Continue fallback fetching if we have enough rows and haven't exceeded limits
         if (
             rowCount >= this.DEFAULT_PBI_SEGMENT_SIZE &&
-            this.fallbackFetchAttemptsWithoutSegment < 3 &&
+            this.fallbackFetchAttemptsWithoutSegment < this.MAX_FALLBACK_FETCH_ATTEMPTS &&
             !this.isFetchingMoreData
         ) {
             this.isFetchingMoreData = true;
             this.fallbackFetchAttemptsWithoutSegment++;
             try {
                 const requested = await this.host.fetchMoreData();
-                console.warn(
-                    `[WBS] fetchMoreData fallback (no segment) attempt ${this.fallbackFetchAttemptsWithoutSegment}; accepted=${requested}; rows=${rowCount}`
+                console.log(
+                    `[WBS] fetchMoreData fallback attempt ${this.fallbackFetchAttemptsWithoutSegment}/${this.MAX_FALLBACK_FETCH_ATTEMPTS}; accepted=${requested}; rows=${rowCount}`
                 );
                 if (requested) {
                     this.lastFetchRequestedRowCount = rowCount;
@@ -3996,11 +4013,21 @@ private async handleSegmentedDataView(dataView: DataView): Promise<void> {
             } finally {
                 this.isFetchingMoreData = false;
             }
-        } else {
-            // Reached final segment (or fallback exhausted)
+        } else if (this.fallbackFetchAttemptsWithoutSegment >= this.MAX_FALLBACK_FETCH_ATTEMPTS) {
+            console.warn(`[WBS] Max fallback attempts (${this.MAX_FALLBACK_FETCH_ATTEMPTS}) reached. Rendering current data.`);
+            // Reset state but keep going with what we have
             this.fetchMoreRetryCount = 0;
             this.fallbackFetchAttemptsWithoutSegment = 0;
             this.lastFetchRequestedRowCount = null;
+            this.consecutiveStallCount = 0;
+            this.isFetchingMoreData = false;
+            return;
+        } else {
+            // Below threshold or other condition - stop fetching
+            this.fetchMoreRetryCount = 0;
+            this.fallbackFetchAttemptsWithoutSegment = 0;
+            this.lastFetchRequestedRowCount = null;
+            this.consecutiveStallCount = 0;
             this.isFetchingMoreData = false;
             return;
         }
@@ -4010,6 +4037,7 @@ private async handleSegmentedDataView(dataView: DataView): Promise<void> {
     if (hasSegment) {
         this.fallbackFetchAttemptsWithoutSegment = 0;
         this.lastFetchRequestedRowCount = null;
+        this.consecutiveStallCount = 0;
     }
 
     // Avoid parallel requests while Power BI is already fetching more rows
@@ -4264,12 +4292,26 @@ private async updateInternal(options: VisualUpdateOptions) {
         const loadingData = this.isDataLoading(dataView);
         const rowCount = dataView.table?.rows?.length || 0;
         const hasMoreSegments = !!dataView.metadata?.segment;
+        const inFallbackMode = !hasMoreSegments && this.fallbackFetchAttemptsWithoutSegment > 0;
+
+        // Determine segment number: use fetchMoreRetryCount for normal mode, fallbackAttempts for fallback
+        const segmentNumber = this.fetchMoreRetryCount > 0
+            ? this.fetchMoreRetryCount
+            : (inFallbackMode ? this.fallbackFetchAttemptsWithoutSegment : (rowCount > 0 ? 1 : 0));
+
+        // Determine message based on state
+        let loadingMessage = "Loading data…";
+        if (hasMoreSegments) {
+            loadingMessage = "Fetching additional data…";
+        } else if (inFallbackMode) {
+            loadingMessage = `Fetching data (attempt ${this.fallbackFetchAttemptsWithoutSegment}/${this.MAX_FALLBACK_FETCH_ATTEMPTS})…`;
+        }
 
         this.setLoadingOverlayVisible(loadingData, {
-            message: hasMoreSegments ? "Fetching additional data…" : "Loading data…",
+            message: loadingMessage,
             rowCount: rowCount,
-            segmentNumber: this.fetchMoreRetryCount > 0 ? this.fetchMoreRetryCount : (rowCount > 0 ? 1 : 0),
-            hasMoreSegments: hasMoreSegments
+            segmentNumber: segmentNumber,
+            hasMoreSegments: hasMoreSegments || inFallbackMode
         });
 
         if (loadingData) {
