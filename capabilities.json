@@ -567,7 +567,7 @@
                         { "bind": { "to": "legend" } },
                         { "for": { "in": "wbsLevels" } }
                     ],
-                    "dataReductionAlgorithm": { "top": { "count": 60000 } }
+                    "dataReductionAlgorithm": { "window": { "count": 50000 } }
                 }
             }
         }

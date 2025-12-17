@@ -337,6 +337,12 @@ export class Visual implements IVisual {
     private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
     private tooltipClassName: string;
     private isUpdating: boolean = false;
+    private isFetchingMoreData: boolean = false; // Prevent parallel fetchMoreData calls
+    private fetchMoreRetryCount: number = 0; // Track how many extra segments we have requested
+    private readonly MAX_FETCH_MORE_REQUESTS: number = 40; // Covers ~1M rows at 30k/page with buffer
+    private fallbackFetchAttemptsWithoutSegment: number = 0; // Guardrail when PBI omits metadata.segment
+    private readonly DEFAULT_PBI_SEGMENT_SIZE: number = 50000; // Target chunk size based on window reduction
+    private lastFetchRequestedRowCount: number | null = null; // Detect when fetchMoreData returns no additional rows
     private isMarginDragging: boolean = false; // BUG-008 FIX: Track margin drag state to prevent update conflicts
     private scrollHandlerBackup: any = null;
 
@@ -3864,6 +3870,95 @@ private toggleConnectorLinesDisplay(): void {
     }
 }
 
+/**
+ * Power BI sends table data in ~30k row segments when the result set is large.
+ * Request additional segments, but continue rendering with what we have so the visual never goes blank.
+ */
+private async handleSegmentedDataView(dataView: DataView): Promise<void> {
+    if (!dataView?.metadata) {
+        return;
+    }
+
+    const rowCount = dataView.table?.rows?.length || 0;
+    const hasSegment = !!dataView.metadata.segment;
+
+    // Fallback: if Power BI truncates to the default 30k but doesn't set metadata.segment,
+    // attempt a limited number of fetchMoreData calls anyway.
+    if (!hasSegment) {
+        // If we already asked for more rows and nothing changed, stop blocking rendering.
+        if (this.lastFetchRequestedRowCount !== null && rowCount <= this.lastFetchRequestedRowCount) {
+            this.fetchMoreRetryCount = 0;
+            this.fallbackFetchAttemptsWithoutSegment = 0;
+            this.lastFetchRequestedRowCount = null;
+            this.isFetchingMoreData = false;
+            return;
+        }
+
+        if (
+            rowCount >= this.DEFAULT_PBI_SEGMENT_SIZE &&
+            this.fallbackFetchAttemptsWithoutSegment < 3 &&
+            !this.isFetchingMoreData
+        ) {
+            this.isFetchingMoreData = true;
+            this.fallbackFetchAttemptsWithoutSegment++;
+            try {
+                const requested = await this.host.fetchMoreData();
+                console.warn(
+                    `[WBS] fetchMoreData fallback (no segment) attempt ${this.fallbackFetchAttemptsWithoutSegment}; accepted=${requested}; rows=${rowCount}`
+                );
+                if (requested) {
+                    this.lastFetchRequestedRowCount = rowCount;
+                }
+            } catch (error) {
+                console.error("fetchMoreData fallback failed:", error);
+            } finally {
+                this.isFetchingMoreData = false;
+            }
+        } else {
+            // Reached final segment (or fallback exhausted)
+            this.fetchMoreRetryCount = 0;
+            this.fallbackFetchAttemptsWithoutSegment = 0;
+            this.lastFetchRequestedRowCount = null;
+            this.isFetchingMoreData = false;
+            return;
+        }
+    }
+
+    // Reset fallback counter once metadata.segment shows up
+    if (hasSegment) {
+        this.fallbackFetchAttemptsWithoutSegment = 0;
+        this.lastFetchRequestedRowCount = null;
+    }
+
+    // Avoid parallel requests while Power BI is already fetching more rows
+    if (this.isFetchingMoreData) {
+        this.debugLog("fetchMoreData already in progress; waiting for next update.");
+        return;
+    }
+
+    if (this.fetchMoreRetryCount >= this.MAX_FETCH_MORE_REQUESTS) {
+        console.warn(`Reached max fetchMoreData attempts (${this.MAX_FETCH_MORE_REQUESTS}). Rendering current segment only.`);
+        return;
+    }
+
+    this.isFetchingMoreData = true;
+    this.fetchMoreRetryCount++;
+
+    try {
+        const requested = await this.host.fetchMoreData();
+        this.debugLog(`Requested additional data segment #${this.fetchMoreRetryCount} (accepted=${requested}).`);
+
+        // Power BI will call update again with the new rows
+        if (requested) {
+            this.lastFetchRequestedRowCount = rowCount;
+        }
+    } catch (error) {
+        console.error("fetchMoreData failed:", error);
+    } finally {
+        this.isFetchingMoreData = false;
+    }
+}
+
     public update(options: VisualUpdateOptions) {
         console.log("===== UPDATE() CALLED =====");
         console.log("Update type:", options.type);
@@ -3959,7 +4054,24 @@ private async updateInternal(options: VisualUpdateOptions) {
         const viewportHeight = viewport.height;
         const viewportWidth = viewport.width;
 
+        // Lightweight diagnostic: track segmentation state for row-limit troubleshooting
+        console.log(
+            "[WBS] rows=",
+            dataView.table?.rows?.length ?? 0,
+            "segment=",
+            !!dataView.metadata?.segment,
+            "fetchAttempts=",
+            this.fetchMoreRetryCount,
+            "fetching=",
+            this.isFetchingMoreData,
+            "fallbackAttempts=",
+            this.fallbackFetchAttemptsWithoutSegment
+        );
+
         this.debugLog("Viewport:", viewportWidth, "x", viewportHeight);
+
+        // Large tables arrive in 30k-row chunks; request additional segments, but keep rendering current data
+        await this.handleSegmentedDataView(dataView);
 
         // METADATA CHECK: Determine if WBS columns exist in metadata (for button visibility)
         // This is independent of whether filtered tasks have WBS values
