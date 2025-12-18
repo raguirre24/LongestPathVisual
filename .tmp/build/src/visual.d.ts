@@ -31,7 +31,10 @@ export declare class Visual implements IVisual {
     private loadingOverlay;
     private loadingBar;
     private loadingText;
+    private loadingRowsText;
+    private loadingProgressText;
     private isLoadingVisible;
+    private loadingStartTime;
     private allTasksData;
     private relationships;
     private taskIdToTask;
@@ -131,6 +134,8 @@ export declare class Visual implements IVisual {
     private lastFetchRequestedRowCount;
     private isMarginDragging;
     private scrollHandlerBackup;
+    private readonly MAX_ROWS_TO_LOAD;
+    private dataLoadExhausted;
     private updateDebounceTimeout;
     private pendingUpdate;
     private readonly UPDATE_DEBOUNCE_MS;
@@ -345,16 +350,24 @@ export declare class Visual implements IVisual {
     private updateChartClipRect;
     private toggleConnectorLinesDisplay;
     /**
-     * Power BI sends table data in ~30k row segments when the result set is large.
-     * Request additional segments, but continue rendering with what we have so the visual never goes blank.
-     */
+         * Power BI sends table data in ~30k row segments when the result set is large.
+         * Request additional segments, but continue rendering with what we have so the visual never goes blank.
+         */
     private handleSegmentedDataView;
     /**
-     * Determine if more data is expected (additional segments pending).
-     */
+         * Determine if more data is expected (additional segments pending).
+         */
     private isDataLoading;
     /**
-     * Show/hide the loading overlay to avoid users seeing incremental task pop-in.
+     * Format a number with thousands separators for display.
+     */
+    private formatNumber;
+    /**
+     * Format elapsed time in a human-readable way.
+     */
+    private formatElapsedTime;
+    /**
+     * Show/hide the loading overlay with detailed progress information.
      */
     private setLoadingOverlayVisible;
     update(options: VisualUpdateOptions): void;

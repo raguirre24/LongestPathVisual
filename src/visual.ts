@@ -344,14 +344,16 @@ export class Visual implements IVisual {
     private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
     private tooltipClassName: string;
     private isUpdating: boolean = false;
-    private isFetchingMoreData: boolean = false; // Prevent parallel fetchMoreData calls
-    private fetchMoreRetryCount: number = 0; // Track how many extra segments we have requested
-    private readonly MAX_FETCH_MORE_REQUESTS: number = 40; // Covers ~1M rows at 30k/page with buffer
-    private fallbackFetchAttemptsWithoutSegment: number = 0; // Guardrail when PBI omits metadata.segment
-    private readonly DEFAULT_PBI_SEGMENT_SIZE: number = 50000; // Target chunk size based on window reduction
-    private lastFetchRequestedRowCount: number | null = null; // Detect when fetchMoreData returns no additional rows
-    private isMarginDragging: boolean = false; // BUG-008 FIX: Track margin drag state to prevent update conflicts
+    private isFetchingMoreData: boolean = false; 
+    private fetchMoreRetryCount: number = 0; 
+    private readonly MAX_FETCH_MORE_REQUESTS: number = 10000; 
+    private fallbackFetchAttemptsWithoutSegment: number = 0; 
+    private readonly DEFAULT_PBI_SEGMENT_SIZE: number = 50000; 
+    private lastFetchRequestedRowCount: number | null = null; 
+    private isMarginDragging: boolean = false; 
     private scrollHandlerBackup: any = null;
+    private readonly MAX_ROWS_TO_LOAD: number = 1000000;
+    private dataLoadExhausted: boolean = false;
 
     private updateDebounceTimeout: any = null;
     private pendingUpdate: VisualUpdateOptions | null = null;
@@ -3953,103 +3955,145 @@ private toggleConnectorLinesDisplay(): void {
 }
 
 /**
- * Power BI sends table data in ~30k row segments when the result set is large.
- * Request additional segments, but continue rendering with what we have so the visual never goes blank.
- */
-private async handleSegmentedDataView(dataView: DataView): Promise<void> {
-    if (!dataView?.metadata) {
-        return;
-    }
-
-    const rowCount = dataView.table?.rows?.length || 0;
-    const hasSegment = !!dataView.metadata.segment;
-
-    // Fallback: if Power BI truncates to the default 30k but doesn't set metadata.segment,
-    // attempt a limited number of fetchMoreData calls anyway.
-    if (!hasSegment) {
-        // If we already asked for more rows and nothing changed, stop blocking rendering.
-        if (this.lastFetchRequestedRowCount !== null && rowCount <= this.lastFetchRequestedRowCount) {
-            this.fetchMoreRetryCount = 0;
-            this.fallbackFetchAttemptsWithoutSegment = 0;
-            this.lastFetchRequestedRowCount = null;
-            this.isFetchingMoreData = false;
+     * Power BI sends table data in ~30k row segments when the result set is large.
+     * Request additional segments, but continue rendering with what we have so the visual never goes blank.
+     */
+    private async handleSegmentedDataView(dataView: DataView): Promise<void> {
+        if (!dataView?.metadata) {
             return;
         }
 
-        if (
-            rowCount >= this.DEFAULT_PBI_SEGMENT_SIZE &&
-            this.fallbackFetchAttemptsWithoutSegment < 3 &&
-            !this.isFetchingMoreData
-        ) {
-            this.isFetchingMoreData = true;
-            this.fallbackFetchAttemptsWithoutSegment++;
-            try {
-                const requested = await this.host.fetchMoreData();
-                console.warn(
-                    `[WBS] fetchMoreData fallback (no segment) attempt ${this.fallbackFetchAttemptsWithoutSegment}; accepted=${requested}; rows=${rowCount}`
-                );
-                if (requested) {
-                    this.lastFetchRequestedRowCount = rowCount;
-                }
-            } catch (error) {
-                console.error("fetchMoreData fallback failed:", error);
-            } finally {
+        const rowCount = dataView.table?.rows?.length || 0;
+        const hasSegment = !!dataView.metadata.segment;
+
+        // CRITICAL FIX: Stop immediately if we have already exhausted the data source
+        if (this.dataLoadExhausted) {
+            return;
+        }
+
+        // CRITICAL FIX: Check if we have hit the absolute maximum row limit (1M)
+        if (rowCount >= this.MAX_ROWS_TO_LOAD) {
+            console.warn(`Reached maximum row limit (${this.MAX_ROWS_TO_LOAD}). Stopping data fetch.`);
+            this.dataLoadExhausted = true;
+            return;
+        }
+
+        // Fallback: if Power BI truncates to the default 30k but doesn't set metadata.segment,
+        // attempt a limited number of fetchMoreData calls anyway.
+        if (!hasSegment) {
+            // If we already asked for more rows and nothing changed, stop blocking rendering.
+            if (this.lastFetchRequestedRowCount !== null && rowCount <= this.lastFetchRequestedRowCount) {
+                this.fetchMoreRetryCount = 0;
+                this.fallbackFetchAttemptsWithoutSegment = 0;
+                this.lastFetchRequestedRowCount = null;
                 this.isFetchingMoreData = false;
+                this.dataLoadExhausted = true; // Mark as exhausted to prevent infinite loading state
+                return;
             }
-        } else {
-            // Reached final segment (or fallback exhausted)
-            this.fetchMoreRetryCount = 0;
+
+            if (
+                rowCount >= this.DEFAULT_PBI_SEGMENT_SIZE &&
+                this.fallbackFetchAttemptsWithoutSegment < 3 &&
+                !this.isFetchingMoreData
+            ) {
+                this.isFetchingMoreData = true;
+                this.fallbackFetchAttemptsWithoutSegment++;
+                try {
+                    // Logic Change: Capture boolean result
+                    const requested = await this.host.fetchMoreData();
+                    console.warn(
+                        `[WBS] fetchMoreData fallback (no segment) attempt ${this.fallbackFetchAttemptsWithoutSegment}; accepted=${requested}; rows=${rowCount}`
+                    );
+                    
+                    if (requested) {
+                        this.lastFetchRequestedRowCount = rowCount;
+                    } else {
+                        // Logic Change: If rejected, stop immediately
+                        this.dataLoadExhausted = true;
+                    }
+                } catch (error) {
+                    console.error("fetchMoreData fallback failed:", error);
+                    this.dataLoadExhausted = true;
+                } finally {
+                    this.isFetchingMoreData = false;
+                }
+                return; // Return to ensure we don't fall through to normal logic
+            } else {
+                // Reached final segment (or fallback exhausted)
+                this.fetchMoreRetryCount = 0;
+                this.fallbackFetchAttemptsWithoutSegment = 0;
+                this.lastFetchRequestedRowCount = null;
+                this.isFetchingMoreData = false;
+                this.dataLoadExhausted = true; // Mark as exhausted
+                return;
+            }
+        }
+
+        // Reset fallback counter once metadata.segment shows up
+        if (hasSegment) {
             this.fallbackFetchAttemptsWithoutSegment = 0;
             this.lastFetchRequestedRowCount = null;
-            this.isFetchingMoreData = false;
+        }
+
+        // Avoid parallel requests while Power BI is already fetching more rows
+        if (this.isFetchingMoreData) {
+            this.debugLog("fetchMoreData already in progress; waiting for next update.");
             return;
         }
-    }
 
-    // Reset fallback counter once metadata.segment shows up
-    if (hasSegment) {
-        this.fallbackFetchAttemptsWithoutSegment = 0;
-        this.lastFetchRequestedRowCount = null;
-    }
-
-    // Avoid parallel requests while Power BI is already fetching more rows
-    if (this.isFetchingMoreData) {
-        this.debugLog("fetchMoreData already in progress; waiting for next update.");
-        return;
-    }
-
-    if (this.fetchMoreRetryCount >= this.MAX_FETCH_MORE_REQUESTS) {
-        console.warn(`Reached max fetchMoreData attempts (${this.MAX_FETCH_MORE_REQUESTS}). Rendering current segment only.`);
-        return;
-    }
-
-    this.isFetchingMoreData = true;
-    this.fetchMoreRetryCount++;
-
-    try {
-        const requested = await this.host.fetchMoreData();
-        this.debugLog(`Requested additional data segment #${this.fetchMoreRetryCount} (accepted=${requested}).`);
-
-        // Power BI will call update again with the new rows
-        if (requested) {
-            this.lastFetchRequestedRowCount = rowCount;
+        // Logic Change: If retry count hits limit, explicitly set exhausted = true
+        if (this.fetchMoreRetryCount >= this.MAX_FETCH_MORE_REQUESTS) {
+            console.warn(`Reached max fetchMoreData attempts (${this.MAX_FETCH_MORE_REQUESTS}). Rendering current segment only.`);
+            this.dataLoadExhausted = true; // Force loading state off
+            return;
         }
-    } catch (error) {
-        console.error("fetchMoreData failed:", error);
-    } finally {
-        this.isFetchingMoreData = false;
+
+        this.isFetchingMoreData = true;
+        this.fetchMoreRetryCount++;
+
+        try {
+            // Logic Change: Capture the boolean result of fetchMoreData
+            const requested = await this.host.fetchMoreData();
+            this.debugLog(`Requested additional data segment #${this.fetchMoreRetryCount} (accepted=${requested}).`);
+
+            // Logic Change: If fetchMoreData returns false (request rejected), MUST set flag and stop loop
+            if (!requested) {
+                console.warn("fetchMoreData returned false. Stopping fetch loop.");
+                this.dataLoadExhausted = true;
+            } else {
+                // Power BI will call update again with the new rows
+                this.lastFetchRequestedRowCount = rowCount;
+            }
+        } catch (error) {
+            console.error("fetchMoreData failed:", error);
+            this.dataLoadExhausted = true; // Stop on error
+        } finally {
+            this.isFetchingMoreData = false;
+        }
     }
-}
 
 /**
- * Determine if more data is expected (additional segments pending).
- */
-private isDataLoading(dataView: DataView): boolean {
-    const hasSegment = !!dataView.metadata?.segment;
-    const awaitingRequestedRows = this.lastFetchRequestedRowCount !== null &&
-        (dataView.table?.rows?.length || 0) <= this.lastFetchRequestedRowCount;
-    return hasSegment || this.isFetchingMoreData || awaitingRequestedRows;
-}
+     * Determine if more data is expected (additional segments pending).
+     */
+    private isDataLoading(dataView: DataView): boolean {
+        // Logic Change: If data load is exhausted (limit reached or rejected), return false immediately
+        if (this.dataLoadExhausted) {
+            return false;
+        }
+
+        // Logic Change: Ensure that if !dataView.metadata.segment (no more segments), the function returns false.
+        if (!dataView.metadata?.segment) {
+            // NOTE: This prioritizes breaking the loop over showing spinner during fallback attempts.
+            // This is required to fix the "Deadlock" issue described.
+            return false;
+        }
+
+        const hasSegment = !!dataView.metadata?.segment;
+        const awaitingRequestedRows = this.lastFetchRequestedRowCount !== null &&
+            (dataView.table?.rows?.length || 0) <= this.lastFetchRequestedRowCount;
+
+        return hasSegment || this.isFetchingMoreData || awaitingRequestedRows;
+    }
 
 /**
  * Format a number with thousands separators for display.
@@ -4101,24 +4145,6 @@ private setLoadingOverlayVisible(
                 ? `${this.formatNumber(options.rowCount)} rows`
                 : "Initializing…";
             this.loadingRowsText.text(rowText);
-        }
-
-        // Update progress details
-        if (this.loadingProgressText) {
-            const elapsed = performance.now() - (this.loadingStartTime || performance.now());
-            const elapsedText = this.formatElapsedTime(elapsed);
-
-            let progressDetails = "";
-            if (options?.segmentNumber !== undefined && options.segmentNumber > 0) {
-                const segmentText = options.hasMoreSegments
-                    ? `Segment ${options.segmentNumber} of ${options.segmentNumber}+`
-                    : `Segment ${options.segmentNumber}`;
-                progressDetails = `${segmentText} • ${elapsedText} elapsed`;
-            } else if (elapsed >= 1000) {
-                progressDetails = `${elapsedText} elapsed`;
-            }
-
-            this.loadingProgressText.text(progressDetails);
         }
 
         // Show overlay
