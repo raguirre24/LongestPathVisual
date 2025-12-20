@@ -307,16 +307,6 @@
                             { "value": "floatBased", "displayName": "Float-Based" }
                         ]
                     }
-                },
-                "floatBasedFilter": {
-                    "displayName": "Float-Based Dependency Filter",
-                    "description": "For Float-Based mode: filter dependencies in trace",
-                    "type": {
-                        "enumeration": [
-                            { "value": "drivingOnly", "displayName": "Driving Only (Free Float = 0)" },
-                            { "value": "all", "displayName": "All Dependencies" }
-                        ]
-                    }
                 }
             }
         },
@@ -356,17 +346,6 @@
                     "displayName": "Show Legend",
                     "description": "Display the legend when a legend field is added",
                     "type": { "bool": true }
-                },
-                "position": {
-                    "displayName": "Position",
-                    "type": {
-                        "enumeration": [
-                            { "value": "Top", "displayName": "Top" },
-                            { "value": "Bottom", "displayName": "Bottom" },
-                            { "value": "Left", "displayName": "Left" },
-                            { "value": "Right", "displayName": "Right" }
-                        ]
-                    }
                 },
                 "fontSize": {
                     "displayName": "Font Size (pt)",
@@ -526,11 +505,6 @@
                 "sliderHandleColor": {
                     "displayName": "Handle Color",
                     "description": "Color of the drag handles",
-                    "type": { "fill": { "solid": { "color": true } } }
-                },
-                "sliderBorderColor": {
-                    "displayName": "Border Color",
-                    "description": "Border color of the selected range",
                     "type": { "fill": { "solid": { "color": true } } }
                 },
                 "showMiniChart": {

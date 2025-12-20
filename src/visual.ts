@@ -19,11 +19,10 @@ import { VisualSettings } from "./settings";
 import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 import { IBasicFilter, FilterType } from "powerbi-models";
 import FilterAction = powerbi.FilterAction;
-import PriorityQueue from "./priorityQueue";
 
 /**
  * ============================================================================
- * PERFORMANCE OPTIMIZATIONS - Phase 1 & Phase 2
+ * PERFORMANCE OPTIMIZATIONS
  * ============================================================================
  *
  * This visual has been optimized for handling large datasets (10,000+ tasks)
@@ -31,44 +30,26 @@ import PriorityQueue from "./priorityQueue";
  *
  * PHASE 1 - Quick Wins:
  * ----------------------
- * 1. Canvas Threshold Reduced: 500 → 250 tasks
+ * 1. Canvas Threshold Reduced: 500 -> 250 tasks
  *    - Switches to high-performance canvas rendering earlier
  *    - Expected improvement: 40% faster for 250-500 task range
  *
- * 2. Render Throttling: 16ms minimum interval (~60 FPS)
- *    - Prevents render thrashing during rapid updates
- *    - Uses shouldRender() method to gate rendering calls
- *
- * 3. Data Transformation Optimization:
+ * 2. Data Transformation Optimization:
  *    - Pre-allocated arrays instead of dynamic growth
  *    - for...of loops instead of forEach (faster iteration)
  *    - Single-pass processing where possible
  *    - Expected improvement: 10-15% faster data processing
  *
- * 4. CPM Algorithm Optimization:
+ * 3. CPM Algorithm Optimization:
  *    - Converted forEach to for...of throughout
- *    - CPM memoization cache for repeated calculations
  *    - Expected improvement: 25-50% faster for complex networks
  *
  * PHASE 2 - Medium-Term Improvements:
  * ------------------------------------
  * 1. Virtual Scrolling Enhancement:
- *    - calculateVisibleRange() with buffer zones
  *    - Only renders visible tasks + buffer
  *    - Constant rendering time regardless of dataset size
  *    - Expected improvement: 75-85% faster, supports 10,000+ tasks
- *
- * 2. Render Caching:
- *    - Task position cache (renderCache.taskPositions)
- *    - Relationship path cache (renderCache.relationshipPaths)
- *    - Color computation cache (renderCache.colors)
- *    - Cache invalidation on data/settings changes
- *    - Expected improvement: 30-40% faster on repeated renders
- *
- * 3. Cache-Aware Color Computation:
- *    - getCachedTaskColor() avoids redundant calculations
- *    - Viewport key generation for cache invalidation
- *    - getViewportKey() for viewport-based cache management
  *
  * PERFORMANCE TARGETS:
  * --------------------
@@ -77,18 +58,9 @@ import PriorityQueue from "./priorityQueue";
  * - 10,000 tasks: < 400ms render time (was unusable)
  * - 60,000 tasks: < 1000ms render time (was crashes)
  *
- * KEY METHODS:
- * ------------
- * - shouldRender():           Render throttling gate
- * - getViewportKey():         Cache key generation
- * - invalidateRenderCache():  Clear caches on changes
- * - calculateVisibleRange():  Virtual scrolling calculation
- * - getCachedTaskColor():     Cached color computation
- *
  * See PERFORMANCE_ANALYSIS.md for detailed analysis and roadmap.
  * ============================================================================
  */
-
 interface Task {
     id: string | number;
     internalId: string;
@@ -206,7 +178,6 @@ export class Visual implements IVisual {
     private readonly MODE_TRANSITION_DURATION: number = 150; // ms - Duration for Canvas/SVG mode transition animation
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
     private loadingOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
-    private loadingBar: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingText: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingRowsText: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingProgressText: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -224,7 +195,6 @@ export class Visual implements IVisual {
 
     // Connect lines toggle state and group
     private showConnectorLinesInternal: boolean = true;
-    private connectorToggleGroup: Selection<SVGGElement, unknown, null, undefined>;
 
     // WBS expand/collapse toggle state
     private wbsExpandedInternal: boolean = true;
@@ -285,7 +255,6 @@ export class Visual implements IVisual {
 
     // Update type detection
     private lastViewport: IViewport | null = null;
-    private lastDataViewId: string | null = null;
 
     // Performance monitoring
     private renderStartTime: number = 0;
@@ -341,50 +310,14 @@ export class Visual implements IVisual {
     private lastWbsToggleTimestamp: number = 0; // Tracks last WBS toggle to suppress scroll reset immediately after
     private wbsToggleScrollAnchor: { groupId: string; visualOffset: number } | null = null; // Track WBS group position for scroll adjustment
 
-    private visualTitle: Selection<HTMLDivElement, unknown, null, undefined>;
     private tooltipClassName: string;
     private isUpdating: boolean = false;
     private isMarginDragging: boolean = false; 
     private scrollHandlerBackup: any = null;
-    private dataLoadExhausted: boolean = false;
 
     private updateDebounceTimeout: any = null;
     private pendingUpdate: VisualUpdateOptions | null = null;
     private readonly UPDATE_DEBOUNCE_MS = 100;
-    private renderState: {
-    isRendering: boolean;
-    lastRenderMode: 'canvas' | 'svg' | null;
-    lastTaskCount: number;
-} = {
-    isRendering: false,
-    lastRenderMode: null,
-    lastTaskCount: 0
-};
-
-    // Phase 1 & 2: Performance optimizations
-    private lastRenderTime: number = 0;
-    private readonly MIN_RENDER_INTERVAL: number = 16; // ~60 FPS
-
-    // Phase 2: Virtual scrolling
-    private virtualScrollEnabled: boolean = true;
-    private scrollContainer: HTMLElement | null = null;
-
-    // Phase 2: Render cache
-    private renderCache: {
-        taskPositions: Map<string, {x: number, y: number, width: number}>;
-        relationshipPaths: Map<string, string>;
-        lastViewportKey: string;
-        colors: Map<string, string>;
-    } = {
-        taskPositions: new Map(),
-        relationshipPaths: new Map(),
-        lastViewportKey: "",
-        colors: new Map()
-    };
-
-    // Phase 2: CPM memoization
-    private cpmMemo: Map<string, number> = new Map();
-
     // ============================================================================
     // TIMELINE ZOOM SLIDER - Microsoft-style axis zoom control
     // ============================================================================
@@ -872,7 +805,7 @@ constructor(options: VisualConstructorOptions) {
         .style("background", "#f3f2f1")
         .style("overflow", "hidden");
 
-    this.loadingBar = barTrack.append("div")
+    barTrack.append("div")
         .style("height", "100%")
         .style("width", "35%")
         .style("border-radius", "999px")
@@ -1384,12 +1317,6 @@ public destroy(): void {
         this.scrollThrottleTimeout = null;
     }
 
-    // Phase 1 & 2: Clear caches
-    this.renderCache.taskPositions.clear();
-    this.renderCache.relationshipPaths.clear();
-    this.renderCache.colors.clear();
-    this.cpmMemo.clear();
-
     // Remove this instance's tooltip
     d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
 
@@ -1430,102 +1357,6 @@ private captureScrollPosition(): void {
         this.debugLog(`Scroll position captured: ${this.preservedScrollTop}`);
     }
 }
-
-/**
- * Phase 1: Check if enough time has passed since last render (throttling)
- * @returns true if render should proceed, false if should skip
- */
-private shouldRender(): boolean {
-    const now = performance.now();
-    if (now - this.lastRenderTime < this.MIN_RENDER_INTERVAL) {
-        return false;
-    }
-    this.lastRenderTime = now;
-    return true;
-}
-
-/**
- * Phase 2: Generate a cache key based on viewport and settings
- */
-private getViewportKey(): string {
-    const viewport = this.lastUpdateOptions?.viewport;
-    const settings = this.settings;
-    return `${viewport?.width || 0}x${viewport?.height || 0}_${settings?.layoutSettings?.leftMargin?.value || 0}_${settings?.layoutSettings?.taskPadding?.value || 0}`;
-}
-
-/**
- * Phase 2: Invalidate render cache when settings or data change
- */
-private invalidateRenderCache(): void {
-    this.renderCache.taskPositions.clear();
-    this.renderCache.relationshipPaths.clear();
-    this.renderCache.colors.clear();
-    this.renderCache.lastViewportKey = "";
-    this.debugLog("Render cache invalidated");
-}
-
-/**
- * Phase 2: Calculate which tasks are visible in the current viewport
- * @returns Object with start and end indices of visible tasks
- */
-private calculateVisibleRange(tasks: Task[]): {start: number, end: number, visibleTasks: Task[]} {
-    if (!this.virtualScrollEnabled || !this.scrollableContainer?.node()) {
-        // Virtualization disabled or no container - return all tasks
-        return {
-            start: 0,
-            end: tasks.length,
-            visibleTasks: tasks
-        };
-    }
-
-    const scrollTop = this.scrollableContainer.node()?.scrollTop || 0;
-    const containerHeight = this.lastUpdateOptions?.viewport?.height || 600;
-    const taskHeight = (this.settings?.taskAppearance?.taskHeight?.value || 18) +
-                      (this.settings?.layoutSettings?.taskPadding?.value || 12);
-
-    // Calculate visible range
-    const startIndex = Math.floor(scrollTop / taskHeight);
-    const visibleCount = Math.ceil(containerHeight / taskHeight);
-    const endIndex = startIndex + visibleCount;
-
-    // Add buffer for smooth scrolling
-    const BUFFER_SIZE = 10;
-    const bufferedStart = Math.max(0, startIndex - BUFFER_SIZE);
-    const bufferedEnd = Math.min(tasks.length, endIndex + BUFFER_SIZE);
-
-    this.debugLog(`Virtual scroll: showing tasks ${bufferedStart}-${bufferedEnd} of ${tasks.length}`);
-
-    return {
-        start: bufferedStart,
-        end: bufferedEnd,
-        visibleTasks: tasks.slice(bufferedStart, bufferedEnd)
-    };
-}
-
-/**
- * Phase 2: Get cached task color or compute and cache it
- */
-private getCachedTaskColor(task: Task, defaultColor: string, criticalColor: string, nearCriticalColor: string): string {
-    const cacheKey = `${task.internalId}_${task.isCritical}_${task.isNearCritical}`;
-
-    if (this.renderCache.colors.has(cacheKey)) {
-        return this.renderCache.colors.get(cacheKey)!;
-    }
-
-    let color = defaultColor;
-    if (task.internalId === this.selectedTaskId) {
-        color = "#8A2BE2";
-    } else if (task.isCritical) {
-        color = criticalColor;
-    } else if (task.isNearCritical) {
-        color = nearCriticalColor;
-    }
-
-    this.renderCache.colors.set(cacheKey, color);
-    return color;
-}
-
-// ==================== End Performance Optimization Methods ====================
 
 private toggleTaskDisplayInternal(): void {
     try {
@@ -3840,21 +3671,6 @@ private drawZoomSliderMiniChart(): void {
 }
 
 /**
- * Gets the zoomed date domain based on current zoom state
- */
-private getZoomedDomain(): [Date, Date] | null {
-    if (!this.fullTimelineDomain) return null;
-
-    const [fullMin, fullMax] = this.fullTimelineDomain;
-    const fullRange = fullMax.getTime() - fullMin.getTime();
-
-    const zoomedMin = new Date(fullMin.getTime() + fullRange * this.zoomRangeStart);
-    const zoomedMax = new Date(fullMin.getTime() + fullRange * this.zoomRangeEnd);
-
-    return [zoomedMin, zoomedMax];
-}
-
-/**
  * Updates the zoom slider track margins to align with the chart area
  */
 private updateZoomSliderTrackMargins(): void {
@@ -3968,29 +3784,10 @@ private logDataLoadInfo(dataView: DataView): void {
 }
 
 /**
- * With 'top' algorithm, data arrives complete - never in loading state.
- */
-private isDataLoading(dataView: DataView): boolean {
-    return false;
-}
-
-/**
  * Format a number with thousands separators for display.
  */
 private formatNumber(num: number): string {
     return num.toLocaleString();
-}
-
-/**
- * Format elapsed time in a human-readable way.
- */
-private formatElapsedTime(ms: number): string {
-    if (ms < 1000) return "< 1s";
-    const seconds = Math.floor(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${remainingSeconds}s`;
 }
 
 /**
@@ -4240,9 +4037,6 @@ private async updateInternal(options: VisualUpdateOptions) {
             this.settings.wbsGrouping.enableWbsGrouping.value = this.wbsEnableOverride;
             this.wbsEnableOverride = null;
         }
-
-        // Phase 2: Invalidate render cache after data transformation
-        this.invalidateRenderCache();
 
         if (this.selectedTaskId && !this.taskIdToTask.has(this.selectedTaskId)) {
             this.debugLog(`Selected task ${this.selectedTaskId} no longer exists in data`);
@@ -4909,54 +4703,6 @@ private drawHeaderDivider(viewportWidth: number): void {
             .attr("x2", d => d); // Update the width (x2)
     }
     
-    private createArrowheadMarkers(
-        targetSvg: Selection<SVGSVGElement, unknown, null, undefined>,
-        arrowSize: number,
-        criticalColor: string,
-        connectorColor: string
-    ): void {
-        if (!targetSvg) return;
-
-        // Reuse existing defs so we don't blow away the clipPath.
-        let defs = targetSvg.select("defs");
-        if (defs.empty()) {
-            defs = targetSvg.append("defs");
-        }
-
-        // Clear any existing markers without touching other defs entries.
-        defs.selectAll("#arrowhead-critical, #arrowhead").remove();
-        
-        // Create critical path marker - LARGER and more visible
-        defs.append("marker")
-            .attr("id", "arrowhead-critical")
-            .attr("viewBox", "0 0 12 12")
-            .attr("refX", 11)  // Position at tip
-            .attr("refY", 6)
-            .attr("markerWidth", arrowSize * 1.5)  // 50% larger
-            .attr("markerHeight", arrowSize * 1.5)
-            .attr("orient", "auto")
-            .append("path")
-                .attr("d", "M 1,1 L 11,6 L 1,11 L 3,6 Z")  // Filled triangle with notch
-                .style("fill", criticalColor)
-                .style("stroke", criticalColor)
-                .style("stroke-width", "0.5");
-
-        // Create normal connector marker - LARGER and more visible
-        defs.append("marker")
-            .attr("id", "arrowhead")
-            .attr("viewBox", "0 0 12 12")
-            .attr("refX", 11)
-            .attr("refY", 6)
-            .attr("markerWidth", arrowSize * 1.3)  // 30% larger
-            .attr("markerHeight", arrowSize * 1.3)
-            .attr("orient", "auto")
-            .append("path")
-                .attr("d", "M 1,1 L 11,6 L 1,11 L 3,6 Z")
-                .style("fill", connectorColor)
-                .style("stroke", connectorColor)
-                .style("stroke-width", "0.5");
-    }
-
 private setupTimeBasedSVGAndScales(
     effectiveViewport: IViewport,
     tasksToShow: Task[]
@@ -8586,30 +8332,6 @@ private drawArrowsCanvas(
         });
     }
 
-private async calculateCPMOffThread(): Promise<void> {
-    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-    
-    if (mode === 'floatBased') {
-        return Promise.resolve();
-    }
-    
-    // Use P6 reflective approach directly
-    this.identifyLongestPathFromP6();
-    return Promise.resolve();
-}
-
-private async determineCriticalityMode(): Promise<void> {
-    const mode = this.settings.criticalityMode.calculationMode.value.value;
-    this.debugLog(`Criticality Mode: ${mode}`);
-    
-    if (mode === "floatBased") {
-        this.applyFloatBasedCriticality();
-    } else {
-        // Use P6 reflective approach
-        this.identifyLongestPathFromP6();
-    }
-}
-
 private applyFloatBasedCriticality(): void {
     this.debugLog("Applying Float-Based criticality using Total Float for criticality and Task Free Float for tracing...");
     const startTime = performance.now();
@@ -8668,13 +8390,8 @@ private applyFloatBasedCriticality(): void {
     this.debugLog(`Critical tasks (Total Float ≤ 0): ${criticalCount}, Near-critical tasks: ${nearCriticalCount}`);
 }
 
-private calculateCPM(): void {
-    this.identifyLongestPathFromP6();
-}
-
 /**
  * Identifies the longest path using P6 scheduled dates (reflective approach)
- * This replaces the old calculateCPM() method for Longest Path mode
  */
 private identifyLongestPathFromP6(): void {
     this.debugLog("Starting P6 reflective longest path identification...");
@@ -8684,9 +8401,6 @@ private identifyLongestPathFromP6(): void {
         this.debugLog("No tasks for longest path identification.");
         return;
     }
-
-    // Phase 2: Clear CPM memoization cache for fresh calculation
-    this.cpmMemo.clear();
 
     // Phase 1: Reset criticality flags - use for...of instead of forEach
     for (const task of this.allTasksData) {
@@ -9424,74 +9138,6 @@ private identifyNearCriticalTasks(): void {
             task.totalFloat = minFloatToCritical;
         }
     });
-}
-
-/**
- * Identifies predecessor tasks connected through driving relationships
- */
-private identifyDrivingPredecessorTasks(targetTaskId: string): Set<string> {
-    const tasksInPath = new Set<string>();
-    tasksInPath.add(targetTaskId);
-    
-    this.identifyDrivingRelationships(); // Ensure driving relationships are identified
-    
-    const queue: string[] = [targetTaskId];
-    const visited = new Set<string>();
-    visited.add(targetTaskId);
-    
-    while (queue.length > 0) {
-        const currentTaskId = queue.shift()!;
-        
-        // Find driving predecessors only
-        const drivingPreds = this.relationships.filter(rel => 
-            rel.successorId === currentTaskId && (rel as any).isDriving
-        );
-        
-        for (const rel of drivingPreds) {
-            if (!visited.has(rel.predecessorId)) {
-                tasksInPath.add(rel.predecessorId);
-                visited.add(rel.predecessorId);
-                queue.push(rel.predecessorId);
-            }
-        }
-    }
-    
-    this.debugLog(`P6 backward trace from ${targetTaskId}: ${tasksInPath.size} tasks`);
-    return tasksInPath;
-}
-
-/**
- * Identifies successor tasks connected through driving relationships
- */
-private identifyDrivingSuccessorTasks(sourceTaskId: string): Set<string> {
-    const tasksInPath = new Set<string>();
-    tasksInPath.add(sourceTaskId);
-    
-    this.identifyDrivingRelationships(); // Ensure driving relationships are identified
-    
-    const queue: string[] = [sourceTaskId];
-    const visited = new Set<string>();
-    visited.add(sourceTaskId);
-    
-    while (queue.length > 0) {
-        const currentTaskId = queue.shift()!;
-        
-        // Find driving successors only
-        const drivingSuccs = this.relationships.filter(rel => 
-            rel.predecessorId === currentTaskId && (rel as any).isDriving
-        );
-        
-        for (const rel of drivingSuccs) {
-            if (!visited.has(rel.successorId)) {
-                tasksInPath.add(rel.successorId);
-                visited.add(rel.successorId);
-                queue.push(rel.successorId);
-            }
-        }
-    }
-    
-    this.debugLog(`P6 forward trace from ${sourceTaskId}: ${tasksInPath.size} tasks`);
-    return tasksInPath;
 }
 
 private calculateCPMToTask(targetTaskId: string | null): void {
@@ -11137,33 +10783,6 @@ private restoreScrollPosition(totalSvgHeight: number): void {
 }
 
 /**
- * WBS GROUPING: Check if a task should be visible based on WBS group expansion state
- */
-private isTaskVisibleWithWbsGrouping(task: Task): boolean {
-    if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
-        return true; // WBS grouping disabled, show all tasks
-    }
-
-    if (!task.wbsGroupId) {
-        return true; // Task has no WBS assignment, show it
-    }
-
-    // Check if any ancestor group is collapsed
-    const parts = task.wbsGroupId.split('|');
-    let currentPath = '';
-
-    for (let i = 0; i < parts.length - 1; i++) { // Don't check the task's own group
-        currentPath = currentPath ? `${currentPath}|${parts[i]}` : parts[i];
-        const group = this.wbsGroupMap.get(currentPath);
-        if (group && !group.isExpanded) {
-            return false; // Parent group is collapsed, hide task
-        }
-    }
-
-    return true;
-}
-
-/**
  * WBS GROUPING: Apply WBS ordering and filtering to tasks
  * Returns tasks sorted by WBS hierarchy with collapsed groups filtered out
  */
@@ -11494,60 +11113,6 @@ private assignWbsYOrder(tasksToShow: Task[]): void {
     }
 
     this.debugLog(`Assigned yOrder to ${currentYOrder} items (groups + tasks)`);
-}
-
-/**
- * WBS GROUPING: Get the ordered list of items to display (groups + tasks)
- * Returns a flat list with groups interleaved with their visible tasks
- */
-private getWbsOrderedDisplayItems(): Array<{ type: 'group' | 'task', group?: WBSGroup, task?: Task }> {
-    const items: Array<{ type: 'group' | 'task', group?: WBSGroup, task?: Task }> = [];
-
-    if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
-        // WBS grouping disabled, return just tasks
-        for (const task of this.allTasksToShow) {
-            items.push({ type: 'task', task });
-        }
-        return items;
-    }
-
-    // Build ordered list with groups and tasks
-    const processGroup = (group: WBSGroup, depth: number): void => {
-        // Add the group header
-        items.push({ type: 'group', group });
-
-        if (group.isExpanded) {
-            // Add child groups first (sorted)
-            for (const child of group.children) {
-                processGroup(child, depth + 1);
-            }
-
-            // Add direct tasks of this group (sorted by start date)
-            const directTasks = group.tasks
-                .filter(t => this.allTasksToShow.includes(t))
-                .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-
-            for (const task of directTasks) {
-                items.push({ type: 'task', task });
-            }
-        }
-    };
-
-    // Process root groups
-    for (const rootGroup of this.wbsRootGroups) {
-        processGroup(rootGroup, 0);
-    }
-
-    // Add tasks without WBS assignment at the end
-    const tasksWithoutWbs = this.allTasksToShow
-        .filter(t => !t.wbsGroupId)
-        .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-
-    for (const task of tasksWithoutWbs) {
-        items.push({ type: 'task', task });
-    }
-
-    return items;
 }
 
 /**

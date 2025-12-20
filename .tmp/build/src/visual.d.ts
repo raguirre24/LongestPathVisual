@@ -29,7 +29,6 @@ export declare class Visual implements IVisual {
     private readonly MODE_TRANSITION_DURATION;
     private canvasLayer;
     private loadingOverlay;
-    private loadingBar;
     private loadingText;
     private loadingRowsText;
     private loadingProgressText;
@@ -43,7 +42,6 @@ export declare class Visual implements IVisual {
     private taskIdColumn;
     private lastUpdateOptions;
     private showConnectorLinesInternal;
-    private connectorToggleGroup;
     private wbsExpandedInternal;
     private showAllTasksInternal;
     private showBaselineInternal;
@@ -87,7 +85,6 @@ export declare class Visual implements IVisual {
     private allTasksToShow;
     private allFilteredTasks;
     private lastViewport;
-    private lastDataViewId;
     private renderStartTime;
     private predecessorIndex;
     private legendDataExists;
@@ -123,22 +120,13 @@ export declare class Visual implements IVisual {
     private scrollPreservationUntil;
     private lastWbsToggleTimestamp;
     private wbsToggleScrollAnchor;
-    private visualTitle;
     private tooltipClassName;
     private isUpdating;
     private isMarginDragging;
     private scrollHandlerBackup;
-    private dataLoadExhausted;
     private updateDebounceTimeout;
     private pendingUpdate;
     private readonly UPDATE_DEBOUNCE_MS;
-    private renderState;
-    private lastRenderTime;
-    private readonly MIN_RENDER_INTERVAL;
-    private virtualScrollEnabled;
-    private scrollContainer;
-    private renderCache;
-    private cpmMemo;
     private zoomSliderContainer;
     private zoomSliderTrack;
     private zoomSliderSelection;
@@ -184,28 +172,6 @@ export declare class Visual implements IVisual {
      * Sets up both the preserved scroll value and the cooldown to prevent Power BI re-triggers.
      */
     private captureScrollPosition;
-    /**
-     * Phase 1: Check if enough time has passed since last render (throttling)
-     * @returns true if render should proceed, false if should skip
-     */
-    private shouldRender;
-    /**
-     * Phase 2: Generate a cache key based on viewport and settings
-     */
-    private getViewportKey;
-    /**
-     * Phase 2: Invalidate render cache when settings or data change
-     */
-    private invalidateRenderCache;
-    /**
-     * Phase 2: Calculate which tasks are visible in the current viewport
-     * @returns Object with start and end indices of visible tasks
-     */
-    private calculateVisibleRange;
-    /**
-     * Phase 2: Get cached task color or compute and cache it
-     */
-    private getCachedTaskColor;
     private toggleTaskDisplayInternal;
     private toggleBaselineDisplayInternal;
     private togglePreviousUpdateDisplayInternal;
@@ -325,10 +291,6 @@ export declare class Visual implements IVisual {
      */
     private drawZoomSliderMiniChart;
     /**
-     * Gets the zoomed date domain based on current zoom state
-     */
-    private getZoomedDomain;
-    /**
      * Updates the zoom slider track margins to align with the chart area
      */
     private updateZoomSliderTrackMargins;
@@ -347,17 +309,9 @@ export declare class Visual implements IVisual {
      */
     private logDataLoadInfo;
     /**
-     * With 'top' algorithm, data arrives complete - never in loading state.
-     */
-    private isDataLoading;
-    /**
      * Format a number with thousands separators for display.
      */
     private formatNumber;
-    /**
-     * Format elapsed time in a human-readable way.
-     */
-    private formatElapsedTime;
     /**
      * Show/hide loading overlay (simplified - no segment tracking).
      */
@@ -373,7 +327,6 @@ export declare class Visual implements IVisual {
     private handleMarginDragUpdate;
     private clearVisual;
     private drawHeaderDivider;
-    private createArrowheadMarkers;
     private setupTimeBasedSVGAndScales;
     private setupVirtualScroll;
     private getCanvasMouseCoordinates;
@@ -432,13 +385,9 @@ export declare class Visual implements IVisual {
     private drawProjectEndLine;
     private drawDataDateLine;
     private drawBaselineAndPreviousEndLines;
-    private calculateCPMOffThread;
-    private determineCriticalityMode;
     private applyFloatBasedCriticality;
-    private calculateCPM;
     /**
      * Identifies the longest path using P6 scheduled dates (reflective approach)
-     * This replaces the old calculateCPM() method for Longest Path mode
      */
     private identifyLongestPathFromP6;
     /**
@@ -491,14 +440,6 @@ export declare class Visual implements IVisual {
      */
     private persistPathSelection;
     private identifyNearCriticalTasks;
-    /**
-     * Identifies predecessor tasks connected through driving relationships
-     */
-    private identifyDrivingPredecessorTasks;
-    /**
-     * Identifies successor tasks connected through driving relationships
-     */
-    private identifyDrivingSuccessorTasks;
     private calculateCPMToTask;
     /**
      * Calculates CPM (Critical Path Method) forward from a selected source task
@@ -588,10 +529,6 @@ export declare class Visual implements IVisual {
      */
     private restoreScrollPosition;
     /**
-     * WBS GROUPING: Check if a task should be visible based on WBS group expansion state
-     */
-    private isTaskVisibleWithWbsGrouping;
-    /**
      * WBS GROUPING: Apply WBS ordering and filtering to tasks
      * Returns tasks sorted by WBS hierarchy with collapsed groups filtered out
      */
@@ -610,11 +547,6 @@ export declare class Visual implements IVisual {
      * @param tasksToShow - Final filtered list of tasks to display (after collapse/expand)
      */
     private assignWbsYOrder;
-    /**
-     * WBS GROUPING: Get the ordered list of items to display (groups + tasks)
-     * Returns a flat list with groups interleaved with their visible tasks
-     */
-    private getWbsOrderedDisplayItems;
     /**
      * WBS GROUPING: Draw WBS group headers in SVG mode
      * Renders group headers with expand/collapse controls and optional summary bars

@@ -15,7 +15,6 @@
         ]
     },
     "files": [
-        "./src/visual.ts",
-        "./src/priorityQueue.ts"
+        "./src/visual.ts"
     ]
 }

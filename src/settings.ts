@@ -418,18 +418,6 @@ class LegendCard extends Card {
         value: true
     });
 
-    position = new ItemDropdown({
-        name: "position",
-        displayName: "Position",
-        items: [
-            { value: "Top", displayName: "Top" },
-            { value: "Bottom", displayName: "Bottom" },
-            { value: "Left", displayName: "Left" },
-            { value: "Right", displayName: "Right" }
-        ],
-        value: { value: "Top", displayName: "Top" }
-    });
-
     fontSize = new NumUpDown({
         name: "fontSize",
         displayName: "Font Size (pt)",
@@ -468,7 +456,7 @@ class LegendCard extends Card {
         value: { value: "none", displayName: "Data Order" }
     });
 
-    slices: Slice[] = [this.show, this.position, this.fontSize, this.showTitle, this.titleText, this.sortOrder];
+    slices: Slice[] = [this.show, this.fontSize, this.showTitle, this.titleText, this.sortOrder];
 }
 
 class WBSGroupingCard extends Card {
@@ -652,13 +640,6 @@ class TimelineZoomCard extends Card {
         value: { value: "#605E5C" }
     });
 
-    sliderBorderColor = new ColorPicker({
-        name: "sliderBorderColor",
-        displayName: "Border Color",
-        description: "Border color of the handles",
-        value: { value: "#FFFFFF" }
-    });
-
     showMiniChart = new ToggleSwitch({
         name: "showMiniChart",
         displayName: "Show Mini Preview",
@@ -672,8 +653,7 @@ class TimelineZoomCard extends Card {
         this.showMiniChart,
         this.sliderTrackColor,
         this.sliderSelectedColor,
-        this.sliderHandleColor,
-        this.sliderBorderColor
+        this.sliderHandleColor
     ];
 }
 

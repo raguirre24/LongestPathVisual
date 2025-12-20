@@ -160,7 +160,6 @@ declare class LegendCard extends Card {
     name: string;
     displayName: string;
     show: formattingSettings.ToggleSwitch;
-    position: formattingSettings.ItemDropdown;
     fontSize: formattingSettings.NumUpDown;
     showTitle: formattingSettings.ToggleSwitch;
     titleText: formattingSettings.TextInput;
@@ -216,7 +215,6 @@ declare class TimelineZoomCard extends Card {
     sliderTrackColor: formattingSettings.ColorPicker;
     sliderSelectedColor: formattingSettings.ColorPicker;
     sliderHandleColor: formattingSettings.ColorPicker;
-    sliderBorderColor: formattingSettings.ColorPicker;
     showMiniChart: formattingSettings.ToggleSwitch;
     slices: Slice[];
 }
