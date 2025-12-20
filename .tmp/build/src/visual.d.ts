@@ -126,15 +126,8 @@ export declare class Visual implements IVisual {
     private visualTitle;
     private tooltipClassName;
     private isUpdating;
-    private isFetchingMoreData;
-    private fetchMoreRetryCount;
-    private readonly MAX_FETCH_MORE_REQUESTS;
-    private fallbackFetchAttemptsWithoutSegment;
-    private readonly DEFAULT_PBI_SEGMENT_SIZE;
-    private lastFetchRequestedRowCount;
     private isMarginDragging;
     private scrollHandlerBackup;
-    private readonly MAX_ROWS_TO_LOAD;
     private dataLoadExhausted;
     private updateDebounceTimeout;
     private pendingUpdate;
@@ -350,13 +343,12 @@ export declare class Visual implements IVisual {
     private updateChartClipRect;
     private toggleConnectorLinesDisplay;
     /**
-         * Power BI sends table data in ~30k row segments when the result set is large.
-         * Request additional segments, but continue rendering with what we have so the visual never goes blank.
-         */
-    private handleSegmentedDataView;
+     * Log data loading info. With 'top' algorithm, data arrives in one batch.
+     */
+    private logDataLoadInfo;
     /**
-         * Determine if more data is expected (additional segments pending).
-         */
+     * With 'top' algorithm, data arrives complete - never in loading state.
+     */
     private isDataLoading;
     /**
      * Format a number with thousands separators for display.
@@ -367,7 +359,7 @@ export declare class Visual implements IVisual {
      */
     private formatElapsedTime;
     /**
-     * Show/hide the loading overlay with detailed progress information.
+     * Show/hide loading overlay (simplified - no segment tracking).
      */
     private setLoadingOverlayVisible;
     update(options: VisualUpdateOptions): void;

@@ -567,13 +567,19 @@
                         { "bind": { "to": "legend" } },
                         { "for": { "in": "wbsLevels" } }
                     ],
-                    "dataReductionAlgorithm": { "window": { "count": 50000 } }
+                    "dataReductionAlgorithm": { "top": { "count": 30000 } }
                 }
             }
         }
     ],
+    "sorting": {
+        "implicit": {
+            "clauses": [
+                { "role": "taskTotalFloat", "direction": 1 }
+            ]
+        }
+    },
     "supportsHighlight": true,
-    "sorting": { "default": {} },
     "supportsLandingPage": false,
     "supportsKeyboardFocus": true,
     "supportsMultiVisualSelection": true,
