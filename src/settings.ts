@@ -689,7 +689,35 @@ class PersistedStateCard extends Card {
         placeholder: "",
         visible: false
     });
-    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories];
+    wbsExpandLevel = new NumUpDown({
+        name: "wbsExpandLevel",
+        displayName: "",
+        value: -2,
+        visible: false
+    });
+    wbsExpandedState = new TextInput({
+        name: "wbsExpandedState",
+        displayName: "",
+        value: "",
+        placeholder: "",
+        visible: false
+    });
+    wbsManualToggledGroups = new TextInput({
+        name: "wbsManualToggledGroups",
+        displayName: "",
+        value: "",
+        placeholder: "",
+        visible: false
+    });
+    slices: Slice[] = [
+        this.selectedTaskId,
+        this.floatThreshold,
+        this.traceMode,
+        this.selectedLegendCategories,
+        this.wbsExpandLevel,
+        this.wbsExpandedState,
+        this.wbsManualToggledGroups
+    ];
 }
 
 export class VisualSettings extends Model {

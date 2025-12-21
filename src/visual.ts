@@ -2743,11 +2743,22 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
         this.labelGridLayer?.selectAll("*").remove();
         this.wbsGroupLayer?.selectAll("*").remove();
 
+        const persistedLevel = effectiveNext === null ? -1 : effectiveNext;
+        const expandedStatePayload = this.getWbsExpandedStatePayload();
+        const manualGroupsPayload = Array.from(this.wbsManuallyToggledGroups);
         // Persist the general expand/collapse intent for backwards compatibility
         this.host.persistProperties({
             merge: [{
                 objectName: "wbsGrouping",
                 properties: { expandCollapseAll: this.wbsExpandedInternal },
+                selector: null
+            }, {
+                objectName: "persistedState",
+                properties: {
+                    wbsExpandLevel: persistedLevel,
+                    wbsExpandedState: JSON.stringify(expandedStatePayload),
+                    wbsManualToggledGroups: JSON.stringify(manualGroupsPayload)
+                },
                 selector: null
             }]
         });
@@ -4054,6 +4065,63 @@ private async updateInternal(options: VisualUpdateOptions) {
                     this.debugLog(`Restored legend selection: ${savedCategories}`);
                 } else {
                     this.selectedLegendCategories.clear();
+                }
+            }
+            if (this.settings?.persistedState?.wbsExpandedState !== undefined) {
+                const savedState = this.settings.persistedState.wbsExpandedState.value;
+                this.wbsExpandedState.clear();
+                if (savedState && savedState.trim().length > 0) {
+                    try {
+                        const parsed = JSON.parse(savedState) as Record<string, unknown>;
+                        if (parsed && typeof parsed === "object") {
+                            for (const [groupId, expanded] of Object.entries(parsed)) {
+                                if (typeof expanded === "boolean") {
+                                    this.wbsExpandedState.set(groupId, expanded);
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.warn("Failed to parse persisted WBS expanded state.", error);
+                    }
+                }
+            } else {
+                this.wbsExpandedState.clear();
+            }
+            if (this.settings?.persistedState?.wbsManualToggledGroups !== undefined) {
+                const savedGroups = this.settings.persistedState.wbsManualToggledGroups.value;
+                this.wbsManuallyToggledGroups.clear();
+                if (savedGroups && savedGroups.trim().length > 0) {
+                    try {
+                        const parsed = JSON.parse(savedGroups) as unknown;
+                        if (Array.isArray(parsed)) {
+                            for (const groupId of parsed) {
+                                if (typeof groupId === "string" && groupId.length > 0) {
+                                    this.wbsManuallyToggledGroups.add(groupId);
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.warn("Failed to parse persisted WBS manual group list.", error);
+                    }
+                }
+            } else {
+                this.wbsManuallyToggledGroups.clear();
+            }
+            if (this.settings?.persistedState?.wbsExpandLevel !== undefined) {
+                const persistedLevel = this.settings.persistedState.wbsExpandLevel.value;
+                if (persistedLevel !== undefined && persistedLevel !== null) {
+                    if (persistedLevel === -2) {
+                        this.wbsManualExpansionOverride = true;
+                        this.wbsExpandToLevel = undefined;
+                        if (this.wbsExpandedState.size > 0) {
+                            this.wbsExpandedInternal = Array.from(this.wbsExpandedState.values()).some(v => v);
+                        }
+                    } else {
+                        const resolvedLevel = persistedLevel === -1 ? null : persistedLevel;
+                        this.wbsManualExpansionOverride = false;
+                        this.wbsExpandToLevel = resolvedLevel;
+                        this.wbsExpandedInternal = resolvedLevel !== 0;
+                    }
                 }
             }
             this.isInitialLoad = false;
@@ -10520,6 +10588,23 @@ private getMaxWbsLevel(): number {
         : 0;
 }
 
+private getWbsExpandedStatePayload(): Record<string, boolean> {
+    const payload: Record<string, boolean> = {};
+    if (this.wbsGroups.length > 0) {
+        this.wbsExpandedState.clear();
+        for (const group of this.wbsGroups) {
+            this.wbsExpandedState.set(group.id, group.isExpanded);
+            payload[group.id] = group.isExpanded;
+        }
+        return payload;
+    }
+
+    for (const [groupId, expanded] of this.wbsExpandedState.entries()) {
+        payload[groupId] = expanded;
+    }
+    return payload;
+}
+
 private getWbsExpandLevelLabel(level: number | null | undefined): string {
     if (level === 0) {
         return "Collapse all WBS levels";
@@ -10677,6 +10762,20 @@ private toggleWbsGroupExpansion(groupId: string): void {
     group.isExpanded = !group.isExpanded;
     this.wbsExpandedState.set(groupId, group.isExpanded);
     this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
+
+    const expandedStatePayload = this.getWbsExpandedStatePayload();
+    const manualGroupsPayload = Array.from(this.wbsManuallyToggledGroups);
+    this.host.persistProperties({
+        merge: [{
+            objectName: "persistedState",
+            properties: {
+                wbsExpandLevel: -2,
+                wbsExpandedState: JSON.stringify(expandedStatePayload),
+                wbsManualToggledGroups: JSON.stringify(manualGroupsPayload)
+            },
+            selector: null
+        }]
+    });
 
     // Clear overlay layers so collapsed tasks don't leave lingering labels while we rerender
     this.taskLabelLayer?.selectAll("*").remove();
@@ -11197,7 +11296,7 @@ private drawWbsGroupHeaders(
         // Calculate center of band for positioning (same as tasks)
         const bandCenter = bandStart + taskHeight / 2;
 
-        const indent = (group.level - 2) * indentPerLevel;
+        const indent = Math.max(0, (group.level - 1) * indentPerLevel);
         const headerGroup = this.wbsGroupLayer.append('g')
             .attr('class', 'wbs-group-header')
             .attr('data-group-id', group.id)
@@ -11212,17 +11311,36 @@ private drawWbsGroupHeaders(
             .attr('clip-path', 'url(#chart-area-clip)');
 
         // Summary bar - DRAW FIRST so it appears BEHIND the text (SVG z-order)
-        // Show summary bar when group is collapsed and has tasks (even if filtered)
-        if (!group.isExpanded && showGroupSummary && group.taskCount > 0 &&
+        // Show summary bar when group has tasks; use subtler styling when expanded.
+        if (showGroupSummary && group.taskCount > 0 &&
             group.summaryStartDate && group.summaryFinishDate) {
+            const isCollapsed = !group.isExpanded;
             const startX = xScale(group.summaryStartDate);
             const finishX = xScale(group.summaryFinishDate);
             const barWidth = Math.max(2, finishX - startX);
-            const barHeight = taskHeight * 0.6; // Make it 60% of task height for better visibility
+            const barHeight = Math.max(2, taskHeight * (isCollapsed ? 0.6 : 0.25));
             const barY = bandCenter - barHeight / 2; // Center bar within the band
+            const barRadius = Math.min(3, barHeight / 2);
 
             // Dim the bar if all tasks are filtered out
-            const barOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
+            const barOpacity = (group.visibleTaskCount === 0)
+                ? (isCollapsed ? 0.4 : 0.2)
+                : (isCollapsed ? 0.8 : 0.35);
+
+            const prevBarHeight = isCollapsed
+                ? previousUpdateHeight
+                : Math.max(1, Math.min(previousUpdateHeight, barHeight));
+            const prevOffset = isCollapsed
+                ? previousUpdateOffset
+                : Math.max(1, Math.min(previousUpdateOffset, barHeight * 0.6));
+            const prevRadius = Math.min(3, prevBarHeight / 2);
+            const baselineBarHeight = isCollapsed
+                ? baselineHeight
+                : Math.max(1, Math.min(baselineHeight, barHeight));
+            const baselineOffsetEff = isCollapsed
+                ? baselineOffset
+                : Math.max(1, Math.min(baselineOffset, barHeight * 0.6));
+            const baselineRadius = Math.min(3, baselineBarHeight / 2);
 
             // Previous update summary bar (mirrors task-level behavior)
             if (showPreviousUpdate &&
@@ -11231,16 +11349,16 @@ private drawWbsGroupHeaders(
                 const prevStartX = xScale(group.summaryPreviousUpdateStartDate);
                 const prevFinishX = xScale(group.summaryPreviousUpdateFinishDate);
                 const prevWidth = Math.max(2, prevFinishX - prevStartX);
-                const prevY = barY + barHeight + previousUpdateOffset;
+                const prevY = barY + barHeight + prevOffset;
 
                 barsGroup.append('rect')
                     .attr('class', 'wbs-summary-bar-previous-update')
                     .attr('x', prevStartX)
                     .attr('y', prevY)
                     .attr('width', prevWidth)
-                    .attr('height', previousUpdateHeight)
-                    .attr('rx', 3)
-                    .attr('ry', 3)
+                    .attr('height', prevBarHeight)
+                    .attr('rx', prevRadius)
+                    .attr('ry', prevRadius)
                     .style('fill', previousUpdateColor)
                     .style('opacity', barOpacity);
             }
@@ -11253,17 +11371,17 @@ private drawWbsGroupHeaders(
                 const baselineFinishX = xScale(group.summaryBaselineFinishDate);
                 const baselineWidth = Math.max(2, baselineFinishX - baselineStartX);
                 const baselineY = barY + barHeight +
-                    (showPreviousUpdate ? previousUpdateHeight + previousUpdateOffset : 0) +
-                    baselineOffset;
+                    (showPreviousUpdate ? prevBarHeight + prevOffset : 0) +
+                    baselineOffsetEff;
 
                 barsGroup.append('rect')
                     .attr('class', 'wbs-summary-bar-baseline')
                     .attr('x', baselineStartX)
                     .attr('y', baselineY)
                     .attr('width', baselineWidth)
-                    .attr('height', baselineHeight)
-                    .attr('rx', 3)
-                    .attr('ry', 3)
+                    .attr('height', baselineBarHeight)
+                    .attr('rx', baselineRadius)
+                    .attr('ry', baselineRadius)
                     .style('fill', baselineColor)
                     .style('opacity', barOpacity);
             }
@@ -11275,8 +11393,8 @@ private drawWbsGroupHeaders(
                 .attr('y', barY)
                 .attr('width', barWidth)
                 .attr('height', barHeight)
-                .attr('rx', 3)
-                .attr('ry', 3)
+                .attr('rx', barRadius)
+                .attr('ry', barRadius)
                 .style('fill', groupSummaryColor)
                 .style('opacity', barOpacity);
 
@@ -11303,8 +11421,8 @@ private drawWbsGroupHeaders(
                         .attr('y', barY)
                         .attr('width', nearWidth)
                         .attr('height', barHeight)
-                        .attr('rx', (nearStartsAtBeginning || nearEndsAtEnd) ? 3 : 0)
-                        .attr('ry', (nearStartsAtBeginning || nearEndsAtEnd) ? 3 : 0)
+                        .attr('rx', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
+                        .attr('ry', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
                         .style('fill', nearCriticalColor)
                         .style('opacity', barOpacity);
                 }
@@ -11328,8 +11446,8 @@ private drawWbsGroupHeaders(
                     .attr('y', barY)
                     .attr('width', criticalWidth)
                     .attr('height', barHeight)
-                    .attr('rx', (criticalStartsAtBeginning || criticalEndsAtEnd) ? 3 : 0)
-                    .attr('ry', (criticalStartsAtBeginning || criticalEndsAtEnd) ? 3 : 0)
+                    .attr('rx', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
+                    .attr('ry', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
                     .style('fill', criticalPathColor)
                     .style('opacity', barOpacity);
             }
@@ -11337,7 +11455,8 @@ private drawWbsGroupHeaders(
 
         // Expand/collapse indicator
         const expandIcon = group.isExpanded ? '\u25BC' : '\u25B6'; // ▼ or ▶
-        const iconColor = (group.visibleTaskCount === 0) ? '#999' : '#333';
+        const mutedTextColor = this.resolveColor("#777777", "foreground");
+        const iconColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
 
         headerGroup.append('text')
             .attr('class', 'wbs-expand-icon')
@@ -11348,31 +11467,24 @@ private drawWbsGroupHeaders(
             .style('fill', iconColor)
             .text(expandIcon);
 
-        // Group name with task count (show visible vs total if different)
-        let displayName: string;
-        if (group.isExpanded) {
-            // When expanded, show name only or visible count if filtered
-            if (group.visibleTaskCount === 0) {
-                displayName = `${group.name} (all ${group.taskCount} tasks filtered)`;
-            } else if (group.visibleTaskCount < group.taskCount) {
-                displayName = `${group.name} (${group.visibleTaskCount}/${group.taskCount} visible)`;
-            } else {
-                displayName = group.name;
-            }
-        } else {
-            // When collapsed, show total task count
-            if (group.visibleTaskCount === 0) {
-                displayName = `${group.name} (${group.taskCount} tasks - all filtered)`;
-            } else if (group.visibleTaskCount < group.taskCount) {
-                displayName = `${group.name} (${group.visibleTaskCount}/${group.taskCount} tasks)`;
-            } else {
-                displayName = `${group.name} (${group.taskCount} tasks)`;
+        // Group name with concise count suffix
+        const levelLabel = this.wbsLevelColumnNames[group.level - 1];
+        const baseName = levelLabel ? `${levelLabel}: ${group.name}` : group.name;
+        const tasksLabel = this.getLocalizedString("wbs.tasksLabel", "tasks");
+        const visibleLabel = this.getLocalizedString("wbs.visibleLabel", "visible");
+        let countSuffix = "";
+        if (group.taskCount > 0) {
+            if (group.visibleTaskCount < group.taskCount) {
+                countSuffix = `${group.visibleTaskCount}/${group.taskCount} ${visibleLabel}`;
+            } else if (!group.isExpanded) {
+                countSuffix = `${group.taskCount} ${tasksLabel}`;
             }
         }
+        const displayName = countSuffix ? `${baseName} - ${countSuffix}` : baseName;
 
         // Determine text color based on visibility (use custom groupNameColor, dimmed if no visible tasks)
-        const textColor = (group.visibleTaskCount === 0) ? '#999' : groupNameColor;
-        const textOpacity = (group.visibleTaskCount === 0) ? 0.6 : 1.0;
+        const textColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
+        const textOpacity = (group.visibleTaskCount === 0) ? 0.65 : 1.0;
 
         // Calculate available width for group name text (with wrapping)
         const textX = -currentLeftMargin + indent + 22;

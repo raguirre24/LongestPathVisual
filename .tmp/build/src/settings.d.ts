@@ -226,6 +226,9 @@ declare class PersistedStateCard extends Card {
     floatThreshold: formattingSettings.NumUpDown;
     traceMode: formattingSettings.TextInput;
     selectedLegendCategories: formattingSettings.TextInput;
+    wbsExpandLevel: formattingSettings.NumUpDown;
+    wbsExpandedState: formattingSettings.TextInput;
+    wbsManualToggledGroups: formattingSettings.TextInput;
     slices: Slice[];
 }
 export declare class VisualSettings extends Model {

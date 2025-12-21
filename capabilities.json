@@ -336,7 +336,10 @@
                 "selectedTaskId": { "type": { "text": true } },
                 "floatThreshold": { "type": { "numeric": true } },
                 "traceMode": { "type": { "text": true } },
-                "selectedLegendCategories": { "type": { "text": true } }
+                "selectedLegendCategories": { "type": { "text": true } },
+                "wbsExpandLevel": { "type": { "numeric": true } },
+                "wbsExpandedState": { "type": { "text": true } },
+                "wbsManualToggledGroups": { "type": { "text": true } }
             }
         },
         "legend": {

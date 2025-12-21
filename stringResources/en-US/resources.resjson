@@ -47,6 +47,8 @@
     "tooltip.duration": "Remaining Duration",
     "tooltip.totalFloat": "Total Float",
     "tooltip.taskFreeFloat": "Task Free Float",
-    "tooltip.nearCriticalThreshold": "Near Critical Threshold"
+    "tooltip.nearCriticalThreshold": "Near Critical Threshold",
+    "wbs.tasksLabel": "tasks",
+    "wbs.visibleLabel": "visible"
   }
 }
