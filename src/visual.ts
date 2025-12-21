@@ -230,6 +230,11 @@ export class Visual implements IVisual {
     private selectedTaskId: string | null = null;
     private selectedTaskName: string | null = null;
     private hoveredTaskId: string | null = null;
+    private lastDataSignature: string | null = null;
+    private cachedSortedTasksSignature: string | null = null;
+    private cachedTasksSortedByStartDate: Task[] = [];
+    private cachedPlottableTasksSorted: Task[] = [];
+    private dropdownNeedsRefresh: boolean = true;
     private dropdownContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private dropdownInput: Selection<HTMLInputElement, unknown, null, undefined>;
     private dropdownList: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -1217,6 +1222,34 @@ private setupSVGRenderingHints(): void {
             group.attr("shape-rendering", "geometricPrecision");
         }
     });
+}
+
+private getDataSignature(dataView: DataView): string {
+    const rowCount = dataView.table?.rows?.length ?? 0;
+    const columnKey = dataView.metadata?.columns
+        ? dataView.metadata.columns.map(col => col.queryName || col.displayName || "").join("|")
+        : "";
+    return `${rowCount}|${columnKey}`;
+}
+
+private hasValidPlotDates(task: Task): boolean {
+    return task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
+        task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
+        task.finishDate >= task.startDate;
+}
+
+private ensureTaskSortCache(signature: string): void {
+    if (this.cachedSortedTasksSignature === signature) {
+        return;
+    }
+
+    const sortedByStartDate = this.allTasksData
+        .filter(task => task.startDate instanceof Date && !isNaN(task.startDate.getTime()))
+        .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+    this.cachedTasksSortedByStartDate = sortedByStartDate;
+    this.cachedPlottableTasksSorted = sortedByStartDate.filter(task => this.hasValidPlotDates(task));
+    this.cachedSortedTasksSignature = signature;
 }
 
 private determineUpdateType(options: VisualUpdateOptions): UpdateType {
@@ -3811,7 +3844,7 @@ private logDataLoadInfo(dataView: DataView): void {
     const rowCount = dataView.table?.rows?.length || 0;
     const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
     
-    console.log(
+    this.debugLog(
         `[WBS] Data loaded: ${rowCount.toLocaleString()} rows`,
         `| Sorted by: ${hasTotalFloat ? 'Total Float (critical first)' : 'Start Date'}`
     );
@@ -3864,9 +3897,9 @@ private setLoadingOverlayVisible(show: boolean, options?: { message?: string; ro
 }
 
     public update(options: VisualUpdateOptions) {
-        console.log("===== UPDATE() CALLED =====");
-        console.log("Update type:", options.type);
-        console.log("Has dataViews:", !!options.dataViews);
+        this.debugLog("===== UPDATE() CALLED =====");
+        this.debugLog("Update type:", options.type);
+        this.debugLog("Has dataViews:", !!options.dataViews);
         void this.updateInternal(options);
     }
 
@@ -3957,12 +3990,17 @@ private async updateInternal(options: VisualUpdateOptions) {
         const viewport = options.viewport;
         const viewportHeight = viewport.height;
         const viewportWidth = viewport.width;
+        const dataSignature = this.getDataSignature(dataView);
+        const dataChanged = (options.type & VisualUpdateType.Data) !== 0 ||
+            this.lastDataSignature !== dataSignature;
 
         // NEW CODE:
         this.debugLog("Viewport:", viewportWidth, "x", viewportHeight);
 
         // Log data info (no progressive fetching with 'top' algorithm)
-        this.logDataLoadInfo(dataView);
+        if (dataChanged) {
+            this.logDataLoadInfo(dataView);
+        }
 
         // Hide any loading overlay
         this.setLoadingOverlayVisible(false);
@@ -4068,7 +4106,15 @@ private async updateInternal(options: VisualUpdateOptions) {
         }
         this.debugLog("Data roles validated.");
 
-        this.transformDataOptimized(dataView);
+        const shouldTransform = dataChanged || this.allTasksData.length === 0;
+        if (shouldTransform) {
+            this.transformDataOptimized(dataView);
+            this.lastDataSignature = dataSignature;
+            this.cachedSortedTasksSignature = null;
+            this.dropdownNeedsRefresh = true;
+        } else {
+            this.debugLog("Skipping data transform; using cached task data");
+        }
 
         // CRITICAL FIX: Re-populate settings model now that SelectionIds exist.
         // This ensures the formatting pane gets valid selectors for the color pickers.
@@ -4115,7 +4161,9 @@ private async updateInternal(options: VisualUpdateOptions) {
             }
         }
 
-        this.populateTaskDropdown();
+        if (this.dropdownList && this.dropdownList.style("display") !== "none") {
+            this.populateTaskDropdown();
+        }
         this.createTraceModeToggle();
 
         const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
@@ -4167,17 +4215,9 @@ private async updateInternal(options: VisualUpdateOptions) {
             }
         }
 
-        const hasValidPlotDates = (task: Task) =>
-            task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
-            task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
-            task.finishDate >= task.startDate;
-
-        const tasksSortedByStartDate = this.allTasksData
-            .filter(task => task.startDate instanceof Date && !isNaN(task.startDate.getTime()))
-            .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-
+        this.ensureTaskSortCache(this.lastDataSignature ?? dataSignature);
         // Only use tasks that can actually be plotted for subsequent filtering
-        const plottableTasksSorted = tasksSortedByStartDate.filter(hasValidPlotDates);
+        const plottableTasksSorted = this.cachedPlottableTasksSorted;
 
         const criticalAndNearCriticalTasks = plottableTasksSorted.filter(task => 
             task.isCritical || task.isNearCritical
@@ -4216,13 +4256,17 @@ private async updateInternal(options: VisualUpdateOptions) {
             }
 
             const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
-            if (selectedTask && hasValidPlotDates(selectedTask) && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
+            if (selectedTask && this.hasValidPlotDates(selectedTask) && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
                 tasksToConsider.push(selectedTask);
             }
         } else {
             tasksToConsider = this.showAllTasksInternal 
                 ? plottableTasksSorted 
                 : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : plottableTasksSorted;
+        }
+
+        if (tasksToConsider === plottableTasksSorted) {
+            tasksToConsider = [...plottableTasksSorted];
         }
 
         const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
@@ -4234,7 +4278,7 @@ private async updateInternal(options: VisualUpdateOptions) {
             return;
         }
 
-        const tasksToPlot = limitedTasks.filter(hasValidPlotDates);
+        const tasksToPlot = limitedTasks.filter(task => this.hasValidPlotDates(task));
         
         if (tasksToPlot.length === 0) {
             this.applyTaskFilter([]); // ← FIX #5: Clear filter when no valid dates
@@ -4569,7 +4613,9 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
             }
         }
 
-        this.populateTaskDropdown();
+        if (this.dropdownList && this.dropdownList.style("display") !== "none") {
+            this.populateTaskDropdown();
+        }
         this.createTraceModeToggle();
         
         // Redraw with updated settings
@@ -12003,6 +12049,7 @@ private createTaskSelectionDropdown(): void {
         .style("display", "none")
         .style("z-index", "1000")
         .style("box-sizing", "border-box");
+    this.dropdownNeedsRefresh = true;
 
     // Rest of the method remains the same...
     const self = this;
@@ -12023,6 +12070,7 @@ private createTaskSelectionDropdown(): void {
     this.dropdownInput
         .on("input", function() {
             const inputValue = (this as HTMLInputElement).value.trim();
+            self.populateTaskDropdown();
             self.filterTaskDropdown(inputValue);
 
             // Show dropdown when typing
@@ -12093,8 +12141,12 @@ private createTaskSelectionDropdown(): void {
  * Populates the task dropdown with tasks from the dataset
  */
 private populateTaskDropdown(): void {
-    if (!this.dropdownList) {
+    if (!this.dropdownList || !this.settings?.taskSelection?.enableTaskSelection?.value) {
         console.warn("Dropdown list not initialized");
+        return;
+    }
+
+    if (!this.dropdownNeedsRefresh) {
         return;
     }
     
@@ -12110,6 +12162,7 @@ private populateTaskDropdown(): void {
             .style("font-style", "italic")
             .style("font-size", "11px")
             .style("font-family", "Segoe UI, sans-serif");
+        this.dropdownNeedsRefresh = false;
         return;
     }
     
@@ -12204,6 +12257,7 @@ private populateTaskDropdown(): void {
         });
     });
     
+    this.dropdownNeedsRefresh = false;
     this.debugLog(`Populated dropdown with ${sortedTasks.length} tasks plus clear option`);
 }
 

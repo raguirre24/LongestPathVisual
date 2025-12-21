@@ -65,6 +65,11 @@ export declare class Visual implements IVisual {
     private selectedTaskId;
     private selectedTaskName;
     private hoveredTaskId;
+    private lastDataSignature;
+    private cachedSortedTasksSignature;
+    private cachedTasksSortedByStartDate;
+    private cachedPlottableTasksSorted;
+    private dropdownNeedsRefresh;
     private dropdownContainer;
     private dropdownInput;
     private dropdownList;
@@ -165,6 +170,9 @@ export declare class Visual implements IVisual {
     private requestUpdate;
     private applyPublishModeOptimizations;
     private setupSVGRenderingHints;
+    private getDataSignature;
+    private hasValidPlotDates;
+    private ensureTaskSortCache;
     private determineUpdateType;
     destroy(): void;
     /**
