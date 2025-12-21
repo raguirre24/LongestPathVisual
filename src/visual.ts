@@ -229,6 +229,7 @@ export class Visual implements IVisual {
     // --- Task selection ---
     private selectedTaskId: string | null = null;
     private selectedTaskName: string | null = null;
+    private hoveredTaskId: string | null = null;
     private dropdownContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private dropdownInput: Selection<HTMLInputElement, unknown, null, undefined>;
     private dropdownList: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -1001,7 +1002,6 @@ constructor(options: VisualConstructorOptions) {
         if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
         
         const showTooltips = this.settings.displayOptions.showTooltips.value;
-        if (!showTooltips) return;
         
         const coords = this.getCanvasMouseCoordinates(event);
         const x = coords.x;
@@ -1048,12 +1048,16 @@ constructor(options: VisualConstructorOptions) {
             }
         }
         
+        this.setHoveredTask(hoveredTask ? hoveredTask.internalId : null);
+
         // Show or hide tooltip
         if (hoveredTask) {
-            this.showTaskTooltip(hoveredTask, event);
+            if (showTooltips) {
+                this.showTaskTooltip(hoveredTask, event);
+            }
             d3.select(this.canvasElement).style("cursor", "pointer");
         } else {
-            if (this.tooltipDiv) {
+            if (this.tooltipDiv && showTooltips) {
                 this.tooltipDiv.style("visibility", "hidden");
             }
             d3.select(this.canvasElement).style("cursor", "default");
@@ -1062,6 +1066,7 @@ constructor(options: VisualConstructorOptions) {
     
     // Add mouseout handler
     d3.select(this.canvasElement).on("mouseout", () => {
+        this.setHoveredTask(null);
         if (this.tooltipDiv) {
             this.tooltipDiv.style("visibility", "hidden");
         }
@@ -1356,6 +1361,42 @@ private captureScrollPosition(): void {
         this.scrollPreservationUntil = Date.now() + 1500;
         this.debugLog(`Scroll position captured: ${this.preservedScrollTop}`);
     }
+}
+
+private setHoveredTask(taskId: string | null): void {
+    const nextTaskId = taskId ?? null;
+    if (this.hoveredTaskId === nextTaskId) {
+        return;
+    }
+    this.hoveredTaskId = nextTaskId;
+    this.updateConnectorHoverStyles();
+}
+
+private isRelationshipHovered(rel: Relationship): boolean {
+    return this.hoveredTaskId !== null &&
+        (rel.predecessorId === this.hoveredTaskId || rel.successorId === this.hoveredTaskId);
+}
+
+private getConnectorOpacity(rel: Relationship): number {
+    if (!this.hoveredTaskId) {
+        return rel.isCritical ? 0.85 : 0.35;
+    }
+    return this.isRelationshipHovered(rel)
+        ? (rel.isCritical ? 0.95 : 0.85)
+        : 0.12;
+}
+
+private updateConnectorHoverStyles(): void {
+    if (!this.showConnectorLinesInternal || this.useCanvasRendering || !this.arrowLayer) {
+        return;
+    }
+
+    this.arrowLayer.selectAll<SVGPathElement, Relationship>(".relationship-arrow")
+        .style("stroke-opacity", (d: Relationship) => this.getConnectorOpacity(d));
+
+    this.arrowLayer.selectAll<SVGCircleElement, Relationship>(".connection-dot-start, .connection-dot-end")
+        .style("fill-opacity", (d: Relationship) => this.getConnectorOpacity(d))
+        .style("stroke-opacity", 0.6);
 }
 
 private toggleTaskDisplayInternal(): void {
@@ -4965,6 +5006,28 @@ private getCanvasMouseCoordinates(event: MouseEvent): { x: number, y: number } {
     };
 }
 
+private drawRoundedRectPath(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number
+): void {
+    const clampedRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + clampedRadius, y);
+    ctx.lineTo(x + width - clampedRadius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + clampedRadius);
+    ctx.lineTo(x + width, y + height - clampedRadius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - clampedRadius, y + height);
+    ctx.lineTo(x + clampedRadius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - clampedRadius);
+    ctx.lineTo(x, y + clampedRadius);
+    ctx.quadraticCurveTo(x, y, x + clampedRadius, y);
+    ctx.closePath();
+}
+
 // Add this helper method for showing tooltips
 private showTaskTooltip(task: Task, event: MouseEvent): void {
     const tooltip = this.tooltipDiv;
@@ -6114,6 +6177,15 @@ private drawTasks(
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
     const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
     const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
+    const viewportWidth = this.lastUpdateOptions?.viewport?.width ?? 0;
+    const reduceLabelDensity = this.getLayoutMode(viewportWidth) === 'narrow';
+    const shouldShowFinishLabel = (d: Task): boolean => {
+        if (!reduceLabelDensity) return true;
+        return d.internalId === this.selectedTaskId ||
+            d.isCritical ||
+            d.type === 'TT_Mile' ||
+            d.type === 'TT_FinMile';
+    };
     const lineHeight = this.taskLabelLineHeight;
     const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
     const dateBgPaddingV = this.dateBackgroundPadding.vertical;
@@ -6169,6 +6241,8 @@ private drawTasks(
         const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
         const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
         const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
+        const previousUpdateRadius = Math.min(3, previousUpdateHeight / 2);
+        const previousUpdateOutline = this.getContrastColor(previousUpdateColor);
 
         allTaskGroups.selectAll(".previous-update-bar").remove();
 
@@ -6187,7 +6261,12 @@ private drawTasks(
                 return Math.max(this.minTaskWidthPixels, finishPos - startPos);
             })
             .attr("height", previousUpdateHeight)
-            .style("fill", previousUpdateColor);
+            .attr("rx", previousUpdateRadius)
+            .attr("ry", previousUpdateRadius)
+            .style("fill", previousUpdateColor)
+            .style("stroke", previousUpdateOutline)
+            .style("stroke-opacity", 0.25)
+            .style("stroke-width", 0.6);
     } else {
         allTaskGroups.selectAll(".previous-update-bar").remove();
     }
@@ -6198,6 +6277,8 @@ private drawTasks(
         const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
         const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
         const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
+        const baselineRadius = Math.min(3, baselineHeight / 2);
+        const baselineOutline = this.getContrastColor(baselineColor);
         
         // Calculate Y position based on what's visible above
         let baselineY = taskHeight;
@@ -6226,7 +6307,12 @@ private drawTasks(
                 return Math.max(this.minTaskWidthPixels, finishPos - startPos);
             })
             .attr("height", baselineHeight)
-            .style("fill", baselineColor);
+            .attr("rx", baselineRadius)
+            .attr("ry", baselineRadius)
+            .style("fill", baselineColor)
+            .style("stroke", baselineOutline)
+            .style("stroke-opacity", 0.25)
+            .style("stroke-width", 0.6);
     } else {
         allTaskGroups.selectAll(".baseline-bar").remove();
     }
@@ -6447,8 +6533,11 @@ private drawTasks(
     if (showFinishDates) {
         allTaskGroups.selectAll(".date-label-group").remove();
         
-        const dateTextFontSize = Math.max(8, generalFontSize * 0.85);
-        const dateTextGroups = allTaskGroups.append("g").attr("class", "date-label-group");
+        const dateTextFontSize = Math.max(7, generalFontSize * (reduceLabelDensity ? 0.75 : 0.85));
+        const dateTextGroups = allTaskGroups
+            .filter((d: Task) => shouldShowFinishLabel(d))
+            .append("g")
+            .attr("class", "date-label-group");
 
         const dateTextSelection = dateTextGroups.append("text")
             .attr("class", "finish-date")
@@ -6560,6 +6649,7 @@ private drawTasks(
     const setupInteractivity = (selection: Selection<BaseType, Task, BaseType, unknown>) => {
         selection
             .on("mouseover", (event: MouseEvent, d: Task) => {
+                self.setHoveredTask(d.internalId);
                 // Only apply hover effect if not the selected task
                 if (d.internalId !== self.selectedTaskId) {
                     // Determine the correct hover stroke color and width based on criticality
@@ -6723,6 +6813,7 @@ private drawTasks(
                 }
             })
             .on("mouseout", (event: MouseEvent, d: Task) => {
+                self.setHoveredTask(null);
                 // Restore normal appearance only if not selected
                 if (d.internalId !== self.selectedTaskId) {
                     // Determine the correct default stroke color and width based on criticality
@@ -6981,6 +7072,8 @@ private drawTasksCanvas(
     
     try {
         const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
+        const viewportWidth = this.lastUpdateOptions?.viewport?.width ?? 0;
+        const reduceLabelDensity = this.getLayoutMode(viewportWidth) === 'narrow';
         const generalFontSize = this.settings.textAndLabels.fontSize.value;
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
         const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
@@ -7030,9 +7123,18 @@ private drawTasksCanvas(
                 const x_prev = Math.round(xScale(task.previousUpdateStartDate));
                 const width_prev = Math.round(Math.max(1, xScale(task.previousUpdateFinishDate) - x_prev));
                 const y_prev = Math.round(yPos + taskHeight + previousUpdateOffset); // Directly below task bar
+                const prevRadius = Math.min(3, Math.round(previousUpdateHeight) / 2);
 
+                this.drawRoundedRectPath(ctx, x_prev, y_prev, width_prev, Math.round(previousUpdateHeight), prevRadius);
                 ctx.fillStyle = previousUpdateColor;
-                ctx.fillRect(x_prev, y_prev, width_prev, Math.round(previousUpdateHeight));
+                ctx.fill();
+
+                const prevAlpha = ctx.globalAlpha;
+                ctx.globalAlpha = 0.25;
+                ctx.strokeStyle = this.getContrastColor(previousUpdateColor);
+                ctx.lineWidth = 0.6;
+                ctx.stroke();
+                ctx.globalAlpha = prevAlpha;
             }
 
             // --- Draw Baseline Bar on Canvas SECOND (below previous update bar) ---
@@ -7050,9 +7152,18 @@ private drawTasksCanvas(
                 
                 const x_base = Math.round(xScale(task.baselineStartDate));
                 const width_base = Math.round(Math.max(1, xScale(task.baselineFinishDate) - x_base));
+                const baseRadius = Math.min(3, Math.round(baselineHeight) / 2);
 
+                this.drawRoundedRectPath(ctx, x_base, y_base, width_base, Math.round(baselineHeight), baseRadius);
                 ctx.fillStyle = baselineColor;
-                ctx.fillRect(x_base, y_base, width_base, Math.round(baselineHeight));
+                ctx.fill();
+
+                const baseAlpha = ctx.globalAlpha;
+                ctx.globalAlpha = 0.25;
+                ctx.strokeStyle = this.getContrastColor(baselineColor);
+                ctx.lineWidth = 0.6;
+                ctx.stroke();
+                ctx.globalAlpha = baseAlpha;
             }
             
             // Determine task fill color based on legend existence
@@ -7256,13 +7367,19 @@ private drawTasksCanvas(
             ctx.fillText(taskName, labelX, labelY);
             
             // Draw finish date if enabled
-            if (showFinishDates && task.finishDate) {
+            const showDenseFinishDate = !reduceLabelDensity ||
+                task.internalId === this.selectedTaskId ||
+                task.isCritical ||
+                task.type === 'TT_Mile' ||
+                task.type === 'TT_FinMile';
+
+            if (showFinishDates && showDenseFinishDate && task.finishDate) {
                 const dateText = this.formatDate(task.finishDate);
                 const dateX = Math.round(task.type === 'TT_Mile' || task.type === 'TT_FinMile'
                     ? xScale(task.startDate || task.finishDate) + milestoneSizeSetting / 2 + this.dateLabelOffset
                     : xScale(task.finishDate) + this.dateLabelOffset);
                     
-                const dateFontSize = Math.round((Math.max(8, generalFontSize * 0.85) / 10) * baseFontSize);
+                const dateFontSize = Math.round((Math.max(7, generalFontSize * (reduceLabelDensity ? 0.75 : 0.85)) / 10) * baseFontSize);
                 
                 ctx.save();
                 ctx.font = `${dateFontSize}px ${fontFamily}`;
@@ -7551,8 +7668,12 @@ private drawArrowsCanvas(
             // Professional line styling with enhanced visuals
             const isCritical = rel.isCritical;
             const baseLineWidth = isCritical ? criticalConnectorWidth : connectorWidth;
-            const enhancedLineWidth = Math.max(1.5, baseLineWidth);  // Minimum 1.5px for visibility
+            const enhancedLineWidth = isCritical
+                ? Math.max(1.6, baseLineWidth)
+                : Math.max(1, baseLineWidth);
 
+            const previousAlpha = ctx.globalAlpha;
+            ctx.globalAlpha = this.getConnectorOpacity(rel);
             ctx.strokeStyle = isCritical ? criticalColor : connectorColor;
             ctx.lineWidth = enhancedLineWidth;
             ctx.lineCap = 'round';  // Rounded line caps for smoother appearance
@@ -7660,6 +7781,7 @@ private drawArrowsCanvas(
             }
 
             ctx.stroke();
+            ctx.globalAlpha = previousAlpha;
         });
     } finally {
         // Always restore context state
@@ -7757,9 +7879,10 @@ private drawArrowsCanvas(
             .attr("class", (d: Relationship) => `relationship-arrow ${d.isCritical ? "critical" : "normal"}`)
             .attr("fill", "none")
             .attr("stroke", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
+            .attr("stroke-opacity", (d: Relationship) => this.getConnectorOpacity(d))
             .attr("stroke-width", (d: Relationship) => {
                 const baseWidth = d.isCritical ? criticalConnectorWidth : connectorWidth;
-                return Math.max(1.5, baseWidth);  // UPGRADED: Minimum 1.5px for better visibility
+                return d.isCritical ? Math.max(1.6, baseWidth) : Math.max(1, baseWidth);
             })
             .attr("stroke-linecap", "round")  // UPGRADED: Rounded line caps for smoother appearance
             .attr("stroke-linejoin", "round")  // UPGRADED: Rounded joins for smoother corners
@@ -7903,10 +8026,12 @@ private drawArrowsCanvas(
             .enter()
             .append("circle")
             .attr("class", "connection-dot-start")
-            .attr("r", 2.5)  // Small dot
+            .attr("r", (d: Relationship) => d.isCritical ? 2.5 : 2)
             .attr("fill", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
+            .attr("fill-opacity", (d: Relationship) => this.getConnectorOpacity(d))
             .attr("stroke", "white")
             .attr("stroke-width", 0.5)
+            .attr("stroke-opacity", 0.6)
             .attr("cx", (rel: Relationship): number => {
                 const pred = this.taskIdToTask.get(rel.predecessorId);
                 const predYOrder = taskPositions.get(rel.predecessorId);
@@ -7945,10 +8070,12 @@ private drawArrowsCanvas(
             .enter()
             .append("circle")
             .attr("class", "connection-dot-end")
-            .attr("r", 2.5)  // Small dot
+            .attr("r", (d: Relationship) => d.isCritical ? 2.5 : 2)
             .attr("fill", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
+            .attr("fill-opacity", (d: Relationship) => this.getConnectorOpacity(d))
             .attr("stroke", "white")
             .attr("stroke-width", 0.5)
+            .attr("stroke-opacity", 0.6)
             .attr("cx", (rel: Relationship): number => {
                 const succ = this.taskIdToTask.get(rel.successorId);
                 const succYOrder = taskPositions.get(rel.successorId);
@@ -12742,39 +12869,32 @@ private ensureTaskVisible(taskId: string): void {
 
         // Main container with flexbox layout
         const mainContainer = this.legendContainer.append("div")
+            .attr("class", "legend-main")
             .style("display", "flex")
             .style("align-items", "center")
             .style("height", "100%")
-            .style("padding", "0 10px");
+            .style("padding", "8px 12px")
+            .style("box-sizing", "border-box");
 
         // Left scroll arrow
         const leftArrow = mainContainer.append("div")
-            .attr("class", "legend-scroll-left")
+            .attr("class", "legend-scroll-arrow legend-scroll-left")
+            .attr("role", "button")
+            .attr("aria-label", "Scroll legend left")
+            .attr("tabindex", 0)
             .style("flex-shrink", "0")
-            .style("width", "30px")
-            .style("height", "30px")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("cursor", "pointer")
-            .style("background-color", "#f0f0f0")
-            .style("border-radius", "4px")
-            .style("margin-right", "10px")
-            .style("user-select", "none")
-            .style("transition", "background-color 0.2s")
-            .text("◀")
-            .style("font-size", "14px")
-            .style("color", "#666");
+            .text("<");
 
         // Scrollable content wrapper
         const scrollWrapper = mainContainer.append("div")
+            .attr("class", "legend-scroll-wrapper")
             .style("flex", "1")
             .style("overflow", "hidden")
             .style("position", "relative");
 
         // Scrollable content container
         const scrollableContent = scrollWrapper.append("div")
-            .attr("class", "legend-scrollable-content")
+            .attr("class", "legend-scroll-content")
             .style("display", "flex")
             .style("gap", "20px")
             .style("align-items", "center")
@@ -12784,13 +12904,10 @@ private ensureTaskVisible(taskId: string): void {
         // Add title if enabled
         if (showTitle && titleText) {
             scrollableContent.append("div")
-                .style("font-family", "Segoe UI, sans-serif")
+                .attr("class", "legend-title")
                 .style("font-size", `${fontSize + 1}px`)
-                .style("font-weight", "bold")
-                .style("color", "#333")
                 .style("white-space", "nowrap")
-                .style("margin-right", "10px")
-                .text(titleText + ":");
+                .text(`${titleText}:`);
         }
 
         // UX ENHANCEMENT: Add selection count indicator
@@ -12798,14 +12915,9 @@ private ensureTaskVisible(taskId: string): void {
         const totalCount = this.legendCategories.length;
 
         scrollableContent.append("div")
-            .style("font-family", "Segoe UI, sans-serif")
+            .attr("class", "legend-count")
             .style("font-size", `${fontSize - 1}px`)
-            .style("color", "#888")
             .style("white-space", "nowrap")
-            .style("margin-right", "15px")
-            .style("padding", "2px 8px")
-            .style("background-color", "#f0f0f0")
-            .style("border-radius", "10px")
             .attr("title", "Number of visible categories")
             .text(`${selectedCount} of ${totalCount} shown`);
 
@@ -12816,6 +12928,9 @@ private ensureTaskVisible(taskId: string): void {
             const isSelected = this.selectedLegendCategories.size === 0 || this.selectedLegendCategories.has(category);
 
             const item = scrollableContent.append("div")
+                .attr("class", "legend-item")
+                .classed("is-selected", isSelected)
+                .style("--legend-color", color)
                 .attr("data-category", category)
                 // UX ENHANCEMENT: Add role and aria attributes for accessibility
                 .attr("role", "button")
@@ -12829,33 +12944,23 @@ private ensureTaskVisible(taskId: string): void {
                 .style("gap", "6px")
                 .style("flex-shrink", "0")
                 .style("cursor", "pointer")
-                .style("user-select", "none")
-                .style("padding", "4px 10px")
-                .style("border-radius", "6px")
-                // UX ENHANCEMENT: Improved transitions for smoother feel
-                .style("transition", "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)")
-                .style("opacity", isSelected ? "1" : "0.5")
-                // UX ENHANCEMENT: Add subtle border to make items more distinct
-                .style("border", `1px solid ${isSelected ? '#ddd' : '#e8e8e8'}`);
+                .style("user-select", "none");
 
             // Color swatch
             item.append("div")
+                .attr("class", "legend-swatch")
                 .style("width", "16px")
                 .style("height", "16px")
                 .style("background-color", color)
                 .style("border", `2px solid ${isSelected ? color : '#ccc'}`)
                 .style("border-radius", "3px")
-                .style("flex-shrink", "0")
-                .style("transition", "border-color 0.2s");
+                .style("flex-shrink", "0");
 
             // Label
             item.append("span")
-                .style("font-family", "Segoe UI, sans-serif")
+                .attr("class", "legend-label")
                 .style("font-size", `${fontSize}px`)
-                .style("color", isSelected ? "#333" : "#999")
                 .style("white-space", "nowrap")
-                .style("font-weight", isSelected ? "500" : "400")
-                .style("text-decoration", isSelected ? "none" : "line-through")
                 .text(category);
 
             // Click handler for filtering
@@ -12871,105 +12976,70 @@ private ensureTaskVisible(taskId: string): void {
                 }
             });
 
-            // UX ENHANCEMENT: Improved hover effect with subtle elevation
-            item.on("mouseenter", function() {
-                d3.select(this)
-                    .style("background-color", "#f8f9fa")
-                    .style("transform", "translateY(-1px)")
-                    .style("box-shadow", "0 2px 4px rgba(0,0,0,0.1)");
-            }).on("mouseleave", function() {
-                d3.select(this)
-                    .style("background-color", "transparent")
-                    .style("transform", "translateY(0)")
-                    .style("box-shadow", "none");
-            });
-
-            // UX ENHANCEMENT: Focus indicator
-            item.on("focus", function() {
-                d3.select(this)
-                    .style("outline", "2px solid #0078D4")
-                    .style("outline-offset", "2px");
-            }).on("blur", function() {
-                d3.select(this)
-                    .style("outline", "none");
-            });
+            // Hover/focus states handled via CSS
         });
 
         // Right scroll arrow
         const rightArrow = mainContainer.append("div")
-            .attr("class", "legend-scroll-right")
+            .attr("class", "legend-scroll-arrow legend-scroll-right")
+            .attr("role", "button")
+            .attr("aria-label", "Scroll legend right")
+            .attr("tabindex", 0)
             .style("flex-shrink", "0")
-            .style("width", "30px")
-            .style("height", "30px")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("cursor", "pointer")
-            .style("background-color", "#f0f0f0")
-            .style("border-radius", "4px")
-            .style("margin-left", "10px")
-            .style("user-select", "none")
-            .style("transition", "background-color 0.2s")
-            .text("▶")
-            .style("font-size", "14px")
-            .style("color", "#666");
+            .text(">");
 
         // Scroll logic
         let scrollPosition = 0;
         const scrollAmount = 200; // pixels to scroll per click
 
-        leftArrow.on("click", function() {
-            scrollPosition = Math.max(0, scrollPosition - scrollAmount);
-            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
-            updateArrowStates();
-        });
-
-        rightArrow.on("click", function() {
-            const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
-            const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
-            const maxScroll = Math.max(0, contentWidth - wrapperWidth);
-            scrollPosition = Math.min(maxScroll, scrollPosition + scrollAmount);
-            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
-            updateArrowStates();
-        });
-
-        // Update arrow states based on scroll position
         const updateArrowStates = () => {
             const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
             const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
             const maxScroll = Math.max(0, contentWidth - wrapperWidth);
 
-            // Disable/enable arrows
-            if (scrollPosition <= 0) {
-                leftArrow.style("opacity", "0.3").style("cursor", "default");
-            } else {
-                leftArrow.style("opacity", "1").style("cursor", "pointer");
-            }
+            const leftDisabled = scrollPosition <= 0;
+            const rightDisabled = scrollPosition >= maxScroll || maxScroll === 0;
 
-            if (scrollPosition >= maxScroll || maxScroll === 0) {
-                rightArrow.style("opacity", "0.3").style("cursor", "default");
-            } else {
-                rightArrow.style("opacity", "1").style("cursor", "pointer");
-            }
+            leftArrow
+                .classed("is-disabled", leftDisabled)
+                .attr("aria-disabled", leftDisabled ? "true" : "false");
+            rightArrow
+                .classed("is-disabled", rightDisabled)
+                .attr("aria-disabled", rightDisabled ? "true" : "false");
         };
 
-        // Hover effects for arrows
-        leftArrow.on("mouseenter", function() {
-            if (scrollPosition > 0) {
-                d3.select(this).style("background-color", "#e0e0e0");
-            }
-        }).on("mouseleave", function() {
-            d3.select(this).style("background-color", "#f0f0f0");
-        });
+        const handleScrollLeft = () => {
+            if (scrollPosition <= 0) return;
+            scrollPosition = Math.max(0, scrollPosition - scrollAmount);
+            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
+            updateArrowStates();
+        };
 
-        rightArrow.on("mouseenter", function() {
+        const handleScrollRight = () => {
             const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
             const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
-            if (scrollPosition < contentWidth - wrapperWidth) {
-                d3.select(this).style("background-color", "#e0e0e0");
+            const maxScroll = Math.max(0, contentWidth - wrapperWidth);
+            if (scrollPosition >= maxScroll) return;
+            scrollPosition = Math.min(maxScroll, scrollPosition + scrollAmount);
+            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
+            updateArrowStates();
+        };
+
+        leftArrow.on("click", handleScrollLeft);
+        rightArrow.on("click", handleScrollRight);
+
+        leftArrow.on("keydown", (event: KeyboardEvent) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handleScrollLeft();
             }
-        }).on("mouseleave", function() {
-            d3.select(this).style("background-color", "#f0f0f0");
+        });
+
+        rightArrow.on("keydown", (event: KeyboardEvent) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handleScrollRight();
+            }
         });
 
         // Wait a frame for layout to settle, then update arrow states

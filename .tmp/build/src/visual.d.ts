@@ -64,6 +64,7 @@ export declare class Visual implements IVisual {
     private yScale;
     private selectedTaskId;
     private selectedTaskName;
+    private hoveredTaskId;
     private dropdownContainer;
     private dropdownInput;
     private dropdownList;
@@ -172,6 +173,10 @@ export declare class Visual implements IVisual {
      * Sets up both the preserved scroll value and the cooldown to prevent Power BI re-triggers.
      */
     private captureScrollPosition;
+    private setHoveredTask;
+    private isRelationshipHovered;
+    private getConnectorOpacity;
+    private updateConnectorHoverStyles;
     private toggleTaskDisplayInternal;
     private toggleBaselineDisplayInternal;
     private togglePreviousUpdateDisplayInternal;
@@ -330,6 +335,7 @@ export declare class Visual implements IVisual {
     private setupTimeBasedSVGAndScales;
     private setupVirtualScroll;
     private getCanvasMouseCoordinates;
+    private drawRoundedRectPath;
     private showTaskTooltip;
     private hideTooltip;
     private updateHeaderElements;
