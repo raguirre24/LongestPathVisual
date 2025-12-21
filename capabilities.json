@@ -554,10 +554,10 @@
         }
     },
     "supportsHighlight": true,
-    "supportsLandingPage": false,
+    "supportsLandingPage": true,
     "supportsKeyboardFocus": true,
     "supportsMultiVisualSelection": true,
-    "supportsEmptyDataView": false,
+    "supportsEmptyDataView": true,
     "suppressDefaultTitle": false,
     "tooltips": {
         "supportedTypes": {

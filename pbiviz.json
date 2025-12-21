@@ -17,6 +17,9 @@
   "assets": {
     "icon": "assets/icon.png"
   },
+  "stringResources": [
+    "stringResources/en-US/resources.resjson"
+  ],
   "style": "style/visual.less",
   "capabilities": "capabilities.json"
 }

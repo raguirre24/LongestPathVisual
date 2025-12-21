@@ -7,6 +7,17 @@ export declare class Visual implements IVisual {
     private host;
     private formattingSettingsService;
     private settings;
+    private selectionManager;
+    private tooltipService;
+    private localizationManager;
+    private eventService;
+    private allowInteractions;
+    private highContrastMode;
+    private highContrastForeground;
+    private highContrastBackground;
+    private highContrastForegroundSelected;
+    private lastTooltipItems;
+    private lastTooltipIdentities;
     private stickyHeaderContainer;
     private scrollableContainer;
     private headerSvg;
@@ -116,6 +127,7 @@ export declare class Visual implements IVisual {
     private wbsGroupLayer;
     private lastExpandCollapseAllState;
     private tooltipDebugLogged;
+    private landingPageContainer;
     private relationshipIndex;
     private allDrivingChains;
     private selectedPathIndex;
@@ -343,6 +355,7 @@ export declare class Visual implements IVisual {
     private setupTimeBasedSVGAndScales;
     private setupVirtualScroll;
     private getCanvasMouseCoordinates;
+    private getTaskAtCanvasPoint;
     private drawRoundedRectPath;
     private showTaskTooltip;
     private hideTooltip;
@@ -630,5 +643,21 @@ export declare class Visual implements IVisual {
      * Get duration text color based on settings or auto-contrast
      */
     private getDurationTextColor;
+    private getLocalizedString;
+    private updateHighContrastState;
+    private resolveColor;
+    private getSelectionColor;
+    private getForegroundColor;
+    private getBackgroundColor;
+    private applyHighContrastStyling;
+    private formatTooltipValue;
+    private buildTooltipDataItems;
+    private getTooltipIdentities;
+    private moveTaskTooltip;
+    private showContextMenu;
+    private clearLandingPage;
+    private getRoleDisplayName;
+    private getMissingRequiredRoles;
+    private displayLandingPage;
     private debugLog;
 }

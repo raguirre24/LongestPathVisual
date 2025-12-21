@@ -14,6 +14,11 @@ import DataView = powerbi.DataView;
 import IViewport = powerbi.IViewport;
 import IVisual = powerbi.extensibility.visual.IVisual;
 import PrimitiveValue = powerbi.PrimitiveValue;
+import ISelectionManager = powerbi.extensibility.ISelectionManager;
+import ITooltipService = powerbi.extensibility.ITooltipService;
+import ILocalizationManager = powerbi.extensibility.ILocalizationManager;
+import IVisualEventService = powerbi.extensibility.IVisualEventService;
+import VisualTooltipDataItem = powerbi.extensibility.VisualTooltipDataItem;
 
 import { VisualSettings } from "./settings";
 import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
@@ -91,6 +96,7 @@ interface Task {
     previousUpdateFinishDate?: Date | null;
     yOrder?: number;
     tooltipData?: Array<{key: string, value: PrimitiveValue}>;  // Array preserves field order
+    selectionId?: powerbi.visuals.ISelectionId;
     legendValue?: string;       // Value from legend field for this task
     legendColor?: string;       // Assigned color for this legend value
     // WBS Grouping fields - dynamic array supporting any number of hierarchy levels
@@ -153,6 +159,17 @@ export class Visual implements IVisual {
     private host: IVisualHost;
     private formattingSettingsService: FormattingSettingsService;
     private settings: VisualSettings;
+    private selectionManager: ISelectionManager;
+    private tooltipService: ITooltipService | null = null;
+    private localizationManager: ILocalizationManager;
+    private eventService: IVisualEventService | null = null;
+    private allowInteractions: boolean = true;
+    private highContrastMode: boolean = false;
+    private highContrastForeground: string = "#000000";
+    private highContrastBackground: string = "#FFFFFF";
+    private highContrastForegroundSelected: string = "#000000";
+    private lastTooltipItems: VisualTooltipDataItem[] = [];
+    private lastTooltipIdentities: powerbi.extensibility.ISelectionId[] = [];
 
     // *** Containers for sticky header and scrollable content ***
     private stickyHeaderContainer: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -296,6 +313,7 @@ export class Visual implements IVisual {
 
     // Tooltip properties
     private tooltipDebugLogged: boolean = false; // Flag to log tooltip column info only once
+    private landingPageContainer: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
 
     private relationshipIndex: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by successorId
 
@@ -613,7 +631,11 @@ constructor(options: VisualConstructorOptions) {
     this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
     this.target = options.element;
     this.host = options.host;
-    this.formattingSettingsService = new FormattingSettingsService();
+    this.localizationManager = this.host.createLocalizationManager();
+    this.formattingSettingsService = new FormattingSettingsService(this.localizationManager);
+    this.selectionManager = this.host.createSelectionManager();
+    this.tooltipService = this.host.tooltipService;
+    this.eventService = this.host.eventService;
 
     this.showAllTasksInternal = true;
     // Initialize baseline internal state. Will be synced in first update.
@@ -675,10 +697,11 @@ constructor(options: VisualConstructorOptions) {
         .style("z-index", "20")
         .style("display", "none");
 
+    const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
     this.dropdownInput = this.dropdownContainer.append("input")
         .attr("type", "text")
         .attr("class", "task-selection-input")
-        .attr("placeholder", "Search for a task...")
+        .attr("placeholder", searchPlaceholder)
         .style("width", "250px")
         .style("padding", "5px 8px")
         .style("border", "1px solid #ccc")
@@ -959,122 +982,66 @@ constructor(options: VisualConstructorOptions) {
     // Add canvas click handler using native element
     d3.select(this.canvasElement).on("click", (event: MouseEvent) => {
         if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
-        
+
         const coords = this.getCanvasMouseCoordinates(event);
-        const x = coords.x;
-        const y = coords.y;
-        
-        // Find clicked task
-        let clickedTask: Task | null = null;
-        
-        for (const task of this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1)) {
-            const domainKey = task.yOrder?.toString() ?? '';
-            const yPosition = this.yScale(domainKey);
-            if (yPosition === undefined) continue;
-            
-            const taskHeight = this.settings.taskAppearance.taskHeight.value;
-            
-            // Check if click is within task bounds
-            if (y >= yPosition && y <= yPosition + taskHeight) {
-                if (task.startDate && task.finishDate) {
-                    const taskX = this.xScale(task.startDate);
-                    const taskWidth = this.xScale(task.finishDate) - taskX;
-                    
-                    if (x >= taskX && x <= taskX + taskWidth) {
-                        clickedTask = task;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // Handle task selection
+        const clickedTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
+
         if (clickedTask) {
             if (this.selectedTaskId === clickedTask.internalId) {
                 this.selectTask(null, null);
             } else {
                 this.selectTask(clickedTask.internalId, clickedTask.name);
             }
-            
+
             if (this.dropdownInput) {
                 this.dropdownInput.property("value", this.selectedTaskName || "");
             }
         }
     });
-    
+
+    d3.select(this.canvasElement).on("contextmenu", (event: MouseEvent) => {
+        if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
+
+        const coords = this.getCanvasMouseCoordinates(event);
+        const clickedTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
+        if (clickedTask) {
+            this.showContextMenu(event, clickedTask);
+        }
+    });
+
     // Add canvas mousemove handler
     d3.select(this.canvasElement).on("mousemove", (event: MouseEvent) => {
         if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
-        
-        const showTooltips = this.settings.displayOptions.showTooltips.value;
-        
-        const coords = this.getCanvasMouseCoordinates(event);
-        const x = coords.x;
-        const y = coords.y;
-        
-        // Find task under mouse
-        let hoveredTask: Task | null = null;
-        
-        for (const task of this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1)) {
-            const domainKey = task.yOrder?.toString() ?? '';
-            const yPosition = this.yScale(domainKey);
-            if (yPosition === undefined) continue;
-            
-            const taskHeight = this.settings.taskAppearance.taskHeight.value;
-            const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
-            
-            // Check if mouse is within task vertical bounds
-            if (y >= yPosition && y <= yPosition + taskHeight) {
-                if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-                    // Check milestone bounds
-                    const milestoneDate = task.startDate || task.finishDate;
-                    if (milestoneDate) {
-                        const milestoneX = this.xScale(milestoneDate);
-                        const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-                        
-                        // Check if within diamond bounds (approximate as square for simplicity)
-                        if (x >= milestoneX - size/2 && x <= milestoneX + size/2) {
-                            hoveredTask = task;
-                            break;
-                        }
-                    }
-                } else {
-                    // Check regular task bounds
-                    if (task.startDate && task.finishDate) {
-                        const taskX = this.xScale(task.startDate);
-                        const taskWidth = this.xScale(task.finishDate) - taskX;
-                        
-                        if (x >= taskX && x <= taskX + taskWidth) {
-                            hoveredTask = task;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        
-        this.setHoveredTask(hoveredTask ? hoveredTask.internalId : null);
 
-        // Show or hide tooltip
+        const showTooltips = this.settings.displayOptions.showTooltips.value;
+        const coords = this.getCanvasMouseCoordinates(event);
+        const hoveredTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
+        const previousHoveredId = this.hoveredTaskId;
+        const nextHoveredId = hoveredTask ? hoveredTask.internalId : null;
+
+        this.setHoveredTask(nextHoveredId);
+
         if (hoveredTask) {
             if (showTooltips) {
-                this.showTaskTooltip(hoveredTask, event);
+                if (previousHoveredId === hoveredTask.internalId) {
+                    this.moveTaskTooltip(event);
+                } else {
+                    this.showTaskTooltip(hoveredTask, event);
+                }
             }
             d3.select(this.canvasElement).style("cursor", "pointer");
         } else {
-            if (this.tooltipDiv && showTooltips) {
-                this.tooltipDiv.style("visibility", "hidden");
+            if (showTooltips) {
+                this.hideTooltip();
             }
             d3.select(this.canvasElement).style("cursor", "default");
         }
     });
-    
+
     // Add mouseout handler
     d3.select(this.canvasElement).on("mouseout", () => {
         this.setHoveredTask(null);
-        if (this.tooltipDiv) {
-            this.tooltipDiv.style("visibility", "hidden");
-        }
+        this.hideTooltip();
         d3.select(this.canvasElement).style("cursor", "default");
     });
 }
@@ -3927,6 +3894,15 @@ private async updateInternal(options: VisualUpdateOptions) {
     }
 
     this.isUpdating = true;
+    // allowInteractions isn't typed in this API version, but is present at runtime.
+    const allowInteractions = (options as VisualUpdateOptions & { allowInteractions?: boolean }).allowInteractions;
+    const hostAllowsInteractions = this.host?.hostCapabilities?.allowInteractions;
+    this.allowInteractions = allowInteractions !== false && hostAllowsInteractions !== false;
+    this.updateHighContrastState();
+    this.applyHighContrastStyling();
+    const eventService = this.eventService;
+    let renderingFailed = false;
+    eventService?.renderingStarted(options);
 
     try {
         const updateType = this.determineUpdateType(options);
@@ -3979,10 +3955,11 @@ private async updateInternal(options: VisualUpdateOptions) {
         }
         
         this.lastUpdateOptions = options;
+        this.clearLandingPage();
 
         if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
             this.applyTaskFilter([]); // ← FIX #1: Clear filter on invalid options
-            this.displayMessage("Required options not available."); 
+            this.displayLandingPage();
             return;
         }
         
@@ -4096,12 +4073,8 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         if (!this.validateDataView(dataView)) {
             this.applyTaskFilter([]); // ← FIX #2: Clear filter on validation failure
-            const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-            if (mode === 'floatBased') {
-                this.displayMessage("Float-Based mode requires: Task ID, Task Total Float, Start Date, Finish Date.");
-            } else {
-                this.displayMessage("Longest Path mode requires: Task ID, Duration, Start Date, Finish Date.");
-            }
+            const missingRoles = this.getMissingRequiredRoles(dataView);
+            this.displayLandingPage(missingRoles);
             return;
         }
         this.debugLog("Data roles validated.");
@@ -4155,7 +4128,7 @@ private async updateInternal(options: VisualUpdateOptions) {
             if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
                 this.selectedTaskLabel
                     .style("display", "block")
-                    .text(`Selected: ${this.selectedTaskName}`);
+                    .text(`${this.getLocalizedString("ui.selectedLabel", "Selected")}: ${this.selectedTaskName}`);
             } else {
                 this.selectedTaskLabel.style("display", "none");
             }
@@ -4165,6 +4138,7 @@ private async updateInternal(options: VisualUpdateOptions) {
             this.populateTaskDropdown();
         }
         this.createTraceModeToggle();
+        this.applyHighContrastStyling();
 
         const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
         const mode = this.settings.criticalityMode.calculationMode.value.value;
@@ -4438,11 +4412,16 @@ private async updateInternal(options: VisualUpdateOptions) {
     } catch (error) {
         console.error("--- ERROR during visual update ---", error);
         const errorMessage = error instanceof Error ? error.message : String(error);
+        renderingFailed = true;
+        eventService?.renderingFailed(options, errorMessage);
 
         // ← FIX #7: Clear filter on unexpected errors
         this.applyTaskFilter([]);
         this.displayMessage(`Error updating visual: ${errorMessage}`);
     } finally {
+        if (!renderingFailed) {
+            eventService?.renderingFinished(options);
+        }
         this.isUpdating = false;
 
         // BUG-012 FIX: Ensure scroll handler is always restored even if an error occurs
@@ -4607,7 +4586,7 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
             if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
                 this.selectedTaskLabel
                     .style("display", "block")
-                    .text(`Selected: ${this.selectedTaskName}`);
+                    .text(`${this.getLocalizedString("ui.selectedLabel", "Selected")}: ${this.selectedTaskName}`);
             } else {
                 this.selectedTaskLabel.style("display", "none");
             }
@@ -4784,7 +4763,7 @@ private drawHeaderDivider(viewportWidth: number): void {
             .attr("x1", 0)
             .attr("y1", this.headerHeight - 1)
             .attr("y2", this.headerHeight - 1)
-            .attr("stroke", "#e0e0e0") // Lighter color
+            .attr("stroke", this.resolveColor("#e0e0e0", "foreground")) // Lighter color
             .attr("stroke-width", 1)
             .merge(lineSelection as any) // Merge enter selection with the update selection (Casting to any if needed due to D3 type definitions)
             .attr("x2", d => d); // Update the width (x2)
@@ -5052,6 +5031,43 @@ private getCanvasMouseCoordinates(event: MouseEvent): { x: number, y: number } {
     };
 }
 
+private getTaskAtCanvasPoint(x: number, y: number): Task | null {
+    if (!this.xScale || !this.yScale) return null;
+
+    const taskHeight = this.settings.taskAppearance.taskHeight.value;
+    const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
+    const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+
+    for (const task of visibleTasks) {
+        const domainKey = task.yOrder?.toString() ?? '';
+        const yPosition = this.yScale(domainKey);
+        if (yPosition === undefined) continue;
+
+        if (y < yPosition || y > yPosition + taskHeight) {
+            continue;
+        }
+
+        if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+            const milestoneDate = task.startDate || task.finishDate;
+            if (!milestoneDate) continue;
+            const milestoneX = this.xScale(milestoneDate);
+            const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+            if (x >= milestoneX - size / 2 && x <= milestoneX + size / 2) {
+                return task;
+            }
+        } else {
+            if (!task.startDate || !task.finishDate) continue;
+            const taskX = this.xScale(task.startDate);
+            const taskWidth = this.xScale(task.finishDate) - taskX;
+            if (x >= taskX && x <= taskX + taskWidth) {
+                return task;
+            }
+        }
+    }
+
+    return null;
+}
+
 private drawRoundedRectPath(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -5076,138 +5092,51 @@ private drawRoundedRectPath(
 
 // Add this helper method for showing tooltips
 private showTaskTooltip(task: Task, event: MouseEvent): void {
+    const showTooltips = this.settings?.displayOptions?.showTooltips?.value;
+    if (!showTooltips || !task) return;
+
+    const dataItems = this.buildTooltipDataItems(task);
+    const identities = this.getTooltipIdentities(task);
+
+    if (this.tooltipService && this.tooltipService.enabled()) {
+        this.lastTooltipItems = dataItems;
+        this.lastTooltipIdentities = identities;
+        this.tooltipService.show({
+            coordinates: [event.clientX, event.clientY],
+            isTouchEvent: false,
+            dataItems,
+            identities
+        });
+        if (this.tooltipDiv) {
+            this.tooltipDiv.style("visibility", "hidden");
+        }
+        return;
+    }
+
     const tooltip = this.tooltipDiv;
-    if (!tooltip || !task) return;
-    
+    if (!tooltip) return;
+
     tooltip.selectAll("*").remove();
     tooltip.style("visibility", "visible");
-    
-    // Standard Fields
-    tooltip.append("div").append("strong").text("Task: ")
-        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-        .append("span").text(task.name || "");
-        
-    tooltip.append("div").append("strong").text("Start Date: ")
-        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-        .append("span").text(this.formatDate(task.startDate));
-        
-    tooltip.append("div").append("strong").text("Finish Date: ")
-        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-        .append("span").text(this.formatDate(task.finishDate));
-    
-    // Mode-specific Info
-    const modeInfo = tooltip.append("div")
-        .classed("tooltip-mode-info", true)
-        .style("margin-top", "8px")
-        .style("border-top", "1px solid #eee")
-        .style("padding-top", "8px");
 
-    // Display mode
-    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-    const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
-    const selectionHighlightColor = "#8A2BE2";
-    
-    modeInfo.append("div")
-        .style("font-size", "10px")
-        .style("font-style", "italic")
-        .style("color", "#666")
-        .text(`Mode: ${mode === 'floatBased' ? 'Float-Based' : 'Longest Path'}`);
-
-    // Status
-    modeInfo.append("div").append("strong").style("color", "#555").text("Status: ")
-        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-        .append("span")
-        .style("color", function() {
-            if (task.internalId === this.selectedTaskId) return selectionHighlightColor;
-            if (task.isCritical) return criticalColor;
-            if (task.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
-            return "inherit";
-        }.bind(this))
-        .text(function() {
-            if (task.internalId === this.selectedTaskId) return "Selected";
-            if (task.isCritical) return mode === 'floatBased' ? "Critical (Float ≤ 0)" : "On Longest Path";
-            if (task.isNearCritical) return "Near Critical";
-            return mode === 'floatBased' ? "Non-Critical" : "Not on Longest Path";
-        }.bind(this));
-
-    // Show float values in Float-Based mode
-    if (mode === 'floatBased') {
-        if (task.userProvidedTotalFloat !== undefined) {
-            modeInfo.append("div").append("strong").text("Total Float: ")
-                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                .append("span")
-                .style("color", task.userProvidedTotalFloat <= 0 ? criticalColor : "inherit")
-                .text(task.userProvidedTotalFloat.toFixed(2) + " days");
-        }
-        
-        if (task.taskFreeFloat !== undefined) {
-            modeInfo.append("div").append("strong").text("Task Free Float: ")
-                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                .append("span").text(task.taskFreeFloat.toFixed(2) + " days");
-        }
+    for (const item of dataItems) {
+        const row = tooltip.append("div");
+        row.append("strong").text(`${item.displayName}: `);
+        row.append("span").text(item.value || "");
     }
 
-    // Duration (only for Longest Path mode)
-    if (mode === 'longestPath') {
-        modeInfo.append("div").append("strong").text("Rem. Duration: ")
-            .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-            .append("span").text(`${task.duration} (work days)`);
-    }
-    
-    // Custom Tooltip Fields
-    if (task.tooltipData && task.tooltipData.length > 0) {
-        const customInfo = tooltip.append("div")
-            .classed("tooltip-custom-info", true)
-            .style("margin-top", "8px")
-            .style("border-top", "1px solid #eee")
-            .style("padding-top", "8px");
-
-        customInfo.append("div")
-            .style("font-weight", "bold")
-            .style("margin-bottom", "4px")
-            .text("Additional Information:");
-
-        // Iterate over array in order
-        for (const item of task.tooltipData) {
-            let formattedValue = "";
-            if (item.value instanceof Date) {
-                formattedValue = this.formatDate(item.value);
-            } else if (typeof item.value === 'number') {
-                formattedValue = item.value.toLocaleString();
-            } else {
-                formattedValue = String(item.value);
-            }
-
-            customInfo.append("div")
-                .append("strong").text(`${item.key}: `)
-                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                .append("span").text(formattedValue);
-        }
-    }
-
-    // User Float Threshold Info
-    if (this.showNearCritical && this.floatThreshold > 0) {
-        tooltip.append("div")
-            .style("margin-top", "8px")
-            .style("font-style", "italic")
-            .style("font-size", "10px")
-            .style("color", "#666")
-            .text(`Near Critical Threshold: ${this.floatThreshold}`);
-    }
-
-    // Add selection hint
-    tooltip.append("div")
-        .style("margin-top", "8px")
-        .style("font-style", "italic")
-        .style("font-size", "10px")
-        .style("color", "#666")
-        .text(`Click to ${this.selectedTaskId === task.internalId ? "deselect" : "select"} this task`);
-
-    // Position the tooltip
     this.positionTooltip(tooltip.node(), event);
 }
 
 private hideTooltip(): void {
+    if (this.tooltipService && this.tooltipService.enabled()) {
+        this.tooltipService.hide({
+            isTouchEvent: false,
+            immediately: true
+        });
+    }
+    this.lastTooltipItems = [];
+    this.lastTooltipIdentities = [];
     if (this.tooltipDiv) {
         this.tooltipDiv.style("visibility", "hidden");
     }
@@ -5408,7 +5337,7 @@ private redrawVisibleTasks(): void {
     const chartHeight = yScale.range()[1];
     const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-    const selectionHighlightColor = "#8A2BE2"; // Bright blue for selected task
+    const selectionHighlightColor = this.getSelectionColor();
     const selectionLabelColor = selectionHighlightColor;
     const selectionLabelWeight = "bold";
     const lineHeight = this.taskLabelLineHeight;
@@ -5698,7 +5627,7 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         ctx.save();
 
         const settings = this.settings.gridLines;
-        const lineColor = settings.gridLineColor.value.value;
+        const lineColor = this.resolveColor(settings.gridLineColor.value.value, "foreground");
         const lineWidth = settings.gridLineWidth.value;
         const style = settings.gridLineStyle.value.value;
 
@@ -5755,7 +5684,7 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         this.labelGridLayer.selectAll(".label-grid-line").remove();
 
         const settings = this.settings.gridLines;
-        const lineColor = settings.gridLineColor.value.value;
+        const lineColor = this.resolveColor(settings.gridLineColor.value.value, "foreground");
         const lineWidth = settings.gridLineWidth.value;
         const style = settings.gridLineStyle.value.value;
         let lineDashArray: string | undefined;
@@ -5886,15 +5815,15 @@ private drawVisualElements(
     // Update SVG clip rect to prevent bars from rendering past left margin when zoomed
     this.updateChartClipRect(chartWidth, chartHeight);
 
-    const taskColor = this.settings.taskAppearance.taskColor.value.value;
-    const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
-    const milestoneColor = this.settings.taskAppearance.milestoneColor.value.value;
-    const labelColor = this.settings.textAndLabels.labelColor.value.value;
+    const taskColor = this.resolveColor(this.settings.taskAppearance.taskColor.value.value, "foreground");
+    const criticalColor = this.resolveColor(this.settings.taskAppearance.criticalPathColor.value.value, "foreground");
+    const milestoneColor = this.resolveColor(this.settings.taskAppearance.milestoneColor.value.value, "foreground");
+    const labelColor = this.resolveColor(this.settings.textAndLabels.labelColor.value.value, "foreground");
     const taskHeight = this.settings.taskAppearance.taskHeight.value;
-    const connectorColor = this.settings.connectorLines.connectorColor.value.value;
+    const connectorColor = this.resolveColor(this.settings.connectorLines.connectorColor.value.value, "foreground");
     const connectorWidth = this.settings.connectorLines.connectorWidth.value;
     const criticalConnectorWidth = this.settings.connectorLines.criticalConnectorWidth.value;
-    const dateBgColor = this.settings.textAndLabels.dateBackgroundColor.value.value;
+    const dateBgColor = this.resolveColor(this.settings.textAndLabels.dateBackgroundColor.value.value, "background");
     const dateBgTransparency = this.settings.textAndLabels.dateBackgroundTransparency.value;
     const dateBgOpacity = 1 - (dateBgTransparency / 100);
     const showHorzGridLines = this.settings.gridLines.showGridLines.value;
@@ -5904,7 +5833,7 @@ private drawVisualElements(
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-    const selectionHighlightColor = "#8A2BE2"; // Bright blue for selected task
+    const selectionHighlightColor = this.getSelectionColor();
     const selectionLabelColor = selectionHighlightColor;
     const selectionLabelWeight = "bold";
     const lineHeight = this.taskLabelLineHeight;
@@ -6125,12 +6054,12 @@ private drawVisualElements(
         const settings = this.settings.verticalGridLines;
         if (!settings.show.value) return;
     
-        const lineColor = settings.lineColor.value.value;
+        const lineColor = this.resolveColor(settings.lineColor.value.value, "foreground");
         const lineWidth = settings.lineWidth.value;
         const lineStyle = settings.lineStyle.value.value as string;
         const showMonthLabels = settings.showMonthLabels.value;
         const labelColorSetting = settings.labelColor.value.value;
-        const labelColor = labelColorSetting || lineColor;
+        const labelColor = this.resolveColor(labelColorSetting || lineColor, "foreground");
         const baseFontSize = this.settings.textAndLabels.fontSize.value;
         const labelFontSizeSetting = settings.labelFontSize.value;
         const labelFontSize = labelFontSizeSetting > 0 ? labelFontSizeSetting : Math.max(8, baseFontSize * 0.8);
@@ -6235,13 +6164,13 @@ private drawTasks(
     const lineHeight = this.taskLabelLineHeight;
     const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
     const dateBgPaddingV = this.dateBackgroundPadding.vertical;
-    const nearCriticalColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+    const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
     const self = this; // Store reference for callbacks
     
     // Define selection highlight styles
-    const selectionHighlightColor = "#8A2BE2"; // Bright blue for selected task
+    const selectionHighlightColor = this.getSelectionColor();
     const selectionStrokeWidth = 2.5;          // Thicker border for selected task
-    const selectionLabelColor = "#8A2BE2";     // Matching blue for label
+    const selectionLabelColor = selectionHighlightColor;
     const selectionLabelWeight = "bold";       // Bold font for selected task label
 
     // Apply the data join pattern for task groups
@@ -6284,7 +6213,7 @@ private drawTasks(
     // --- Draw Previous Update Bars FIRST (directly below task bar) ---
     const showPreviousUpdate = this.showPreviousUpdateInternal;
     if (showPreviousUpdate) {
-        const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+        const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
         const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
         const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
         const previousUpdateRadius = Math.min(3, previousUpdateHeight / 2);
@@ -6320,7 +6249,7 @@ private drawTasks(
     // --- Draw Baseline Bars SECOND (below previous update bars) ---
     const showBaseline = this.showBaselineInternal;
     if (showBaseline) {
-        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
         const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
         const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
         const baselineRadius = Math.min(3, baselineHeight / 2);
@@ -6427,11 +6356,11 @@ private drawTasks(
             // WITH LEGEND: Use borders to show criticality
             if (this.legendDataExists) {
                 if (d.isCritical) return criticalColor;
-                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
+                if (d.isNearCritical) return nearCriticalColor;
             }
 
             // WITHOUT LEGEND (OLD STYLE): Minimal borders
-            return "#333";
+            return this.getForegroundColor();
         })
         .style("stroke-width", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return 3;
@@ -6455,7 +6384,7 @@ private drawTasks(
                     return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
                 }
                 if (d.isNearCritical) {
-                    const nearColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                    const nearColor = nearCriticalColor;
                     const rgb = this.hexToRgb(nearColor);
                     return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
                 }
@@ -6523,11 +6452,11 @@ private drawTasks(
             // WITH LEGEND: Use borders to show criticality
             if (this.legendDataExists) {
                 if (d.isCritical) return criticalColor;
-                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalColor.value.value;
+                if (d.isNearCritical) return nearCriticalColor;
             }
 
             // WITHOUT LEGEND (OLD STYLE): Standard black border
-            return "#000";
+            return this.getForegroundColor();
         })
         .style("stroke-width", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return 3;
@@ -6550,7 +6479,7 @@ private drawTasks(
                     return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
                 }
                 if (d.isNearCritical) {
-                    const nearColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                    const nearColor = nearCriticalColor;
                     const rgb = this.hexToRgb(nearColor);
                     return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
                 }
@@ -6699,7 +6628,7 @@ private drawTasks(
                 // Only apply hover effect if not the selected task
                 if (d.internalId !== self.selectedTaskId) {
                     // Determine the correct hover stroke color and width based on criticality
-                    let hoverStrokeColor = "#333";
+                    let hoverStrokeColor = self.getForegroundColor();
                     let hoverStrokeWidth = "2px";
 
                     if (self.legendDataExists) {
@@ -6726,136 +6655,12 @@ private drawTasks(
 
                 // Show tooltip if enabled
                 if (showTooltips) {
-                    const tooltip = self.tooltipDiv;
-                    if (!tooltip || !d) return;
-                    tooltip.selectAll("*").remove();
-                    tooltip.style("visibility", "visible");
-                    
-                    // Standard Fields
-                    tooltip.append("div").append("strong").text("Task: ")
-                        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                        .append("span").text(d.name || "");
-                    tooltip.append("div").append("strong").text("Start Date: ")
-                        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                        .append("span").text(self.formatDate(d.startDate));
-                    tooltip.append("div").append("strong").text("Finish Date: ")
-                        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                        .append("span").text(self.formatDate(d.finishDate));
-                    
-                    // Mode-specific Info
-                    const modeInfo = tooltip.append("div")
-                        .classed("tooltip-mode-info", true)
-                        .style("margin-top", "8px")
-                        .style("border-top", "1px solid #eee")
-                        .style("padding-top", "8px");
-
-                    // Display mode
-                    const mode = self.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-                    modeInfo.append("div")
-                        .style("font-size", "10px")
-                        .style("font-style", "italic")
-                        .style("color", "#666")
-                        .text(`Mode: ${mode === 'floatBased' ? 'Float-Based' : 'Longest Path'}`);
-
-                    // Status
-                    modeInfo.append("div").append("strong").style("color", "#555").text("Status: ")
-                        .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                        .append("span")
-                        .style("color", function() {
-                            if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
-                            if (d.isCritical) return criticalColor;
-                            if (d.isNearCritical) return nearCriticalColor;
-                            return "inherit";
-                        })
-                        .text(function() {
-                            if (d.internalId === self.selectedTaskId) return "Selected";
-                            if (d.isCritical) return mode === 'floatBased' ? "Critical (Float ≤ 0)" : "On Longest Path";
-                            if (d.isNearCritical) return "Near Critical";
-                            return mode === 'floatBased' ? "Non-Critical" : "Not on Longest Path";
-                        });
-
-                    // Show float values in Float-Based mode
-                    if (mode === 'floatBased') {
-                        // Show Total Float (used for criticality)
-                        if (d.userProvidedTotalFloat !== undefined) {
-                            modeInfo.append("div").append("strong").text("Total Float: ")
-                                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                                .append("span")
-                                .style("color", d.userProvidedTotalFloat <= 0 ? criticalColor : "inherit")
-                                .text(d.userProvidedTotalFloat.toFixed(2) + " days");
-                        }
-                        
-                        // Show Task Free Float (informational)
-                        if (d.taskFreeFloat !== undefined) {
-                            modeInfo.append("div").append("strong").text("Task Free Float: ")
-                                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                                .append("span").text(d.taskFreeFloat.toFixed(2) + " days");
-                        }
-                    }
-
-                    // Duration (only for Longest Path mode)
-                    if (mode === 'longestPath') {
-                        modeInfo.append("div").append("strong").text("Rem. Duration: ")
-                            .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                            .append("span").text(`${d.duration} (work days)`);
-                    }
-                    
-                    // Custom Tooltip Fields
-                    if (d.tooltipData && d.tooltipData.length > 0) {
-                        const customInfo = tooltip.append("div")
-                            .classed("tooltip-custom-info", true)
-                            .style("margin-top", "8px")
-                            .style("border-top", "1px solid #eee")
-                            .style("padding-top", "8px");
-
-                        customInfo.append("div")
-                            .style("font-weight", "bold")
-                            .style("margin-bottom", "4px")
-                            .text("Additional Information:");
-
-                        // Iterate over array in order
-                        for (const item of d.tooltipData) {
-                            let formattedValue = "";
-                            if (item.value instanceof Date) {
-                                formattedValue = self.formatDate(item.value);
-                            } else if (typeof item.value === 'number') {
-                                formattedValue = item.value.toLocaleString();
-                            } else {
-                                formattedValue = String(item.value);
-                            }
-
-                            customInfo.append("div")
-                                .append("strong").text(`${item.key}: `)
-                                .select<HTMLElement>(function() { return this.parentNode as HTMLElement; })
-                                .append("span").text(formattedValue);
-                        }
-                    }
-
-                    // User Float Threshold Info
-                    if (self.showNearCritical && self.floatThreshold > 0) {
-                        tooltip.append("div")
-                            .style("margin-top", "8px")
-                            .style("font-style", "italic")
-                            .style("font-size", "10px")
-                            .style("color", "#666")
-                            .text(`Near Critical Threshold: ${self.floatThreshold}`);
-                    }
-
-                    // Add selection hint
-                    tooltip.append("div")
-                        .style("margin-top", "8px")
-                        .style("font-style", "italic")
-                        .style("font-size", "10px")
-                        .style("color", "#666")
-                        .text(`Click to ${self.selectedTaskId === d.internalId ? "deselect" : "select"} this task`);
-
-                    // Position the tooltip
-                    self.positionTooltip(tooltip.node(), event);
+                    self.showTaskTooltip(d, event);
                 }
             })
             .on("mousemove", (event: MouseEvent) => {
-                if (self.tooltipDiv && showTooltips) {
-                    self.positionTooltip(self.tooltipDiv.node(), event);
+                if (showTooltips) {
+                    self.moveTaskTooltip(event);
                 }
             })
             .on("mouseout", (event: MouseEvent, d: Task) => {
@@ -6863,7 +6668,7 @@ private drawTasks(
                 // Restore normal appearance only if not selected
                 if (d.internalId !== self.selectedTaskId) {
                     // Determine the correct default stroke color and width based on criticality
-                    let defaultStrokeColor = "#333";
+                    let defaultStrokeColor = self.getForegroundColor();
                     let defaultStrokeWidth = "0.5";
 
                     if (self.legendDataExists) {
@@ -6887,9 +6692,12 @@ private drawTasks(
                         .style("stroke-width", defaultStrokeWidth);
                 }
 
-                if (self.tooltipDiv && showTooltips) {
-                    self.tooltipDiv.style("visibility", "hidden");
+                if (showTooltips) {
+                    self.hideTooltip();
                 }
+            })
+            .on("contextmenu", (event: MouseEvent, d: Task) => {
+                self.showContextMenu(event, d);
             })
             .on("click", (event: MouseEvent, d: Task) => {
                 // Toggle task selection
@@ -7091,6 +6899,10 @@ private drawTaskLabelsLayer(
         
         event.stopPropagation();
     });
+
+    taskLabels.on("contextmenu", (event: MouseEvent, d: Task) => {
+        this.showContextMenu(event, d);
+    });
 }
 
 private drawTasksCanvas(
@@ -7124,17 +6936,17 @@ private drawTasksCanvas(
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
         const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-        const nearCriticalColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+        const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
         
         // Previous Update settings
         const showPreviousUpdate = this.showPreviousUpdateInternal;
-        const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+        const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
         const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
         const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
         
         // Baseline settings
         const showBaseline = this.showBaselineInternal;
-        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
         const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
         const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
         
@@ -7217,7 +7029,7 @@ private drawTasksCanvas(
 
             // Selected task always highlighted
             if (task.internalId === this.selectedTaskId) {
-                fillColor = "#8A2BE2";
+                fillColor = this.getSelectionColor();
             } else {
                 // WITH LEGEND: Use legend colors for fill
                 if (this.legendDataExists && task.legendColor) {
@@ -7234,11 +7046,11 @@ private drawTasksCanvas(
             }
 
             // Determine stroke color and width based on legend existence
-            let strokeColor = "#333";
+            let strokeColor = this.getForegroundColor();
             let strokeWidth = 0.5;
 
             if (task.internalId === this.selectedTaskId) {
-                strokeColor = "#8A2BE2";
+                strokeColor = this.getSelectionColor();
                 strokeWidth = 3;
             } else {
                 // WITH LEGEND: Use borders to show criticality
@@ -7247,7 +7059,7 @@ private drawTasksCanvas(
                         strokeColor = criticalColor;
                         strokeWidth = this.settings.taskAppearance.criticalBorderWidth.value;
                     } else if (task.isNearCritical) {
-                        strokeColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+                        strokeColor = nearCriticalColor;
                         strokeWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
                     }
                 }
@@ -7393,7 +7205,7 @@ private drawTasksCanvas(
             const labelY = Math.round(yPos + taskHeight / 2);
             
             ctx.font = `${taskNamePixelSize}px ${fontFamily}`;
-            ctx.fillStyle = task.internalId === this.selectedTaskId ? "#8A2BE2" : labelColor;
+            ctx.fillStyle = task.internalId === this.selectedTaskId ? this.getSelectionColor() : labelColor;
             ctx.textAlign = "start";
             ctx.textBaseline = "middle";
             
@@ -8275,15 +8087,15 @@ private drawArrowsCanvas(
 
         const settings = this.settings.projectEndLine;
 
-        const lineColor = settings.lineColor.value.value;
+        const lineColor = this.resolveColor(settings.lineColor.value.value, "foreground");
         const lineWidth = settings.lineWidth.value;
         const lineStyle = settings.lineStyle.value.value as string;
 
         const showLabel = settings.showLabel?.value ?? true;
-        const labelColor = settings.labelColor?.value?.value ?? lineColor;
+        const labelColor = this.resolveColor(settings.labelColor?.value?.value ?? lineColor, "foreground");
         const labelFontSize = settings.labelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
         const showLabelPrefix = settings.showLabelPrefix?.value ?? true;
-        const labelBackgroundColor = settings.labelBackgroundColor?.value?.value ?? "#FFFFFF";
+        const labelBackgroundColor = this.resolveColor(settings.labelBackgroundColor?.value?.value ?? "#FFFFFF", "background");
         const labelBackgroundTransparency = settings.labelBackgroundTransparency?.value ?? 0;
         const labelBackgroundOpacity = 1 - (labelBackgroundTransparency / 100);
 
@@ -8329,14 +8141,14 @@ private drawArrowsCanvas(
         const settings = this.settings?.dataDateLine;
         if (!settings || !settings.show.value) return;
 
-        const lineColor = settings.lineColor.value.value;
+        const lineColor = this.resolveColor(settings.lineColor.value.value, "foreground");
         const lineWidth = settings.lineWidth.value;
         const lineStyle = settings.lineStyle.value.value;
         const showLabel = settings.showLabel?.value ?? true;
-        const labelColor = settings.labelColor?.value?.value ?? lineColor;
+        const labelColor = this.resolveColor(settings.labelColor?.value?.value ?? lineColor, "foreground");
         const labelFontSize = settings.labelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
         const showLabelPrefix = settings.showLabelPrefix?.value ?? true;
-        const labelBackgroundColor = settings.labelBackgroundColor?.value?.value ?? "#FFFFFF";
+        const labelBackgroundColor = this.resolveColor(settings.labelBackgroundColor?.value?.value ?? "#FFFFFF", "background");
         const labelBackgroundTransparency = settings.labelBackgroundTransparency?.value ?? 0;
         const labelBackgroundOpacity = 1 - (labelBackgroundTransparency / 100);
 
@@ -8437,14 +8249,14 @@ private drawArrowsCanvas(
             ? this.getLatestFinishDate(allTasks, (t: Task) => t.baselineFinishDate)
             : null;
 
-        const baselineLineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineLineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
         const baselineLineWidth = lineSettings.baselineLineWidth?.value ?? lineSettings.lineWidth.value;
         const baselineLineStyle = (lineSettings.baselineLineStyle?.value?.value as string | undefined) ?? lineSettings.lineStyle.value.value as string;
         const baselineShowLabel = (lineSettings.baselineShowLabel?.value ?? true) && baselineToggleOn && baselineShowSetting;
-        const baselineLabelColor = lineSettings.baselineLabelColor?.value?.value ?? baselineLineColor;
+        const baselineLabelColor = this.resolveColor(lineSettings.baselineLabelColor?.value?.value ?? baselineLineColor, "foreground");
         const baselineLabelFontSize = lineSettings.baselineLabelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
         const baselineShowLabelPrefix = lineSettings.baselineShowLabelPrefix?.value ?? true;
-        const baselineLabelBackgroundColor = lineSettings.baselineLabelBackgroundColor?.value?.value ?? "#FFFFFF";
+        const baselineLabelBackgroundColor = this.resolveColor(lineSettings.baselineLabelBackgroundColor?.value?.value ?? "#FFFFFF", "background");
         const baselineLabelBackgroundTransparency = lineSettings.baselineLabelBackgroundTransparency?.value ?? 0;
         const baselineLabelBackgroundOpacity = 1 - (baselineLabelBackgroundTransparency / 100);
 
@@ -8474,14 +8286,14 @@ private drawArrowsCanvas(
             ? this.getLatestFinishDate(allTasks, (t: Task) => t.previousUpdateFinishDate)
             : null;
 
-        const prevLineColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+        const prevLineColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
         const prevLineWidth = lineSettings.previousUpdateLineWidth?.value ?? lineSettings.lineWidth.value;
         const prevLineStyle = (lineSettings.previousUpdateLineStyle?.value?.value as string | undefined) ?? lineSettings.lineStyle.value.value as string;
         const prevShowLabel = (lineSettings.previousUpdateShowLabel?.value ?? true) && prevToggleOn && prevShowSetting;
-        const prevLabelColor = lineSettings.previousUpdateLabelColor?.value?.value ?? prevLineColor;
+        const prevLabelColor = this.resolveColor(lineSettings.previousUpdateLabelColor?.value?.value ?? prevLineColor, "foreground");
         const prevLabelFontSize = lineSettings.previousUpdateLabelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
         const prevShowLabelPrefix = lineSettings.previousUpdateShowLabelPrefix?.value ?? true;
-        const prevLabelBackgroundColor = lineSettings.previousUpdateLabelBackgroundColor?.value?.value ?? "#FFFFFF";
+        const prevLabelBackgroundColor = this.resolveColor(lineSettings.previousUpdateLabelBackgroundColor?.value?.value ?? "#FFFFFF", "background");
         const prevLabelBackgroundTransparency = lineSettings.previousUpdateLabelBackgroundTransparency?.value ?? 0;
         const prevLabelBackgroundOpacity = 1 - (prevLabelBackgroundTransparency / 100);
 
@@ -9808,6 +9620,11 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
     // Get tooltip data
     const tooltipData = this.extractTooltipData(row, dataView);
 
+    const safeRowIndex = rowIndex >= 0 ? rowIndex : 0;
+    const selectionId = dataView.table
+        ? this.host.createSelectionIdBuilder().withTable(dataView.table, safeRowIndex).createSelectionId()
+        : undefined;
+
     // Create task object
     const task: Task = {
         id: row[this.getColumnIndex(dataView, 'taskId')],
@@ -9837,6 +9654,7 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         previousUpdateStartDate: previousUpdateStartDate,
         previousUpdateFinishDate: previousUpdateFinishDate,
         tooltipData: tooltipData,
+        selectionId: selectionId,
         legendValue: legendValue,
         wbsLevels: wbsLevels.length > 0 ? wbsLevels : undefined
     };
@@ -9977,6 +9795,7 @@ private transformDataOptimized(dataView: DataView): void {
         {
             rows: any[];
             task: Task | null;
+            rowIndex: number;
             relationships: Array<{
                 predId: string;
                 relType: string;
@@ -10015,6 +9834,7 @@ private transformDataOptimized(dataView: DataView): void {
             taskData = {
                 rows: [],
                 task: null,
+                rowIndex: rowIndex,
                 relationships: [],
             };
             taskDataMap.set(taskId, taskData);
@@ -10093,7 +9913,7 @@ private transformDataOptimized(dataView: DataView): void {
     for (const [taskId, taskData] of taskDataMap) {
         // Create task from first row (they should all have same task data)
         if (taskData.rows.length > 0 && !taskData.task) {
-            taskData.task = this.createTaskFromRow(taskData.rows[0], 0);
+            taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex);
         }
         if (!taskData.task) continue;
 
@@ -10386,9 +10206,15 @@ private processLegendData(dataView: DataView): void {
 
     // Assign colors from persisted settings or theme palette
     const legendColorsObjects = dataView.metadata?.objects?.legendColors;
+    const useHighContrast = this.highContrastMode;
     for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
         const category = this.legendCategories[i];
         const colorKey = `color${i + 1}`; // color1, color2, etc.
+
+        if (useHighContrast) {
+            this.legendColorMap.set(category, this.highContrastForeground);
+            continue;
+        }
 
         // Check if user has set a custom color for this slot
         const persistedColor = legendColorsObjects?.[colorKey];
@@ -11315,25 +11141,25 @@ private drawWbsGroupHeaders(
     }
 
     const showGroupSummary = this.settings.wbsGrouping.showGroupSummary.value;
-    const groupHeaderColor = this.settings.wbsGrouping.groupHeaderColor.value.value;
-    const groupSummaryColor = this.settings.wbsGrouping.groupSummaryColor.value.value;
-    const nearCriticalColor = this.settings.taskAppearance.nearCriticalColor.value.value;
+    const groupHeaderColor = this.resolveColor(this.settings.wbsGrouping.groupHeaderColor.value.value, "background");
+    const groupSummaryColor = this.resolveColor(this.settings.wbsGrouping.groupSummaryColor.value.value, "foreground");
+    const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
     const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
     // Get custom group name settings (use taskNameFontSize if groupNameFontSize is 0)
     const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
     const groupNameFontSize = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
-    const groupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? '#333333';
-    const criticalPathColor = this.settings.taskAppearance.criticalPathColor.value.value;
+    const groupNameColor = this.resolveColor(this.settings.wbsGrouping.groupNameColor?.value?.value ?? "#333333", "foreground");
+    const criticalPathColor = this.resolveColor(this.settings.taskAppearance.criticalPathColor.value.value, "foreground");
     const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
     const showNearCriticalSummary = this.showNearCritical && this.floatThreshold > 0 && mode === 'floatBased';
     const showBaseline = this.showBaselineInternal;
     const showPreviousUpdate = this.showPreviousUpdateInternal;
-    const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+    const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
     const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
     const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
-    const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+    const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
     const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
     const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
 
@@ -11914,6 +11740,10 @@ private validateDataView(dataView: DataView): boolean {
 
     private applyTaskFilter(taskIds: (string | number)[]): void {
         if (!this.taskIdTable || !this.taskIdColumn) return;
+        if (!this.allowInteractions && taskIds.length > 0) {
+            this.debugLog("Allow interactions disabled; skipping filter update.");
+            return;
+        }
 
       const filter: IBasicFilter = {
           // eslint-disable-next-line powerbi-visuals/no-http-string
@@ -11937,6 +11767,8 @@ private displayMessage(message: string): void {
     // Clear any active cross-filters when showing error messages
     this.applyTaskFilter([]); // ← ADDED THIS LINE FOR EXTRA SAFETY
     
+    this.clearLandingPage();
+
     const containerNode = this.scrollableContainer?.node();
     if (!containerNode || !this.mainSvg || !this.headerSvg) {
         console.error("Cannot display message, containers or svgs not ready.");
@@ -11956,7 +11788,7 @@ private displayMessage(message: string): void {
         .attr("y", height / 2)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "middle")
-        .style("fill", "#777777")
+        .style("fill", this.resolveColor("#777777", "foreground"))
         .style("font-size", "14px")
         .style("font-weight", "bold")
         .text(message);
@@ -11977,6 +11809,8 @@ private createTaskSelectionDropdown(): void {
     const secondRowLayout = this.getSecondRowLayout(viewportWidth);
     const dropdownWidth = secondRowLayout.dropdown.width;
     const showSelectedTaskLabel = this.settings.taskSelection.showSelectedTaskLabel.value;
+    const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
+    const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
 
     // Show/hide dropdown based on settings
     this.dropdownContainer.style("display", enableTaskSelection ? "block" : "none");
@@ -12001,7 +11835,7 @@ private createTaskSelectionDropdown(): void {
     this.dropdownInput = this.dropdownContainer.append("input")
         .attr("type", "text")
         .attr("class", "task-selection-input")
-        .attr("placeholder", "Search for a task...")
+        .attr("placeholder", searchPlaceholder)
         .style("width", `${dropdownWidth}px`)
         .style("height", `${this.UI_TOKENS.height.standard}px`)  // Match standard height
         .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
@@ -12130,7 +11964,7 @@ private createTaskSelectionDropdown(): void {
         if (this.selectedTaskId && this.selectedTaskName && showSelectedTaskLabel) {
             this.selectedTaskLabel
                 .style("display", "block")
-                .text(`Selected: ${this.selectedTaskName}`);
+                .text(`${selectedLabelPrefix}: ${this.selectedTaskName}`);
         } else {
             this.selectedTaskLabel.style("display", "none");
         }
@@ -12149,6 +11983,9 @@ private populateTaskDropdown(): void {
     if (!this.dropdownNeedsRefresh) {
         return;
     }
+
+    const noTasksText = this.getLocalizedString("ui.noTasksAvailable", "No tasks available");
+    const clearSelectionText = this.getLocalizedString("ui.clearSelection", "Clear Selection");
     
     if (this.allTasksData.length === 0) {
         console.warn("No tasks available to populate dropdown");
@@ -12156,7 +11993,7 @@ private populateTaskDropdown(): void {
         this.dropdownList.selectAll("*").remove();
         this.dropdownList.append("div")
             .attr("class", "dropdown-item no-data")
-            .text("No tasks available")
+            .text(noTasksText)
             .style("padding", "8px 10px")
             .style("color", "#999")
             .style("font-style", "italic")
@@ -12188,7 +12025,7 @@ private populateTaskDropdown(): void {
         .style("font-size", "10px")
         .style("font-family", "Segoe UI, sans-serif")
         .style("background-color", "white")
-        .text("× Clear Selection");
+        .text(clearSelectionText);
     
     clearOption
         .on("mouseover", function() {
@@ -12672,6 +12509,7 @@ private filterTaskDropdown(searchText: string = ""): void {
     if (!this.dropdownList) return;
     
     const searchLower = searchText.toLowerCase().trim();
+    const noResultsText = this.getLocalizedString("ui.noTasksMatching", "No tasks matching");
     
     // Always show the clear selection option
     this.dropdownList.select(".clear-selection")
@@ -12698,7 +12536,7 @@ private filterTaskDropdown(searchText: string = ""): void {
         
         this.dropdownList.append("div")
             .attr("class", "dropdown-item no-results")
-            .text(`No tasks matching "${searchText}"`)
+            .text(`${noResultsText} "${searchText}"`)
             .style("padding", "8px 10px")
             .style("color", "#999")
             .style("font-style", "italic")
@@ -12725,6 +12563,16 @@ private selectTask(taskId: string | null, taskName: string | null): void {
     
     this.selectedTaskId = taskId;
     this.selectedTaskName = taskName;
+    const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
+
+    const selectionId = taskId ? this.taskIdToTask.get(taskId)?.selectionId : null;
+    if (this.allowInteractions && this.selectionManager) {
+        if (selectionId) {
+            this.selectionManager.select(selectionId as unknown as powerbi.extensibility.ISelectionId);
+        } else {
+            this.selectionManager.clear();
+        }
+    }
 
     // Batch UI updates
     this.createTraceModeToggle();
@@ -12739,7 +12587,7 @@ private selectTask(taskId: string | null, taskName: string | null): void {
         if (taskId && taskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
             this.selectedTaskLabel
                 .style("display", "block")
-                .text(`Selected: ${taskName}`);
+                .text(`${selectedLabelPrefix}: ${taskName}`);
         } else {
             this.selectedTaskLabel.style("display", "none");
         }
@@ -13151,6 +12999,382 @@ private ensureTaskVisible(taskId: string): void {
         return settingColor;
     }
 
+    private getLocalizedString(key: string, fallback: string): string {
+        if (!this.localizationManager) return fallback;
+        const value = this.localizationManager.getDisplayName(key);
+        return value && value !== key ? value : fallback;
+    }
+
+    private updateHighContrastState(): void {
+        const palette = this.host.colorPalette;
+        this.highContrastMode = palette.isHighContrast;
+        if (this.highContrastMode) {
+            this.highContrastForeground = palette.foreground.value;
+            this.highContrastBackground = palette.background.value;
+            this.highContrastForegroundSelected = palette.foregroundSelected?.value || palette.foreground.value;
+        }
+    }
+
+    private resolveColor(color: string, role: "foreground" | "background" | "selected" = "foreground"): string {
+        if (!this.highContrastMode) return color;
+        switch (role) {
+            case "background":
+                return this.highContrastBackground;
+            case "selected":
+                return this.highContrastForegroundSelected;
+            default:
+                return this.highContrastForeground;
+        }
+    }
+
+    private getSelectionColor(): string {
+        return this.resolveColor("#8A2BE2", "selected");
+    }
+
+    private getForegroundColor(): string {
+        return this.resolveColor("#000000", "foreground");
+    }
+
+    private getBackgroundColor(): string {
+        return this.resolveColor("#FFFFFF", "background");
+    }
+
+    private applyHighContrastStyling(): void {
+        if (!this.highContrastMode) {
+            this.stickyHeaderContainer?.style("background-color", "white");
+            this.legendContainer?.style("background-color", "white");
+            if (this.tooltipDiv) {
+                this.tooltipDiv
+                    .style("background-color", "white")
+                    .style("color", "#333")
+                    .style("border", "1px solid #ddd");
+            }
+            return;
+        }
+
+        const foreground = this.highContrastForeground;
+        const background = this.highContrastBackground;
+
+        this.stickyHeaderContainer?.style("background-color", background);
+        this.legendContainer?.style("background-color", background);
+
+        this.selectedTaskLabel
+            ?.style("background-color", background)
+            .style("color", foreground)
+            .style("border", `1px solid ${foreground}`);
+
+        this.pathInfoLabel
+            ?.style("background-color", background)
+            .style("color", foreground)
+            .style("border", `1.5px solid ${foreground}`);
+
+        if (this.dropdownInput) {
+            this.dropdownInput
+                .style("color", foreground)
+                .style("background", background)
+                .style("border", `1.5px solid ${foreground}`);
+        }
+
+        if (this.dropdownList) {
+            this.dropdownList
+                .style("background", background)
+                .style("border", `1.5px solid ${foreground}`);
+        }
+
+        if (this.tooltipDiv) {
+            this.tooltipDiv
+                .style("background-color", background)
+                .style("color", foreground)
+                .style("border", `1px solid ${foreground}`);
+        }
+    }
+
+    private formatTooltipValue(value: PrimitiveValue): string {
+        if (value instanceof Date) return this.formatDate(value);
+        if (typeof value === "number") return value.toLocaleString();
+        if (value === null || value === undefined) return "";
+        return String(value);
+    }
+
+    private buildTooltipDataItems(task: Task): VisualTooltipDataItem[] {
+        const items: VisualTooltipDataItem[] = [];
+        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || "longestPath";
+
+        const taskLabel = this.getLocalizedString("tooltip.task", "Task");
+        const startLabel = this.getLocalizedString("tooltip.startDate", "Start Date");
+        const finishLabel = this.getLocalizedString("tooltip.finishDate", "Finish Date");
+        const modeLabel = this.getLocalizedString("tooltip.mode", "Mode");
+        const statusLabel = this.getLocalizedString("tooltip.status", "Status");
+        const durationLabel = this.getLocalizedString("tooltip.duration", "Remaining Duration");
+        const totalFloatLabel = this.getLocalizedString("tooltip.totalFloat", "Total Float");
+        const taskFreeFloatLabel = this.getLocalizedString("tooltip.taskFreeFloat", "Task Free Float");
+        const nearCriticalLabel = this.getLocalizedString("tooltip.nearCriticalThreshold", "Near Critical Threshold");
+
+        const modeValue = mode === "floatBased"
+            ? this.getLocalizedString("tooltip.mode.floatBased", "Float-Based")
+            : this.getLocalizedString("tooltip.mode.longestPath", "Longest Path");
+
+        let statusValue = "";
+        if (task.internalId === this.selectedTaskId) {
+            statusValue = this.getLocalizedString("tooltip.status.selected", "Selected");
+        } else if (task.isCritical) {
+            statusValue = mode === "floatBased"
+                ? this.getLocalizedString("tooltip.status.criticalFloat", "Critical (Float = 0)")
+                : this.getLocalizedString("tooltip.status.criticalPath", "On Longest Path");
+        } else if (task.isNearCritical) {
+            statusValue = this.getLocalizedString("tooltip.status.nearCritical", "Near Critical");
+        } else {
+            statusValue = mode === "floatBased"
+                ? this.getLocalizedString("tooltip.status.nonCritical", "Non-Critical")
+                : this.getLocalizedString("tooltip.status.notOnPath", "Not on Longest Path");
+        }
+
+        if (task.name) {
+            items.push({ displayName: taskLabel, value: task.name });
+        }
+
+        const startText = this.formatDate(task.startDate);
+        if (startText) items.push({ displayName: startLabel, value: startText });
+
+        const finishText = this.formatDate(task.finishDate);
+        if (finishText) items.push({ displayName: finishLabel, value: finishText });
+
+        items.push({ displayName: modeLabel, value: modeValue });
+        items.push({ displayName: statusLabel, value: statusValue });
+
+        if (mode === "floatBased") {
+            if (task.userProvidedTotalFloat !== undefined) {
+                items.push({ displayName: totalFloatLabel, value: `${task.userProvidedTotalFloat.toFixed(2)} days` });
+            }
+            if (task.taskFreeFloat !== undefined) {
+                items.push({ displayName: taskFreeFloatLabel, value: `${task.taskFreeFloat.toFixed(2)} days` });
+            }
+        } else if (mode === "longestPath") {
+            items.push({ displayName: durationLabel, value: `${task.duration} days` });
+        }
+
+        if (task.tooltipData && task.tooltipData.length > 0) {
+            for (const item of task.tooltipData) {
+                const formattedValue = this.formatTooltipValue(item.value);
+                if (formattedValue !== "") {
+                    items.push({ displayName: item.key, value: formattedValue });
+                }
+            }
+        }
+
+        if (this.showNearCritical && this.floatThreshold > 0) {
+            items.push({ displayName: nearCriticalLabel, value: `${this.floatThreshold}` });
+        }
+
+        return items;
+    }
+
+    private getTooltipIdentities(task: Task): powerbi.extensibility.ISelectionId[] {
+        if (task.selectionId) {
+            return [task.selectionId as unknown as powerbi.extensibility.ISelectionId];
+        }
+        return [];
+    }
+
+    private moveTaskTooltip(event: MouseEvent): void {
+        if (this.tooltipService && this.tooltipService.enabled() && this.lastTooltipItems.length > 0) {
+            this.tooltipService.move({
+                coordinates: [event.clientX, event.clientY],
+                isTouchEvent: false,
+                dataItems: this.lastTooltipItems,
+                identities: this.lastTooltipIdentities
+            });
+            return;
+        }
+
+        if (this.tooltipDiv) {
+            this.positionTooltip(this.tooltipDiv.node(), event);
+        }
+    }
+
+    private showContextMenu(event: MouseEvent, task: Task): void {
+        if (!this.allowInteractions || !this.selectionManager || !task.selectionId) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        this.selectionManager.showContextMenu(
+            task.selectionId as unknown as powerbi.extensibility.ISelectionId,
+            { x: event.clientX, y: event.clientY }
+        );
+    }
+
+    private clearLandingPage(): void {
+        if (this.landingPageContainer) {
+            this.landingPageContainer.remove();
+            this.landingPageContainer = null;
+        }
+    }
+
+    private getRoleDisplayName(roleName: string): string {
+        switch (roleName) {
+            case "taskId":
+                return this.getLocalizedString("role.taskId", "Task ID");
+            case "taskName":
+                return this.getLocalizedString("role.taskName", "Task Name");
+            case "taskType":
+                return this.getLocalizedString("role.taskType", "Task Type");
+            case "duration":
+                return this.getLocalizedString("role.duration", "Duration (Work Days)");
+            case "taskTotalFloat":
+                return this.getLocalizedString("role.taskTotalFloat", "Task Total Float");
+            case "taskFreeFloat":
+                return this.getLocalizedString("role.taskFreeFloat", "Task Free Float");
+            case "startDate":
+                return this.getLocalizedString("role.startDate", "Start Date");
+            case "finishDate":
+                return this.getLocalizedString("role.finishDate", "Finish Date");
+            case "predecessorId":
+                return this.getLocalizedString("role.predecessorId", "Predecessor ID");
+            case "relationshipType":
+                return this.getLocalizedString("role.relationshipType", "Relationship Type");
+            case "relationshipLag":
+                return this.getLocalizedString("role.relationshipLag", "Relationship Lag");
+            case "relationshipFreeFloat":
+                return this.getLocalizedString("role.relationshipFreeFloat", "Relationship Free Float");
+            case "legend":
+                return this.getLocalizedString("role.legend", "Legend");
+            case "tooltip":
+                return this.getLocalizedString("role.tooltip", "Tooltip");
+            case "wbsLevels":
+                return this.getLocalizedString("role.wbsLevels", "WBS Levels");
+            case "baselineStartDate":
+                return this.getLocalizedString("role.baselineStartDate", "Baseline Start Date");
+            case "baselineFinishDate":
+                return this.getLocalizedString("role.baselineFinishDate", "Baseline Finish Date");
+            case "previousUpdateStartDate":
+                return this.getLocalizedString("role.previousUpdateStartDate", "Previous Update Start Date");
+            case "previousUpdateFinishDate":
+                return this.getLocalizedString("role.previousUpdateFinishDate", "Previous Update Finish Date");
+            case "dataDate":
+                return this.getLocalizedString("role.dataDate", "Data Date");
+            default:
+                return roleName;
+        }
+    }
+
+    private getMissingRequiredRoles(dataView: DataView): string[] {
+        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || "longestPath";
+        const requiredRoles = ["taskId", "startDate", "finishDate"];
+        requiredRoles.push(mode === "floatBased" ? "taskTotalFloat" : "duration");
+        return requiredRoles.filter(role => !this.hasDataRole(dataView, role));
+    }
+
+    private displayLandingPage(missingRoles: string[] = []): void {
+        if (!this.scrollableContainer) return;
+
+        this.clearLandingPage();
+        this.clearVisual();
+        this.legendContainer?.style("display", "none");
+
+        const titleText = this.getLocalizedString("landing.title", "Build your longest path view");
+        const bodyText = this.getLocalizedString("landing.body", "Add the required fields to start analyzing your schedule.");
+        const requiredTitle = this.getLocalizedString("landing.requiredFields", "Required fields");
+        const optionalTitle = this.getLocalizedString("landing.optionalFields", "Optional fields");
+        const missingSuffix = this.getLocalizedString("landing.missingSuffix", "(missing)");
+
+        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || "longestPath";
+        const requiredRoles = ["taskId", "startDate", "finishDate", mode === "floatBased" ? "taskTotalFloat" : "duration"];
+        const optionalRoles = [
+            "taskName",
+            "taskType",
+            "predecessorId",
+            "relationshipType",
+            "relationshipLag",
+            "relationshipFreeFloat",
+            "legend",
+            "tooltip",
+            "wbsLevels",
+            "baselineStartDate",
+            "baselineFinishDate",
+            "previousUpdateStartDate",
+            "previousUpdateFinishDate",
+            "dataDate",
+            "taskFreeFloat"
+        ];
+
+        const missingSet = new Set(missingRoles);
+        const container = this.scrollableContainer.append("div")
+            .attr("class", "landing-page")
+            .style("height", "100%")
+            .style("width", "100%")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("padding", "20px")
+            .style("box-sizing", "border-box");
+
+        this.landingPageContainer = container;
+
+        const card = container.append("div")
+            .style("max-width", "520px")
+            .style("width", "100%")
+            .style("padding", "20px 24px")
+            .style("border-radius", "12px")
+            .style("background", this.getBackgroundColor())
+            .style("border", `1px solid ${this.getForegroundColor()}`)
+            .style("color", this.getForegroundColor())
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("box-shadow", "0 4px 12px rgba(0,0,0,0.08)");
+
+        card.append("div")
+            .style("font-size", "18px")
+            .style("font-weight", "600")
+            .style("margin-bottom", "8px")
+            .text(titleText);
+
+        card.append("div")
+            .style("font-size", "13px")
+            .style("color", this.getForegroundColor())
+            .style("margin-bottom", "16px")
+            .text(bodyText);
+
+        const requiredSection = card.append("div").style("margin-bottom", "12px");
+        requiredSection.append("div")
+            .style("font-size", "12px")
+            .style("font-weight", "600")
+            .style("margin-bottom", "6px")
+            .text(requiredTitle);
+
+        const requiredList = requiredSection.append("ul")
+            .style("margin", "0")
+            .style("padding-left", "18px")
+            .style("font-size", "12px");
+
+        for (const role of requiredRoles) {
+            const displayName = this.getRoleDisplayName(role);
+            const isMissing = missingSet.has(role);
+            requiredList.append("li")
+                .style("margin-bottom", "4px")
+                .text(isMissing ? `${displayName} ${missingSuffix}` : displayName);
+        }
+
+        const optionalSection = card.append("div");
+        optionalSection.append("div")
+            .style("font-size", "12px")
+            .style("font-weight", "600")
+            .style("margin-bottom", "6px")
+            .text(optionalTitle);
+
+        const optionalList = optionalSection.append("ul")
+            .style("margin", "0")
+            .style("padding-left", "18px")
+            .style("font-size", "12px");
+
+        for (const role of optionalRoles) {
+            optionalList.append("li")
+                .style("margin-bottom", "4px")
+                .text(this.getRoleDisplayName(role));
+        }
+    }
+
     // Debug helper
     private debugLog(...args: unknown[]): void {
         if (this.debug) {
@@ -13159,3 +13383,9 @@ private ensureTaskVisible(taskId: string): void {
     }
 
 } // End of Visual class
+
+
+
+
+
+
