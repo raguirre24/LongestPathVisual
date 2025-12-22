@@ -9890,7 +9890,7 @@ private transformDataOptimized(dataView: DataView): void {
             const parsedDataDate = this.parseDate(row[dataDateIdx]);
             if (parsedDataDate) {
                 const ts = parsedDataDate.getTime();
-                if (this.dataDate === null || ts < this.dataDate.getTime()) {
+                if (this.dataDate === null || ts > this.dataDate.getTime()) {
                     this.dataDate = parsedDataDate;
                 }
             }
