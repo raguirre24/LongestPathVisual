@@ -284,6 +284,7 @@ export class Visual implements IVisual {
     
     // Enhanced data structures for performance
     private predecessorIndex: Map<string, Set<string>> = new Map(); // taskId -> Set of tasks that have this as predecessor
+    private relationshipByPredecessor: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by predecessorId
 
     // Legend properties
     private legendDataExists: boolean = false;
@@ -7526,10 +7527,17 @@ private drawArrowsCanvas(
             if (task.yOrder !== undefined) taskPositions.set(task.internalId, task.yOrder);
         });
         
-        // Filter visible relationships
-        const visibleRelationships = this.relationships.filter((rel: Relationship) =>
-            taskPositions.has(rel.predecessorId) && taskPositions.has(rel.successorId)
-        );
+        const visibleTaskIds = new Set(taskPositions.keys());
+        const visibleRelationships: Relationship[] = [];
+        for (const predecessorId of visibleTaskIds) {
+            const relationships = this.relationshipByPredecessor.get(predecessorId);
+            if (!relationships) continue;
+            for (const rel of relationships) {
+                if (visibleTaskIds.has(rel.successorId)) {
+                    visibleRelationships.push(rel);
+                }
+            }
+        }
 
         // UPGRADED: Professional connector line rendering with smooth curves and anti-aliasing
         visibleRelationships.forEach((rel: Relationship) => {
@@ -7793,9 +7801,17 @@ private drawArrowsCanvas(
             if (task.yOrder !== undefined) taskPositions.set(task.internalId, task.yOrder);
         });
 
-        const visibleRelationships = this.relationships.filter((rel: Relationship) =>
-            taskPositions.has(rel.predecessorId) && taskPositions.has(rel.successorId)
-        );
+        const visibleTaskIds = new Set(taskPositions.keys());
+        const visibleRelationships: Relationship[] = [];
+        for (const predecessorId of visibleTaskIds) {
+            const relationships = this.relationshipByPredecessor.get(predecessorId);
+            if (!relationships) continue;
+            for (const rel of relationships) {
+                if (visibleTaskIds.has(rel.successorId)) {
+                    visibleRelationships.push(rel);
+                }
+            }
+        }
 
         // UPGRADED: Professional SVG connector lines with smooth curves and rounded caps/joins
         this.arrowLayer.selectAll(".relationship-arrow")
@@ -9143,6 +9159,20 @@ private identifyNearCriticalTasks(): void {
         this.debugLog("Float threshold is 0, skipping near-critical identification");
         return;
     }
+
+    const predecessorToSuccessorMinFloat = new Map<string, Map<string, number>>();
+    for (const rel of this.relationships) {
+        const relFloat = (rel as any).relationshipFloat ?? Infinity;
+        let successorMap = predecessorToSuccessorMinFloat.get(rel.predecessorId);
+        if (!successorMap) {
+            successorMap = new Map<string, number>();
+            predecessorToSuccessorMinFloat.set(rel.predecessorId, successorMap);
+        }
+        const currentMin = successorMap.get(rel.successorId) ?? Infinity;
+        if (relFloat < currentMin) {
+            successorMap.set(rel.successorId, relFloat);
+        }
+    }
     
     this.allTasksData.forEach(task => {
         if (task.isCritical) return;
@@ -9167,23 +9197,18 @@ private identifyNearCriticalTasks(): void {
                 continue;
             }
             
-            // Find successors with minimum float
-            const successorRels = this.relationships.filter(r => r.predecessorId === taskId);
-            const successorFloats = new Map<string, number>();
-            
-            successorRels.forEach(rel => {
-                const relFloat = (rel as any).relationshipFloat ?? Infinity;
-                const currentMin = successorFloats.get(rel.successorId) ?? Infinity;
-                successorFloats.set(rel.successorId, Math.min(currentMin, relFloat));
-            });
-            
-            successorFloats.forEach((minFloat, succId) => {
+            const successorFloats = predecessorToSuccessorMinFloat.get(taskId);
+            if (!successorFloats) {
+                continue;
+            }
+
+            for (const [succId, minFloat] of successorFloats) {
                 const floatToAdd = Math.max(0, minFloat);
                 queue.push({
                     taskId: succId,
                     accumulatedFloat: accumulatedFloat + floatToAdd
                 });
-            });
+            }
         }
         
         if (minFloatToCritical <= this.floatThreshold) {
@@ -9815,6 +9840,7 @@ private transformDataOptimized(dataView: DataView): void {
     this.taskIdToTask.clear();
     this.predecessorIndex.clear();
     this.relationshipIndex.clear();
+    this.relationshipByPredecessor.clear();
     this.dataDate = null;
 
     if (!dataView.table?.rows || !dataView.metadata?.columns) {
@@ -10026,6 +10052,11 @@ private transformDataOptimized(dataView: DataView): void {
                 this.relationshipIndex.set(taskId, []);
             }
             this.relationshipIndex.get(taskId)!.push(relationship);
+
+            if (!this.relationshipByPredecessor.has(rel.predId)) {
+                this.relationshipByPredecessor.set(rel.predId, []);
+            }
+            this.relationshipByPredecessor.get(rel.predId)!.push(relationship);
         }
 
         // Add task to collections
@@ -13495,9 +13526,4 @@ private ensureTaskVisible(taskId: string): void {
     }
 
 } // End of Visual class
-
-
-
-
-
 
