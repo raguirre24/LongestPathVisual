@@ -182,6 +182,31 @@ declare class WBSGroupingCard extends Card {
     groupNameColor: formattingSettings.ColorPicker;
     slices: Slice[];
 }
+declare class WbsLevelStylesCard extends Card {
+    name: string;
+    displayName: string;
+    level1Background: formattingSettings.ColorPicker;
+    level1Text: formattingSettings.ColorPicker;
+    level2Background: formattingSettings.ColorPicker;
+    level2Text: formattingSettings.ColorPicker;
+    level3Background: formattingSettings.ColorPicker;
+    level3Text: formattingSettings.ColorPicker;
+    level4Background: formattingSettings.ColorPicker;
+    level4Text: formattingSettings.ColorPicker;
+    level5Background: formattingSettings.ColorPicker;
+    level5Text: formattingSettings.ColorPicker;
+    level6Background: formattingSettings.ColorPicker;
+    level6Text: formattingSettings.ColorPicker;
+    level7Background: formattingSettings.ColorPicker;
+    level7Text: formattingSettings.ColorPicker;
+    level8Background: formattingSettings.ColorPicker;
+    level8Text: formattingSettings.ColorPicker;
+    level9Background: formattingSettings.ColorPicker;
+    level9Text: formattingSettings.ColorPicker;
+    level10Background: formattingSettings.ColorPicker;
+    level10Text: formattingSettings.ColorPicker;
+    slices: Slice[];
+}
 declare class LegendColorsCard extends Card {
     name: string;
     displayName: string;
@@ -245,6 +270,7 @@ export declare class VisualSettings extends Model {
     drivingPathSelection: DrivingPathSelectionCard;
     taskSelection: TaskSelectionCard;
     wbsGrouping: WBSGroupingCard;
+    wbsLevelStyles: WbsLevelStylesCard;
     legend: LegendCard;
     legendColors: LegendColorsCard;
     timelineZoom: TimelineZoomCard;

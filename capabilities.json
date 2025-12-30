@@ -439,6 +439,32 @@
                 }
             }
         },
+        "wbsLevelStyles": {
+            "displayName": "WBS Level Styles",
+            "description": "Optional per-level overrides for WBS header background and text colors",
+            "properties": {
+                "level1Background": { "displayName": "Level 1 Background", "type": { "fill": { "solid": { "color": true } } } },
+                "level1Text": { "displayName": "Level 1 Text", "type": { "fill": { "solid": { "color": true } } } },
+                "level2Background": { "displayName": "Level 2 Background", "type": { "fill": { "solid": { "color": true } } } },
+                "level2Text": { "displayName": "Level 2 Text", "type": { "fill": { "solid": { "color": true } } } },
+                "level3Background": { "displayName": "Level 3 Background", "type": { "fill": { "solid": { "color": true } } } },
+                "level3Text": { "displayName": "Level 3 Text", "type": { "fill": { "solid": { "color": true } } } },
+                "level4Background": { "displayName": "Level 4 Background", "type": { "fill": { "solid": { "color": true } } } },
+                "level4Text": { "displayName": "Level 4 Text", "type": { "fill": { "solid": { "color": true } } } },
+                "level5Background": { "displayName": "Level 5 Background", "type": { "fill": { "solid": { "color": true } } } },
+                "level5Text": { "displayName": "Level 5 Text", "type": { "fill": { "solid": { "color": true } } } },
+                "level6Background": { "displayName": "Level 6 Background", "type": { "fill": { "solid": { "color": true } } } },
+                "level6Text": { "displayName": "Level 6 Text", "type": { "fill": { "solid": { "color": true } } } },
+                "level7Background": { "displayName": "Level 7 Background", "type": { "fill": { "solid": { "color": true } } } },
+                "level7Text": { "displayName": "Level 7 Text", "type": { "fill": { "solid": { "color": true } } } },
+                "level8Background": { "displayName": "Level 8 Background", "type": { "fill": { "solid": { "color": true } } } },
+                "level8Text": { "displayName": "Level 8 Text", "type": { "fill": { "solid": { "color": true } } } },
+                "level9Background": { "displayName": "Level 9 Background", "type": { "fill": { "solid": { "color": true } } } },
+                "level9Text": { "displayName": "Level 9 Text", "type": { "fill": { "solid": { "color": true } } } },
+                "level10Background": { "displayName": "Level 10 Background", "type": { "fill": { "solid": { "color": true } } } },
+                "level10Text": { "displayName": "Level 10 Text", "type": { "fill": { "solid": { "color": true } } } }
+            }
+        },
         "legendColors": {
             "displayName": "Legend Colors",
             "description": "Customize colors for legend categories",

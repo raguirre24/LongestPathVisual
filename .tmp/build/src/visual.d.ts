@@ -70,6 +70,7 @@ export declare class Visual implements IVisual {
     private taskLabelLineHeight;
     private minTaskWidthPixels;
     private monthYearFormatter;
+    private lineDateFormatter;
     private dataDate;
     private xScale;
     private yScale;
@@ -104,6 +105,7 @@ export declare class Visual implements IVisual {
     private lastViewport;
     private renderStartTime;
     private predecessorIndex;
+    private relationshipByPredecessor;
     private legendDataExists;
     private legendColorMap;
     private legendCategories;
@@ -586,6 +588,7 @@ export declare class Visual implements IVisual {
     private getColumnIndex;
     private parseDate;
     private formatDate;
+    private formatLineDate;
     private limitTasks;
     private applyTaskFilter;
     private displayMessage;
@@ -644,6 +647,8 @@ export declare class Visual implements IVisual {
      * Get duration text color based on settings or auto-contrast
      */
     private getDurationTextColor;
+    private isNonEmptyColor;
+    private getWbsLevelStyle;
     private getLocalizedString;
     private updateHighContrastState;
     private resolveColor;

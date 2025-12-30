@@ -563,6 +563,45 @@ class WBSGroupingCard extends Card {
     ];
 }
 
+class WbsLevelStylesCard extends Card {
+    name: string = "wbsLevelStyles";
+    displayName: string = "WBS Level Styles";
+
+    level1Background = new ColorPicker({ name: "level1Background", displayName: "Level 1 Background", value: { value: "" } });
+    level1Text = new ColorPicker({ name: "level1Text", displayName: "Level 1 Text", value: { value: "" } });
+    level2Background = new ColorPicker({ name: "level2Background", displayName: "Level 2 Background", value: { value: "" } });
+    level2Text = new ColorPicker({ name: "level2Text", displayName: "Level 2 Text", value: { value: "" } });
+    level3Background = new ColorPicker({ name: "level3Background", displayName: "Level 3 Background", value: { value: "" } });
+    level3Text = new ColorPicker({ name: "level3Text", displayName: "Level 3 Text", value: { value: "" } });
+    level4Background = new ColorPicker({ name: "level4Background", displayName: "Level 4 Background", value: { value: "" } });
+    level4Text = new ColorPicker({ name: "level4Text", displayName: "Level 4 Text", value: { value: "" } });
+    level5Background = new ColorPicker({ name: "level5Background", displayName: "Level 5 Background", value: { value: "" } });
+    level5Text = new ColorPicker({ name: "level5Text", displayName: "Level 5 Text", value: { value: "" } });
+    level6Background = new ColorPicker({ name: "level6Background", displayName: "Level 6 Background", value: { value: "" } });
+    level6Text = new ColorPicker({ name: "level6Text", displayName: "Level 6 Text", value: { value: "" } });
+    level7Background = new ColorPicker({ name: "level7Background", displayName: "Level 7 Background", value: { value: "" } });
+    level7Text = new ColorPicker({ name: "level7Text", displayName: "Level 7 Text", value: { value: "" } });
+    level8Background = new ColorPicker({ name: "level8Background", displayName: "Level 8 Background", value: { value: "" } });
+    level8Text = new ColorPicker({ name: "level8Text", displayName: "Level 8 Text", value: { value: "" } });
+    level9Background = new ColorPicker({ name: "level9Background", displayName: "Level 9 Background", value: { value: "" } });
+    level9Text = new ColorPicker({ name: "level9Text", displayName: "Level 9 Text", value: { value: "" } });
+    level10Background = new ColorPicker({ name: "level10Background", displayName: "Level 10 Background", value: { value: "" } });
+    level10Text = new ColorPicker({ name: "level10Text", displayName: "Level 10 Text", value: { value: "" } });
+
+    slices: Slice[] = [
+        this.level1Background, this.level1Text,
+        this.level2Background, this.level2Text,
+        this.level3Background, this.level3Text,
+        this.level4Background, this.level4Text,
+        this.level5Background, this.level5Text,
+        this.level6Background, this.level6Text,
+        this.level7Background, this.level7Text,
+        this.level8Background, this.level8Text,
+        this.level9Background, this.level9Text,
+        this.level10Background, this.level10Text
+    ];
+}
+
 class LegendColorsCard extends Card {
     name: string = "legendColors";
     displayName: string = "Legend Colors";
@@ -735,6 +774,7 @@ export class VisualSettings extends Model {
     drivingPathSelection = new DrivingPathSelectionCard();
     taskSelection = new TaskSelectionCard();
     wbsGrouping = new WBSGroupingCard();
+    wbsLevelStyles = new WbsLevelStylesCard();
     legend = new LegendCard();
     legendColors = new LegendColorsCard();
     timelineZoom = new TimelineZoomCard();
@@ -755,6 +795,7 @@ export class VisualSettings extends Model {
         this.drivingPathSelection,
         this.taskSelection,
         this.wbsGrouping,
+        this.wbsLevelStyles,
         this.legend,
         this.legendColors,
         this.timelineZoom,

@@ -237,6 +237,7 @@ export class Visual implements IVisual {
     private taskLabelLineHeight = "1.1em";
     private minTaskWidthPixels = 1;
     private monthYearFormatter = timeFormat("%b-%y");
+    private lineDateFormatter = timeFormat("%d-%b-%y");
     private dataDate: Date | null = null;
 
     // --- Store scales ---
@@ -5002,13 +5003,12 @@ private setupTimeBasedSVGAndScales(
         domainMinDate = new Date(midPoint - range / 2);
         domainMaxDate = new Date(midPoint + range / 2);
     } else if (minTimestamp === maxTimestamp) {
-        const singleDate = new Date(minTimestamp);
-        domainMinDate = new Date(new Date(singleDate).setDate(singleDate.getDate() - 1));
-        domainMaxDate = new Date(new Date(singleDate).setDate(singleDate.getDate() + 1));
+        domainMinDate = new Date(minTimestamp);
+        domainMaxDate = new Date(minTimestamp + 86400000);
     } else {
-        // Add padding to ensure all dates (including baselines) are visible
+        // Add right-side padding so earliest tasks align to the left margin
         const domainPaddingMilliseconds = Math.max((maxTimestamp - minTimestamp) * 0.05, 86400000);
-        domainMinDate = new Date(minTimestamp - domainPaddingMilliseconds);
+        domainMinDate = new Date(minTimestamp);
         domainMaxDate = new Date(maxTimestamp + domainPaddingMilliseconds);
     }
 
@@ -8199,7 +8199,7 @@ private drawArrowsCanvas(
             labelBackgroundColor,
             labelBackgroundOpacity,
             labelY: this.headerHeight - 12,
-            labelFormatter: (d: Date) => showLabelPrefix ? `Finish: ${this.formatDate(d)}` : this.formatDate(d),
+            labelFormatter: (d: Date) => showLabelPrefix ? `Finish: ${this.formatLineDate(d)}` : this.formatLineDate(d),
             xScale,
             chartHeight,
             mainGridLayer,
@@ -8277,8 +8277,8 @@ private drawArrowsCanvas(
 
         if (showLabel) {
             const dataDateText = showLabelPrefix
-                ? `Data Date: ${this.formatDate(this.dataDate)}`
-                : this.formatDate(this.dataDate);
+                ? `Data Date: ${this.formatLineDate(this.dataDate)}`
+                : this.formatLineDate(this.dataDate);
 
             const labelY = this.headerHeight - 26;
             const labelX = dataDateX + 5;
@@ -8356,7 +8356,7 @@ private drawArrowsCanvas(
             labelBackgroundColor: baselineLabelBackgroundColor,
             labelBackgroundOpacity: baselineLabelBackgroundOpacity,
             labelY: this.headerHeight - 36, // stagger labels to reduce overlap
-            labelFormatter: (d: Date) => baselineShowLabelPrefix ? `Baseline Finish: ${this.formatDate(d)}` : `Baseline: ${this.formatDate(d)}`,
+            labelFormatter: (d: Date) => baselineShowLabelPrefix ? `Baseline Finish: ${this.formatLineDate(d)}` : `Baseline: ${this.formatLineDate(d)}`,
             xScale,
             chartHeight,
             mainGridLayer,
@@ -8393,7 +8393,7 @@ private drawArrowsCanvas(
             labelBackgroundColor: prevLabelBackgroundColor,
             labelBackgroundOpacity: prevLabelBackgroundOpacity,
             labelY: this.headerHeight - 50, // stagger labels to reduce overlap
-            labelFormatter: (d: Date) => prevShowLabelPrefix ? `Previous Finish: ${this.formatDate(d)}` : `Previous: ${this.formatDate(d)}`,
+            labelFormatter: (d: Date) => prevShowLabelPrefix ? `Previous Finish: ${this.formatLineDate(d)}` : `Previous: ${this.formatLineDate(d)}`,
             xScale,
             chartHeight,
             mainGridLayer,
@@ -11271,7 +11271,7 @@ private drawWbsGroupHeaders(
     }
 
     const showGroupSummary = this.settings.wbsGrouping.showGroupSummary.value;
-    const groupHeaderColor = this.resolveColor(this.settings.wbsGrouping.groupHeaderColor.value.value, "background");
+    const defaultGroupHeaderColor = this.settings.wbsGrouping.groupHeaderColor.value.value;
     const groupSummaryColor = this.resolveColor(this.settings.wbsGrouping.groupSummaryColor.value.value, "foreground");
     const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
     const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
@@ -11280,7 +11280,7 @@ private drawWbsGroupHeaders(
     // Get custom group name settings (use taskNameFontSize if groupNameFontSize is 0)
     const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
     const groupNameFontSize = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
-    const groupNameColor = this.resolveColor(this.settings.wbsGrouping.groupNameColor?.value?.value ?? "#333333", "foreground");
+    const defaultGroupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? "#333333";
     const criticalPathColor = this.resolveColor(this.settings.taskAppearance.criticalPathColor.value.value, "foreground");
     const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
     const showNearCriticalSummary = this.showNearCritical && this.floatThreshold > 0 && mode === 'floatBased';
@@ -11328,6 +11328,9 @@ private drawWbsGroupHeaders(
         const bandCenter = bandStart + taskHeight / 2;
 
         const indent = Math.max(0, (group.level - 1) * indentPerLevel);
+        const levelStyle = this.getWbsLevelStyle(group.level, defaultGroupHeaderColor, defaultGroupNameColor);
+        const groupHeaderColor = this.resolveColor(levelStyle.background, "background");
+        const groupNameColor = this.resolveColor(levelStyle.text, "foreground");
         const headerGroup = this.wbsGroupLayer.append('g')
             .attr('class', 'wbs-group-header')
             .attr('data-group-id', group.id)
@@ -11499,8 +11502,7 @@ private drawWbsGroupHeaders(
             .text(expandIcon);
 
         // Group name with concise count suffix
-        const levelLabel = this.wbsLevelColumnNames[group.level - 1];
-        const baseName = levelLabel ? `${levelLabel}: ${group.name}` : group.name;
+        const baseName = group.name;
         const tasksLabel = this.getLocalizedString("wbs.tasksLabel", "tasks");
         const visibleLabel = this.getLocalizedString("wbs.visibleLabel", "visible");
         let countSuffix = "";
@@ -11760,6 +11762,16 @@ private validateDataView(dataView: DataView): boolean {
         } catch (e) {
             console.error("Error formatting date:", e);
             return "Invalid Date";
+        }
+    }
+
+    private formatLineDate(date: Date | null | undefined): string {
+        if (!date || !(date instanceof Date) || isNaN(date.getTime())) return "";
+        try {
+            return this.lineDateFormatter(date);
+        } catch (e) {
+            console.error("Error formatting line date:", e);
+            return this.formatDate(date);
         }
     }
 
@@ -12830,6 +12842,28 @@ private ensureTaskVisible(taskId: string): void {
             this.settings.legendColors.visible = false;
         }
 
+        if (this.settings?.wbsLevelStyles) {
+            const levelNames = this.wbsLevelColumnNames || [];
+            const wbsLevelStyles = this.settings.wbsLevelStyles as any;
+            const maxLevel = 10;
+
+            for (let level = 1; level <= maxLevel; level++) {
+                const levelName = levelNames[level - 1];
+                const backgroundLabel = levelName
+                    ? `Level ${level} (${levelName}) Background`
+                    : `Level ${level} Background`;
+                const textLabel = levelName
+                    ? `Level ${level} (${levelName}) Text`
+                    : `Level ${level} Text`;
+
+                const backgroundSlice = wbsLevelStyles[`level${level}Background`];
+                const textSlice = wbsLevelStyles[`level${level}Text`];
+
+                if (backgroundSlice) backgroundSlice.displayName = backgroundLabel;
+                if (textSlice) textSlice.displayName = textLabel;
+            }
+        }
+
         const formattingModel = this.formattingSettingsService.buildFormattingModel(this.settings);
 
         return formattingModel;
@@ -13140,6 +13174,26 @@ private ensureTaskVisible(taskId: string): void {
         }
 
         return settingColor;
+    }
+
+    private isNonEmptyColor(value: string | null | undefined): value is string {
+        return typeof value === "string" && value.trim().length > 0;
+    }
+
+    private getWbsLevelStyle(level: number, fallbackBackground: string, fallbackText: string): { background: string; text: string } {
+        const levelStyles = this.settings?.wbsLevelStyles as any;
+        if (!levelStyles) {
+            return { background: fallbackBackground, text: fallbackText };
+        }
+
+        const safeLevel = Math.max(1, level);
+        const backgroundValue = levelStyles[`level${safeLevel}Background`]?.value?.value;
+        const textValue = levelStyles[`level${safeLevel}Text`]?.value?.value;
+
+        return {
+            background: this.isNonEmptyColor(backgroundValue) ? backgroundValue : fallbackBackground,
+            text: this.isNonEmptyColor(textValue) ? textValue : fallbackText
+        };
     }
 
     private getLocalizedString(key: string, fallback: string): string {
