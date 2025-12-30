@@ -2365,12 +2365,15 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
         this.refreshWbsAvailableLevels();
     }
 
-    const maxLevel = this.getMaxWbsLevel();
-    const currentLevelRaw = this.wbsExpandToLevel ?? (this.wbsExpandedInternal ? (maxLevel || null) : 0);
-    const currentLevel = currentLevelRaw === null && maxLevel > 0 ? maxLevel : currentLevelRaw;
-    const levelLabel = this.getWbsExpandLevelLabel(currentLevel);
+    const isCustom = this.wbsManualExpansionOverride;
+    const currentLevel = this.getCurrentWbsExpandLevel();
+    const levelLabel = isCustom
+        ? "Custom (manual overrides)"
+        : this.getWbsExpandLevelLabel(this.wbsExpandToLevel !== undefined ? this.wbsExpandToLevel : currentLevel);
     const nextLevelValue = this.getNextWbsExpandLevel();
-    const nextLevelLabel = nextLevelValue !== null ? this.getWbsExpandLevelLabel(nextLevelValue) : levelLabel;
+    const nextLevelLabel = nextLevelValue !== null
+        ? this.getWbsExpandLevelLabel(nextLevelValue)
+        : this.getWbsExpandLevelLabel(currentLevel);
 
     // Get responsive layout
     const layout = this.getHeaderButtonLayout(viewportWidth || 800);
@@ -2380,7 +2383,9 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
         .attr("class", "wbs-expand-toggle-group")
         .style("cursor", "pointer")
         .attr("role", "button")
-        .attr("aria-label", `${levelLabel} (click to cycle)`)
+        .attr("aria-label", isCustom
+            ? "Custom (manual overrides). Click to expand and clear overrides"
+            : `${levelLabel} (click to expand)`)
         .attr("aria-pressed", this.wbsExpandedInternal.toString())
         .attr("tabindex", "0");
 
@@ -2438,8 +2443,8 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
         .attr("stroke-linejoin", "round");
 
     // Small badge to show current depth (0, L2, L3, All)
-    const badgeText = currentLevel === null
-        ? (maxLevel > 0 ? `L${maxLevel}` : "All")
+    const badgeText = isCustom
+        ? "C"
         : currentLevel === 0
             ? "0"
             : `L${currentLevel}`;
@@ -2456,10 +2461,13 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
 
     // Tooltip
     const levelsDesc = this.wbsAvailableLevels.length > 0
-        ? this.wbsAvailableLevels.map(l => `L${l}`).join("/")
+        ? this.wbsAvailableLevels.map(l => `L${l}`).join(" -> ")
         : "no levels";
+    const expandSteps = this.wbsAvailableLevels.length > 0
+        ? `Expand steps: 0 -> ${levelsDesc} (stops at max).`
+        : "Expand steps: 0 (stops at 0).";
     wbsToggleGroup.append("title")
-        .text(`${levelLabel}. Next: ${nextLevelLabel}. Cycle order: collapse -> ${levelsDesc}.`);
+        .text(`${levelLabel}. Next: ${nextLevelLabel}. ${isCustom ? "Manual overrides will be cleared." : expandSteps}`);
 
     // Hover interactions
     const self = this;
@@ -2529,12 +2537,15 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
         this.refreshWbsAvailableLevels();
     }
 
-    const maxLevel = this.getMaxWbsLevel();
-    const currentLevelRaw = this.wbsExpandToLevel ?? (this.wbsExpandedInternal ? (maxLevel || null) : 0);
-    const currentLevel = currentLevelRaw === null && maxLevel > 0 ? maxLevel : currentLevelRaw;
-    const levelLabel = this.getWbsExpandLevelLabel(currentLevel);
+    const isCustom = this.wbsManualExpansionOverride;
+    const currentLevel = this.getCurrentWbsExpandLevel();
+    const levelLabel = isCustom
+        ? "Custom (manual overrides)"
+        : this.getWbsExpandLevelLabel(this.wbsExpandToLevel !== undefined ? this.wbsExpandToLevel : currentLevel);
     const previousLevelValue = this.getPreviousWbsExpandLevel();
-    const previousLevelLabel = previousLevelValue !== null ? this.getWbsExpandLevelLabel(previousLevelValue) : levelLabel;
+    const previousLevelLabel = previousLevelValue !== null
+        ? this.getWbsExpandLevelLabel(previousLevelValue)
+        : this.getWbsExpandLevelLabel(currentLevel);
 
     // Get responsive layout
     const layout = this.getHeaderButtonLayout(viewportWidth || 800);
@@ -2546,7 +2557,9 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
         .attr("class", "wbs-collapse-toggle-group")
         .style("cursor", "pointer")
         .attr("role", "button")
-        .attr("aria-label", `${levelLabel} (reverse cycle)`)
+        .attr("aria-label", isCustom
+            ? "Custom (manual overrides). Click to collapse and clear overrides"
+            : `${levelLabel} (click to collapse)`)
         .attr("aria-pressed", isCollapsed.toString())
         .attr("tabindex", "0");
 
@@ -2604,8 +2617,8 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
         .attr("stroke-linejoin", "round");
 
     // Small badge to show current depth (0, L2, L3, All)
-    const badgeText = currentLevel === null
-        ? (maxLevel > 0 ? `L${maxLevel}` : "All")
+    const badgeText = isCustom
+        ? "C"
         : currentLevel === 0
             ? "0"
             : `L${currentLevel}`;
@@ -2622,13 +2635,13 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
 
     // Tooltip
     const levelsDesc = this.wbsAvailableLevels.length > 0
-        ? [...this.wbsAvailableLevels].sort((a, b) => b - a).map(l => `L${l}`).join("/")
+        ? [...this.wbsAvailableLevels].sort((a, b) => b - a).map(l => `L${l}`).join(" -> ")
         : "no levels";
-    const reverseCycle = this.wbsAvailableLevels.length > 0
-        ? `expand all -> ${levelsDesc} -> collapse`
-        : "collapse";
+    const collapseSteps = this.wbsAvailableLevels.length > 0
+        ? `Collapse steps: ${levelsDesc} -> 0 (stops at 0).`
+        : "Collapse steps: 0 (stops at 0).";
     wbsCollapseGroup.append("title")
-        .text(`${levelLabel}. Previous: ${previousLevelLabel}. Reverse cycle: ${reverseCycle}.`);
+        .text(`${levelLabel}. Previous: ${previousLevelLabel}. ${isCustom ? "Manual overrides will be cleared." : collapseSteps}`);
 
     // Hover interactions
     const self = this;
@@ -2713,14 +2726,20 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
             ? this.getPreviousWbsExpandLevel.bind(this)
             : this.getNextWbsExpandLevel.bind(this);
 
+        const currentLevel = this.getCurrentWbsExpandLevel();
         const nextLevel = levelGetter();
         if (nextLevel === null && this.wbsAvailableLevels.length === 0) {
             return;
         }
         const effectiveNext = nextLevel;
+        const hasManualOverrides = this.wbsManualExpansionOverride || this.wbsManuallyToggledGroups.size > 0;
+
+        if (!hasManualOverrides && effectiveNext === currentLevel) {
+            return;
+        }
 
         this.debugLog("WBS expand depth cycle", {
-            current: this.wbsExpandToLevel,
+            current: currentLevel,
             next: effectiveNext,
             direction,
             availableLevels: this.wbsAvailableLevels
@@ -2728,11 +2747,10 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
 
         this.wbsManualExpansionOverride = false;
 
-        // BUG-007 FIX: Clear manually toggled groups when going to "collapse all" (level 0)
-        // This gives users a way to reset their manual overrides
-        if (effectiveNext === 0) {
+        if (hasManualOverrides) {
             this.wbsManuallyToggledGroups.clear();
-            this.debugLog("Cleared manually toggled groups on collapse all");
+            this.wbsExpandedState.clear();
+            this.debugLog("Cleared manual WBS overrides for global toggle");
         }
 
         // Capture an anchor so the viewport stays roughly centered on a nearby group
@@ -10650,15 +10668,34 @@ private getWbsExpandLevelLabel(level: number | null | undefined): string {
     return `Expand to Level ${level}`;
 }
 
+private getCurrentWbsExpandLevel(): number {
+    if (this.wbsAvailableLevels.length === 0) {
+        return 0;
+    }
+
+    const maxLevel = this.getMaxWbsLevel();
+    if (this.wbsExpandToLevel === null) {
+        return maxLevel;
+    }
+    if (this.wbsExpandToLevel === undefined) {
+        return this.wbsExpandedInternal ? maxLevel : 0;
+    }
+
+    return Math.min(Math.max(this.wbsExpandToLevel, 0), maxLevel);
+}
+
 private getNextWbsExpandLevel(): number | null {
     if (this.wbsAvailableLevels.length === 0) {
         return null;
     }
     const levels = Array.from(new Set(this.wbsAvailableLevels)).sort((a, b) => a - b);
-    const sequence: Array<number> = [0, ...levels]; // collapse -> per-level (no redundant "all")
-    const current = this.wbsExpandToLevel ?? (this.wbsExpandedInternal ? levels[levels.length - 1] : 0);
+    const sequence: Array<number> = [0, ...levels]; // collapse -> per-level (no wrap)
+    const current = this.getCurrentWbsExpandLevel();
     const idx = sequence.findIndex(l => l === current);
-    const nextIdx = idx === -1 ? 0 : (idx + 1) % sequence.length;
+    if (idx === -1) {
+        return sequence[0];
+    }
+    const nextIdx = Math.min(idx + 1, sequence.length - 1);
     return sequence[nextIdx];
 }
 
@@ -10668,9 +10705,12 @@ private getPreviousWbsExpandLevel(): number | null {
     }
     const levels = Array.from(new Set(this.wbsAvailableLevels)).sort((a, b) => a - b);
     const sequence: Array<number> = [0, ...levels];
-    const current = this.wbsExpandToLevel ?? (this.wbsExpandedInternal ? levels[levels.length - 1] : 0);
+    const current = this.getCurrentWbsExpandLevel();
     const idx = sequence.findIndex(l => l === current);
-    const prevIdx = idx === -1 ? sequence.length - 1 : (idx - 1 + sequence.length) % sequence.length;
+    if (idx === -1) {
+        return sequence[0];
+    }
+    const prevIdx = Math.max(idx - 1, 0);
     return sequence[prevIdx];
 }
 
@@ -10784,7 +10824,10 @@ private toggleWbsGroupExpansion(groupId: string): void {
     }
 
     // Switching a single group puts us in manual mode (stop enforcing level-based expansion)
-    this.wbsExpandToLevel = undefined;
+    const priorExpandedInternal = this.wbsExpandedInternal;
+    if (this.wbsExpandToLevel === undefined) {
+        this.wbsExpandToLevel = priorExpandedInternal ? null : 0;
+    }
     this.wbsManualExpansionOverride = true;
 
     // BUG-007 FIX: Track this group as manually toggled so it's preserved on global level cycling

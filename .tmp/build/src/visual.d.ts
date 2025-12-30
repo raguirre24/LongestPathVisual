@@ -530,6 +530,7 @@ export declare class Visual implements IVisual {
     private getMaxWbsLevel;
     private getWbsExpandedStatePayload;
     private getWbsExpandLevelLabel;
+    private getCurrentWbsExpandLevel;
     private getNextWbsExpandLevel;
     private getPreviousWbsExpandLevel;
     private applyWbsExpandLevel;
