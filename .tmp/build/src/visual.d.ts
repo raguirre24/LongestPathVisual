@@ -636,6 +636,8 @@ export declare class Visual implements IVisual {
      * Convert hex color to RGB object
      */
     private hexToRgb;
+    private rgbToHex;
+    private blendColors;
     /**
      * Calculate luminance of a color (for contrast calculation)
      */

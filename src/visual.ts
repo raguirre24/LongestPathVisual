@@ -6253,6 +6253,31 @@ private drawTasks(
     const dateBgPaddingV = this.dateBackgroundPadding.vertical;
     const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
     const self = this; // Store reference for callbacks
+    const minInlineDurationWidth = 28;
+    const minBarWidthForStrongStroke = 8;
+    const minBarWidthForGlow = 10;
+
+    const getTaskBarWidth = (d: Task): number => {
+        if (!(d.startDate instanceof Date) || !(d.finishDate instanceof Date)) {
+            return this.minTaskWidthPixels;
+        }
+        const startPos = xScale(d.startDate);
+        const finishPos = xScale(d.finishDate);
+        if (isNaN(startPos) || isNaN(finishPos) || finishPos < startPos) {
+            return this.minTaskWidthPixels;
+        }
+        return Math.max(this.minTaskWidthPixels, finishPos - startPos);
+    };
+
+    const getTaskFillColor = (d: Task, fallbackColor: string): string => {
+        if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
+        if (this.legendDataExists && d.legendColor) return d.legendColor;
+        if (!this.legendDataExists) {
+            if (d.isCritical) return criticalColor;
+            if (d.isNearCritical) return nearCriticalColor;
+        }
+        return fallbackColor;
+    };
     
     // Define selection highlight styles
     const selectionHighlightColor = this.getSelectionColor();
@@ -6407,35 +6432,12 @@ private drawTasks(
         .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
         .attr("x", (d: Task) => xScale(d.startDate!))
         .attr("y", 0)
-        .attr("width", (d: Task) => {
-            const startPos = xScale(d.startDate!);
-            const finishPos = xScale(d.finishDate!);
-            if (isNaN(startPos) || isNaN(finishPos) || finishPos < startPos) {
-                return this.minTaskWidthPixels;
-            }
-            return Math.max(this.minTaskWidthPixels, finishPos - startPos);
-        })
+        .attr("width", (d: Task) => getTaskBarWidth(d))
         .attr("height", taskHeight)
         // UPGRADED: Increased corner radius from 3px to 5px for smoother appearance
-        .attr("rx", Math.min(5, taskHeight * 0.15)).attr("ry", Math.min(5, taskHeight * 0.15))
-        .style("fill", (d: Task) => {
-            // Selected task always highlighted
-            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-
-            // WITH LEGEND: Use legend colors for fill
-            if (this.legendDataExists && d.legendColor) {
-                return d.legendColor;
-            }
-
-            // WITHOUT LEGEND (OLD STYLE): Use fill to show criticality
-            if (!this.legendDataExists) {
-                if (d.isCritical) return criticalColor;
-                if (d.isNearCritical) return nearCriticalColor;
-            }
-
-            // Default color
-            return taskColor;
-        })
+        .attr("rx", (d: Task) => Math.min(5, taskHeight * 0.15, getTaskBarWidth(d) / 2))
+        .attr("ry", (d: Task) => Math.min(5, taskHeight * 0.15, getTaskBarWidth(d) / 2))
+        .style("fill", (d: Task) => getTaskFillColor(d, taskColor))
         // Stroke: different logic based on legend
         .style("stroke", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
@@ -6450,20 +6452,27 @@ private drawTasks(
             return this.getForegroundColor();
         })
         .style("stroke-width", (d: Task) => {
-            if (d.internalId === this.selectedTaskId) return 3;
+            const barWidth = getTaskBarWidth(d);
+            let baseWidth = 0.5;
 
-            // WITH LEGEND: Thick borders for critical tasks
-            if (this.legendDataExists) {
-                if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
-                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
+            if (d.internalId === this.selectedTaskId) {
+                baseWidth = 3;
+            } else if (this.legendDataExists) {
+                if (d.isCritical) baseWidth = this.settings.taskAppearance.criticalBorderWidth.value;
+                else if (d.isNearCritical) baseWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
+            } else if (d.isCritical) {
+                baseWidth = 1;  // Slightly thicker for critical
             }
 
-            // WITHOUT LEGEND (OLD STYLE): Thin borders for everyone
-            if (d.isCritical) return 1;  // Slightly thicker for critical
-            return 0.5;
+            if (barWidth < minBarWidthForStrongStroke) {
+                return Math.min(baseWidth, 1);
+            }
+            return baseWidth;
         })
         // Glow: only with legend
         .style("filter", (d: Task) => {
+            const barWidth = getTaskBarWidth(d);
+            if (barWidth < minBarWidthForGlow) return "none";
             // WITH LEGEND: Add glow for critical tasks
             if (this.legendDataExists) {
                 if (d.isCritical) {
@@ -6514,24 +6523,7 @@ private drawTasks(
             const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
             return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
         })
-        .style("fill", (d: Task) => {
-            // Selected task always highlighted
-            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-
-            // WITH LEGEND: Use legend colors for fill
-            if (this.legendDataExists && d.legendColor) {
-                return d.legendColor;
-            }
-
-            // WITHOUT LEGEND (OLD STYLE): Use fill to show criticality
-            if (!this.legendDataExists) {
-                if (d.isCritical) return criticalColor;
-                if (d.isNearCritical) return nearCriticalColor;
-            }
-
-            // Default milestone color
-            return milestoneColor;
-        })
+        .style("fill", (d: Task) => getTaskFillColor(d, milestoneColor))
         // Stroke: different logic based on legend
         .style("stroke", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
@@ -6687,7 +6679,7 @@ private drawTasks(
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
             .style("font-size", `${durationFontSize}pt`)
-            .style("fill", "white")
+            .style("fill", (d: Task) => this.getDurationTextColor(getTaskFillColor(d, taskColor)))
             .style("font-weight", "500")
             .style("pointer-events", "none")
             .attr("x", (d: Task): number | null => {
@@ -6702,7 +6694,8 @@ private drawTasks(
                 const barWidth = finishX - startX;
                 const textContent = `${Math.round(d.duration || 0)}d`;
                 const estimatedTextWidth = textContent.length * (durationFontSize * 0.6);
-                return (barWidth > estimatedTextWidth + 4) ? textContent : "";
+                const minWidth = Math.max(minInlineDurationWidth, estimatedTextWidth + 8);
+                return (barWidth >= minWidth) ? textContent : "";
             })
             .filter(function() { return d3.select(this).attr("x") !== null && d3.select(this).text() !== ""; });
     }
@@ -7024,6 +7017,9 @@ private drawTasksCanvas(
         const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
+        const minInlineDurationWidth = 28;
+        const minBarWidthForStrongStroke = 8;
+        const minBarWidthForGlow = 10;
         
         // Previous Update settings
         const showPreviousUpdate = this.showPreviousUpdateInternal;
@@ -7211,22 +7207,27 @@ private drawTasksCanvas(
                     const width = Math.round(Math.max(1, xScale(task.finishDate) - xScale(task.startDate)));
                     const y = Math.round(yPos);
                     const height = Math.round(taskHeight);
-                    const radius = Math.min(5, Math.round(height * 0.15));  // UPGRADED: Increased from 3px to 5px
+                    const radius = Math.min(5, Math.round(height * 0.15), Math.round(width / 2));  // UPGRADED: Increased from 3px to 5px
 
                     // UPGRADED: Add subtle shadow effect for depth
                     const isSelected = task.internalId === this.selectedTaskId;
                     const isCritical = task.isCritical;
 
-                    if (isSelected || isCritical) {
+                    if ((isSelected || isCritical) && width >= minBarWidthForGlow) {
                         ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
                         ctx.shadowBlur = isSelected ? 6 : 4;
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = isSelected ? 3 : 2;
-                    } else {
+                    } else if (width >= minBarWidthForGlow) {
                         ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
                         ctx.shadowBlur = 2;
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 1;
+                    } else {
+                        ctx.shadowColor = 'transparent';
+                        ctx.shadowBlur = 0;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 0;
                     }
 
                     // Draw crisp rounded rectangle
@@ -7252,14 +7253,18 @@ private drawTasksCanvas(
                     ctx.shadowOffsetY = 0;
 
                     // Apply stroke based on criticality and selection
-                    if (strokeWidth > 0.5) {
+                    const adjustedStrokeWidth = width < minBarWidthForStrongStroke
+                        ? Math.min(strokeWidth, 1)
+                        : strokeWidth;
+
+                    if (adjustedStrokeWidth > 0.5) {
                         ctx.strokeStyle = strokeColor;
-                        ctx.lineWidth = strokeWidth;
+                        ctx.lineWidth = adjustedStrokeWidth;
                         ctx.stroke();
                     }
 
                     // UPGRADED: Draw duration text with better sizing, readability, and text shadow
-                    if (showDuration && task.duration > 0 && width > 25) {  // UPGRADED: Increased from 20 to 25
+                    if (showDuration && task.duration > 0) {
                         const durationText = `${Math.round(task.duration)}d`;
                         // UPGRADED: Slightly larger and bolder for better readability
                         const durationFontSize = Math.round((Math.max(7.5, generalFontSize * 0.85) / 10) * baseFontSize);
@@ -7274,7 +7279,8 @@ private drawTasksCanvas(
                         const centerY = Math.round(y + height / 2);
 
                         const textWidth = ctx.measureText(durationText).width;
-                        if (textWidth < width - 4) {
+                        const minWidth = Math.max(minInlineDurationWidth, textWidth + 8);
+                        if (width >= minWidth) {
                             // UPGRADED: Add subtle text shadow/outline for better readability on colored bars
                             ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
                             ctx.shadowBlur = 2;
@@ -11374,6 +11380,8 @@ private drawWbsGroupHeaders(
         const levelStyle = this.getWbsLevelStyle(group.level, defaultGroupHeaderColor, defaultGroupNameColor);
         const groupHeaderColor = this.resolveColor(levelStyle.background, "background");
         const groupNameColor = this.resolveColor(levelStyle.text, "foreground");
+        const summaryFillColor = this.blendColors(groupHeaderColor, groupSummaryColor, 0.35);
+        const summaryStrokeColor = this.getContrastColor(summaryFillColor);
         const headerGroup = this.wbsGroupLayer.append('g')
             .attr('class', 'wbs-group-header')
             .attr('data-group-id', group.id)
@@ -11395,25 +11403,25 @@ private drawWbsGroupHeaders(
             const startX = xScale(group.summaryStartDate);
             const finishX = xScale(group.summaryFinishDate);
             const barWidth = Math.max(2, finishX - startX);
-            const barHeight = Math.max(2, taskHeight * (isCollapsed ? 0.6 : 0.25));
+            const barHeight = Math.max(2, taskHeight * (isCollapsed ? 0.65 : 0.35));
             const barY = bandCenter - barHeight / 2; // Center bar within the band
-            const barRadius = Math.min(3, barHeight / 2);
+            const barRadius = Math.min(3, Math.max(1, barHeight / 2));
 
-            // Dim the bar if all tasks are filtered out
+            const baseOpacity = isCollapsed ? 0.78 : 0.25;
             const barOpacity = (group.visibleTaskCount === 0)
-                ? (isCollapsed ? 0.4 : 0.2)
-                : (isCollapsed ? 0.8 : 0.35);
+                ? baseOpacity * (isCollapsed ? 0.5 : 0.35)
+                : baseOpacity;
 
             const prevBarHeight = isCollapsed
                 ? previousUpdateHeight
-                : Math.max(1, Math.min(previousUpdateHeight, barHeight));
+                : Math.max(1, Math.min(previousUpdateHeight, barHeight * 0.7));
             const prevOffset = isCollapsed
                 ? previousUpdateOffset
                 : Math.max(1, Math.min(previousUpdateOffset, barHeight * 0.6));
             const prevRadius = Math.min(3, prevBarHeight / 2);
             const baselineBarHeight = isCollapsed
                 ? baselineHeight
-                : Math.max(1, Math.min(baselineHeight, barHeight));
+                : Math.max(1, Math.min(baselineHeight, barHeight * 0.7));
             const baselineOffsetEff = isCollapsed
                 ? baselineOffset
                 : Math.max(1, Math.min(baselineOffset, barHeight * 0.6));
@@ -11472,8 +11480,32 @@ private drawWbsGroupHeaders(
                 .attr('height', barHeight)
                 .attr('rx', barRadius)
                 .attr('ry', barRadius)
-                .style('fill', groupSummaryColor)
-                .style('opacity', barOpacity);
+                .style('fill', summaryFillColor)
+                .style('opacity', barOpacity)
+                .style('stroke', summaryStrokeColor)
+                .style('stroke-width', isCollapsed ? 0.8 : 0.4)
+                .style('stroke-opacity', 0.25);
+
+            if (barWidth > 6) {
+                const capRadius = Math.min(3, Math.max(1.5, barHeight / 3));
+                const capOpacity = isCollapsed ? barOpacity : Math.min(0.35, barOpacity + 0.1);
+
+                barsGroup.append('circle')
+                    .attr('class', 'wbs-summary-cap-start')
+                    .attr('cx', startX)
+                    .attr('cy', barY + barHeight / 2)
+                    .attr('r', capRadius)
+                    .style('fill', summaryStrokeColor)
+                    .style('opacity', capOpacity);
+
+                barsGroup.append('circle')
+                    .attr('class', 'wbs-summary-cap-end')
+                    .attr('cx', finishX)
+                    .attr('cy', barY + barHeight / 2)
+                    .attr('r', capRadius)
+                    .style('fill', summaryStrokeColor)
+                    .style('opacity', capOpacity);
+            }
 
             // Highlight near-critical portion when applicable (Float-Based mode, threshold > 0)
             if (showNearCriticalSummary && group.hasNearCriticalTasks && group.nearCriticalStartDate && group.nearCriticalFinishDate) {
@@ -13182,6 +13214,26 @@ private ensureTaskVisible(taskId: string): void {
         const b = bigint & 255;
 
         return { r, g, b };
+    }
+
+    private rgbToHex(r: number, g: number, b: number): string {
+        const clamp = (value: number): number => Math.max(0, Math.min(255, Math.round(value)));
+        const toHex = (value: number): string => clamp(value).toString(16).padStart(2, '0');
+        return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
+
+    private blendColors(colorA: string, colorB: string, weightA: number): string {
+        const weight = Math.max(0, Math.min(1, weightA));
+        const rgbA = this.hexToRgb(colorA);
+        const rgbB = this.hexToRgb(colorB);
+        const values = [rgbA.r, rgbA.g, rgbA.b, rgbB.r, rgbB.g, rgbB.b];
+        if (values.some(value => Number.isNaN(value))) {
+            return colorB;
+        }
+        const r = (rgbA.r * weight) + (rgbB.r * (1 - weight));
+        const g = (rgbA.g * weight) + (rgbB.g * (1 - weight));
+        const b = (rgbA.b * weight) + (rgbB.b * (1 - weight));
+        return this.rgbToHex(r, g, b);
     }
 
     /**
