@@ -1,5 +1,4 @@
 import * as d3 from "d3";
-import { timeFormat } from "d3-time-format";
 import { timeMonth } from "d3-time";
 import { Selection, BaseType } from "d3-selection";
 import { ScaleTime, ScaleBand } from "d3-scale";
@@ -105,6 +104,14 @@ interface Relationship {
     isDriving?: boolean;         // True if this relationship is driving the successor's start
 }
 
+interface DropdownItem {
+    id: string;
+    type: "clear" | "task" | "empty" | "overflow";
+    label: string;
+    task?: Task;
+    focusable: boolean;
+}
+
 // Update type enumeration
 enum UpdateType {
     Full = "Full",
@@ -170,6 +177,7 @@ export class Visual implements IVisual {
     private taskIdTable: string | null = null;
     private taskIdColumn: string | null = null;
     private lastUpdateOptions: VisualUpdateOptions | null = null;
+    private lastTaskFilterSignature: string | null = null;
 
     // Connect lines toggle state and group
     private showConnectorLinesInternal: boolean = true;
@@ -197,8 +205,10 @@ export class Visual implements IVisual {
     private dateBackgroundPadding = { horizontal: 6, vertical: 3 };  // UPGRADED: Increased from {4, 2} for better spacing
     private taskLabelLineHeight = "1.1em";
     private minTaskWidthPixels = 1;
-    private monthYearFormatter = timeFormat("%b-%y");
-    private lineDateFormatter = timeFormat("%d-%b-%y");
+    private monthYearFormatter: Intl.DateTimeFormat;
+    private lineDateFormatter: Intl.DateTimeFormat;
+    private fullDateFormatter: Intl.DateTimeFormat;
+    private lastLocale: string | null = null;
     private dataDate: Date | null = null;
 
     // --- Store scales ---
@@ -217,6 +227,12 @@ export class Visual implements IVisual {
     private dropdownContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private dropdownInput: Selection<HTMLInputElement, unknown, null, undefined>;
     private dropdownList: Selection<HTMLDivElement, unknown, null, undefined>;
+    private dropdownListId: string = `task-selection-list-${Date.now()}`;
+    private dropdownActiveIndex: number = -1;
+    private dropdownFocusableItems: DropdownItem[] = [];
+    private dropdownTaskCache: Task[] = [];
+    private dropdownFilterTimeout: number | null = null;
+    private readonly DROPDOWN_MAX_RESULTS: number = 500;
     private marginResizer: Selection<HTMLDivElement, unknown, null, undefined>;
     private selectedTaskLabel: Selection<HTMLDivElement, unknown, null, undefined>;
     private pathInfoLabel: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -326,6 +342,12 @@ export class Visual implements IVisual {
     private zoomDragStartRight: number = 0;
     private zoomSliderEnabled: boolean = true;
     private readonly ZOOM_SLIDER_MIN_RANGE: number = 0.02; // Minimum 2% of timeline visible
+    private zoomDragListenersAttached: boolean = false;
+    private zoomMouseMoveHandler: ((event: MouseEvent) => void) | null = null;
+    private zoomMouseUpHandler: (() => void) | null = null;
+    private zoomTouchMoveHandler: ((event: TouchEvent) => void) | null = null;
+    private zoomTouchEndHandler: (() => void) | null = null;
+    private readonly zoomTouchListenerOptions: AddEventListenerOptions = { passive: true };
 
     // ============================================================================
     // DESIGN TOKENS - Professional UI System (Fluent Design 2)
@@ -599,6 +621,16 @@ constructor(options: VisualConstructorOptions) {
     this.selectionManager = this.host.createSelectionManager();
     this.tooltipService = this.host.tooltipService;
     this.eventService = this.host.eventService;
+    this.zoomMouseMoveHandler = (event: MouseEvent) => this.handleZoomDrag(event);
+    this.zoomMouseUpHandler = () => this.endZoomDrag();
+    this.zoomTouchMoveHandler = (event: TouchEvent) => {
+        if (this.isZoomSliderDragging && event.touches.length > 0) {
+            const touch = event.touches[0];
+            this.handleZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent);
+        }
+    };
+    this.zoomTouchEndHandler = () => this.endZoomDrag();
+    this.refreshDateFormatters();
 
     this.showAllTasksInternal = true;
     // Initialize baseline internal state. Will be synced in first update.
@@ -619,6 +651,7 @@ constructor(options: VisualConstructorOptions) {
         .style("height", "100%")
         .style("width", "100%")
         .style("overflow", "hidden")
+        .style("position", "relative")
         .style("display", "flex")
         .style("flex-direction", "column");
 
@@ -1285,6 +1318,11 @@ public destroy(): void {
         this.scrollThrottleTimeout = null;
     }
 
+    if (this.dropdownFilterTimeout) {
+        clearTimeout(this.dropdownFilterTimeout);
+        this.dropdownFilterTimeout = null;
+    }
+
     // Remove this instance's tooltip
     d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
 
@@ -1293,6 +1331,9 @@ public destroy(): void {
         this.scrollableContainer.on("scroll", null);
         this.scrollListener = null;
     }
+
+    // Detach global zoom slider listeners
+    this.detachZoomDragListeners();
     
     // Clear pending updates
     this.pendingUpdate = null;
@@ -3397,15 +3438,39 @@ private setupZoomSliderEvents(): void {
         });
 
     // Global mouse/touch move and up handlers (attached to document)
-    document.addEventListener('mousemove', (event) => this.handleZoomDrag(event));
-    document.addEventListener('mouseup', () => this.endZoomDrag());
-    document.addEventListener('touchmove', (event) => {
-        if (this.isZoomSliderDragging && event.touches.length > 0) {
-            const touch = event.touches[0];
-            this.handleZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent);
-        }
-    });
-    document.addEventListener('touchend', () => this.endZoomDrag());
+    this.attachZoomDragListeners();
+}
+
+private attachZoomDragListeners(): void {
+    if (this.zoomDragListenersAttached ||
+        !this.zoomMouseMoveHandler ||
+        !this.zoomMouseUpHandler ||
+        !this.zoomTouchMoveHandler ||
+        !this.zoomTouchEndHandler) {
+        return;
+    }
+
+    document.addEventListener("mousemove", this.zoomMouseMoveHandler);
+    document.addEventListener("mouseup", this.zoomMouseUpHandler);
+    document.addEventListener("touchmove", this.zoomTouchMoveHandler, this.zoomTouchListenerOptions);
+    document.addEventListener("touchend", this.zoomTouchEndHandler);
+    this.zoomDragListenersAttached = true;
+}
+
+private detachZoomDragListeners(): void {
+    if (!this.zoomDragListenersAttached ||
+        !this.zoomMouseMoveHandler ||
+        !this.zoomMouseUpHandler ||
+        !this.zoomTouchMoveHandler ||
+        !this.zoomTouchEndHandler) {
+        return;
+    }
+
+    document.removeEventListener("mousemove", this.zoomMouseMoveHandler);
+    document.removeEventListener("mouseup", this.zoomMouseUpHandler);
+    document.removeEventListener("touchmove", this.zoomTouchMoveHandler, this.zoomTouchListenerOptions);
+    document.removeEventListener("touchend", this.zoomTouchEndHandler);
+    this.zoomDragListenersAttached = false;
 }
 
 /**
@@ -3862,6 +3927,7 @@ private async updateInternal(options: VisualUpdateOptions) {
     const hostAllowsInteractions = this.host?.hostCapabilities?.allowInteractions;
     this.allowInteractions = allowInteractions !== false && hostAllowsInteractions !== false;
     this.updateHighContrastState();
+    this.refreshDateFormatters();
     this.applyHighContrastStyling();
     const eventService = this.eventService;
     let renderingFailed = false;
@@ -4167,8 +4233,8 @@ private async updateInternal(options: VisualUpdateOptions) {
         let successorTaskSet = new Set<string>();
 
         if (enableTaskSelection && this.selectedTaskId) {
-            const traceModeSetting = this.settings.taskSelection.traceMode.value.value;
-            const effectiveTraceMode = this.traceMode || traceModeSetting;
+            const traceModeSetting = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
+            const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
 
             if (mode === 'floatBased') {
                 this.applyFloatBasedCriticality();
@@ -4220,7 +4286,8 @@ private async updateInternal(options: VisualUpdateOptions) {
         let tasksToConsider: Task[] = [];
         
         if (enableTaskSelection && this.selectedTaskId) {
-            const effectiveTraceMode = this.traceMode || this.settings.taskSelection.traceMode.value.value;
+            const traceModeSetting = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
+            const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
             const relevantTaskSet = effectiveTraceMode === 'forward' ? successorTaskSet : predecessorTaskSet;
             const relevantPlottableTasks = plottableTasksSorted.filter(task => relevantTaskSet.has(task.internalId));
 
@@ -4694,6 +4761,198 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
     }
 
 /**
+ * Creates the left margin resizer used to resize the label column.
+ */
+private createMarginResizer(): void {
+    if (!this.scrollableContainer) return;
+
+    const wrapper = d3.select(this.target).select<HTMLDivElement>(".visual-wrapper");
+    if (wrapper.empty()) return;
+
+    wrapper.selectAll(".margin-resizer").remove();
+
+    const resizerWidth = 8;
+    const lineColor = this.UI_TOKENS.color.neutral.grey60;
+
+    this.marginResizer = wrapper.append("div")
+        .attr("class", "margin-resizer")
+        .attr("role", "separator")
+        .attr("aria-orientation", "vertical")
+        .attr("aria-label", "Resize task label margin")
+        .style("position", "absolute")
+        .style("top", "0")
+        .style("width", `${resizerWidth}px`)
+        .style("cursor", "col-resize")
+        .style("z-index", "60")
+        .style("user-select", "none")
+        .style("touch-action", "none");
+
+    this.marginResizer.append("div")
+        .attr("class", "margin-resizer-line")
+        .style("position", "absolute")
+        .style("top", "0")
+        .style("bottom", "0")
+        .style("left", "50%")
+        .style("width", "1px")
+        .style("transform", "translateX(-0.5px)")
+        .style("background-color", lineColor)
+        .style("opacity", "0.7")
+        .style("pointer-events", "none");
+
+    // Nib/handle removed per request; keep only the vertical line indicator.
+
+    const self = this;
+    let startX = 0;
+    let startMargin = 0;
+    let previousCursor = "";
+    let previousUserSelect = "";
+
+    const getMarginBounds = (): { min: number; max: number } => {
+        const minValue = this.settings?.layoutSettings?.leftMargin?.options?.minValue?.value ?? 50;
+        const maxValue = this.settings?.layoutSettings?.leftMargin?.options?.maxValue?.value ?? 600;
+        const viewportWidth = this.lastViewport?.width
+            || this.lastUpdateOptions?.viewport?.width
+            || (this.target instanceof HTMLElement ? this.target.clientWidth : 0);
+        const maxByViewport = Math.max(minValue, viewportWidth - this.margin.right - 10);
+        return {
+            min: minValue,
+            max: Math.min(maxValue, maxByViewport)
+        };
+    };
+
+    const clampMargin = (value: number): number => {
+        const bounds = getMarginBounds();
+        return Math.min(Math.max(value, bounds.min), bounds.max);
+    };
+
+    const updateMargin = (clientX: number): void => {
+        const delta = clientX - startX;
+        const nextMargin = clampMargin(startMargin + delta);
+        if (nextMargin === this.margin.left) return;
+        this.handleMarginDragUpdate(nextMargin);
+        this.updateZoomSliderTrackMargins();
+    };
+
+    const endDrag = (): void => {
+        if (!self.isMarginDragging) return;
+        self.isMarginDragging = false;
+
+        document.removeEventListener("mousemove", onMouseMove);
+        document.removeEventListener("mouseup", endDrag);
+        document.removeEventListener("touchmove", onTouchMove);
+        document.removeEventListener("touchend", endDrag);
+
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+
+        if (self.settings?.layoutSettings?.leftMargin) {
+            self.settings.layoutSettings.leftMargin.value = self.margin.left;
+        }
+
+        self.host.persistProperties({
+            merge: [{
+                objectName: "layoutSettings",
+                properties: { leftMargin: self.margin.left },
+                selector: null
+            }]
+        });
+
+        self.requestUpdate(true);
+    };
+
+    const onMouseMove = (event: MouseEvent): void => {
+        if (!self.isMarginDragging) return;
+        event.preventDefault();
+        updateMargin(event.clientX);
+    };
+
+    const onTouchMove = (event: TouchEvent): void => {
+        if (!self.isMarginDragging || event.touches.length === 0) return;
+        event.preventDefault();
+        updateMargin(event.touches[0].clientX);
+    };
+
+    const startDrag = (clientX: number): void => {
+        if (self.isMarginDragging) return;
+        self.isMarginDragging = true;
+        startX = clientX;
+        startMargin = self.margin.left;
+        previousCursor = document.body.style.cursor;
+        previousUserSelect = document.body.style.userSelect;
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", endDrag);
+        document.addEventListener("touchmove", onTouchMove, { passive: false });
+        document.addEventListener("touchend", endDrag);
+    };
+
+    this.marginResizer
+        .attr("tabindex", "0")
+        .attr("aria-valuemin", getMarginBounds().min.toString())
+        .attr("aria-valuemax", getMarginBounds().max.toString())
+        .on("mousedown", function(event: MouseEvent) {
+            event.preventDefault();
+            event.stopPropagation();
+            startDrag(event.clientX);
+        })
+        .on("touchstart", function(event: TouchEvent) {
+            if (event.touches.length === 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            startDrag(event.touches[0].clientX);
+        })
+        .on("keydown", function(event: KeyboardEvent) {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            const step = event.shiftKey ? 25 : 10;
+            const delta = event.key === "ArrowLeft" ? -step : step;
+            const nextMargin = clampMargin(self.margin.left + delta);
+            self.handleMarginDragUpdate(nextMargin);
+            self.updateZoomSliderTrackMargins();
+            if (self.settings?.layoutSettings?.leftMargin) {
+                self.settings.layoutSettings.leftMargin.value = self.margin.left;
+            }
+            self.host.persistProperties({
+                merge: [{
+                    objectName: "layoutSettings",
+                    properties: { leftMargin: self.margin.left },
+                    selector: null
+                }]
+            });
+            self.requestUpdate(true);
+        });
+
+    this.updateMarginResizerPosition();
+}
+
+/**
+ * Updates the margin resizer's position to align with the current left margin.
+ */
+private updateMarginResizerPosition(): void {
+    if (!this.marginResizer || !this.scrollableContainer) return;
+
+    const containerNode = this.scrollableContainer.node();
+    if (!containerNode) return;
+
+    const wrapperNode = containerNode.parentElement;
+    if (!wrapperNode) return;
+
+    const wrapperRect = wrapperNode.getBoundingClientRect();
+    const containerRect = containerNode.getBoundingClientRect();
+    const resizerWidth = parseFloat(this.marginResizer.style("width")) || 8;
+    const left = containerNode.offsetLeft + this.margin.left - (resizerWidth / 2);
+    const top = containerRect.top - wrapperRect.top;
+    const height = containerRect.height;
+
+    this.marginResizer
+        .style("left", `${Math.max(0, Math.round(left))}px`)
+        .style("top", `${Math.max(0, Math.round(top))}px`)
+        .style("height", `${Math.max(0, Math.round(height))}px`)
+        .attr("aria-valuenow", Math.round(this.margin.left).toString());
+}
+
+/**
  * Handles margin-only updates during drag for real-time visual feedback
  * Does NOT recreate the resizer or call clearVisual() to preserve drag state
  */
@@ -4702,6 +4961,9 @@ private handleMarginDragUpdate(newLeftMargin: number): void {
 
     // Update margin
     this.margin.left = newLeftMargin;
+    if (this.settings?.layoutSettings?.leftMargin) {
+        this.settings.layoutSettings.leftMargin.value = newLeftMargin;
+    }
 
     // Recalculate chart width based on new margin
     const viewportWidth = this.lastViewport?.width || 0;
@@ -4736,6 +4998,7 @@ private handleMarginDragUpdate(newLeftMargin: number): void {
 
     // Update resizer position (but don't recreate it)
     this.updateMarginResizerPosition();
+    this.updateZoomSliderTrackMargins();
 }
 
 private clearVisual(): void {
@@ -6141,7 +6404,7 @@ private drawVisualElements(
                 .style("font-size", `${labelFontSize}pt`)
                 .style("fill", labelColor)
                 .style("pointer-events", "none")
-                .text((d: Date) => this.monthYearFormatter(d));
+                .text((d: Date) => this.monthYearFormatter.format(d));
         }
     }
 
@@ -10185,40 +10448,63 @@ private validateDataQuality(): void {
  */
 private detectCircularDependencies(): string[] {
     const circularPaths: string[] = [];
-    const visited = new Set<string>();
-    const recursionStack = new Set<string>();
+    const seenCycles = new Set<string>();
+    const visitState = new Map<string, 0 | 1 | 2>(); // 0=unvisited, 1=visiting, 2=done
+    const parent = new Map<string, string | null>();
 
-    const dfs = (taskId: string, path: string[]): void => {
-        if (recursionStack.has(taskId)) {
-            // Found a cycle - extract the circular portion
-            const cycleStart = path.indexOf(taskId);
-            const cycle = path.slice(cycleStart).concat([taskId]);
-            circularPaths.push(cycle.join(' → '));
-            return;
-        }
+    type StackFrame = { id: string; preds: string[]; index: number };
+    const stack: StackFrame[] = [];
 
-        if (visited.has(taskId)) {
-            return;
-        }
-
-        visited.add(taskId);
-        recursionStack.add(taskId);
-        path.push(taskId);
-
-        const task = this.taskIdToTask.get(taskId);
-        if (task && task.predecessorIds) {
-            for (const predId of task.predecessorIds) {
-                dfs(predId, [...path]);
-            }
-        }
-
-        recursionStack.delete(taskId);
+    const pushNode = (taskId: string, parentId: string | null) => {
+        visitState.set(taskId, 1);
+        parent.set(taskId, parentId);
+        const preds = this.taskIdToTask.get(taskId)?.predecessorIds ?? [];
+        stack.push({ id: taskId, preds, index: 0 });
     };
 
-    // Check all tasks
     for (const task of this.allTasksData) {
-        if (!visited.has(task.internalId)) {
-            dfs(task.internalId, []);
+        const startId = task.internalId;
+        if (visitState.get(startId)) {
+            continue;
+        }
+
+        pushNode(startId, null);
+
+        while (stack.length > 0) {
+            const frame = stack[stack.length - 1];
+
+            if (frame.index >= frame.preds.length) {
+                visitState.set(frame.id, 2);
+                stack.pop();
+                continue;
+            }
+
+            const predId = frame.preds[frame.index++];
+            if (!this.taskIdToTask.has(predId)) {
+                continue;
+            }
+
+            const state = visitState.get(predId) ?? 0;
+            if (state === 0) {
+                pushNode(predId, frame.id);
+            } else if (state === 1) {
+                const cycle: string[] = [predId];
+                let current: string | null = frame.id;
+
+                while (current && current !== predId) {
+                    cycle.push(current);
+                    current = parent.get(current) ?? null;
+                }
+
+                cycle.push(predId);
+                cycle.reverse();
+
+                const key = cycle.join('->');
+                if (!seenCycles.has(key)) {
+                    seenCycles.add(key);
+                    circularPaths.push(cycle.join(' -> '));
+                }
+            }
         }
     }
 
@@ -11768,15 +12054,37 @@ private validateDataView(dataView: DataView): boolean {
         return date;
     }
 
+    private refreshDateFormatters(): void {
+        const locale = this.host?.locale || undefined;
+        if (this.lastLocale === locale &&
+            this.fullDateFormatter &&
+            this.lineDateFormatter &&
+            this.monthYearFormatter) {
+            return;
+        }
+
+        this.lastLocale = locale || null;
+        this.fullDateFormatter = new Intl.DateTimeFormat(locale, {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric"
+        });
+        this.lineDateFormatter = new Intl.DateTimeFormat(locale, {
+            day: "2-digit",
+            month: "short",
+            year: "2-digit"
+        });
+        this.monthYearFormatter = new Intl.DateTimeFormat(locale, {
+            month: "short",
+            year: "2-digit"
+        });
+    }
+
     private formatDate(date: Date | null | undefined): string {
         if (!date || !(date instanceof Date) || isNaN(date.getTime())) return "";
         try {
-            // Use a specific, unambiguous format if locale causes issues
-            // return date.toLocaleDateString(); // Use locale-sensitive format
-            const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0'); // Month is 0-indexed
-            const year = date.getFullYear();
-            return `${day}/${month}/${year}`; // Example: DD/MM/YYYY
+            this.refreshDateFormatters();
+            return this.fullDateFormatter.format(date);
         } catch (e) {
             console.error("Error formatting date:", e);
             return "Invalid Date";
@@ -11786,7 +12094,8 @@ private validateDataView(dataView: DataView): boolean {
     private formatLineDate(date: Date | null | undefined): string {
         if (!date || !(date instanceof Date) || isNaN(date.getTime())) return "";
         try {
-            return this.lineDateFormatter(date);
+            this.refreshDateFormatters();
+            return this.lineDateFormatter.format(date);
         } catch (e) {
             console.error("Error formatting line date:", e);
             return this.formatDate(date);
@@ -11911,27 +12220,42 @@ private validateDataView(dataView: DataView): boolean {
         return tasksToShow;
     }
 
+    private buildTaskFilterSignature(taskIds: (string | number)[]): string {
+        if (taskIds.length === 0) return "EMPTY";
+        const normalized = taskIds.map((id) => String(id)).sort();
+        return `${normalized.length}:${normalized.join("|")}`;
+    }
+
     private applyTaskFilter(taskIds: (string | number)[]): void {
-        if (!this.taskIdTable || !this.taskIdColumn) return;
+        if (!this.taskIdTable || !this.taskIdColumn) {
+            this.lastTaskFilterSignature = null;
+            return;
+        }
         if (!this.allowInteractions && taskIds.length > 0) {
             this.debugLog("Allow interactions disabled; skipping filter update.");
             return;
         }
 
-      const filter: IBasicFilter = {
-          // eslint-disable-next-line powerbi-visuals/no-http-string
-          $schema: "http://powerbi.com/product/schema#basic",
-          target: {
-              table: this.taskIdTable,
-              column: this.taskIdColumn
-          },
-          filterType: FilterType.Basic,
-          operator: "In",
-          values: taskIds
-      };
+        const signature = this.buildTaskFilterSignature(taskIds);
+        if (signature === this.lastTaskFilterSignature) {
+            return;
+        }
+
+        const filter: IBasicFilter = {
+            // eslint-disable-next-line powerbi-visuals/no-http-string
+            $schema: "http://powerbi.com/product/schema#basic",
+            target: {
+                table: this.taskIdTable,
+                column: this.taskIdColumn
+            },
+            filterType: FilterType.Basic,
+            operator: "In",
+            values: taskIds
+        };
 
         const action = taskIds.length > 0 ? FilterAction.merge : FilterAction.remove;
         this.host.applyJsonFilter(filter, "general", "filter", action);
+        this.lastTaskFilterSignature = signature;
     }
 
 private displayMessage(message: string): void {
@@ -12009,6 +12333,13 @@ private createTaskSelectionDropdown(): void {
         .attr("type", "text")
         .attr("class", "task-selection-input")
         .attr("placeholder", searchPlaceholder)
+        .attr("role", "combobox")
+        .attr("aria-autocomplete", "list")
+        .attr("aria-expanded", "false")
+        .attr("aria-controls", this.dropdownListId)
+        .attr("aria-haspopup", "listbox")
+        .attr("aria-activedescendant", null)
+        .attr("aria-label", searchPlaceholder)
         .style("width", `${dropdownWidth}px`)
         .style("height", `${this.UI_TOKENS.height.standard}px`)  // Match standard height
         .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
@@ -12042,6 +12373,9 @@ private createTaskSelectionDropdown(): void {
     // Create dropdown list with unified professional styling
     this.dropdownList = this.dropdownContainer.append("div")
         .attr("class", "task-selection-list")
+        .attr("id", this.dropdownListId)
+        .attr("role", "listbox")
+        .attr("aria-label", this.getLocalizedString("ui.taskListLabel", "Task results"))
         .style("position", "absolute")
         .style("top", "100%")
         .style("left", "0")
@@ -12058,7 +12392,6 @@ private createTaskSelectionDropdown(): void {
         .style("box-sizing", "border-box");
     this.dropdownNeedsRefresh = true;
 
-    // Rest of the method remains the same...
     const self = this;
 
     // FIX BUG-010: Track mousedown on dropdown to prevent premature closing
@@ -12077,17 +12410,17 @@ private createTaskSelectionDropdown(): void {
     this.dropdownInput
         .on("input", function() {
             const inputValue = (this as HTMLInputElement).value.trim();
-            self.populateTaskDropdown();
-            self.filterTaskDropdown(inputValue);
-
-            // Show dropdown when typing
-            if (self.dropdownList) {
-                self.dropdownList.style("display", "block");
+            if (self.dropdownFilterTimeout) {
+                clearTimeout(self.dropdownFilterTimeout);
             }
+            self.dropdownFilterTimeout = window.setTimeout(() => {
+                self.renderTaskDropdown(inputValue);
+                self.openDropdown();
+            }, 120);
         })
         .on("focus", function() {
-            self.dropdownList.style("display", "block");
-            self.populateTaskDropdown();
+            self.renderTaskDropdown((this as HTMLInputElement).value.trim());
+            self.openDropdown();
 
             // Disable pointer events on the trace toggle while dropdown is open
             self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
@@ -12097,8 +12430,8 @@ private createTaskSelectionDropdown(): void {
             // FIX BUG-010: Check if user is clicking inside dropdown before closing
             setTimeout(() => {
                 // Only close if not interacting with dropdown
-                if (!self.isDropdownInteracting && self.dropdownList) {
-                    self.dropdownList.style("display", "none");
+                if (!self.isDropdownInteracting) {
+                    self.closeDropdown(false);
                 }
                 // Re-enable trace toggle regardless
                 self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
@@ -12106,11 +12439,18 @@ private createTaskSelectionDropdown(): void {
             }, 150); // Reduced from 200ms for better responsiveness
         })
         .on("keydown", function(event: KeyboardEvent) {
-            if (event.key === "Escape") {
-                self.isDropdownInteracting = false;  // FIX BUG-010: Reset interaction state
-                self.selectTask(null, null);
-                self.dropdownInput.property("value", "");
-                self.dropdownList.style("display", "none");
+            if (event.key === "ArrowDown") {
+                event.preventDefault();
+                self.moveDropdownActive(1);
+            } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                self.moveDropdownActive(-1);
+            } else if (event.key === "Enter") {
+                event.preventDefault();
+                self.activateDropdownSelection();
+            } else if (event.key === "Escape") {
+                self.isDropdownInteracting = false;
+                self.closeDropdown(true);
 
                 // Re-enable trace toggle
                 self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
@@ -12124,7 +12464,7 @@ private createTaskSelectionDropdown(): void {
     if (this.selectedTaskId && this.selectedTaskName) {
         this.dropdownInput.property("value", this.selectedTaskName);
     }
-    
+
     // Update selected task label visibility (keep this on the right)
     if (this.selectedTaskLabel) {
         // Selected task label stays on the right side
@@ -12133,7 +12473,7 @@ private createTaskSelectionDropdown(): void {
             .style("top", "10px")
             .style("right", "15px")
             .style("left", "auto");
-            
+
         if (this.selectedTaskId && this.selectedTaskName && showSelectedTaskLabel) {
             this.selectedTaskLabel
                 .style("display", "block")
@@ -12144,6 +12484,133 @@ private createTaskSelectionDropdown(): void {
     }
 }
 
+private normalizeTraceMode(value: unknown): "backward" | "forward" {
+    return value === "forward" ? "forward" : "backward";
+}
+
+/**
+ * Creates the trace mode toggle (Backward/Forward) positioned on the second header row.
+ */
+private createTraceModeToggle(): void {
+    if (!this.stickyHeaderContainer || !this.settings?.taskSelection) return;
+
+    this.stickyHeaderContainer.selectAll(".trace-mode-toggle").remove();
+
+    if (!this.settings.taskSelection.enableTaskSelection.value) {
+        return;
+    }
+    if (!this.selectedTaskId) {
+        return;
+    }
+
+    const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
+    const secondRowLayout = this.getSecondRowLayout(viewportWidth);
+    const layoutMode = this.getLayoutMode(viewportWidth);
+    const isCompact = layoutMode === "narrow";
+    const isMedium = layoutMode === "medium";
+
+    const labelBackward = isCompact ? "Back" : (isMedium ? "Backward" : "Trace Backward");
+    const labelForward = isCompact ? "Fwd" : (isMedium ? "Forward" : "Trace Forward");
+    const configuredMode = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
+    const currentMode = this.normalizeTraceMode(this.traceMode || configuredMode);
+    this.traceMode = currentMode;
+
+    const container = this.stickyHeaderContainer.append("div")
+        .attr("class", "trace-mode-toggle")
+        .attr("role", "radiogroup")
+        .attr("aria-label", this.getLocalizedString("ui.traceModeLabel", "Trace Mode"))
+        .style("position", "absolute")
+        .style("top", "44px")
+        .style("left", `${secondRowLayout.traceModeToggle.left}px`)
+        .style("display", "inline-flex")
+        .style("align-items", "center")
+        .style("height", `${this.UI_TOKENS.height.standard}px`)
+        .style("padding", "2px")
+        .style("gap", "2px")
+        .style("background-color", this.UI_TOKENS.color.neutral.white)
+        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+        .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
+        .style("box-shadow", this.UI_TOKENS.shadow[2])
+        .style("z-index", "25")
+        .style("user-select", "none");
+
+    const self = this;
+    const setMode = (mode: string): void => {
+        if (self.traceMode === mode) return;
+        self.traceMode = mode;
+
+        self.host.persistProperties({
+            merge: [{
+                objectName: "persistedState",
+                properties: { traceMode: mode },
+                selector: null
+            }]
+        });
+
+        self.captureScrollPosition();
+        self.forceFullUpdate = true;
+        if (self.lastUpdateOptions) {
+            self.update(self.lastUpdateOptions);
+        }
+    };
+
+    const options = [
+        { value: "backward", label: labelBackward, title: "Trace backward from the selected task" },
+        { value: "forward", label: labelForward, title: "Trace forward from the selected task" }
+    ];
+
+    for (const option of options) {
+        const isActive = option.value === currentMode;
+        const button = container.append("div")
+            .attr("class", `trace-mode-option ${option.value}`)
+            .attr("role", "radio")
+            .attr("aria-checked", isActive ? "true" : "false")
+            .attr("tabindex", isActive ? "0" : "-1")
+            .attr("aria-label", option.title)
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("height", `${this.UI_TOKENS.height.standard - 6}px`)
+            .style("padding", `0 ${isCompact ? this.UI_TOKENS.spacing.sm : this.UI_TOKENS.spacing.md}px`)
+            .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .style("font-weight", isActive ? this.UI_TOKENS.fontWeight.semibold.toString() : this.UI_TOKENS.fontWeight.medium.toString())
+            .style("color", isActive ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
+            .style("background-color", isActive ? this.UI_TOKENS.color.primary.default : "transparent")
+            .style("cursor", "pointer")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+            .text(option.label);
+
+        button.append("title").text(option.title);
+
+        button
+            .on("mouseover", function() {
+                if (option.value !== self.traceMode) {
+                    d3.select(this)
+                        .style("background-color", self.UI_TOKENS.color.primary.light)
+                        .style("color", self.UI_TOKENS.color.primary.default);
+                }
+            })
+            .on("mouseout", function() {
+                if (option.value !== self.traceMode) {
+                    d3.select(this)
+                        .style("background-color", "transparent")
+                        .style("color", self.UI_TOKENS.color.neutral.grey130);
+                }
+            })
+            .on("click", function(event) {
+                event.stopPropagation();
+                setMode(option.value);
+            })
+            .on("keydown", function(event: KeyboardEvent) {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setMode(option.value);
+                }
+            });
+    }
+}
 /**
  * Populates the task dropdown with tasks from the dataset
  */
@@ -12153,571 +12620,248 @@ private populateTaskDropdown(): void {
         return;
     }
 
-    if (!this.dropdownNeedsRefresh) {
-        return;
-    }
+    this.refreshDropdownCache();
+    const currentSearch = this.dropdownInput
+        ? String(this.dropdownInput.property("value") ?? "")
+        : "";
+    this.renderTaskDropdown(currentSearch.trim());
+}
 
-    const noTasksText = this.getLocalizedString("ui.noTasksAvailable", "No tasks available");
+/**
+ * Filters the dropdown items based on input text
+ */
+private filterTaskDropdown(searchText: string = ""): void {
+    this.renderTaskDropdown(searchText);
+}
+
+private refreshDropdownCache(): void {
+    if (!this.dropdownNeedsRefresh && this.dropdownTaskCache.length > 0) return;
+
+    const realTasks = this.allTasksData.filter(task => task.type !== "Synthetic");
+    this.dropdownTaskCache = [...realTasks].sort((a, b) =>
+        (a.name || "").localeCompare(b.name || ""));
+    this.dropdownNeedsRefresh = false;
+}
+
+private renderTaskDropdown(searchText: string): void {
+    if (!this.dropdownList) return;
+
+    this.refreshDropdownCache();
+
+    const searchLower = searchText.toLowerCase().trim();
     const clearSelectionText = this.getLocalizedString("ui.clearSelection", "Clear Selection");
-    
-    if (this.allTasksData.length === 0) {
+    const noResultsText = this.getLocalizedString("ui.noTasksMatching", "No tasks matching");
+    const noTasksText = this.getLocalizedString("ui.noTasksAvailable", "No tasks available");
+    const moreResultsText = this.getLocalizedString("ui.moreResults", "Type to refine results");
+
+    if (this.dropdownTaskCache.length === 0) {
         console.warn("No tasks available to populate dropdown");
         // Show "No tasks available" message
         this.dropdownList.selectAll("*").remove();
         this.dropdownList.append("div")
             .attr("class", "dropdown-item no-data")
+            .attr("role", "presentation")
             .text(noTasksText)
             .style("padding", "8px 10px")
             .style("color", "#999")
             .style("font-style", "italic")
             .style("font-size", "11px")
             .style("font-family", "Segoe UI, sans-serif");
-        this.dropdownNeedsRefresh = false;
+        this.dropdownFocusableItems = [];
+        this.dropdownActiveIndex = -1;
+        this.updateDropdownActiveState();
         return;
     }
-    
-    // Clear existing items
+
+    const matches = searchLower
+        ? this.dropdownTaskCache.filter(task =>
+            (task.name || "").toLowerCase().includes(searchLower))
+        : this.dropdownTaskCache;
+
+    const limited = matches.slice(0, this.DROPDOWN_MAX_RESULTS);
+    const hasMore = matches.length > limited.length;
+
+    const items: DropdownItem[] = [];
+    items.push({ id: `${this.dropdownListId}-clear`, type: "clear", label: clearSelectionText, focusable: true });
+
+    if (limited.length === 0) {
+        items.push({
+            id: `${this.dropdownListId}-empty`,
+            type: "empty",
+            label: `${noResultsText} "${searchText}"`,
+            focusable: false
+        });
+    } else {
+        for (const task of limited) {
+            const label = task.name || `Task ${task.internalId}`;
+            items.push({
+                id: `${this.dropdownListId}-task-${task.internalId}`,
+                type: "task",
+                label,
+                task,
+                focusable: true
+            });
+        }
+        if (hasMore) {
+            items.push({
+                id: `${this.dropdownListId}-overflow`,
+                type: "overflow",
+                label: moreResultsText,
+                focusable: false
+            });
+        }
+    }
+
+    this.dropdownFocusableItems = items.filter(item => item.focusable);
+
+    const selectedIndex = this.dropdownFocusableItems.findIndex(item =>
+        item.type === "task" && item.task?.internalId === this.selectedTaskId);
+    if (selectedIndex >= 0) {
+        this.dropdownActiveIndex = selectedIndex;
+    } else if (this.dropdownActiveIndex < 0 && this.dropdownFocusableItems.length > 0) {
+        this.dropdownActiveIndex = 0;
+    } else if (this.dropdownActiveIndex >= this.dropdownFocusableItems.length) {
+        this.dropdownActiveIndex = this.dropdownFocusableItems.length - 1;
+    }
+
     this.dropdownList.selectAll("*").remove();
 
-    // Filter out synthetic tasks (predecessor-only tasks without proper data)
-    // and sort remaining tasks by name for better usability
-    const realTasks = this.allTasksData.filter(task => task.type !== "Synthetic");
-    const sortedTasks = [...realTasks].sort((a, b) =>
-        (a.name || "").localeCompare(b.name || ""));
-
     const self = this;
-    
-    // Add "Clear Selection" option FIRST (at the top)
-    const clearOption = this.dropdownList.append("div")
-        .attr("class", "dropdown-item clear-selection")
-        .style("padding", "8px 10px")
-        .style("cursor", "pointer")
-        .style("color", "#666")
-        .style("font-style", "italic")
-        .style("border-bottom", "1px solid #eee")
-        .style("font-size", "10px")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("background-color", "white")
-        .text(clearSelectionText);
-    
-    clearOption
-        .on("mouseover", function() {
-            d3.select(this).style("background-color", "#f0f0f0");
-        })
-        .on("mouseout", function() {
-            d3.select(this).style("background-color", "white");
-        })
-        .on("mousedown", function() {
-            // Use mousedown instead of click to fire before blur
-            event?.preventDefault();
-            event?.stopPropagation();
-            self.selectTask(null, null);
-            self.dropdownInput.property("value", "");
-            self.dropdownList.style("display", "none");
-            self.isDropdownInteracting = false;  // FIX BUG-010: Reset interaction state
+    let focusIndex = -1;
 
-            // Re-enable trace toggle
-            self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
-                .style("pointer-events", "auto");
-        });
-    
-    // Create dropdown items for tasks (synthetic tasks already filtered out)
-    sortedTasks.forEach(task => {
-        const taskName = task.name || `Task ${task.internalId}`;
-        const item = this.dropdownList.append("div")
-            .attr("class", "dropdown-item")
-            .attr("data-task-id", task.internalId)
-            .attr("data-task-name", taskName)
-            .attr("title", taskName)
-            .style("padding", "6px 10px")
-            .style("cursor", "pointer")
-            .style("border-bottom", "1px solid #f5f5f5")
+    for (const item of items) {
+        const isFocusable = item.focusable;
+        const thisFocusIndex = isFocusable ? ++focusIndex : -1;
+        const isActive = thisFocusIndex === this.dropdownActiveIndex;
+        const isSelected = item.type === "task" && item.task?.internalId === this.selectedTaskId;
+
+        const defaultBg = isSelected ? "#f0f0f0" : "white";
+        const row = this.dropdownList.append("div")
+            .attr("class", `dropdown-item ${item.type}`)
+            .attr("id", item.id)
+            .attr("role", isFocusable ? "option" : "presentation")
+            .attr("aria-selected", isFocusable ? (isSelected ? "true" : "false") : null)
+            .attr("data-selected", isSelected ? "true" : "false")
+            .attr("data-default-bg", defaultBg)
+            .style("padding", isFocusable ? "6px 10px" : "8px 10px")
+            .style("cursor", isFocusable ? "pointer" : "default")
+            .style("color", item.type === "clear" ? "#666" : (item.type === "empty" || item.type === "overflow" ? "#999" : "#333"))
+            .style("font-style", item.type === "clear" || item.type === "empty" || item.type === "overflow" ? "italic" : "normal")
+            .style("border-bottom", item.type === "task" ? "1px solid #f5f5f5" : "1px solid #eee")
             .style("white-space", "normal")
             .style("word-wrap", "break-word")
             .style("overflow-wrap", "break-word")
             .style("line-height", "1.4")
-            .style("font-size", "11px")
+            .style("font-size", item.type === "task" ? "11px" : "10px")
             .style("font-family", "Segoe UI, sans-serif")
-            .style("background-color", task.internalId === self.selectedTaskId ? "#f0f0f0" : "white")
-            .style("font-weight", task.internalId === self.selectedTaskId ? "600" : "normal")
-            .text(taskName);
-        
-        // Add hover effects
-        item.on("mouseover", function() {
-            d3.select(this).style("background-color", "#e6f7ff");
-        });
-        
-        item.on("mouseout", function() {
-            d3.select(this).style("background-color", 
-                task.internalId === self.selectedTaskId ? "#f0f0f0" : "white");
-        });
-        
-        // Use mousedown instead of click to fire before blur
-        item.on("mousedown", function() {
-            event?.preventDefault();
-            event?.stopPropagation();
-            self.selectTask(task.internalId, task.name);
-            self.dropdownInput.property("value", taskName);
-            self.dropdownList.style("display", "none");
-            self.isDropdownInteracting = false;  // FIX BUG-010: Reset interaction state
+            .style("background-color", isActive ? "#e6f7ff" : defaultBg)
+            .style("font-weight", isSelected ? "600" : "normal")
+            .text(item.label);
 
-            // Re-enable trace toggle
-            self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
-                .style("pointer-events", "auto");
-        });
-    });
-    
-    this.dropdownNeedsRefresh = false;
-    this.debugLog(`Populated dropdown with ${sortedTasks.length} tasks plus clear option`);
-}
+        if (item.type === "task" && item.task) {
+            row.attr("data-task-id", item.task.internalId)
+                .attr("data-task-name", item.label)
+                .attr("title", item.label);
+        }
 
-/**
- * Creates an interactive margin resizer that allows users to drag and adjust
- * the left margin width between task descriptions and gantt bars
- *
- * CRITICAL: This must be called AFTER mainSvg has been sized with .attr("height", totalSvgHeight)
- *
- * IMPLEMENTATION: Uses SVG rect element so it scrolls with the gantt chart content
- * and never appears in the sticky header area
- */
-private createMarginResizer(): void {
-    // Remove any existing resizer from SVG
-    this.mainSvg.selectAll(".margin-resizer-group").remove();
-
-    // Get the actual SVG height - this determines where gantt bars are rendered
-    const svgHeight = this.mainSvg ? parseFloat(this.mainSvg.attr("height")) || 0 : 0;
-
-    if (svgHeight === 0) {
-        // SVG not sized yet, skip creating resizer
-        this.debugLog("Skipping resizer creation - SVG height is 0");
-        return;
+        if (isFocusable) {
+            row.on("mouseover", function() {
+                    (this as HTMLDivElement).style.backgroundColor = "#e6f7ff";
+                })
+                .on("mouseout", function() {
+                    self.updateDropdownActiveState();
+                })
+                .on("mousedown", function(event: MouseEvent) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    self.dropdownActiveIndex = thisFocusIndex;
+                    self.updateDropdownActiveState();
+                    self.activateDropdownSelection();
+                });
+        }
     }
 
-    // The gantt bars are rendered in mainGroup which is translated by margin.top
-    // Calculate the height of the gantt bar area
-    const resizerHeight = svgHeight - this.margin.top - this.margin.bottom;
+    this.updateDropdownActiveState();
+}
 
-    if (resizerHeight <= 0) {
-        this.debugLog("Skipping resizer creation - calculated height <= 0");
-        return;
+private openDropdown(): void {
+    if (!this.dropdownList || !this.dropdownInput) return;
+    this.dropdownList.style("display", "block");
+    this.dropdownInput.attr("aria-expanded", "true");
+}
+
+private closeDropdown(clearSelection: boolean): void {
+    if (!this.dropdownList || !this.dropdownInput) return;
+
+    if (clearSelection) {
+        this.selectTask(null, null);
+        this.dropdownInput.property("value", "");
     }
 
-    this.debugLog(`Creating SVG resizer: height=${resizerHeight}px, svgHeight=${svgHeight}px`);
-
-    // Create a group for the resizer within mainSvg (so it scrolls with content)
-    const resizerGroup = this.mainSvg.append("g")
-        .attr("class", "margin-resizer-group")
-        .attr("transform", `translate(0, ${this.margin.top})`)  // Position after date axis
-        .style("cursor", "col-resize");
-
-    // Create an invisible wide rect for easy grabbing (8px wide)
-    const interactionRect = resizerGroup.append("rect")
-        .attr("class", "margin-resizer-interaction")
-        .attr("x", 0)  // Will be positioned by updateMarginResizerPosition
-        .attr("y", 0)
-        .attr("width", 8)
-        .attr("height", resizerHeight)
-        .attr("fill", "transparent")
-        .style("cursor", "col-resize")
-        .style("pointer-events", "all");
-
-    // Create the visible 2px line
-    const visibleLine = resizerGroup.append("rect")
-        .attr("class", "margin-resizer-line")
-        .attr("x", 3)  // Center within the 8px interaction zone
-        .attr("y", 0)
-        .attr("width", 2)
-        .attr("height", resizerHeight)
-        .attr("fill", this.UI_TOKENS.color.neutral.grey60)
-        .style("pointer-events", "none")  // Let parent handle events
-        .style("transition", `fill ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    // Store reference to the group for later updates
-    this.marginResizer = resizerGroup as any;
-
-    // Position the resizer horizontally
-    this.updateMarginResizerPosition();
-
-    // Add hover effect (SVG attributes instead of CSS)
-    const self = this;
-    this.marginResizer
-        .on("mouseenter", function() {
-            d3.select(this).select(".margin-resizer-line")
-                .attr("fill", self.UI_TOKENS.color.primary.default)
-                .attr("width", 3);  // Make slightly wider on hover
-        })
-        .on("mouseleave", function() {
-            d3.select(this).select(".margin-resizer-line")
-                .attr("fill", self.UI_TOKENS.color.neutral.grey60)
-                .attr("width", 2);
-        });
-
-    // Add drag behavior with proper coordinate handling and real-time visual updates
-    // BUG-008 FIX: Use class property instead of local variable to track drag state
-    let lastDragTime = 0;
-    const dragThrottleMs = 50; // Throttle redraws to every 50ms for performance
-
-    const drag = d3.drag<SVGGElement, unknown>()
-        .on("start", function(event) {
-            self.isMarginDragging = true; // BUG-008 FIX: Set class property
-            lastDragTime = 0; // Reset throttle timer
-            d3.select(this).select(".margin-resizer-line")
-                .attr("fill", self.UI_TOKENS.color.primary.pressed)
-                .attr("width", 4);
-        })
-        .on("drag", function(event) {
-            if (!self.isMarginDragging) return; // BUG-008 FIX: Check class property
-
-            // Get the SVG bounds for coordinate calculation
-            const svgNode = self.mainSvg.node();
-            if (!svgNode) return;
-
-            const svgRect = svgNode.getBoundingClientRect();
-
-            // Calculate the new left margin based on mouse position relative to SVG
-            const mouseX = event.sourceEvent.clientX - svgRect.left;
-            const newLeftMargin = Math.max(50, Math.min(600, mouseX));
-
-            // Update the setting value
-            self.settings.layoutSettings.leftMargin.value = newLeftMargin;
-
-            // Update the margin immediately
-            self.margin.left = newLeftMargin;
-
-            // Throttle redraws for performance
-            const now = Date.now();
-            if (now - lastDragTime >= dragThrottleMs) {
-                lastDragTime = now;
-
-                // Use lightweight margin update that preserves drag state
-                self.handleMarginDragUpdate(newLeftMargin);
-            } else {
-                // Between throttled updates, just update transforms for smooth movement
-                if (self.mainGroup) {
-                    self.mainGroup.attr("transform", `translate(${self.margin.left}, ${self.margin.top})`);
-                }
-                if (self.headerGridLayer) {
-                    self.headerGridLayer.attr("transform", `translate(${self.margin.left}, 0)`);
-                }
-                self.updateMarginResizerPosition();
-            }
-        })
-        .on("end", function(event) {
-            self.isMarginDragging = false; // BUG-008 FIX: Clear class property
-            d3.select(this).select(".margin-resizer-line")
-                .attr("fill", self.UI_TOKENS.color.primary.default)
-                .attr("width", 3);
-
-            // Persist the new margin value to Power BI settings
-            // Power BI will trigger an update when the persist completes, so we don't call update() here
-            // This prevents the snap-back effect where update() reads the old value before persist completes
-            self.host.persistProperties({
-                merge: [{
-                    objectName: "layoutSettings",
-                    properties: { leftMargin: self.settings.layoutSettings.leftMargin.value },
-                    selector: null
-                }]
-            });
-
-            // Don't call update() here - let Power BI trigger it after persistProperties completes
-            // The visual is already in the correct state from handleMarginDragUpdate()
-        });
-
-    this.marginResizer.call(drag as any);
+    this.dropdownList.style("display", "none");
+    this.dropdownInput.attr("aria-expanded", "false");
+    this.dropdownActiveIndex = -1;
+    this.updateDropdownActiveState();
+    this.isDropdownInteracting = false;
 }
 
-/**
- * Updates the position of the SVG margin resizer based on current settings
- */
-private updateMarginResizerPosition(): void {
-    if (!this.marginResizer || !this.settings) return;
+private moveDropdownActive(delta: number): void {
+    const count = this.dropdownFocusableItems.length;
+    if (count === 0) return;
 
-    const leftMargin = this.settings.layoutSettings.leftMargin.value;
-
-    // Position both the interaction rect and visible line at the margin boundary
-    // The group is already translated to (0, margin.top), so we only set x position
-    this.marginResizer.select(".margin-resizer-interaction")
-        .attr("x", leftMargin - 4);  // -4 to center the 8px wide zone on the margin line
-
-    this.marginResizer.select(".margin-resizer-line")
-        .attr("x", leftMargin - 1);  // -1 to center the 2px line on the margin
-}
-
-/**
- * Creates the Trace Mode Toggle (Backward/Forward) with professional design
- * UPGRADED: Enhanced visuals, better button design, smoother animations, refined styling
- */
-private createTraceModeToggle(): void {
-    this.stickyHeaderContainer.selectAll(".trace-mode-toggle").remove();
-
-    if (!this.settings.taskSelection.enableTaskSelection.value) return;
-
-    // HIDE the toggle completely when no task is selected (instead of graying out)
-    if (!this.selectedTaskId) return;
-
-    // Get responsive layout position
-    const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
-    const secondRowLayout = this.getSecondRowLayout(viewportWidth);
-
-    const toggleContainer = this.stickyHeaderContainer.append("div")
-        .attr("class", "trace-mode-toggle")
-        .style("position", "absolute")
-        .style("top", "44px")  // Align with task dropdown in second row
-        .style("left", `${secondRowLayout.traceModeToggle.left}px`)  // Responsive position
-        .style("z-index", "20");
-
-    const isDisabled = false;  // Never disabled since we only show when task is selected
-
-    // Professional toggle design with compact height
-    const toggleWrapper = toggleContainer.append("div")
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("gap", `${this.UI_TOKENS.spacing.md}px`);
-
-    // Professional label
-    toggleWrapper.append("span")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-        .style("font-weight", this.UI_TOKENS.fontWeight.medium.toString())
-        .style("color", this.UI_TOKENS.color.neutral.grey130)
-        .style("white-space", "nowrap")
-        .style("letter-spacing", "0.2px")
-        .text("Trace:");
-
-    // Professional toggle buttons container - compact height
-    const toggleButtons = toggleWrapper.append("div")
-        .style("display", "flex")
-        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-        .style("border-radius", `${this.UI_TOKENS.radius.large}px`)
-        .style("overflow", "hidden")
-        .style("height", `${this.UI_TOKENS.height.compact}px`)  // Compact height (24px)
-        .style("background", this.UI_TOKENS.color.neutral.white)
-        .style("box-shadow", this.UI_TOKENS.shadow[2])
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-    
-    // Professional Backward Button - compact design
-    const backwardButton = toggleButtons.append("div")
-        .attr("class", "trace-mode-button backward")
-        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
-        .style("cursor", "pointer")
-        .style("background-color", this.traceMode === "backward" ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.white)
-        .style("border-right", `1px solid ${this.UI_TOKENS.color.neutral.grey40}`)
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("gap", `${this.UI_TOKENS.spacing.xs}px`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    // Compact backward arrow using SVG
-    const backwardSvg = backwardButton.append("svg")
-        .attr("width", "12")
-        .attr("height", "12")
-        .attr("viewBox", "0 0 12 12")
-        .style("flex-shrink", "0");
-
-    backwardSvg.append("path")
-        .attr("d", "M 8 2 L 4 6 L 8 10")
-        .attr("stroke", this.traceMode === "backward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-        .attr("stroke-width", "2")
-        .attr("stroke-linecap", "round")
-        .attr("stroke-linejoin", "round")
-        .attr("fill", "none");
-
-    backwardButton.append("span")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-        .style("color", this.traceMode === "backward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-        .style("font-weight", this.traceMode === "backward" ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
-        .style("letter-spacing", "0.2px")
-        .text("Back");
-
-    // Professional Forward Button - compact design
-    const forwardButton = toggleButtons.append("div")
-        .attr("class", "trace-mode-button forward")
-        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
-        .style("cursor", "pointer")
-        .style("background-color", this.traceMode === "forward" ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.white)
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("gap", `${this.UI_TOKENS.spacing.xs}px`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    forwardButton.append("span")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-        .style("color", this.traceMode === "forward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-        .style("font-weight", this.traceMode === "forward" ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
-        .style("letter-spacing", "0.2px")
-        .text("Forward");
-
-    // Compact forward arrow using SVG
-    const forwardSvg = forwardButton.append("svg")
-        .attr("width", "12")
-        .attr("height", "12")
-        .attr("viewBox", "0 0 12 12")
-        .style("flex-shrink", "0");
-
-    forwardSvg.append("path")
-        .attr("d", "M 4 2 L 8 6 L 4 10")
-        .attr("stroke", this.traceMode === "forward" ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-        .attr("stroke-width", "2")
-        .attr("stroke-linecap", "round")
-        .attr("stroke-linejoin", "round")
-        .attr("fill", "none");
-    
-    // Tooltip based on mode (only shown when task is selected)
-    const tooltipText = this.traceMode === "backward"
-        ? "Showing predecessors leading to selected task"
-        : "Showing successors from selected task";
-
-    toggleContainer.append("title").text(tooltipText);
-
-    const self = this;
-
-    // Professional hover effects
-    backwardButton
-        .on("mouseover", function() {
-            if (self.traceMode !== "backward") {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.grey10);
-            } else {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
-            }
-        })
-        .on("mouseout", function() {
-            if (self.traceMode !== "backward") {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.white);
-            } else {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.default);
-            }
-        })
-        .on("mousedown", function() {
-            if (self.traceMode === "backward") {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.pressed);
-            }
-        })
-        .on("mouseup", function() {
-            if (self.traceMode === "backward") {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
-            }
-        });
-
-    forwardButton
-        .on("mouseover", function() {
-            if (self.traceMode !== "forward") {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.grey10);
-            } else {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
-            }
-        })
-        .on("mouseout", function() {
-            if (self.traceMode !== "forward") {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.neutral.white);
-            } else {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.default);
-            }
-        })
-        .on("mousedown", function() {
-            if (self.traceMode === "forward") {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.pressed);
-            }
-        })
-        .on("mouseup", function() {
-            if (self.traceMode === "forward") {
-                d3.select(this).style("background-color", self.UI_TOKENS.color.primary.hover);
-            }
-        });
-
-    // Click handlers
-    backwardButton.on("click", function() {
-        if (self.traceMode !== "backward") {
-            self.traceMode = "backward";
-            self.host.persistProperties({
-                merge: [{
-                    objectName: "persistedState",
-                    properties: { traceMode: self.traceMode },
-                    selector: null
-                }]
-            });
-            self.createTraceModeToggle();
-
-            // Force canvas refresh
-            self.forceCanvasRefresh();
-
-            // BUG-004 FIX: Preserve scroll position when changing trace direction
-            self.captureScrollPosition();
-            self.forceFullUpdate = true;
-            if (self.lastUpdateOptions) {
-                self.update(self.lastUpdateOptions);
-            }
-        }
-    });
-
-    forwardButton.on("click", function() {
-        if (self.traceMode !== "forward") {
-            self.traceMode = "forward";
-            self.host.persistProperties({
-                merge: [{
-                    objectName: "persistedState",
-                    properties: { traceMode: self.traceMode },
-                    selector: null
-                }]
-            });
-            self.createTraceModeToggle();
-
-            // Force canvas refresh
-            self.forceCanvasRefresh();
-
-            // BUG-004 FIX: Preserve scroll position when changing trace direction
-            self.captureScrollPosition();
-            self.forceFullUpdate = true;
-            if (self.lastUpdateOptions) {
-                self.update(self.lastUpdateOptions);
-            }
-        }
-    });
-}
-/**
- * Filters the dropdown items based on input text
- */
-private filterTaskDropdown(searchText: string = ""): void {
-    if (!this.dropdownList) return;
-    
-    const searchLower = searchText.toLowerCase().trim();
-    const noResultsText = this.getLocalizedString("ui.noTasksMatching", "No tasks matching");
-    
-    // Always show the clear selection option
-    this.dropdownList.select(".clear-selection")
-        .style("display", "block");
-    
-    // Filter task items
-    this.dropdownList.selectAll(".dropdown-item:not(.clear-selection):not(.no-data)")
-        .style("display", function() {
-            const element = this as HTMLElement;
-            const taskName = element.getAttribute("data-task-name") || "";
-            return taskName.toLowerCase().includes(searchLower) ? "block" : "none";
-        });
-    
-    // Check if any items are visible
-    const visibleItems = this.dropdownList.selectAll(".dropdown-item:not(.clear-selection)")
-        .filter(function() {
-            return (this as HTMLElement).style.display !== "none";
-        });
-    
-    // If no items match the search, show a message
-    if (visibleItems.empty() && searchLower.length > 0) {
-        // Remove any existing no-results message
-        this.dropdownList.selectAll(".no-results").remove();
-        
-        this.dropdownList.append("div")
-            .attr("class", "dropdown-item no-results")
-            .text(`${noResultsText} "${searchText}"`)
-            .style("padding", "8px 10px")
-            .style("color", "#999")
-            .style("font-style", "italic")
-            .style("font-size", "11px")
-            .style("font-family", "Segoe UI, sans-serif");
+    if (this.dropdownActiveIndex < 0) {
+        this.dropdownActiveIndex = 0;
     } else {
-        // Remove no-results message if it exists
-        this.dropdownList.selectAll(".no-results").remove();
+        this.dropdownActiveIndex = (this.dropdownActiveIndex + delta + count) % count;
+    }
+    this.updateDropdownActiveState();
+}
+
+private activateDropdownSelection(): void {
+    const item = this.dropdownFocusableItems[this.dropdownActiveIndex];
+    if (!item || !this.dropdownInput || !this.dropdownList) return;
+
+    if (item.type === "clear") {
+        this.selectTask(null, null);
+        this.dropdownInput.property("value", "");
+        this.closeDropdown(false);
+        this.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+            .style("pointer-events", "auto");
+        return;
+    }
+
+    if (item.type === "task" && item.task) {
+        this.selectTask(item.task.internalId, item.task.name);
+        this.dropdownInput.property("value", item.label);
+        this.closeDropdown(false);
+        this.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+            .style("pointer-events", "auto");
+    }
+}
+
+private updateDropdownActiveState(): void {
+    if (!this.dropdownList || !this.dropdownInput) return;
+
+    const activeItem = this.dropdownFocusableItems[this.dropdownActiveIndex];
+    const activeId = activeItem ? activeItem.id : "";
+
+    this.dropdownInput.attr("aria-activedescendant", activeId || null);
+
+    this.dropdownList.selectAll<HTMLDivElement, unknown>(".dropdown-item[role=\"option\"]")
+        .each(function() {
+            const node = this as HTMLDivElement;
+            const isActive = node.id === activeId;
+            const defaultBg = node.getAttribute("data-default-bg") || "white";
+            const isSelected = node.getAttribute("data-selected") === "true";
+            node.setAttribute("aria-selected", isSelected ? "true" : "false");
+            node.style.backgroundColor = isActive ? "#e6f7ff" : defaultBg;
+        });
+
+    if (activeId) {
+        const node = document.getElementById(activeId);
+        if (node) {
+            node.scrollIntoView({ block: "nearest" });
+        }
     }
 }
 

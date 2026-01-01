@@ -52,6 +52,7 @@ export declare class Visual implements IVisual {
     private taskIdTable;
     private taskIdColumn;
     private lastUpdateOptions;
+    private lastTaskFilterSignature;
     private showConnectorLinesInternal;
     private wbsExpandedInternal;
     private showAllTasksInternal;
@@ -71,6 +72,8 @@ export declare class Visual implements IVisual {
     private minTaskWidthPixels;
     private monthYearFormatter;
     private lineDateFormatter;
+    private fullDateFormatter;
+    private lastLocale;
     private dataDate;
     private xScale;
     private yScale;
@@ -85,6 +88,12 @@ export declare class Visual implements IVisual {
     private dropdownContainer;
     private dropdownInput;
     private dropdownList;
+    private dropdownListId;
+    private dropdownActiveIndex;
+    private dropdownFocusableItems;
+    private dropdownTaskCache;
+    private dropdownFilterTimeout;
+    private readonly DROPDOWN_MAX_RESULTS;
     private marginResizer;
     private selectedTaskLabel;
     private pathInfoLabel;
@@ -163,6 +172,12 @@ export declare class Visual implements IVisual {
     private zoomDragStartRight;
     private zoomSliderEnabled;
     private readonly ZOOM_SLIDER_MIN_RANGE;
+    private zoomDragListenersAttached;
+    private zoomMouseMoveHandler;
+    private zoomMouseUpHandler;
+    private zoomTouchMoveHandler;
+    private zoomTouchEndHandler;
+    private readonly zoomTouchListenerOptions;
     private readonly UI_TOKENS;
     private readonly LAYOUT_BREAKPOINTS;
     /**
@@ -189,11 +204,6 @@ export declare class Visual implements IVisual {
     private ensureTaskSortCache;
     private determineUpdateType;
     destroy(): void;
-    /**
-     * Centralized scroll preservation helper.
-     * Call this before any update() that should maintain scroll position.
-     * Sets up both the preserved scroll value and the cooldown to prevent Power BI re-triggers.
-     */
     private captureScrollPosition;
     private setHoveredTask;
     private isRelationshipHovered;
@@ -202,30 +212,11 @@ export declare class Visual implements IVisual {
     private toggleTaskDisplayInternal;
     private toggleBaselineDisplayInternal;
     private togglePreviousUpdateDisplayInternal;
-    /**
-     * Creates/updates the Show All/Show Critical toggle button with professional Fluent design
-     * UPGRADED: Enhanced visuals, better spacing, smoother animations, refined icons
-     * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
-     */
     private createOrUpdateToggleButton;
-    /**
-     * Creates/updates the Baseline toggle with professional theming and user color integration
-     * UPGRADED: Enhanced visuals, better icon design, smoother animations, refined color integration
-     */
     private createOrUpdateBaselineToggleButton;
-    /**
-     * UPGRADED: Creates/updates the Previous Update toggle with professional theming and user color integration
-     */
     private createOrUpdatePreviousUpdateToggleButton;
     private lightenColor;
-    /**
-     * UPGRADED: Creates the Connector Lines toggle with modern icon-only design
-     */
     private createConnectorLinesToggleButton;
-    /**
-     * Creates/updates the WBS enable/disable toggle button (viewer-facing).
-     * This lets report viewers switch WBS grouping on/off without using the formatting pane.
-     */
     private createOrUpdateWbsEnableToggleButton;
     /**
      * Creates both WBS expand (forward cycle) and collapse (reverse cycle) buttons
@@ -274,6 +265,8 @@ export declare class Visual implements IVisual {
      * Sets up mouse and touch event handlers for the zoom slider
      */
     private setupZoomSliderEvents;
+    private attachZoomDragListeners;
+    private detachZoomDragListeners;
     /**
      * Starts a zoom slider drag operation
      */
@@ -347,6 +340,14 @@ export declare class Visual implements IVisual {
     private updateInternal;
     private handleViewportOnlyUpdate;
     private handleSettingsOnlyUpdate;
+    /**
+     * Creates the left margin resizer used to resize the label column.
+     */
+    private createMarginResizer;
+    /**
+     * Updates the margin resizer's position to align with the current left margin.
+     */
+    private updateMarginResizerPosition;
     /**
      * Handles margin-only updates during drag for real-time visual feedback
      * Does NOT recreate the resizer or call clearVisual() to preserve drag state
@@ -598,39 +599,34 @@ export declare class Visual implements IVisual {
     private hasDataRole;
     private getColumnIndex;
     private parseDate;
+    private refreshDateFormatters;
     private formatDate;
     private formatLineDate;
     private limitTasks;
+    private buildTaskFilterSignature;
     private applyTaskFilter;
     private displayMessage;
     private createTaskSelectionDropdown;
+    private normalizeTraceMode;
+    /**
+     * Creates the trace mode toggle (Backward/Forward) positioned on the second header row.
+     */
+    private createTraceModeToggle;
     /**
      * Populates the task dropdown with tasks from the dataset
      */
     private populateTaskDropdown;
     /**
-     * Creates an interactive margin resizer that allows users to drag and adjust
-     * the left margin width between task descriptions and gantt bars
-     *
-     * CRITICAL: This must be called AFTER mainSvg has been sized with .attr("height", totalSvgHeight)
-     *
-     * IMPLEMENTATION: Uses SVG rect element so it scrolls with the gantt chart content
-     * and never appears in the sticky header area
-     */
-    private createMarginResizer;
-    /**
-     * Updates the position of the SVG margin resizer based on current settings
-     */
-    private updateMarginResizerPosition;
-    /**
-     * Creates the Trace Mode Toggle (Backward/Forward) with professional design
-     * UPGRADED: Enhanced visuals, better button design, smoother animations, refined styling
-     */
-    private createTraceModeToggle;
-    /**
      * Filters the dropdown items based on input text
      */
     private filterTaskDropdown;
+    private refreshDropdownCache;
+    private renderTaskDropdown;
+    private openDropdown;
+    private closeDropdown;
+    private moveDropdownActive;
+    private activateDropdownSelection;
+    private updateDropdownActiveState;
     private selectTask;
     private ensureTaskVisible;
     getFormattingModel(): powerbi.visuals.FormattingModel;
