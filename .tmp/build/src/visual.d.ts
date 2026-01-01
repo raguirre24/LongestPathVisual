@@ -338,6 +338,7 @@ export declare class Visual implements IVisual {
     private setLoadingOverlayVisible;
     update(options: VisualUpdateOptions): void;
     private updateInternal;
+    private updateRenderOnly;
     private handleViewportOnlyUpdate;
     private handleSettingsOnlyUpdate;
     /**
@@ -386,6 +387,11 @@ export declare class Visual implements IVisual {
      */
     private drawTaskLabelsLayer;
     private drawTasksCanvas;
+    /**
+     * Helper to add a rounded rect to the current path
+     * (Inlined for batching performance)
+     */
+    private pathRoundedRect;
     /**
      * ACCESSIBILITY: Creates an invisible but screen-reader accessible fallback for canvas rendering.
      * This ensures users with assistive technology can access task information even when canvas mode is active.

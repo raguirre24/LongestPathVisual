@@ -3,7 +3,6 @@ import { timeMonth } from "d3-time";
 import { Selection, BaseType } from "d3-selection";
 import { ScaleTime, ScaleBand } from "d3-scale";
 
-
 import powerbi from "powerbi-visuals-api";
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
 import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
@@ -31,7 +30,7 @@ interface Task {
     type: string;
     duration: number;
     userProvidedTotalFloat?: number;
-    taskFreeFloat?: number;  // NEW: Task Free Float value
+    taskFreeFloat?: number;
     predecessorIds: string[];
     relationshipTypes: { [predId: string]: string; };
     relationshipLags: { [predId: string]: number | null; };
@@ -53,36 +52,35 @@ interface Task {
     previousUpdateStartDate?: Date | null;
     previousUpdateFinishDate?: Date | null;
     yOrder?: number;
-    tooltipData?: Array<{key: string, value: PrimitiveValue}>;  // Array preserves field order
+    tooltipData?: Array<{key: string, value: PrimitiveValue}>;
     selectionId?: powerbi.visuals.ISelectionId;
-    legendValue?: string;       // Value from legend field for this task
-    legendColor?: string;       // Assigned color for this legend value
-    // WBS Grouping fields - dynamic array supporting any number of hierarchy levels
-    wbsLevels?: string[];       // Array of WBS level values (ordered from highest to deepest)
-    wbsGroupId?: string;        // Computed: concatenated WBS path for grouping
-    wbsIndentLevel?: number;    // Computed: depth level for indentation (0-based)
+    legendValue?: string;
+    legendColor?: string;
+
+    wbsLevels?: string[];
+    wbsGroupId?: string;
+    wbsIndentLevel?: number;
 }
 
-// WBS Group interface for hierarchical grouping
 interface WBSGroup {
-    id: string;                 // Unique group identifier (e.g., "L1:Phase1|L2:Design")
-    level: number;              // Hierarchy level (1-based, dynamic based on WBS columns added)
-    name: string;               // Display name of this group level
-    fullPath: string;           // Full WBS path for sorting
-    parentId: string | null;    // Parent group's id (null for top-level)
-    children: WBSGroup[];       // Child groups
-    tasks: Task[];              // Direct tasks in this group
-    allTasks: Task[];           // All tasks including children (computed)
-    isExpanded: boolean;        // Current expansion state
-    yOrder?: number;            // Y-position order in the visual (for layout)
-    visibleTaskCount: number;   // Number of currently visible tasks after all filtering
-    // Summary metrics (computed from all descendant tasks)
+    id: string;
+    level: number;
+    name: string;
+    fullPath: string;
+    parentId: string | null;
+    children: WBSGroup[];
+    tasks: Task[];
+    allTasks: Task[];
+    isExpanded: boolean;
+    yOrder?: number;
+    visibleTaskCount: number;
+
     summaryStartDate?: Date | null;
     summaryFinishDate?: Date | null;
     hasCriticalTasks: boolean;
     hasNearCriticalTasks?: boolean;
     taskCount: number;
-    // Critical date range (for partial highlighting)
+
     criticalStartDate?: Date | null;
     criticalFinishDate?: Date | null;
     nearCriticalStartDate?: Date | null;
@@ -96,12 +94,12 @@ interface WBSGroup {
 interface Relationship {
     predecessorId: string;
     successorId: string;
-    type: string;              // FS, SS, FF, SF
-    freeFloat: number | null;  // Optional free float value from data
-    isCritical: boolean;       // Determined by numerical CPM based on float/driving logic
+    type: string;
+    freeFloat: number | null;
+    isCritical: boolean;
     lag: number | null;
-    relationshipFloat?: number;  // Calculated or provided float for this relationship
-    isDriving?: boolean;         // True if this relationship is driving the successor's start
+    relationshipFloat?: number;
+    isDriving?: boolean;
 }
 
 interface DropdownItem {
@@ -112,15 +110,13 @@ interface DropdownItem {
     focusable: boolean;
 }
 
-// Update type enumeration
 enum UpdateType {
     Full = "Full",
-    DataOnly = "DataOnly", 
+    DataOnly = "DataOnly",
     ViewportOnly = "ViewportOnly",
     SettingsOnly = "SettingsOnly",
     DataAndSettings = 'DataAndSettings'
 }
-
 
 export class Visual implements IVisual {
     private target: HTMLElement;
@@ -139,7 +135,6 @@ export class Visual implements IVisual {
     private lastTooltipItems: VisualTooltipDataItem[] = [];
     private lastTooltipIdentities: powerbi.extensibility.ISelectionId[] = [];
 
-    // *** Containers for sticky header and scrollable content ***
     private stickyHeaderContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private scrollableContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private headerSvg: Selection<SVGSVGElement, unknown, null, undefined>;
@@ -147,10 +142,10 @@ export class Visual implements IVisual {
 
     private mainGroup: Selection<SVGGElement, unknown, null, undefined>;
     private gridLayer: Selection<SVGGElement, unknown, null, undefined>;
-    private labelGridLayer: Selection<SVGGElement, unknown, null, undefined>; // Unclipped grid for label margin
+    private labelGridLayer: Selection<SVGGElement, unknown, null, undefined>;
     private arrowLayer: Selection<SVGGElement, unknown, null, undefined>;
     private taskLayer: Selection<SVGGElement, unknown, null, undefined>;
-    private taskLabelLayer: Selection<SVGGElement, unknown, null, undefined>; // Unclipped labels
+    private taskLabelLayer: Selection<SVGGElement, unknown, null, undefined>;
     private chartClipPath: Selection<SVGClipPathElement, unknown, null, undefined>;
     private chartClipRect: Selection<SVGRectElement, unknown, null, undefined>;
     private toggleButtonGroup: Selection<SVGGElement, unknown, null, undefined>;
@@ -159,8 +154,8 @@ export class Visual implements IVisual {
     private canvasElement: HTMLCanvasElement | null = null;
     private canvasContext: CanvasRenderingContext2D | null = null;
     private useCanvasRendering: boolean = false;
-    private CANVAS_THRESHOLD: number = 250; // Switch to canvas when more than 250 tasks (Phase 1 optimization)
-    private readonly MODE_TRANSITION_DURATION: number = 150; // ms - Duration for Canvas/SVG mode transition animation
+    private CANVAS_THRESHOLD: number = 250;
+    private readonly MODE_TRANSITION_DURATION: number = 150;
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
     private loadingOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingText: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -169,7 +164,6 @@ export class Visual implements IVisual {
     private isLoadingVisible: boolean = false;
     private loadingStartTime: number | null = null;
 
-    // --- Data properties remain the same ---
     private allTasksData: Task[] = [];
     private relationships: Relationship[] = [];
     private taskIdToTask: Map<string, Task> = new Map();
@@ -179,30 +173,25 @@ export class Visual implements IVisual {
     private lastUpdateOptions: VisualUpdateOptions | null = null;
     private lastTaskFilterSignature: string | null = null;
 
-    // Connect lines toggle state and group
     private showConnectorLinesInternal: boolean = true;
 
-    // WBS expand/collapse toggle state
     private wbsExpandedInternal: boolean = true;
 
-    // --- State properties remain the same ---
     private showAllTasksInternal: boolean = true;
     private showBaselineInternal: boolean = true;
     private showPreviousUpdateInternal: boolean = true;
     private isInitialLoad: boolean = true;
 
-    // Debug flag to control verbose logging
     private debug: boolean = false;
 
-    // --- Configuration/Constants ---
     private margin = { top: 10, right: 100, bottom: 40, left: 280 };
     private headerHeight = 110;
-    private legendFooterHeight = 60;  // Fixed height for legend footer
+    private legendFooterHeight = 60;
     private dateLabelOffset = 8;
     private floatTolerance = 0.001;
     private defaultMaxTasks = 500;
     private labelPaddingLeft = 10;
-    private dateBackgroundPadding = { horizontal: 6, vertical: 3 };  // UPGRADED: Increased from {4, 2} for better spacing
+    private dateBackgroundPadding = { horizontal: 6, vertical: 3 };
     private taskLabelLineHeight = "1.1em";
     private minTaskWidthPixels = 1;
     private monthYearFormatter: Intl.DateTimeFormat;
@@ -211,11 +200,9 @@ export class Visual implements IVisual {
     private lastLocale: string | null = null;
     private dataDate: Date | null = null;
 
-    // --- Store scales ---
     private xScale: ScaleTime<number, number> | null = null;
     private yScale: ScaleBand<string> | null = null;
 
-    // --- Task selection ---
     private selectedTaskId: string | null = null;
     private selectedTaskName: string | null = null;
     private hoveredTaskId: string | null = null;
@@ -236,94 +223,85 @@ export class Visual implements IVisual {
     private marginResizer: Selection<HTMLDivElement, unknown, null, undefined>;
     private selectedTaskLabel: Selection<HTMLDivElement, unknown, null, undefined>;
     private pathInfoLabel: Selection<HTMLDivElement, unknown, null, undefined>;
-    private isDropdownInteracting: boolean = false;  // FIX BUG-010: Track dropdown interaction state
+    private isDropdownInteracting: boolean = false;
 
-    private traceMode: string = "backward"; // Default to "backward"
+    private traceMode: string = "backward";
 
     private floatThresholdInput: Selection<HTMLInputElement, unknown, null, undefined>;
     private floatThreshold: number = 0;
     private showNearCritical: boolean = true;
 
-    private viewportStartIndex: number = 0;     // First visible task index
-    private viewportEndIndex: number = 0;       // Last visible task index
-    private visibleTaskCount: number = 0;       // Number of tasks to render
-    private taskTotalCount: number = 0;         // Total number of tasks
-    private taskElementHeight: number = 0;      // Height of a single task element with padding
+    private viewportStartIndex: number = 0;
+    private viewportEndIndex: number = 0;
+    private visibleTaskCount: number = 0;
+    private taskTotalCount: number = 0;
+    private taskElementHeight: number = 0;
     private scrollThrottleTimeout: any | null = null;
-    private scrollListener: any;                // Reference to scroll event handler
-    private allTasksToShow: Task[] = [];        // Store full task list to avoid reprocessing
-    private allFilteredTasks: Task[] = [];      // All filtered tasks (before collapse/expand) for project end date
+    private scrollListener: any;
+    private allTasksToShow: Task[] = [];
+    private allFilteredTasks: Task[] = [];
 
-    // Update type detection
     private lastViewport: IViewport | null = null;
 
-    // Performance monitoring
     private renderStartTime: number = 0;
-    
-    // Enhanced data structures for performance
-    private predecessorIndex: Map<string, Set<string>> = new Map(); // taskId -> Set of tasks that have this as predecessor
-    private relationshipByPredecessor: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by predecessorId
 
-    // Legend properties
+    private predecessorIndex: Map<string, Set<string>> = new Map();
+    private relationshipByPredecessor: Map<string, Relationship[]> = new Map();
+
     private legendDataExists: boolean = false;
-    private legendColorMap: Map<string, string> = new Map(); // legendValue -> color
-    private legendCategories: string[] = []; // Unique legend values in order
-    private legendFieldName: string = ""; // Name of the legend field
-    private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>; // Legend UI container
-    private selectedLegendCategories: Set<string> = new Set(); // Empty set = all selected (no filter)
-    private legendSelectionIds: Map<string, powerbi.visuals.ISelectionId> = new Map(); // Category -> SelectionId for color persistence (Pillar 2)
+    private legendColorMap: Map<string, string> = new Map();
+    private legendCategories: string[] = [];
+    private legendFieldName: string = "";
+    private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>;
+    private selectedLegendCategories: Set<string> = new Set();
+    private legendSelectionIds: Map<string, powerbi.visuals.ISelectionId> = new Map();
 
-    // WBS Grouping properties
     private wbsDataExists: boolean = false;
-    private wbsDataExistsInMetadata: boolean = false;           // WBS columns exist in dataView metadata (for button visibility)
-    private wbsLevelColumnIndices: number[] = [];               // Column indices for WBS level fields (ordered)
-    private wbsLevelColumnNames: string[] = [];                 // Column display names for WBS levels (for UI)
-    private wbsGroups: WBSGroup[] = [];                         // Flat list of all WBS groups
-    private wbsGroupMap: Map<string, WBSGroup> = new Map();     // groupId -> WBSGroup for quick lookup
-    private wbsRootGroups: WBSGroup[] = [];                     // Top-level groups (Level 1)
-    private wbsExpandedState: Map<string, boolean> = new Map(); // Persisted expand/collapse state
-    private wbsExpandToLevel: number | null | undefined = undefined; // null = expand all, 0 = collapse all, number = expand to depth
-    private wbsAvailableLevels: number[] = [];                  // Unique WBS levels detected in data
-    private wbsManualExpansionOverride: boolean = false;        // When true, honor per-group manual expansion even if global toggle is collapsed
-    private wbsManuallyToggledGroups: Set<string> = new Set();  // BUG-007 FIX: Track which groups have been manually toggled
-    private wbsEnableOverride: boolean | null = null;           // Viewer toggle override (immediate apply before formatting sync)
-    private wbsGroupLayer: Selection<SVGGElement, unknown, null, undefined>; // SVG layer for group headers
-    private lastExpandCollapseAllState: boolean | null = null;  // Track expand/collapse all toggle state
+    private wbsDataExistsInMetadata: boolean = false;
+    private wbsLevelColumnIndices: number[] = [];
+    private wbsLevelColumnNames: string[] = [];
+    private wbsGroups: WBSGroup[] = [];
+    private wbsGroupMap: Map<string, WBSGroup> = new Map();
+    private wbsRootGroups: WBSGroup[] = [];
+    private wbsExpandedState: Map<string, boolean> = new Map();
+    private wbsExpandToLevel: number | null | undefined = undefined;
+    private wbsAvailableLevels: number[] = [];
+    private wbsManualExpansionOverride: boolean = false;
+    private wbsManuallyToggledGroups: Set<string> = new Set();
+    private wbsEnableOverride: boolean | null = null;
+    private wbsGroupLayer: Selection<SVGGElement, unknown, null, undefined>;
+    private lastExpandCollapseAllState: boolean | null = null;
 
-    // Tooltip properties
-    private tooltipDebugLogged: boolean = false; // Flag to log tooltip column info only once
+    private tooltipDebugLogged: boolean = false;
     private landingPageContainer: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
 
-    private relationshipIndex: Map<string, Relationship[]> = new Map(); // Quick lookup for relationships by successorId
+    private relationshipIndex: Map<string, Relationship[]> = new Map();
 
-    // Multi-path support: store all driving chains
     private allDrivingChains: Array<{
         tasks: Set<string>,
         relationships: Relationship[],
         totalDuration: number,
         startingTask: Task | null
     }> = [];
-    private selectedPathIndex: number = 0; // 0-based index into allDrivingChains
+    private selectedPathIndex: number = 0;
 
-    private readonly VIEWPORT_CHANGE_THRESHOLD = 0.3; // 30% change triggers full recalculation
+    private readonly VIEWPORT_CHANGE_THRESHOLD = 0.3;
     private forceFullUpdate: boolean = false;
-    private preserveScrollOnUpdate: boolean = false; // When true, scroll position is preserved during full update
-    private preservedScrollTop: number | null = null; // Strict scroll preservation: exact scrollTop to restore after update
-    private scrollPreservationUntil: number = 0; // Timestamp until which scroll should be preserved (handles Power BI re-triggers)
-    private lastWbsToggleTimestamp: number = 0; // Tracks last WBS toggle to suppress scroll reset immediately after
-    private wbsToggleScrollAnchor: { groupId: string; visualOffset: number } | null = null; // Track WBS group position for scroll adjustment
+    private preserveScrollOnUpdate: boolean = false;
+    private preservedScrollTop: number | null = null;
+    private scrollPreservationUntil: number = 0;
+    private lastWbsToggleTimestamp: number = 0;
+    private wbsToggleScrollAnchor: { groupId: string; visualOffset: number } | null = null;
 
     private tooltipClassName: string;
     private isUpdating: boolean = false;
-    private isMarginDragging: boolean = false; 
+    private isMarginDragging: boolean = false;
     private scrollHandlerBackup: any = null;
 
     private updateDebounceTimeout: any = null;
     private pendingUpdate: VisualUpdateOptions | null = null;
     private readonly UPDATE_DEBOUNCE_MS = 100;
-    // ============================================================================
-    // TIMELINE ZOOM SLIDER - Microsoft-style axis zoom control
-    // ============================================================================
+
     private zoomSliderContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private zoomSliderTrack: Selection<HTMLDivElement, unknown, null, undefined>;
     private zoomSliderSelection: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -331,17 +309,16 @@ export class Visual implements IVisual {
     private zoomSliderRightHandle: Selection<HTMLDivElement, unknown, null, undefined>;
     private zoomSliderMiniChart: Selection<HTMLCanvasElement, unknown, null, undefined>;
 
-    // Zoom state (0-1 percentages of the full timeline)
-    private zoomRangeStart: number = 0;     // 0 = start of full timeline
-    private zoomRangeEnd: number = 1;       // 1 = end of full timeline
-    private fullTimelineDomain: [Date, Date] | null = null;  // Store full domain for reference
+    private zoomRangeStart: number = 0;
+    private zoomRangeEnd: number = 1;
+    private fullTimelineDomain: [Date, Date] | null = null;
     private isZoomSliderDragging: boolean = false;
     private zoomDragType: 'left' | 'right' | 'middle' | null = null;
     private zoomDragStartX: number = 0;
     private zoomDragStartLeft: number = 0;
     private zoomDragStartRight: number = 0;
     private zoomSliderEnabled: boolean = true;
-    private readonly ZOOM_SLIDER_MIN_RANGE: number = 0.02; // Minimum 2% of timeline visible
+    private readonly ZOOM_SLIDER_MIN_RANGE: number = 0.02;
     private zoomDragListenersAttached: boolean = false;
     private zoomMouseMoveHandler: ((event: MouseEvent) => void) | null = null;
     private zoomMouseUpHandler: (() => void) | null = null;
@@ -349,43 +326,37 @@ export class Visual implements IVisual {
     private zoomTouchEndHandler: (() => void) | null = null;
     private readonly zoomTouchListenerOptions: AddEventListenerOptions = { passive: true };
 
-    // ============================================================================
-    // DESIGN TOKENS - Professional UI System (Fluent Design 2)
-    // ============================================================================
     private readonly UI_TOKENS = {
-        // Heights - Standardized for consistency and touch-friendliness
+
         height: {
-            compact: 24,    // Minimal toggles
-            standard: 32,   // Default for most controls (upgraded from 28 for better touch targets)
-            comfortable: 36 // Prominent controls (inputs, navigation)
+            compact: 24,
+            standard: 32,
+            comfortable: 36
         },
 
-        // Border Radius - Modern, cohesive appearance with refined radii
         radius: {
-            small: 3,       // Inner elements, inputs
-            medium: 8,      // Standard buttons (upgraded from 6 for smoother look)
-            large: 16,      // Pill-shaped toggles (upgraded from 14)
-            pill: 20,       // Large pill containers (upgraded from 16)
-            full: 9999      // Perfect circles
+            small: 3,
+            medium: 8,
+            large: 16,
+            pill: 20,
+            full: 9999
         },
 
-        // Spacing - Enhanced 4px grid system with better distribution
         spacing: {
             xs: 4,
             sm: 6,
-            md: 10,         // Upgraded from 8 for better breathing room
-            lg: 14,         // Upgraded from 12
-            xl: 18,         // Upgraded from 16
-            xxl: 24         // Upgraded from 20 for better header spacing
+            md: 10,
+            lg: 14,
+            xl: 18,
+            xxl: 24
         },
 
-        // Typography - Professional hierarchy with refined sizes
         fontSize: {
             xs: 10,
             sm: 11,
             md: 12,
             lg: 13,
-            xl: 14          // New size for prominent labels
+            xl: 14
         },
 
         fontWeight: {
@@ -395,31 +366,30 @@ export class Visual implements IVisual {
             bold: 700
         },
 
-        // Colors - Enhanced Microsoft Fluent 2 Design System with refined palette
         color: {
             primary: {
                 default: '#0078D4',
                 hover: '#106EBE',
                 pressed: '#005A9E',
-                light: '#DEECF9',        // Refined from #E6F2FA for better contrast
-                lighter: '#EFF6FC',      // Refined from #F3F9FD
-                subtle: '#F3F9FD'        // New: very subtle backgrounds
+                light: '#DEECF9',
+                lighter: '#EFF6FC',
+                subtle: '#F3F9FD'
             },
             warning: {
                 default: '#F7A800',
                 hover: '#E09200',
                 pressed: '#C87E00',
-                light: '#FFF4CE',        // Refined from #FFF9E6 for better visibility
-                lighter: '#FFFAED',      // Refined from #FFFCF3
-                subtle: '#FFFCF8'        // New: very subtle backgrounds
+                light: '#FFF4CE',
+                lighter: '#FFFAED',
+                subtle: '#FFFCF8'
             },
             success: {
                 default: '#107C10',
                 hover: '#0E6B0E',
                 pressed: '#0C5A0C',
-                light: '#DFF6DD',        // Refined from #E6F4E6 for better contrast
-                lighter: '#F1FAF1',      // Refined from #F3FAF3
-                subtle: '#F7FDF7'        // New: very subtle backgrounds
+                light: '#DFF6DD',
+                lighter: '#F1FAF1',
+                subtle: '#F7FDF7'
             },
             danger: {
                 default: '#D13438',
@@ -427,61 +397,56 @@ export class Visual implements IVisual {
                 pressed: '#A0272A',
                 light: '#FDE7E9',
                 lighter: '#FEF4F5',
-                subtle: '#FFF9FA'        // New: very subtle backgrounds
+                subtle: '#FFF9FA'
             },
             neutral: {
                 black: '#201F1E',
                 grey190: '#201F1E',
                 grey160: '#323130',
-                grey140: '#484644',      // New: better gradation
+                grey140: '#484644',
                 grey130: '#605E5C',
                 grey90: '#A19F9D',
                 grey60: '#C8C6C4',
-                grey40: '#D2D0CE',       // New: lighter border option
+                grey40: '#D2D0CE',
                 grey30: '#EDEBE9',
                 grey20: '#F3F2F1',
                 grey10: '#FAF9F8',
-                grey5: '#FCFCFC',        // New: ultra-light backgrounds
+                grey5: '#FCFCFC',
                 white: '#FFFFFF'
             }
         },
 
-        // Shadows - Enhanced Fluent elevation system with more refined shadows
         shadow: {
-            1: '0 0.5px 1px rgba(0, 0, 0, 0.08)',                                          // New: subtle shadow
-            2: '0 1px 2px rgba(0, 0, 0, 0.08), 0 0.5px 1px rgba(0, 0, 0, 0.04)',         // Enhanced
-            4: '0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)',            // Enhanced
-            8: '0 4px 8px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08)',           // Enhanced
-            16: '0 8px 16px rgba(0, 0, 0, 0.14), 0 4px 8px rgba(0, 0, 0, 0.1)',          // Enhanced
-            24: '0 12px 24px rgba(0, 0, 0, 0.16), 0 6px 12px rgba(0, 0, 0, 0.12)'        // New: dramatic elevation
+            1: '0 0.5px 1px rgba(0, 0, 0, 0.08)',
+            2: '0 1px 2px rgba(0, 0, 0, 0.08), 0 0.5px 1px rgba(0, 0, 0, 0.04)',
+            4: '0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)',
+            8: '0 4px 8px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08)',
+            16: '0 8px 16px rgba(0, 0, 0, 0.14), 0 4px 8px rgba(0, 0, 0, 0.1)',
+            24: '0 12px 24px rgba(0, 0, 0, 0.16), 0 6px 12px rgba(0, 0, 0, 0.12)'
         },
 
-        // Motion - Professional, smooth animations with refined easing
         motion: {
             duration: {
                 instant: 0,
-                fast: 120,      // Upgraded from 100 for smoother feel
-                normal: 200,    // Upgraded from 150 for more polished transitions
-                slow: 350,      // Upgraded from 300
+                fast: 120,
+                normal: 200,
+                slow: 350,
                 slower: 500
             },
             easing: {
-                standard: 'cubic-bezier(0.4, 0, 0.2, 1)',          // Material Design standard
-                decelerate: 'cubic-bezier(0, 0, 0.2, 1)',          // Entering elements
-                accelerate: 'cubic-bezier(0.4, 0, 1, 1)',          // Exiting elements
-                sharp: 'cubic-bezier(0.4, 0, 0.6, 1)',             // Quick, decisive
-                smooth: 'cubic-bezier(0.4, 0.14, 0.3, 1)'          // New: extra smooth for premium feel
+                standard: 'cubic-bezier(0.4, 0, 0.2, 1)',
+                decelerate: 'cubic-bezier(0, 0, 0.2, 1)',
+                accelerate: 'cubic-bezier(0.4, 0, 1, 1)',
+                sharp: 'cubic-bezier(0.4, 0, 0.6, 1)',
+                smooth: 'cubic-bezier(0.4, 0.14, 0.3, 1)'
             }
         }
     };
 
-    // ============================================================================
-    // RESPONSIVE LAYOUT SYSTEM - Viewport-aware button sizing and positioning
-    // ============================================================================
     private readonly LAYOUT_BREAKPOINTS = {
-        wide: 850,      // Full labels on all buttons
-        medium: 650,    // Shorter labels, compact spacing
-        narrow: 0       // Icon-only for secondary buttons
+        wide: 850,
+        medium: 650,
+        narrow: 0
     };
 
     /**
@@ -512,40 +477,33 @@ export class Visual implements IVisual {
         const mode = this.getLayoutMode(viewportWidth);
         const gap = mode === 'wide' ? 12 : (mode === 'medium' ? 8 : 6);
         const iconButtonSize = 36;
-        let x = 10; // Starting position
+        let x = 10;
 
-        // Show All/Critical button
         const showAllWidth = mode === 'narrow' ? 100 : 140;
         const showAllCritical = { x, width: showAllWidth, showText: true };
         x += showAllWidth + gap;
 
-        // Mode Toggle (LP/Float)
         const modeWidth = mode === 'wide' ? 150 : (mode === 'medium' ? 130 : 110);
         const modeToggle = { x, width: modeWidth, showFullLabels: mode === 'wide' };
         x += modeWidth + gap;
 
-        // Baseline button - icon-only in narrow mode
         const baselineIconOnly = mode === 'narrow';
         const baselineWidth = baselineIconOnly ? iconButtonSize : (mode === 'medium' ? 90 : 110);
         const baseline = { x, width: baselineWidth, iconOnly: baselineIconOnly };
         x += baselineWidth + gap;
 
-        // Previous Update button - icon-only in narrow mode
         const prevIconOnly = mode === 'narrow';
         const prevWidth = prevIconOnly ? iconButtonSize : (mode === 'medium' ? 90 : 120);
         const previousUpdate = { x, width: prevWidth, iconOnly: prevIconOnly };
         x += prevWidth + gap;
 
-        // Connector Lines button (always icon-only)
         const connectorLines = { x, size: iconButtonSize };
         x += iconButtonSize + gap;
 
-        // WBS enable/disable button (text-only, compact)
         const wbsEnableWidth = mode === 'narrow' ? 60 : 70;
         const wbsEnable = { x, width: wbsEnableWidth };
         x += wbsEnableWidth + gap;
 
-        // WBS Toggle buttons (always icon-only)
         const wbsExpandToggle = { x, size: iconButtonSize };
         x += iconButtonSize + gap;
         const wbsCollapseToggle = { x, size: iconButtonSize };
@@ -574,14 +532,12 @@ export class Visual implements IVisual {
     } {
         const mode = this.getLayoutMode(viewportWidth);
 
-        // Dropdown width respects formatting setting with sensible bounds per viewport
         const defaultWidth = mode === 'wide' ? 350 : (mode === 'medium' ? 280 : 200);
         const configuredWidth = this.settings?.taskSelection?.dropdownWidth?.value ?? defaultWidth;
         const minWidth = 150;
-        const maxWidth = Math.max(minWidth, viewportWidth - 20); // leave breathing room on edges
+        const maxWidth = Math.max(minWidth, viewportWidth - 20);
         const dropdownWidth = Math.min(Math.max(configuredWidth, minWidth), maxWidth);
 
-        // Horizontal position follows formatting setting (left/center/right)
         const position = this.settings?.taskSelection?.dropdownPosition?.value?.value || "left";
         const horizontalPadding = 10;
         const maxLeft = Math.max(horizontalPadding, viewportWidth - dropdownWidth - horizontalPadding);
@@ -593,16 +549,13 @@ export class Visual implements IVisual {
             dropdownLeft = viewportWidth - dropdownWidth - horizontalPadding;
         }
 
-        // Clamp to keep the control inside the header
         dropdownLeft = Math.max(horizontalPadding, Math.min(dropdownLeft, maxLeft));
 
-        // Trace mode toggle positioned after dropdown with gap
         const traceGap = 20;
-        const approxTraceWidth = 180; // keep toggle visible even when dropdown is large
+        const approxTraceWidth = 180;
         const maxTraceLeft = Math.max(horizontalPadding, viewportWidth - approxTraceWidth);
         const traceModeLeft = Math.min(dropdownLeft + dropdownWidth + traceGap, maxTraceLeft);
 
-        // Float threshold control max width
         const floatThresholdMaxWidth = mode === 'narrow' ? 180 : 250;
 
         return {
@@ -633,19 +586,16 @@ constructor(options: VisualConstructorOptions) {
     this.refreshDateFormatters();
 
     this.showAllTasksInternal = true;
-    // Initialize baseline internal state. Will be synced in first update.
+
     this.showBaselineInternal = true;
     this.showPreviousUpdateInternal = true;
     this.isInitialLoad = true;
     this.floatThreshold = 0;
     this.showConnectorLinesInternal = true;
     this.wbsExpandedInternal = true;
-    
-    // Generate unique tooltip class name
+
     this.tooltipClassName = `critical-path-tooltip-${Date.now()}`;
 
-    // --- Overall wrapper ---
-    // Use flexbox layout for proper stacking of header, content, slider, and legend
     const visualWrapper = d3.select(this.target).append("div")
         .attr("class", "visual-wrapper")
         .style("height", "100%")
@@ -655,7 +605,6 @@ constructor(options: VisualConstructorOptions) {
         .style("display", "flex")
         .style("flex-direction", "column");
 
-    // --- Sticky Header Container ---
     this.stickyHeaderContainer = visualWrapper.append("div")
         .attr("class", "sticky-header-container")
         .style("position", "sticky")
@@ -664,27 +613,23 @@ constructor(options: VisualConstructorOptions) {
         .style("width", "100%")
         .style("height", `${this.headerHeight}px`)
         .style("min-height", `${this.headerHeight}px`)
-        .style("flex-shrink", "0")  // Don't shrink the header
-        .style("z-index", "100")  // High z-index to ensure it's always above resizer
-        .style("background-color", "white")  // Solid background to cover anything behind it
+        .style("flex-shrink", "0")
+        .style("z-index", "100")
+        .style("background-color", "white")
         .style("overflow", "visible");
 
-    // --- SVG for Header Elements ---
     this.headerSvg = this.stickyHeaderContainer.append("svg")
         .attr("class", "header-svg")
         .attr("width", "100%")
         .attr("height", "100%");
 
-    // --- Group within header SVG for labels ---
     this.headerGridLayer = this.headerSvg.append("g")
         .attr("class", "header-grid-layer");
 
-    // --- Group for Toggle Button within header SVG ---
     this.toggleButtonGroup = this.headerSvg.append("g")
         .attr("class", "toggle-button-group")
         .style("cursor", "pointer");
-        
-    // --- Task Selection Dropdown ---
+
     this.dropdownContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "task-selection-dropdown-container")
         .style("position", "absolute")
@@ -723,11 +668,9 @@ constructor(options: VisualConstructorOptions) {
         .style("z-index", "30")
         .style("pointer-events", "auto")
         .style("margin-bottom", "40px");
-    
-    // --- Create modern Float Threshold control ---
+
     this.createFloatThresholdControl();
 
-    // --- Selected Task Label ---
     this.selectedTaskLabel = this.stickyHeaderContainer.append("div")
         .attr("class", "selected-task-label")
         .style("position", "absolute")
@@ -743,44 +686,39 @@ constructor(options: VisualConstructorOptions) {
         .style("font-weight", "bold")
         .style("display", "none");
 
-    // --- Driving Path Info Label (Path Selection Control) ---
-    // UPGRADED: Professional path selection control with enhanced design
     this.pathInfoLabel = this.stickyHeaderContainer.append("div")
         .attr("class", "path-info-label")
         .style("position", "absolute")
-        .style("top", "6px")  // Updated for better alignment
+        .style("top", "6px")
         .style("right", "10px")
-        .style("height", `${this.UI_TOKENS.height.standard}px`)  // Using design tokens
+        .style("height", `${this.UI_TOKENS.height.standard}px`)
         .style("padding", `0 ${this.UI_TOKENS.spacing.sm}px`)
         .style("display", "none")
         .style("align-items", "center")
         .style("gap", `${this.UI_TOKENS.spacing.sm}px`)
         .style("background-color", this.UI_TOKENS.color.neutral.white)
-        .style("border", `1.5px solid ${this.UI_TOKENS.color.primary.default}`)  // Heavier border
-        .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)  // More rounded
-        .style("box-shadow", this.UI_TOKENS.shadow[4])  // Better shadow
+        .style("border", `1.5px solid ${this.UI_TOKENS.color.primary.default}`)
+        .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
+        .style("box-shadow", this.UI_TOKENS.shadow[4])
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
         .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
         .style("color", this.UI_TOKENS.color.primary.default)
-        .style("font-weight", "600")  // Bolder
+        .style("font-weight", "600")
         .style("letter-spacing", "0.1px")
         .style("white-space", "nowrap")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // --- Scrollable Container for main chart content ---
-    // Uses flex: 1 to take remaining space after header, slider, and legend
     this.scrollableContainer = visualWrapper.append("div")
         .attr("class", "criticalPathContainer")
-        .style("flex", "1")  // Take remaining space in flexbox
-        .style("min-height", "0")  // Allow flex child to shrink below content size
-        .style("overflow-anchor", "none")  // CRITICAL: Disable browser scroll anchoring to prevent scroll jumping
+        .style("flex", "1")
+        .style("min-height", "0")
+        .style("overflow-anchor", "none")
         .style("width", "100%")
         .style("overflow-y", "auto")
         .style("overflow-x", "hidden")
         .style("padding-top", `0px`)
-        .style("position", "relative"); // Needed for loading overlay positioning
+        .style("position", "relative");
 
-    // --- Loading overlay (covers chart area while additional segments load) ---
     this.loadingOverlay = this.scrollableContainer.append("div")
         .attr("class", "loading-overlay")
         .style("position", "absolute")
@@ -813,7 +751,6 @@ constructor(options: VisualConstructorOptions) {
         .style("font-weight", "600")
         .text("Loading data…");
 
-    // Row count display
     this.loadingRowsText = overlayContent.append("div")
         .style("font-family", "Segoe UI, sans-serif")
         .style("font-size", "20px")
@@ -838,7 +775,6 @@ constructor(options: VisualConstructorOptions) {
         .style("animation", "loadingBarPulse 1.2s ease-in-out infinite")
         .style("transform", "translateX(-30%)");
 
-    // Progress details (segments, time elapsed)
     this.loadingProgressText = overlayContent.append("div")
         .style("font-family", "Segoe UI, sans-serif")
         .style("font-size", "11px")
@@ -846,7 +782,6 @@ constructor(options: VisualConstructorOptions) {
         .style("text-align", "center")
         .text("");
 
-    // Keyframes for the loading bar animation (added once)
     if (!document.getElementById("loading-bar-pulse-style")) {
         const styleEl = document.createElement("style");
         styleEl.id = "loading-bar-pulse-style";
@@ -854,29 +789,25 @@ constructor(options: VisualConstructorOptions) {
         document.head.appendChild(styleEl);
     }
 
-    // --- Main SVG for the chart content ---
     this.mainSvg = this.scrollableContainer.append("svg")
         .classed("criticalPathVisual", true)
         .style("display", "block");
 
-    // --- Group for chart content ---
     this.mainGroup = this.mainSvg.append("g").classed("main-group", true);
 
-    // --- SVG ClipPath for chart area (prevents bars from rendering past left margin when zoomed) ---
     const defs = this.mainSvg.append("defs");
     this.chartClipPath = defs.append("clipPath")
         .attr("id", "chart-area-clip");
     this.chartClipRect = this.chartClipPath.append("rect")
         .attr("x", 0)
         .attr("y", 0)
-        .attr("width", 1000)  // Will be updated in setupTimeBasedSVGAndScales
+        .attr("width", 1000)
         .attr("height", 10000);
 
-    // --- Layers within the main SVG ---
     this.gridLayer = this.mainGroup.append("g")
         .attr("class", "grid-layer")
         .attr("clip-path", "url(#chart-area-clip)");
-    // Unclipped horizontal grid behind labels (extends into left margin)
+
     this.labelGridLayer = this.mainGroup.append("g")
         .attr("class", "label-grid-layer");
     this.arrowLayer = this.mainGroup.append("g")
@@ -885,22 +816,18 @@ constructor(options: VisualConstructorOptions) {
     this.taskLayer = this.mainGroup.append("g")
         .attr("class", "task-layer")
         .attr("clip-path", "url(#chart-area-clip)");
-    // Task labels live in their own layer without clipping so they remain visible in the left margin
+
     this.taskLabelLayer = this.mainGroup.append("g")
         .attr("class", "task-label-layer");
 
-    // --- Timeline Zoom Slider Container (Microsoft-style axis zoom) ---
-    // Created BEFORE legend so it appears above the legend in the visual
     this.createZoomSliderUI(visualWrapper);
 
-    // --- Sticky Legend Footer Container (similar to header) ---
-    // Positioned at the very bottom of the visual
     this.legendContainer = visualWrapper.append("div")
         .attr("class", "sticky-legend-footer")
         .style("width", "100%")
         .style("height", `${this.legendFooterHeight}px`)
         .style("min-height", `${this.legendFooterHeight}px`)
-        .style("flex-shrink", "0")  // Don't shrink the legend
+        .style("flex-shrink", "0")
         .style("z-index", "100")
         .style("background-color", "white")
         .style("border-top", "2px solid #e0e0e0")
@@ -908,7 +835,6 @@ constructor(options: VisualConstructorOptions) {
         .style("display", "none")
         .style("overflow", "hidden");
 
-    // --- Canvas layer for high-performance rendering ---
     this.canvasElement = document.createElement('canvas');
     this.canvasElement.style.position = 'absolute';
     this.canvasElement.style.pointerEvents = 'auto';
@@ -916,29 +842,23 @@ constructor(options: VisualConstructorOptions) {
     this.canvasElement.style.display = 'none';
     this.canvasElement.style.visibility = 'hidden';
 
-    // Critical rendering optimizations for published mode
     this.canvasElement.style.imageRendering = '-webkit-optimize-contrast';
     this.canvasElement.style.imageRendering = 'crisp-edges';
     (this.canvasElement.style as any).msInterpolationMode = 'nearest-neighbor';
-    this.canvasElement.style.transform = 'translate3d(0,0,0)'; // Force GPU layer
+    this.canvasElement.style.transform = 'translate3d(0,0,0)';
     this.canvasElement.style.backfaceVisibility = 'hidden';
     this.canvasElement.style.webkitBackfaceVisibility = 'hidden';
     this.canvasElement.style.willChange = 'transform';
     this.canvasElement.style.perspective = '1000px';
 
-    // Add canvas to the scrollable container
     this.scrollableContainer.node()?.appendChild(this.canvasElement);
 
-    // Create D3 selection for the canvas
     this.canvasLayer = d3.select(this.canvasElement);
 
-    // Apply publish mode optimizations
     this.applyPublishModeOptimizations();
 
-    // --- Tooltip with improved styling ---
-    // Remove any existing tooltips from this instance
     d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
-    
+
     this.tooltipDiv = d3.select("body").append("div")
         .attr("class", `critical-path-tooltip ${this.tooltipClassName}`)
         .style("position", "absolute")
@@ -955,7 +875,6 @@ constructor(options: VisualConstructorOptions) {
         .style("line-height", "1.4")
         .style("color", "#333");
 
-    // ACCESSIBILITY: Create ARIA live region for screen reader announcements
     const existingLiveRegion = d3.select("body").select(".sr-live-region");
     if (existingLiveRegion.empty()) {
         d3.select("body").append("div")
@@ -969,13 +888,10 @@ constructor(options: VisualConstructorOptions) {
             .style("overflow", "hidden");
     }
 
-    // Initialize trace mode
     this.traceMode = "backward";
-    
-    // Create connector lines toggle button with modern styling
+
     this.createConnectorLinesToggleButton();
-    
-    // Add canvas click handler using native element
+
     d3.select(this.canvasElement).on("click", (event: MouseEvent) => {
         if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
 
@@ -1005,7 +921,6 @@ constructor(options: VisualConstructorOptions) {
         }
     });
 
-    // Add canvas mousemove handler
     d3.select(this.canvasElement).on("mousemove", (event: MouseEvent) => {
         if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
 
@@ -1034,7 +949,6 @@ constructor(options: VisualConstructorOptions) {
         }
     });
 
-    // Add mouseout handler
     d3.select(this.canvasElement).on("mouseout", () => {
         this.setHoveredTask(null);
         this.hideTooltip();
@@ -1045,12 +959,10 @@ constructor(options: VisualConstructorOptions) {
 private forceCanvasRefresh(): void {
     this.debugLog("Forcing canvas refresh");
 
-    // Clear canvas if it exists
     if (this.canvasElement && this.canvasContext) {
         this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
     }
 
-    // Clear SVG elements
     if (this.taskLayer) {
         this.taskLayer.selectAll("*").remove();
     }
@@ -1064,16 +976,13 @@ private forceCanvasRefresh(): void {
         this.labelGridLayer.selectAll("*").remove();
     }
 
-    // Clear WBS group layer
     if (this.wbsGroupLayer) {
         this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
     }
 
-    // Recalculate visible tasks based on current scroll position (preserve scroll state)
     if (this.scrollableContainer?.node() && this.allTasksToShow?.length > 0) {
         this.calculateVisibleTasks();
 
-        // Force immediate redraw if we have scales
         if (this.xScale && this.yScale) {
             requestAnimationFrame(() => {
                 this.redrawVisibleTasks();
@@ -1086,7 +995,7 @@ private debouncedUpdate(): void {
     if (this.updateDebounceTimeout) {
         clearTimeout(this.updateDebounceTimeout);
     }
-    
+
     this.updateDebounceTimeout = setTimeout(() => {
         if (this.pendingUpdate) {
             const options = this.pendingUpdate;
@@ -1102,21 +1011,21 @@ private requestUpdate(forceFullUpdate: boolean = false): void {
         console.error("Cannot trigger update - lastUpdateOptions is null.");
         return;
     }
-    
+
     if (forceFullUpdate) {
         this.forceFullUpdate = true;
     }
-    
+
     this.pendingUpdate = this.lastUpdateOptions;
     this.debouncedUpdate();
 }
 
 private applyPublishModeOptimizations(): void {
-    // Detect if we're in Power BI Service (iframe context)
+
     const isInIframe = window.self !== window.top;
-    
+
     if (isInIframe || window.location.hostname.includes('powerbi.com')) {
-        // Apply global CSS fixes for Power BI Service
+
         const styleId = 'critical-path-publish-fixes';
         if (!document.getElementById(styleId)) {
             const style = document.createElement('style');
@@ -1155,8 +1064,7 @@ private applyPublishModeOptimizations(): void {
             `;
             document.head.appendChild(style);
         }
-        
-        // Force a specific zoom level reset if possible
+
         if (this.target) {
             this.target.style.zoom = '1';
             (this.target.style as any).imageRendering = '-webkit-optimize-contrast';
@@ -1165,21 +1073,20 @@ private applyPublishModeOptimizations(): void {
 }
 
 private setupSVGRenderingHints(): void {
-    // Set rendering hints for all SVG elements
+
     if (this.mainSvg) {
         this.mainSvg
             .attr("shape-rendering", "crispEdges")
             .attr("text-rendering", "optimizeLegibility");
     }
-    
+
     if (this.headerSvg) {
         this.headerSvg
             .attr("shape-rendering", "crispEdges")
             .attr("text-rendering", "optimizeLegibility");
     }
-    
-    // Apply to groups
-    [this.mainGroup, this.gridLayer, this.arrowLayer, this.taskLayer, 
+
+    [this.mainGroup, this.gridLayer, this.arrowLayer, this.taskLayer,
      this.headerGridLayer, this.toggleButtonGroup].forEach(group => {
         if (group) {
             group.attr("shape-rendering", "geometricPrecision");
@@ -1216,27 +1123,24 @@ private ensureTaskSortCache(signature: string): void {
 }
 
 private determineUpdateType(options: VisualUpdateOptions): UpdateType {
-    // Store and reset flag immediately with try-finally for safety
+
     const wasForced = this.forceFullUpdate;
     try {
         this.forceFullUpdate = false;
-        
+
         if (wasForced) {
             this.debugLog("Force full update requested");
             return UpdateType.Full;
         }
-        
-        // Check if this is the first update
+
         if (!this.lastUpdateOptions) {
             return UpdateType.Full;
         }
 
-        // Use Power BI Update Type Flags for robust detection
         let dataChanged = false;
         let settingsChanged = false;
         let viewportChanged = false;
 
-        // Check flags provided by Power BI (options.type is a bitmask)
         if (options.type & VisualUpdateType.Data) {
             dataChanged = true;
             this.debugLog("Data change detected via PBI flags (e.g., external filter).");
@@ -1244,16 +1148,15 @@ private determineUpdateType(options: VisualUpdateOptions): UpdateType {
         if (options.type & VisualUpdateType.Resize) {
             viewportChanged = true;
         }
-        if ((options.type & VisualUpdateType.Style) || 
+        if ((options.type & VisualUpdateType.Style) ||
             (options.type & VisualUpdateType.ViewMode)) {
              settingsChanged = true;
         }
 
-        // Fallback manual checks for redundancy
         if (!dataChanged) {
             const currentDataView = options.dataViews?.[0];
             const lastDataView = this.lastUpdateOptions.dataViews?.[0];
-            
+
             if (currentDataView && lastDataView) {
                 const currentRowCount = currentDataView.table?.rows?.length || 0;
                 const lastRowCount = lastDataView.table?.rows?.length || 0;
@@ -1266,23 +1169,20 @@ private determineUpdateType(options: VisualUpdateOptions): UpdateType {
             }
         }
 
-        // Ensure viewportChanged captures manual comparison if flag was missed
         if (!viewportChanged) {
-            viewportChanged = this.lastViewport ? 
-                (options.viewport.width !== this.lastViewport.width || 
+            viewportChanged = this.lastViewport ?
+                (options.viewport.width !== this.lastViewport.width ||
                 options.viewport.height !== this.lastViewport.height) : true;
         }
-        
-        // Check if viewport changed significantly (likely focus mode)
+
         let isSignificantViewportChange = false;
         if (this.lastViewport && viewportChanged) {
             const widthChangeRatio = Math.abs(options.viewport.width - this.lastViewport.width) / (this.lastViewport.width || 1);
             const heightChangeRatio = Math.abs(options.viewport.height - this.lastViewport.height) / (this.lastViewport.height || 1);
-            isSignificantViewportChange = widthChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD || 
+            isSignificantViewportChange = widthChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD ||
                                         heightChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD;
         }
-        
-        // Determine final update type based on prioritized flags
+
         if (dataChanged) {
             return UpdateType.Full;
         } else if (isSignificantViewportChange) {
@@ -1290,24 +1190,23 @@ private determineUpdateType(options: VisualUpdateOptions): UpdateType {
             return UpdateType.Full;
         } else if (viewportChanged && !dataChanged && !settingsChanged) {
             return UpdateType.ViewportOnly;
-        } else if (settingsChanged && !dataChanged) { 
+        } else if (settingsChanged && !dataChanged) {
             return UpdateType.SettingsOnly;
         }
-        
-        // If multiple minor flags are set, default to a full update for safety
+
         if (settingsChanged || viewportChanged) {
             return UpdateType.Full;
         }
 
         return UpdateType.Full;
     } finally {
-        // Ensure flag is always reset even if error occurs
+
         this.forceFullUpdate = false;
     }
 }
 
 public destroy(): void {
-    // Clear all timeouts
+
     if (this.updateDebounceTimeout) {
         clearTimeout(this.updateDebounceTimeout);
         this.updateDebounceTimeout = null;
@@ -1323,31 +1222,25 @@ public destroy(): void {
         this.dropdownFilterTimeout = null;
     }
 
-    // Remove this instance's tooltip
     d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
 
-    // Clear any scroll listeners
     if (this.scrollListener && this.scrollableContainer) {
         this.scrollableContainer.on("scroll", null);
         this.scrollListener = null;
     }
 
-    // Detach global zoom slider listeners
     this.detachZoomDragListeners();
-    
-    // Clear pending updates
+
     this.pendingUpdate = null;
-    
-    // Apply empty filter
+
     this.applyTaskFilter([]);
-    
-    // Remove any global styles added
+
     const styleId = 'critical-path-publish-fixes';
     const styleElement = document.getElementById(styleId);
     if (styleElement) {
         styleElement.remove();
     }
-    
+
     this.debugLog("Critical Path Visual destroyed.");
 }
 
@@ -1402,10 +1295,6 @@ private toggleTaskDisplayInternal(): void {
         this.showAllTasksInternal = !this.showAllTasksInternal;
         this.debugLog("New showAllTasksInternal value:", this.showAllTasksInternal);
 
-        // DON'T update button text here - let createOrUpdateToggleButton() rebuild entire button
-        // This ensures the icon updates properly along with the text
-
-        // Persist state
         this.host.persistProperties({
             merge: [{
                 objectName: "displayOptions",
@@ -1413,21 +1302,16 @@ private toggleTaskDisplayInternal(): void {
                 selector: null
             }]
         });
-        
-        // Force canvas refresh before update
+
         this.forceCanvasRefresh();
 
-        // BUG-001 FIX: Preserve scroll position when toggling Show All/Critical
-        // The scroll position will be clamped if content becomes shorter
         this.captureScrollPosition();
 
-        // Force full update
         this.forceFullUpdate = true;
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
 
-        // FIX BUG-014: Update mini chart after toggle to reflect filtered data
         this.drawZoomSliderMiniChart();
 
         this.debugLog("Visual update triggered by internal toggle");
@@ -1442,11 +1326,8 @@ private toggleBaselineDisplayInternal(): void {
         this.showBaselineInternal = !this.showBaselineInternal;
         this.debugLog("New showBaselineInternal value:", this.showBaselineInternal);
 
-        // Update button appearance immediately
         this.createOrUpdateBaselineToggleButton(this.lastUpdateOptions?.viewport.width || 800);
 
-        // Persist the state back to the formatting pane setting so it's saved with the report
-        // and the format pane toggle stays in sync.
         this.host.persistProperties({
             merge: [{
                 objectName: "taskAppearance",
@@ -1455,23 +1336,16 @@ private toggleBaselineDisplayInternal(): void {
             }]
         });
 
-        // STRICT SCROLL PRESERVATION: Capture exact scroll position before update
-        // Unlike WBS toggle (which needs anchor-based restoration), baseline toggle
-        // should preserve the exact same scroll position since row layout doesn't change.
         if (this.scrollableContainer?.node()) {
             this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
             this.debugLog(`Baseline toggle: Captured scrollTop=${this.preservedScrollTop}`);
         }
 
-        // Toggling baseline can affect the X-axis scale if baseline dates are outside the range
-        // of actual dates (because setupTimeBasedSVGAndScales now depends on showBaselineInternal).
-        // Therefore, a full update is required to recalculate scales.
         this.forceFullUpdate = true;
-        this.preserveScrollOnUpdate = true; // Preserve scroll during scale recalculation
-        // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
+        this.preserveScrollOnUpdate = true;
+
         this.scrollPreservationUntil = Date.now() + 1500;
 
-        // FIX #5: Clear any pending scroll throttle to ensure full update executes
         if (this.scrollThrottleTimeout) {
             clearTimeout(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
@@ -1493,10 +1367,8 @@ private togglePreviousUpdateDisplayInternal(): void {
         this.showPreviousUpdateInternal = !this.showPreviousUpdateInternal;
         this.debugLog("New showPreviousUpdateInternal value:", this.showPreviousUpdateInternal);
 
-        // Update button appearance immediately
         this.createOrUpdatePreviousUpdateToggleButton(this.lastUpdateOptions?.viewport.width || 800);
 
-        // Persist the state
         this.host.persistProperties({
             merge: [{
                 objectName: "taskAppearance",
@@ -1505,21 +1377,16 @@ private togglePreviousUpdateDisplayInternal(): void {
             }]
         });
 
-        // STRICT SCROLL PRESERVATION: Capture exact scroll position before update
-        // Unlike WBS toggle (which needs anchor-based restoration), previous update toggle
-        // should preserve the exact same scroll position since row layout doesn't change.
         if (this.scrollableContainer?.node()) {
             this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
             this.debugLog(`Previous update toggle: Captured scrollTop=${this.preservedScrollTop}`);
         }
 
-        // Force full update as scales may need recalculation
         this.forceFullUpdate = true;
-        this.preserveScrollOnUpdate = true; // Preserve scroll during scale recalculation
-        // Set a 500ms cooldown to prevent scroll reset from Power BI re-triggered updates
+        this.preserveScrollOnUpdate = true;
+
         this.scrollPreservationUntil = Date.now() + 1500;
 
-        // FIX #5: Clear any pending scroll throttle to ensure full update executes
         if (this.scrollThrottleTimeout) {
             clearTimeout(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
@@ -1538,7 +1405,6 @@ private togglePreviousUpdateDisplayInternal(): void {
 private createOrUpdateToggleButton(viewportWidth: number): void {
     if (!this.toggleButtonGroup || !this.headerSvg) return;
 
-    // Remove all event handlers before clearing
     this.toggleButtonGroup.selectAll("*")
         .on("click", null)
         .on("mouseover", null)
@@ -1546,14 +1412,12 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
 
     this.toggleButtonGroup.selectAll("*").remove();
 
-    // Get responsive layout dimensions
     const layout = this.getHeaderButtonLayout(viewportWidth);
     const buttonWidth = layout.showAllCritical.width;
     const buttonHeight = this.UI_TOKENS.height.standard;
     const buttonX = layout.showAllCritical.x;
     const buttonY = this.UI_TOKENS.spacing.sm;
 
-    // Button state logic (text shows what clicking WILL do)
     const isShowingCritical = this.showAllTasksInternal;
 
     this.toggleButtonGroup
@@ -1563,7 +1427,6 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .attr("aria-pressed", (!isShowingCritical).toString())
         .attr("tabindex", "0");
 
-    // Professional button background with refined shadow
     const buttonRect = this.toggleButtonGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
@@ -1575,15 +1438,11 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // ICON shows what you WILL see when you click (matches button text)
-    // When button says "Show Critical" -> show RED critical icon
-    // When button says "Show All" -> show GREEN bars icon
     const iconPadding = this.UI_TOKENS.spacing.lg;
     const iconColor = isShowingCritical
-        ? this.UI_TOKENS.color.danger.default   // RED icon when button says "Show Critical"
-        : this.UI_TOKENS.color.success.default; // GREEN icon when button says "Show All"
+        ? this.UI_TOKENS.color.danger.default
+        : this.UI_TOKENS.color.success.default;
 
-    // Icon background circle
     this.toggleButtonGroup.append("circle")
         .attr("cx", iconPadding)
         .attr("cy", buttonHeight / 2)
@@ -1592,22 +1451,19 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Icon path (RED funnel for critical, GREEN bars for all)
     this.toggleButtonGroup.append("path")
         .attr("d", isShowingCritical
-            ? "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z"  // RED funnel when button says "Show Critical"
-            : "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3")  // GREEN bars when button says "Show All"
+            ? "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z"
+            : "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3")
         .attr("transform", `translate(${iconPadding}, ${buttonHeight/2})`)
         .attr("stroke", iconColor)
         .attr("stroke-width", 2.25)
-        .attr("fill", isShowingCritical ? iconColor : "none")  // Fill the funnel when showing critical icon
+        .attr("fill", isShowingCritical ? iconColor : "none")
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round")
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Button text shows what clicking will DO
-    // Use shorter text in narrow mode
     const buttonText = layout.mode === 'narrow'
         ? (isShowingCritical ? "Critical" : "All")
         : (isShowingCritical ? "Show Critical" : "Show All");
@@ -1626,7 +1482,6 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .text(buttonText);
 
-    // Professional hover states with refined animations
     const self = this;
     this.toggleButtonGroup
         .on("mouseover", function() {
@@ -1656,7 +1511,6 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
                 .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
         });
 
-    // Clickable overlay
     const clickOverlay = this.toggleButtonGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
@@ -1665,7 +1519,6 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         .style("fill", "transparent")
         .style("cursor", "pointer");
 
-    // Click and keyboard handlers
     clickOverlay.on("click", function(event) {
         if (event) event.stopPropagation();
         self.toggleTaskDisplayInternal();
@@ -1678,7 +1531,6 @@ private createOrUpdateToggleButton(viewportWidth: number): void {
         }
     });
 
-    // Enhanced tooltip (describes what clicking will do)
     this.toggleButtonGroup.append("title")
         .text(isShowingCritical
             ? "Click to filter and show only critical path tasks"
@@ -1690,19 +1542,16 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
 
     this.headerSvg.selectAll(".baseline-toggle-group").remove();
 
-    // Check if the baseline fields are available in the data roles
     const dataView = this.lastUpdateOptions?.dataViews?.[0];
     const hasBaselineStart = dataView ? this.hasDataRole(dataView, 'baselineStartDate') : false;
     const hasBaselineFinish = dataView ? this.hasDataRole(dataView, 'baselineFinishDate') : false;
     const isAvailable = hasBaselineStart && hasBaselineFinish;
 
-    // Professional color theming with better contrast
     const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
-    const lightBaselineColor = this.lightenColor(baselineColor, 0.93);  // Lighter for better contrast
+    const lightBaselineColor = this.lightenColor(baselineColor, 0.93);
     const hoverBaselineColor = this.lightenColor(baselineColor, 0.85);
     const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
 
-    // Get responsive layout
     const layout = this.getHeaderButtonLayout(viewportWidth);
     const { x: buttonX, width: buttonWidth, iconOnly } = layout.baseline;
 
@@ -1720,7 +1569,6 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
 
     baselineToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    // Professional button styling with user color theming
     const buttonRect = baselineToggleGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
@@ -1733,12 +1581,9 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         .style("filter", isAvailable ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Professional icon container with better visual hierarchy
-    // Center icon when in icon-only mode, otherwise position for text
     const iconX = iconOnly ? (buttonWidth / 2 - 8) : (this.UI_TOKENS.spacing.lg + 2);
     const iconY = buttonHeight / 2;
 
-    // Icon background for better visual separation
     baselineToggleGroup.append("circle")
         .attr("cx", iconX + 8)
         .attr("cy", iconY)
@@ -1748,8 +1593,6 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Enhanced icon bars with professional styling
-    // Main bar icon (top) - refined with better proportions
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
         .attr("y", iconY - 8)
@@ -1761,7 +1604,6 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Previous update bar icon (middle)
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
         .attr("y", iconY - 1.5)
@@ -1774,7 +1616,6 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Baseline bar icon (bottom) - highlighted when active with better visual weight
     baselineToggleGroup.append("rect")
         .attr("x", iconX)
         .attr("y", iconY + 4)
@@ -1787,7 +1628,6 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
         .style("pointer-events", "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Professional typography with better spacing - only show when not icon-only
     if (!iconOnly) {
         baselineToggleGroup.append("text")
             .attr("x", iconX + 26)
@@ -1803,7 +1643,6 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
             .text("Baseline");
     }
 
-    // Enhanced tooltip
     baselineToggleGroup.append("title")
         .text(isAvailable
             ? (this.showBaselineInternal ? "Click to hide baseline task bars" : "Click to show baseline task bars below main bars")
@@ -1812,7 +1651,6 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
     if (isAvailable) {
         const self = this;
 
-        // Professional hover interactions with refined animations
         baselineToggleGroup
             .on("mouseover", function() {
                 d3.select(this).select("rect")
@@ -1844,7 +1682,6 @@ private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
             self.toggleBaselineDisplayInternal();
         });
 
-        // Keyboard support
         baselineToggleGroup.on("keydown", function(event) {
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
@@ -1859,19 +1696,16 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
 
     this.headerSvg.selectAll(".previous-update-toggle-group").remove();
 
-    // Check if the previous update fields are available in the data roles
     const dataView = this.lastUpdateOptions?.dataViews?.[0];
     const hasPreviousUpdateStart = dataView ? this.hasDataRole(dataView, 'previousUpdateStartDate') : false;
     const hasPreviousUpdateFinish = dataView ? this.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
     const isAvailable = hasPreviousUpdateStart && hasPreviousUpdateFinish;
 
-    // Get colors from settings with enhanced theming
     const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
     const lightPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.90);
     const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.80);
     const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
 
-    // Get responsive layout
     const layout = this.getHeaderButtonLayout(viewportWidth);
     const { x: buttonX, width: buttonWidth, iconOnly } = layout.previousUpdate;
 
@@ -1889,7 +1723,6 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
 
     previousUpdateToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    // Enhanced button styling with user color theming
     const buttonRect = previousUpdateToggleGroup.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
@@ -1902,12 +1735,9 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .style("filter", isAvailable ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Enhanced icon representing the stacking order (Main -> Previous Update -> Baseline)
-    // Center icon when in icon-only mode, otherwise position for text
     const iconX = iconOnly ? (buttonWidth / 2 - 8) : this.UI_TOKENS.spacing.lg;
     const iconY = buttonHeight / 2;
 
-    // Icon background circle
     previousUpdateToggleGroup.append("circle")
         .attr("cx", iconX + 8)
         .attr("cy", iconY)
@@ -1916,7 +1746,6 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("opacity", this.showPreviousUpdateInternal ? 0.15 : 0.5)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Main bar icon (top)
     previousUpdateToggleGroup.append("rect")
         .attr("x", iconX)
         .attr("y", iconY - 7)
@@ -1927,7 +1756,6 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .attr("fill", this.showPreviousUpdateInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Previous update bar icon (middle) - highlighted when active
     previousUpdateToggleGroup.append("rect")
         .attr("x", iconX)
         .attr("y", iconY - 1)
@@ -1939,7 +1767,6 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Baseline bar icon (bottom)
     previousUpdateToggleGroup.append("rect")
         .attr("x", iconX)
         .attr("y", iconY + 4)
@@ -1951,7 +1778,6 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
         .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Enhanced typography - only show when not icon-only
     if (!iconOnly) {
         previousUpdateToggleGroup.append("text")
             .attr("x", iconX + 24)
@@ -1967,7 +1793,6 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
             .text("Prev Update");
     }
 
-    // Enhanced tooltip
     previousUpdateToggleGroup.append("title")
         .text(isAvailable
             ? (this.showPreviousUpdateInternal ? "Click to hide previous update task bars" : "Click to show previous update task bars between main and baseline")
@@ -1976,7 +1801,6 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
     if (isAvailable) {
         const self = this;
 
-        // Enhanced hover interactions
         previousUpdateToggleGroup
             .on("mouseover", function() {
                 d3.select(this).select("rect")
@@ -2004,7 +1828,6 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
             self.togglePreviousUpdateDisplayInternal();
         });
 
-        // Keyboard support
         previousUpdateToggleGroup.on("keydown", function(event) {
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
@@ -2015,18 +1838,16 @@ private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
 }
 
 private lightenColor(color: string, factor: number): string {
-    // Convert hex to RGB
+
     const hex = color.replace('#', '');
     const r = parseInt(hex.substr(0, 2), 16);
     const g = parseInt(hex.substr(2, 2), 16);
     const b = parseInt(hex.substr(4, 2), 16);
-    
-    // Lighten by blending with white
+
     const newR = Math.round(r + (255 - r) * factor);
     const newG = Math.round(g + (255 - g) * factor);
     const newB = Math.round(b + (255 - b) * factor);
-    
-    // Convert back to hex
+
     return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
 }
 
@@ -2038,7 +1859,6 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
     const showConnectorToggle = this.settings?.connectorLines?.showConnectorToggle?.value ?? false;
     if (!showConnectorToggle) return;
 
-    // Get responsive layout
     const layout = this.getHeaderButtonLayout(viewportWidth || 800);
     const { x: buttonX, size: buttonSize } = layout.connectorLines;
 
@@ -2054,7 +1874,6 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
 
     connectorToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    // Enhanced button with active/inactive states
     const buttonRect = connectorToggleGroup.append("rect")
         .attr("width", buttonSize)
         .attr("height", buttonSize)
@@ -2070,13 +1889,10 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
         .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Enhanced connector icon with better visibility
-    // Nudge icon up to leave more breathing room for badge label
     const iconCenter = (buttonSize / 2) - 2;
     const iconG = connectorToggleGroup.append("g")
         .attr("transform", `translate(${iconCenter}, ${iconCenter})`);
 
-    // Connection path with improved design
     iconG.append("path")
         .attr("d", "M-6,-3 L0,3 L6,-3")
         .attr("stroke", this.showConnectorLinesInternal
@@ -2089,7 +1905,6 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
         .attr("stroke-dasharray", this.showConnectorLinesInternal ? "none" : "3,2")
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Small connection dots for clarity
     if (this.showConnectorLinesInternal) {
         iconG.append("circle")
             .attr("cx", -6)
@@ -2104,13 +1919,11 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
             .attr("fill", this.UI_TOKENS.color.success.default);
     }
 
-    // Enhanced tooltip
     connectorToggleGroup.append("title")
         .text(this.showConnectorLinesInternal
             ? "Click to hide connector lines between dependent tasks"
             : "Click to show connector lines between dependent tasks");
 
-    // Enhanced hover interactions
     const self = this;
     connectorToggleGroup
         .on("mouseover", function() {
@@ -2153,7 +1966,6 @@ private createConnectorLinesToggleButton(viewportWidth?: number): void {
         self.toggleConnectorLinesDisplay();
     });
 
-    // Keyboard support
     connectorToggleGroup.on("keydown", function(event) {
         if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
@@ -2167,7 +1979,6 @@ private createOrUpdateWbsEnableToggleButton(viewportWidth?: number): void {
 
     this.headerSvg.selectAll(".wbs-enable-toggle-group").remove();
 
-    // Only show when WBS columns exist in metadata and the toggle is allowed
     const wbsColumnsExist = this.wbsDataExistsInMetadata;
     const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
     if (!wbsColumnsExist || !showWbsToggle) return;
@@ -2205,7 +2016,7 @@ private createOrUpdateWbsEnableToggleButton(viewportWidth?: number): void {
 
     const textY = buttonHeight / 2;
     group.append("text")
-        .attr("x", buttonWidth / 2 + 6) // nudge right to leave room for state dot
+        .attr("x", buttonWidth / 2 + 6)
         .attr("y", textY)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "central")
@@ -2215,7 +2026,6 @@ private createOrUpdateWbsEnableToggleButton(viewportWidth?: number): void {
         .style("fill", textColor)
         .text("WBS");
 
-    // State dot on the left edge for quick visual cue
     group.append("circle")
         .attr("cx", 10)
         .attr("cy", textY)
@@ -2264,11 +2074,10 @@ private toggleWbsEnabled(): void {
 
         const newEnabled = !this.settings.wbsGrouping.enableWbsGrouping.value;
         this.settings.wbsGrouping.enableWbsGrouping.value = newEnabled;
-        this.wbsEnableOverride = newEnabled; // ensure immediate application on next update
+        this.wbsEnableOverride = newEnabled;
         this.lastWbsToggleTimestamp = Date.now();
         this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
 
-        // Clear WBS headers immediately when turning off
         if (!newEnabled) {
             this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
             this.taskLabelLayer?.selectAll("*").remove();
@@ -2280,7 +2089,6 @@ private toggleWbsEnabled(): void {
             this.wbsToggleScrollAnchor = null;
         }
 
-        // Persist the state so it sticks in reading mode
         this.host.persistProperties({
             merge: [{
                 objectName: "wbsGrouping",
@@ -2289,7 +2097,6 @@ private toggleWbsEnabled(): void {
             }]
         });
 
-        // Preserve scroll where possible
         if (this.scrollableContainer?.node()) {
             this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
             this.preserveScrollOnUpdate = true;
@@ -2298,20 +2105,18 @@ private toggleWbsEnabled(): void {
 
         this.forceFullUpdate = true;
 
-        // FIX #5: Clear any pending scroll throttle to ensure full update executes
         if (this.scrollThrottleTimeout) {
             clearTimeout(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
         }
 
-        // Update the button appearance immediately
         const viewportWidth = this.lastUpdateOptions?.viewport.width || 800;
         this.createOrUpdateWbsEnableToggleButton(viewportWidth);
 
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         } else {
-            // Fallback: at least clear visible WBS headers
+
             this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
         }
     } catch (error) {
@@ -2328,10 +2133,6 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
 
     this.headerSvg.selectAll(".wbs-expand-toggle-group").remove();
 
-    // FIXED: Use metadata-based check for button visibility.
-    // This ensures the button remains visible even when filters hide all WBS-assigned tasks.
-    // wbsDataExistsInMetadata checks if WBS columns exist in the dataView metadata,
-    // while wbsDataExists checks if current tasks have WBS values (affected by filters).
     const wbsColumnsExist = this.wbsDataExistsInMetadata;
     const wbsEnabled = wbsColumnsExist && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
     const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
@@ -2351,7 +2152,6 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
         ? this.getWbsExpandLevelLabel(nextLevelValue)
         : this.getWbsExpandLevelLabel(currentLevel);
 
-    // Get responsive layout
     const layout = this.getHeaderButtonLayout(viewportWidth || 800);
     const { x: buttonX, size: buttonSize } = layout.wbsExpandToggle;
 
@@ -2369,7 +2169,6 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
 
     wbsToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    // Button background with active/inactive states
     wbsToggleGroup.append("rect")
         .attr("width", buttonSize)
         .attr("height", buttonSize)
@@ -2385,9 +2184,8 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
         .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // WBS expand icon: plus with downward chevron
     const iconCenterX = buttonSize / 2;
-    const iconCenterY = (buttonSize / 2) - 4; // Nudge up for badge breathing room
+    const iconCenterY = (buttonSize / 2) - 4;
     const iconG = wbsToggleGroup.append("g")
         .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
 
@@ -2395,13 +2193,11 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
         ? this.UI_TOKENS.color.primary.default
         : this.UI_TOKENS.color.neutral.grey130;
 
-    // Soft background circle for contrast
     iconG.append("circle")
         .attr("r", 11)
         .attr("fill", this.wbsExpandedInternal ? this.UI_TOKENS.color.primary.subtle : this.UI_TOKENS.color.neutral.grey10)
         .attr("opacity", 0.7);
 
-    // Plus sign
     iconG.append("path")
         .attr("d", "M-4,0 L4,0 M0,-4 L0,4")
         .attr("stroke", iconColor)
@@ -2409,7 +2205,6 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
         .attr("fill", "none")
         .attr("stroke-linecap", "round");
 
-    // Downward chevron to indicate expanding
     iconG.append("path")
         .attr("d", "M-4,5 L0,8 L4,5")
         .attr("stroke", iconColor)
@@ -2418,7 +2213,6 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round");
 
-    // Small badge to show current depth (0, L2, L3, All)
     const badgeText = isCustom
         ? "C"
         : currentLevel === 0
@@ -2426,7 +2220,7 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
             : `L${currentLevel}`;
     wbsToggleGroup.append("text")
         .attr("x", buttonSize / 2)
-        .attr("y", buttonSize - 10) // lift badge off the border
+        .attr("y", buttonSize - 10)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "central")
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
@@ -2435,7 +2229,6 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
         .style("fill", iconColor)
         .text(badgeText);
 
-    // Tooltip
     const levelsDesc = this.wbsAvailableLevels.length > 0
         ? this.wbsAvailableLevels.map(l => `L${l}`).join(" -> ")
         : "no levels";
@@ -2445,7 +2238,6 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
     wbsToggleGroup.append("title")
         .text(`${levelLabel}. Next: ${nextLevelLabel}. ${isCustom ? "Manual overrides will be cleared." : expandSteps}`);
 
-    // Hover interactions
     const self = this;
     wbsToggleGroup
         .on("mouseover", function() {
@@ -2486,7 +2278,6 @@ private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
         self.toggleWbsExpandCollapseDisplay();
     });
 
-    // Keyboard support
     wbsToggleGroup.on("keydown", function(event) {
         if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
@@ -2503,7 +2294,6 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
 
     this.headerSvg.selectAll(".wbs-collapse-toggle-group").remove();
 
-    // Use same visibility rules as expand button
     const wbsColumnsExist = this.wbsDataExistsInMetadata;
     const wbsEnabled = wbsColumnsExist && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
     const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
@@ -2523,7 +2313,6 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
         ? this.getWbsExpandLevelLabel(previousLevelValue)
         : this.getWbsExpandLevelLabel(currentLevel);
 
-    // Get responsive layout
     const layout = this.getHeaderButtonLayout(viewportWidth || 800);
     const { x: buttonX, size: buttonSize } = layout.wbsCollapseToggle;
 
@@ -2543,7 +2332,6 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
 
     wbsCollapseGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    // Button background with active/inactive states
     wbsCollapseGroup.append("rect")
         .attr("width", buttonSize)
         .attr("height", buttonSize)
@@ -2559,9 +2347,8 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
         .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Collapse icon: minus with upward chevron
     const iconCenterX = buttonSize / 2;
-    const iconCenterY = (buttonSize / 2) - 4; // Nudge up for badge breathing room
+    const iconCenterY = (buttonSize / 2) - 4;
     const iconG = wbsCollapseGroup.append("g")
         .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
 
@@ -2569,13 +2356,11 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
         ? this.UI_TOKENS.color.primary.default
         : this.UI_TOKENS.color.neutral.grey130;
 
-    // Soft background circle for contrast
     iconG.append("circle")
         .attr("r", 11)
         .attr("fill", isCollapsed ? this.UI_TOKENS.color.primary.subtle : this.UI_TOKENS.color.neutral.grey10)
         .attr("opacity", 0.7);
 
-    // Minus sign
     iconG.append("path")
         .attr("d", "M-5,0 L5,0")
         .attr("stroke", iconColor)
@@ -2583,7 +2368,6 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
         .attr("fill", "none")
         .attr("stroke-linecap", "round");
 
-    // Upward chevron to indicate collapsing direction
     iconG.append("path")
         .attr("d", "M-4,-3 L0,-7 L4,-3")
         .attr("stroke", iconColor)
@@ -2592,7 +2376,6 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
         .attr("stroke-linecap", "round")
         .attr("stroke-linejoin", "round");
 
-    // Small badge to show current depth (0, L2, L3, All)
     const badgeText = isCustom
         ? "C"
         : currentLevel === 0
@@ -2600,7 +2383,7 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
             : `L${currentLevel}`;
     wbsCollapseGroup.append("text")
         .attr("x", buttonSize / 2)
-        .attr("y", buttonSize - 10) // lift badge off the border
+        .attr("y", buttonSize - 10)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "central")
         .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
@@ -2609,7 +2392,6 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
         .style("fill", iconColor)
         .text(badgeText);
 
-    // Tooltip
     const levelsDesc = this.wbsAvailableLevels.length > 0
         ? [...this.wbsAvailableLevels].sort((a, b) => b - a).map(l => `L${l}`).join(" -> ")
         : "no levels";
@@ -2619,7 +2401,6 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
     wbsCollapseGroup.append("title")
         .text(`${levelLabel}. Previous: ${previousLevelLabel}. ${isCustom ? "Manual overrides will be cleared." : collapseSteps}`);
 
-    // Hover interactions
     const self = this;
     wbsCollapseGroup
         .on("mouseover", function() {
@@ -2660,7 +2441,6 @@ private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
         self.toggleWbsCollapseCycleDisplay();
     });
 
-    // Keyboard support
     wbsCollapseGroup.on("keydown", function(event) {
         if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
@@ -2729,12 +2509,10 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
             this.debugLog("Cleared manual WBS overrides for global toggle");
         }
 
-        // Capture an anchor so the viewport stays roughly centered on a nearby group
         this.captureWbsAnchorForGlobalToggle();
 
         this.applyWbsExpandLevel(effectiveNext);
 
-        // Clear overlay layers so upcoming render starts from a clean state
         this.taskLabelLayer?.selectAll("*").remove();
         this.labelGridLayer?.selectAll("*").remove();
         this.wbsGroupLayer?.selectAll("*").remove();
@@ -2742,7 +2520,7 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
         const persistedLevel = effectiveNext === null ? -1 : effectiveNext;
         const expandedStatePayload = this.getWbsExpandedStatePayload();
         const manualGroupsPayload = Array.from(this.wbsManuallyToggledGroups);
-        // Persist the general expand/collapse intent for backwards compatibility
+
         this.host.persistProperties({
             merge: [{
                 objectName: "wbsGrouping",
@@ -2759,18 +2537,15 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
             }]
         });
 
-        // Update button appearance using current viewport width to avoid layout jump
         const viewportWidth = this.lastUpdateOptions?.viewport?.width
             || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
             || 800;
         this.renderWbsCycleButtons(viewportWidth);
 
-        // Force full update to re-render with new expansion state
         this.forceFullUpdate = true;
-        // Preserve scroll via captured anchor during the full update
+
         this.preserveScrollOnUpdate = true;
 
-        // FIX #5: Clear any pending scroll throttle to ensure full update executes
         if (this.scrollThrottleTimeout) {
             clearTimeout(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
@@ -2788,7 +2563,7 @@ private cycleWbsExpandLevel(direction: "next" | "previous"): void {
 
 /**
  * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
- * UPGRADED: Professional pill-style toggle with smooth animations and refined visuals
+ * Professional pill-style toggle with smooth animations and refined visuals
  * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
  */
 private createModeToggleButton(viewportWidth: number): void {
@@ -2801,7 +2576,6 @@ private createModeToggleButton(viewportWidth: number): void {
     const dataView = this.lastUpdateOptions?.dataViews?.[0];
     const hasTotalFloat = dataView ? this.hasDataRole(dataView, 'taskTotalFloat') : false;
 
-    // Get responsive layout dimensions
     const layout = this.getHeaderButtonLayout(viewportWidth);
     const buttonWidth = layout.modeToggle.width;
     const buttonHeight = this.UI_TOKENS.height.standard;
@@ -2819,30 +2593,25 @@ private createModeToggleButton(viewportWidth: number): void {
 
     modeToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    // Main button container
     const buttonG = modeToggleGroup.append("g")
         .attr("class", "mode-button-container");
 
-    // Enhanced theme colors based on mode
     const bgColor = isFloatBased ? this.UI_TOKENS.color.warning.subtle : this.UI_TOKENS.color.primary.subtle;
     const borderColor = isFloatBased ? this.UI_TOKENS.color.warning.default : this.UI_TOKENS.color.primary.default;
     const hoverBgColor = isFloatBased ? this.UI_TOKENS.color.warning.lighter : this.UI_TOKENS.color.primary.lighter;
 
-    // Professional button background with refined styling
     const buttonRect = buttonG.append("rect")
         .attr("width", buttonWidth)
         .attr("height", buttonHeight)
-        .attr("rx", this.UI_TOKENS.radius.pill)  // More pronounced pill shape
+        .attr("rx", this.UI_TOKENS.radius.pill)
         .attr("ry", this.UI_TOKENS.radius.pill)
         .style("fill", bgColor)
         .style("stroke", borderColor)
-        .style("stroke-width", 2)  // Heavier border for premium feel
+        .style("stroke-width", 2)
         .style("filter", hasTotalFloat ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
         .style("opacity", hasTotalFloat ? 1 : 0.4)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Professional mode indicator pill with refined design
-    // Scale pill size based on button width
     const pillWidth = Math.min(106, buttonWidth - 20);
     const pillHeight = 22;
     const pillG = buttonG.append("g")
@@ -2850,7 +2619,6 @@ private createModeToggleButton(viewportWidth: number): void {
 
     const pillX = isFloatBased ? pillWidth/2 : 0;
 
-    // Background track with refined styling
     pillG.append("rect")
         .attr("class", "mode-pill-bg")
         .attr("x", 0)
@@ -2859,10 +2627,9 @@ private createModeToggleButton(viewportWidth: number): void {
         .attr("height", pillHeight)
         .attr("rx", this.UI_TOKENS.radius.large)
         .attr("ry", this.UI_TOKENS.radius.large)
-        .style("fill", this.UI_TOKENS.color.neutral.grey20)  // Lighter track
+        .style("fill", this.UI_TOKENS.color.neutral.grey20)
         .style("opacity", 0.8);
 
-    // Professional sliding pill indicator with smooth animation and better shadow
     const slidingPill = pillG.append("rect")
         .attr("class", "mode-pill")
         .attr("x", pillX)
@@ -2872,13 +2639,11 @@ private createModeToggleButton(viewportWidth: number): void {
         .attr("rx", this.UI_TOKENS.radius.large)
         .attr("ry", this.UI_TOKENS.radius.large)
         .style("fill", borderColor)
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[4]})`)  // Better shadow
+        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[4]})`)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.slow}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Professional mode labels with enhanced typography
     const labelY = 0;
 
-    // LP label with better styling
     pillG.append("text")
         .attr("x", pillWidth/4)
         .attr("y", labelY)
@@ -2893,7 +2658,6 @@ private createModeToggleButton(viewportWidth: number): void {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .text("LP");
 
-    // Float label with better styling
     pillG.append("text")
         .attr("x", 3*pillWidth/4)
         .attr("y", labelY)
@@ -2908,13 +2672,11 @@ private createModeToggleButton(viewportWidth: number): void {
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
         .text("Float");
 
-    // Enhanced tooltip
     modeToggleGroup.append("title")
         .text(hasTotalFloat
             ? `Current mode: ${isFloatBased ? 'Float-Based Criticality' : 'Longest Path (CPM)'}\nClick to switch calculation method`
             : "Float-Based mode requires Task Total Float field to be mapped");
 
-    // Professional interactions with refined animations
     if (hasTotalFloat) {
         const self = this;
 
@@ -2949,7 +2711,6 @@ private createModeToggleButton(viewportWidth: number): void {
             self.toggleCriticalityMode();
         });
 
-        // Keyboard support
         modeToggleGroup.on("keydown", function(event) {
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
@@ -2963,46 +2724,39 @@ private toggleCriticalityMode(): void {
     try {
         const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
         const newMode = currentMode === 'longestPath' ? 'floatBased' : 'longestPath';
-        
+
         this.debugLog(`Toggling criticality mode from ${currentMode} to ${newMode}`);
-        
-        // Reset float threshold when switching to Longest Path mode
+
         if (newMode === 'longestPath' && this.floatThreshold > 0) {
             this.debugLog(`Resetting float threshold from ${this.floatThreshold} to 0`);
             this.floatThreshold = 0;
 
-            // Update float threshold input if it exists
             if (this.floatThresholdInput) {
                 this.floatThresholdInput.property("value", "0");
             }
         }
 
-        // FIX BUG-009: Clear stale near-critical flags when switching modes
-        // This ensures Float-Based near-critical state doesn't persist into LP mode
-        // and vice versa - LP's proximity-based near-critical doesn't persist to Float
         this.allTasksData.forEach(task => {
             task.isNearCritical = false;
-            // Also reset Float-Based specific flags if switching away
+
             if (newMode === 'longestPath') {
                 task.isCriticalByFloat = false;
             }
         });
 
-        // Update the settings value locally
         if (this.settings?.criticalityMode?.calculationMode) {
             this.settings.criticalityMode.calculationMode.value = {
                 value: newMode,
                 displayName: newMode === 'longestPath' ? 'Longest Path' : 'Float-Based'
             };
         }
-        
-        // Single batch persist
+
         const properties: any[] = [{
             objectName: "criticalityMode",
             properties: { calculationMode: newMode },
             selector: null
         }];
-        
+
         if (newMode === 'longestPath') {
             properties.push({
                 objectName: "persistedState",
@@ -3010,24 +2764,18 @@ private toggleCriticalityMode(): void {
                 selector: null
             });
         }
-        
+
         this.host.persistProperties({ merge: properties });
-        
-        // Update UI elements
+
         this.createModeToggleButton(this.lastUpdateOptions?.viewport.width || 800);
         this.createFloatThresholdControl();
-        
-        // CRITICAL FIX: Force canvas refresh
+
         this.forceCanvasRefresh();
 
-        // BUG-002 FIX: Preserve scroll position when changing criticality mode
-        // Mode change doesn't fundamentally reorder tasks, so scroll should be preserved
         this.captureScrollPosition();
 
-        // Request update
         this.forceFullUpdate = true;
 
-        // FIX #5: Clear any pending scroll throttle to ensure full update executes
         if (this.scrollThrottleTimeout) {
             clearTimeout(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
@@ -3038,19 +2786,18 @@ private toggleCriticalityMode(): void {
         }
 
         this.debugLog("Visual update triggered by mode toggle");
-        
+
     } catch (error) {
         console.error("Error toggling criticality mode:", error);
     }
 }
 
 /**
- * UPGRADED: Creates the Float Threshold control with premium input design and enhanced UX
+ * Creates the Float Threshold control with premium input design and enhanced UX
  */
 private createFloatThresholdControl(): void {
     this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
 
-    // Only show in float-based mode when near-critical is enabled
     const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
     const isFloatBased = currentMode === 'floatBased';
 
@@ -3059,7 +2806,6 @@ private createFloatThresholdControl(): void {
         return;
     }
 
-    // Get responsive layout mode
     const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
     const layoutMode = this.getLayoutMode(viewportWidth);
     const isCompact = layoutMode === 'narrow';
@@ -3069,8 +2815,6 @@ private createFloatThresholdControl(): void {
         ? this.UI_TOKENS.spacing.sm
         : (isMedium ? this.UI_TOKENS.spacing.md : this.UI_TOKENS.spacing.lg);
 
-    // Premium control container with elevated design
-    // Position in the right corner of the header
     const controlContainer = this.stickyHeaderContainer.append("div")
         .attr("class", "float-threshold-wrapper")
         .attr("role", "group")
@@ -3090,13 +2834,11 @@ private createFloatThresholdControl(): void {
         .style("box-shadow", this.UI_TOKENS.shadow[2])
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Icon and label container
     const labelContainer = controlContainer.append("div")
         .style("display", "flex")
         .style("align-items", "center")
         .style("gap", `${this.UI_TOKENS.spacing.xs}px`);
 
-    // Near-critical indicator - solid color for consistency
     const iconSize = 12;
     const iconSvg = labelContainer.append("svg")
         .attr("width", iconSize)
@@ -3110,7 +2852,6 @@ private createFloatThresholdControl(): void {
         .attr("r", iconSize/2)
         .attr("fill", this.UI_TOKENS.color.warning.default);
 
-    // Descriptive label with enhanced typography - responsive text
     const labelText = isCompact ? "NC ≤" : (isMedium ? "Near-Crit ≤" : "Near-Critical ≤");
     labelContainer.append("span")
         .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
@@ -3121,7 +2862,6 @@ private createFloatThresholdControl(): void {
         .style("white-space", "nowrap")
         .text(labelText);
 
-    // Enhanced input field with premium styling
     const inputWidth = isCompact ? 42 : (isMedium ? 50 : 54);
     this.floatThresholdInput = controlContainer.append("input")
         .attr("type", "number")
@@ -3143,7 +2883,6 @@ private createFloatThresholdControl(): void {
         .style("color", this.UI_TOKENS.color.neutral.grey160)
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Unit label with refined styling - hide in compact mode
     if (!isCompact) {
         controlContainer.append("span")
             .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
@@ -3155,7 +2894,6 @@ private createFloatThresholdControl(): void {
             .text("days");
     }
 
-    // Enhanced help icon with better accessibility - hide in compact mode
     if (!isCompact) {
         const helpIcon = controlContainer.append("div")
             .attr("role", "button")
@@ -3180,7 +2918,6 @@ private createFloatThresholdControl(): void {
         helpIcon.append("title")
             .text("Tasks with Total Float less than or equal to this value will be highlighted as near-critical path tasks");
 
-        // Enhanced hover interactions for help icon
         helpIcon
             .on("mouseover", function() {
                 d3.select(this)
@@ -3196,7 +2933,6 @@ private createFloatThresholdControl(): void {
             }.bind(this));
     }
 
-    // Enhanced input interactions
     const self = this;
     this.floatThresholdInput
         .on("focus", function() {
@@ -3210,16 +2946,13 @@ private createFloatThresholdControl(): void {
                 .style("box-shadow", "none");
         });
 
-    // Input handler with visual feedback
     let floatThresholdTimeout: any = null;
     this.floatThresholdInput.on("input", function() {
         const value = parseFloat((this as HTMLInputElement).value);
         const newThreshold = isNaN(value) ? 0 : Math.max(0, value);
 
-        // Update local value immediately for UI feedback
         self.floatThreshold = newThreshold;
 
-        // Enhanced visual feedback
         d3.select(this)
             .transition()
             .duration(self.UI_TOKENS.motion.duration.fast)
@@ -3228,13 +2961,12 @@ private createFloatThresholdControl(): void {
             .duration(self.UI_TOKENS.motion.duration.normal)
             .style("background-color", self.UI_TOKENS.color.neutral.white);
 
-        // Debounce the actual update
         if (floatThresholdTimeout) {
             clearTimeout(floatThresholdTimeout);
         }
 
         floatThresholdTimeout = setTimeout(() => {
-            // Ensure any scroll throttling does not block the redraw triggered by this setting change
+
             if (self.scrollThrottleTimeout) {
                 clearTimeout(self.scrollThrottleTimeout);
                 self.scrollThrottleTimeout = null;
@@ -3249,10 +2981,9 @@ private createFloatThresholdControl(): void {
             });
 
             self.requestUpdate(true);
-        }, 500); // Wait 500ms after user stops typing
+        }, 500);
     });
 
-    // Container hover effect for elevated feel
     controlContainer
         .on("mouseover", function() {
             d3.select(this)
@@ -3266,15 +2997,13 @@ private createFloatThresholdControl(): void {
         });
 }
 
-
 /**
  * Creates the zoom slider UI component matching Microsoft Power BI standard style
  * Design: Thin track line with circular handles at each end
  */
 private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, null, undefined>): void {
-    const sliderHeight = 32; // Compact height for Microsoft-style slider
+    const sliderHeight = 32;
 
-    // Main container positioned at the bottom of the scrollable area
     this.zoomSliderContainer = visualWrapper.append("div")
         .attr("class", "timeline-zoom-slider-container")
         .style("position", "relative")
@@ -3282,25 +3011,22 @@ private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, nul
         .style("height", `${sliderHeight}px`)
         .style("background-color", "#FFFFFF")
         .style("border-top", "1px solid #EDEBE9")
-        .style("display", "none") // Hidden by default, shown when enabled
+        .style("display", "none")
         .style("z-index", "50")
         .style("flex-shrink", "0")
         .style("user-select", "none");
 
-    // Track container - will have margins applied to align with chart
-    // This is positioned using left/right margins to match the chart area
     this.zoomSliderTrack = this.zoomSliderContainer.append("div")
         .attr("class", "zoom-slider-track")
         .style("position", "absolute")
-        .style("left", "280px")  // Default, will be updated by updateZoomSliderTrackMargins
-        .style("right", "100px") // Default, will be updated by updateZoomSliderTrackMargins
+        .style("left", "280px")
+        .style("right", "100px")
         .style("top", "50%")
         .style("transform", "translateY(-50%)")
         .style("height", "4px")
         .style("background-color", "#E1DFDD")
         .style("border-radius", "2px");
 
-    // Mini chart canvas for task distribution preview (hidden in Microsoft style)
     const miniChartCanvas = document.createElement('canvas');
     miniChartCanvas.className = 'zoom-slider-mini-chart';
     miniChartCanvas.style.position = 'absolute';
@@ -3309,11 +3035,10 @@ private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, nul
     miniChartCanvas.style.width = '100%';
     miniChartCanvas.style.height = '100%';
     miniChartCanvas.style.pointerEvents = 'none';
-    miniChartCanvas.style.display = 'none'; // Hidden by default for clean Microsoft look
+    miniChartCanvas.style.display = 'none';
     this.zoomSliderTrack.node()?.appendChild(miniChartCanvas);
     this.zoomSliderMiniChart = d3.select(miniChartCanvas);
 
-    // Selection range (the visible/selected portion between handles)
     this.zoomSliderSelection = this.zoomSliderTrack.append("div")
         .attr("class", "zoom-slider-selection")
         .style("position", "absolute")
@@ -3321,11 +3046,10 @@ private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, nul
         .style("width", "100%")
         .style("top", "0")
         .style("bottom", "0")
-        .style("background-color", "#C8C6C4")  // Darker gray for selected area
+        .style("background-color", "#C8C6C4")
         .style("border-radius", "2px")
         .style("cursor", "grab");
 
-    // Left handle - circular Microsoft-style
     this.zoomSliderLeftHandle = this.zoomSliderSelection.append("div")
         .attr("class", "zoom-slider-handle zoom-slider-handle-left")
         .style("position", "absolute")
@@ -3341,7 +3065,6 @@ private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, nul
         .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
         .style("z-index", "10");
 
-    // Right handle - circular Microsoft-style
     this.zoomSliderRightHandle = this.zoomSliderSelection.append("div")
         .attr("class", "zoom-slider-handle zoom-slider-handle-right")
         .style("position", "absolute")
@@ -3357,7 +3080,6 @@ private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, nul
         .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
         .style("z-index", "10");
 
-    // Setup event handlers
     this.setupZoomSliderEvents();
 }
 
@@ -3367,7 +3089,6 @@ private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, nul
 private setupZoomSliderEvents(): void {
     const self = this;
 
-    // Left handle drag
     this.zoomSliderLeftHandle
         .on("mousedown", function(event: MouseEvent) {
             event.stopPropagation();
@@ -3381,7 +3102,6 @@ private setupZoomSliderEvents(): void {
             self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'left');
         });
 
-    // Right handle drag
     this.zoomSliderRightHandle
         .on("mousedown", function(event: MouseEvent) {
             event.stopPropagation();
@@ -3395,10 +3115,9 @@ private setupZoomSliderEvents(): void {
             self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'right');
         });
 
-    // Middle (selection area) drag for panning
     this.zoomSliderSelection
         .on("mousedown", function(event: MouseEvent) {
-            // Only start middle drag if not on handles
+
             const target = event.target as HTMLElement;
             if (target.classList.contains('zoom-slider-handle') ||
                 target.classList.contains('handle-grip')) {
@@ -3418,17 +3137,15 @@ private setupZoomSliderEvents(): void {
             self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'middle');
         });
 
-    // Double-click on track to reset zoom
     this.zoomSliderTrack
         .on("dblclick", function() {
             self.resetZoom();
         });
 
-    // Click on track outside selection to jump to that position
     this.zoomSliderTrack
         .on("mousedown", function(event: MouseEvent) {
             const target = event.target as HTMLElement;
-            // Only handle clicks directly on the track, not on selection or handles
+
             if (!target.classList.contains('zoom-slider-track')) {
                 return;
             }
@@ -3437,7 +3154,6 @@ private setupZoomSliderEvents(): void {
             self.jumpZoomTo(clickPercent);
         });
 
-    // Global mouse/touch move and up handlers (attached to document)
     this.attachZoomDragListeners();
 }
 
@@ -3483,12 +3199,10 @@ private startZoomDrag(event: MouseEvent, type: 'left' | 'right' | 'middle'): voi
     this.zoomDragStartLeft = this.zoomRangeStart;
     this.zoomDragStartRight = this.zoomRangeEnd;
 
-    // Update cursor based on drag type
     if (type === 'middle') {
         this.zoomSliderSelection.style("cursor", "grabbing");
     }
 
-    // Add dragging class for visual feedback
     this.zoomSliderContainer.classed("dragging", true);
 }
 
@@ -3506,26 +3220,25 @@ private handleZoomDrag(event: MouseEvent): void {
 
     switch (this.zoomDragType) {
         case 'left':
-            // Move left handle (start of zoom)
+
             let newStart = Math.max(0, Math.min(this.zoomDragStartLeft + deltaPercent,
                 this.zoomRangeEnd - this.ZOOM_SLIDER_MIN_RANGE));
             this.zoomRangeStart = newStart;
             break;
 
         case 'right':
-            // Move right handle (end of zoom)
+
             let newEnd = Math.min(1, Math.max(this.zoomDragStartRight + deltaPercent,
                 this.zoomRangeStart + this.ZOOM_SLIDER_MIN_RANGE));
             this.zoomRangeEnd = newEnd;
             break;
 
         case 'middle':
-            // Pan the entire selection
+
             const rangeSize = this.zoomDragStartRight - this.zoomDragStartLeft;
             let newRangeStart = this.zoomDragStartLeft + deltaPercent;
             let newRangeEnd = this.zoomDragStartRight + deltaPercent;
 
-            // Clamp to boundaries
             if (newRangeStart < 0) {
                 newRangeStart = 0;
                 newRangeEnd = rangeSize;
@@ -3540,10 +3253,8 @@ private handleZoomDrag(event: MouseEvent): void {
             break;
     }
 
-    // Update the slider UI
     this.updateZoomSliderUI();
 
-    // Trigger visual update (throttled)
     this.onZoomChange();
 }
 
@@ -3577,7 +3288,6 @@ private jumpZoomTo(clickPercent: number): void {
     let newStart = clickPercent - rangeSize / 2;
     let newEnd = clickPercent + rangeSize / 2;
 
-    // Clamp to boundaries
     if (newStart < 0) {
         newStart = 0;
         newEnd = rangeSize;
@@ -3611,25 +3321,20 @@ private updateZoomSliderUI(): void {
  * Called when zoom changes - triggers visual update with throttling
  */
 private zoomChangeTimeout: any = null;
-private onZoomChange(): void {
-    // Throttle the visual updates
-    if (this.zoomChangeTimeout) {
-        clearTimeout(this.zoomChangeTimeout);
-    }
 
-    this.zoomChangeTimeout = setTimeout(() => {
-        this.zoomChangeTimeout = null;
-        // Force a re-render with the new zoom settings
-        if (this.lastUpdateOptions) {
-            this.forceFullUpdate = true;
-            this.preserveScrollOnUpdate = true;
-            if (this.scrollableContainer?.node()) {
-                this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
-            }
-            this.update(this.lastUpdateOptions);
+    private onZoomChange(): void {
+
+        if (this.zoomChangeTimeout) {
+            clearTimeout(this.zoomChangeTimeout);
         }
-    }, 16); // ~60fps throttle
-}
+
+        this.zoomChangeTimeout = setTimeout(() => {
+            this.zoomChangeTimeout = null;
+
+            this.updateRenderOnly();
+
+        }, 16);
+    }
 
 /**
  * Updates the zoom slider visibility and styling based on settings
@@ -3665,7 +3370,6 @@ private updateZoomSliderVisibility(): void {
         this.zoomSliderRightHandle.style("background-color", handleColor);
     }
 
-    // Update scrollable container height to account for slider
     this.updateScrollableContainerHeight();
 }
 
@@ -3675,9 +3379,7 @@ private updateZoomSliderVisibility(): void {
  * This method is kept for backwards compatibility but flexbox handles the layout.
  */
 private updateScrollableContainerHeight(): void {
-    // With flexbox layout (flex: 1 on scrollable container), the height is
-    // automatically calculated based on available space after header,
-    // zoom slider, and legend. No manual height calculation needed.
+
 }
 
 /**
@@ -3694,7 +3396,6 @@ private drawZoomSliderMiniChart(): void {
     const rect = canvas.parentElement?.getBoundingClientRect();
     if (!rect) return;
 
-    // Set canvas size with device pixel ratio for sharp rendering
     const dpr = window.devicePixelRatio || 1;
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
@@ -3707,7 +3408,6 @@ private drawZoomSliderMiniChart(): void {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, rect.width, rect.height);
 
-    // Get all tasks to draw
     const tasksToShow = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
     if (tasksToShow.length === 0 || !this.fullTimelineDomain) return;
 
@@ -3715,7 +3415,6 @@ private drawZoomSliderMiniChart(): void {
     const timeRange = maxDate.getTime() - minDate.getTime();
     if (timeRange <= 0) return;
 
-    // Draw task bars as thin lines
     const barHeight = Math.max(1, rect.height / Math.max(tasksToShow.length, 50));
     const criticalColor = this.settings?.taskAppearance?.criticalPathColor?.value?.value ?? "#E81123";
     const taskColor = this.settings?.taskAppearance?.taskColor?.value?.value ?? "#0078D4";
@@ -3789,7 +3488,7 @@ private updateChartClipRect(chartWidth: number, chartHeight: number): void {
         .attr("x", 0)
         .attr("y", 0)
         .attr("width", chartWidth)
-        .attr("height", chartHeight + 1000); // Extra height to account for scroll
+        .attr("height", chartHeight + 1000);
 }
 
 private toggleConnectorLinesDisplay(): void {
@@ -3798,17 +3497,15 @@ private toggleConnectorLinesDisplay(): void {
         this.showConnectorLinesInternal = !this.showConnectorLinesInternal;
         this.debugLog("New showConnectorLinesInternal value:", this.showConnectorLinesInternal);
 
-        // STRICT SCROLL PRESERVATION: capture current position so toggling doesn't jump to top
         if (this.scrollableContainer?.node()) {
             const currentScrollTop = this.scrollableContainer.node().scrollTop;
             this.preservedScrollTop = currentScrollTop;
             this.preserveScrollOnUpdate = true;
-            // Guard against subsequent Power BI retriggers
+
             this.scrollPreservationUntil = Date.now() + 500;
             this.debugLog(`Connector toggle: Captured scrollTop=${currentScrollTop}`);
         }
 
-        // Persist the connector lines state
         this.host.persistProperties({
             merge: [{
                 objectName: "connectorLines",
@@ -3817,10 +3514,8 @@ private toggleConnectorLinesDisplay(): void {
             }]
         });
 
-        // Update visual immediately without requiring user scroll
         this.redrawVisibleTasks();
 
-        // Update button appearance using current viewport width to avoid layout jump
         const viewportWidth = this.lastUpdateOptions?.viewport?.width
             || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
             || 800;
@@ -3838,12 +3533,12 @@ private toggleConnectorLinesDisplay(): void {
 private logDataLoadInfo(dataView: DataView): void {
     const rowCount = dataView.table?.rows?.length || 0;
     const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
-    
+
     this.debugLog(
         `[WBS] Data loaded: ${rowCount.toLocaleString()} rows`,
         `| Sorted by: ${hasTotalFloat ? 'Total Float (critical first)' : 'Start Date'}`
     );
-    
+
     if (rowCount >= 30000) {
         console.warn(
             `[WBS] Dataset at 30,000 row limit. ` +
@@ -3902,27 +3597,24 @@ private async updateInternal(options: VisualUpdateOptions) {
     this.debugLog("--- Visual Update Start ---");
     this.renderStartTime = performance.now();
     this.hideTooltip();
-    
+
     if (this.isUpdating) {
         this.debugLog("Update already in progress, skipping");
         return;
     }
 
-    // If a throttled scroll timer is pending, clear it so it doesn't block the redraw we are about to do
     if (this.scrollThrottleTimeout) {
         clearTimeout(this.scrollThrottleTimeout);
         this.scrollThrottleTimeout = null;
     }
 
-    // BUG-008 FIX: Skip Power BI updates during margin drag to prevent race conditions
-    // The visual is already being updated via handleMarginDragUpdate() during drag
     if (this.isMarginDragging) {
         this.debugLog("Margin drag in progress, skipping Power BI update");
         return;
     }
 
     this.isUpdating = true;
-    // allowInteractions isn't typed in this API version, but is present at runtime.
+
     const allowInteractions = (options as VisualUpdateOptions & { allowInteractions?: boolean }).allowInteractions;
     const hostAllowsInteractions = this.host?.hostCapabilities?.allowInteractions;
     this.allowInteractions = allowInteractions !== false && hostAllowsInteractions !== false;
@@ -3936,12 +3628,10 @@ private async updateInternal(options: VisualUpdateOptions) {
     try {
         const updateType = this.determineUpdateType(options);
         this.debugLog(`Update type detected: ${updateType}`);
-        
+
         if (updateType === UpdateType.Full && this.scrollableContainer?.node()) {
             const node = this.scrollableContainer.node();
 
-            // Check if scroll should be preserved (e.g., when expanding/collapsing individual WBS groups)
-            // Use BOTH the boolean flag AND a time-based cooldown to handle Power BI re-triggers
             const now = Date.now();
             const inCooldownPeriod = now < this.scrollPreservationUntil;
             const wbsToggleRecent = this.lastWbsToggleTimestamp > 0 && (now - this.lastWbsToggleTimestamp) < 2000;
@@ -3949,7 +3639,7 @@ private async updateInternal(options: VisualUpdateOptions) {
 
             this.debugLog(`Scroll preservation check: flag=${this.preserveScrollOnUpdate}, inCooldown=${inCooldownPeriod}, wbsRecent=${wbsToggleRecent}, shouldPreserve=${shouldPreserveScroll}, scrollTop=${node.scrollTop}`);
 
-            this.preserveScrollOnUpdate = false; // Reset flag after checking
+            this.preserveScrollOnUpdate = false;
 
             if (!shouldPreserveScroll && !this.scrollThrottleTimeout && node.scrollTop > 0 && this.preservedScrollTop === null && this.wbsToggleScrollAnchor === null) {
                 if (this.scrollListener) {
@@ -3970,28 +3660,28 @@ private async updateInternal(options: VisualUpdateOptions) {
                 this.debugLog("Preserving scroll position for individual WBS group toggle");
             }
         }
-        
+
         this.lastViewport = options.viewport;
-        
+
         if (updateType === UpdateType.ViewportOnly && this.allTasksData.length > 0) {
             this.handleViewportOnlyUpdate(options);
             return;
         }
-        
+
         if (updateType === UpdateType.SettingsOnly && this.allTasksData.length > 0) {
             this.handleSettingsOnlyUpdate(options);
             return;
         }
-        
+
         this.lastUpdateOptions = options;
         this.clearLandingPage();
 
         if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
-            this.applyTaskFilter([]); // ← FIX #1: Clear filter on invalid options
+            this.applyTaskFilter([]);
             this.displayLandingPage();
             return;
         }
-        
+
         const dataView = options.dataViews[0];
         const viewport = options.viewport;
         const viewportHeight = viewport.height;
@@ -4000,26 +3690,18 @@ private async updateInternal(options: VisualUpdateOptions) {
         const dataChanged = (options.type & VisualUpdateType.Data) !== 0 ||
             this.lastDataSignature !== dataSignature;
 
-        // NEW CODE:
-        this.debugLog("Viewport:", viewportWidth, "x", viewportHeight);
-
-        // Log data info (no progressive fetching with 'top' algorithm)
         if (dataChanged) {
             this.logDataLoadInfo(dataView);
         }
 
-        // Hide any loading overlay
         this.setLoadingOverlayVisible(false);
 
-        // METADATA CHECK: Determine if WBS columns exist in metadata (for button visibility)
-        // This is independent of whether filtered tasks have WBS values
-        // Also populate WBS level column indices and names for dynamic hierarchy support
         this.wbsLevelColumnIndices = [];
         this.wbsLevelColumnNames = [];
         this.wbsDataExistsInMetadata = this.hasDataRole(dataView, 'wbsLevels');
 
         if (this.wbsDataExistsInMetadata && dataView.table?.columns) {
-            // Find all columns bound to the 'wbsLevels' data role
+
             for (let i = 0; i < dataView.table.columns.length; i++) {
                 const column = dataView.table.columns[i];
                 if (column.roles && column.roles['wbsLevels']) {
@@ -4039,15 +3721,13 @@ private async updateInternal(options: VisualUpdateOptions) {
             this.showPreviousUpdateInternal = this.settings.taskAppearance.showPreviousUpdate.value;
         }
 
-        // Sync connector lines state with settings
         if (this.settings?.connectorLines?.showConnectorLines !== undefined) {
             this.showConnectorLinesInternal = this.settings.connectorLines.showConnectorLines.value;
         }
 
-        // Sync WBS expand/collapse state with settings
         if (this.settings?.wbsGrouping?.expandCollapseAll !== undefined) {
             this.wbsExpandedInternal = this.settings.wbsGrouping.expandCollapseAll.value;
-            // Default expand depth follows existing toggle unless user manually overrode later
+
             if (!this.wbsManualExpansionOverride && this.wbsExpandToLevel === undefined) {
                 this.wbsExpandToLevel = this.wbsExpandedInternal ? undefined : 0;
             }
@@ -4057,7 +3737,6 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         this.applyPublishModeOptimizations();
 
-        // Update zoom slider visibility and styling from settings
         this.updateZoomSliderVisibility();
 
         if (this.isInitialLoad) {
@@ -4075,7 +3754,7 @@ private async updateInternal(options: VisualUpdateOptions) {
                 const persistedMode = this.settings.persistedState.traceMode.value;
                 this.traceMode = persistedMode ? persistedMode : "backward";
             }
-            // BUG-006 FIX: Restore persisted legend selection state
+
             if (this.settings?.persistedState?.selectedLegendCategories !== undefined) {
                 const savedCategories = this.settings.persistedState.selectedLegendCategories.value;
                 if (savedCategories && savedCategories.trim().length > 0) {
@@ -4158,7 +3837,7 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.createTraceModeToggle();
 
         if (!this.validateDataView(dataView)) {
-            this.applyTaskFilter([]); // ← FIX #2: Clear filter on validation failure
+            this.applyTaskFilter([]);
             const missingRoles = this.getMissingRequiredRoles(dataView);
             this.displayLandingPage(missingRoles);
             return;
@@ -4175,10 +3854,8 @@ private async updateInternal(options: VisualUpdateOptions) {
             this.debugLog("Skipping data transform; using cached task data");
         }
 
-        // CRITICAL FIX: Re-populate settings model now that SelectionIds exist.
-        // This ensures the formatting pane gets valid selectors for the color pickers.
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
-        // Apply any immediate viewer override for WBS enable before proceeding
+
         if (this.wbsEnableOverride !== null && this.settings?.wbsGrouping?.enableWbsGrouping) {
             this.settings.wbsGrouping.enableWbsGrouping.value = this.wbsEnableOverride;
             this.wbsEnableOverride = null;
@@ -4190,7 +3867,7 @@ private async updateInternal(options: VisualUpdateOptions) {
         }
 
         if (this.allTasksData.length === 0) {
-            this.applyTaskFilter([]); // ← FIX #3: Clear filter when no data
+            this.applyTaskFilter([]);
             this.displayMessage("No valid task data found to display.");
             return;
         }
@@ -4209,7 +3886,7 @@ private async updateInternal(options: VisualUpdateOptions) {
                 this.dropdownInput.property("value", "");
             }
         }
-        
+
         if (this.selectedTaskLabel) {
             if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
                 this.selectedTaskLabel
@@ -4238,7 +3915,7 @@ private async updateInternal(options: VisualUpdateOptions) {
 
             if (mode === 'floatBased') {
                 this.applyFloatBasedCriticality();
-                
+
                 if (effectiveTraceMode === 'forward') {
                     successorTaskSet = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
                 } else {
@@ -4276,15 +3953,15 @@ private async updateInternal(options: VisualUpdateOptions) {
         }
 
         this.ensureTaskSortCache(this.lastDataSignature ?? dataSignature);
-        // Only use tasks that can actually be plotted for subsequent filtering
+
         const plottableTasksSorted = this.cachedPlottableTasksSorted;
 
-        const criticalAndNearCriticalTasks = plottableTasksSorted.filter(task => 
+        const criticalAndNearCriticalTasks = plottableTasksSorted.filter(task =>
             task.isCritical || task.isNearCritical
         );
 
         let tasksToConsider: Task[] = [];
-        
+
         if (enableTaskSelection && this.selectedTaskId) {
             const traceModeSetting = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
             const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
@@ -4321,8 +3998,8 @@ private async updateInternal(options: VisualUpdateOptions) {
                 tasksToConsider.push(selectedTask);
             }
         } else {
-            tasksToConsider = this.showAllTasksInternal 
-                ? plottableTasksSorted 
+            tasksToConsider = this.showAllTasksInternal
+                ? plottableTasksSorted
                 : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : plottableTasksSorted;
         }
 
@@ -4332,27 +4009,24 @@ private async updateInternal(options: VisualUpdateOptions) {
 
         const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
         const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
-        
+
         if (limitedTasks.length === 0) {
-            this.applyTaskFilter([]); // ← FIX #4: Clear filter when no tasks after limiting
-            this.displayMessage("No tasks to display after filtering/limiting."); 
+            this.applyTaskFilter([]);
+            this.displayMessage("No tasks to display after filtering/limiting.");
             return;
         }
 
         const tasksToPlot = limitedTasks.filter(task => this.hasValidPlotDates(task));
-        
+
         if (tasksToPlot.length === 0) {
-            this.applyTaskFilter([]); // ← FIX #5: Clear filter when no valid dates
+            this.applyTaskFilter([]);
             this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
             return;
         }
 
-        // WBS GROUPING: If enabled, sort and order by WBS hierarchy
         const wbsGroupingEnabled = this.wbsDataExists &&
             this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
-        // IMPORTANT: For WBS mode, calculate filtered task count BEFORE applying collapse/expand
-        // This ensures groups remain visible even when collapsed
         let tasksAfterLegendFilter = tasksToPlot;
         if (this.legendDataExists && this.selectedLegendCategories.size > 0) {
             tasksAfterLegendFilter = tasksToPlot.filter(task => {
@@ -4363,37 +4037,30 @@ private async updateInternal(options: VisualUpdateOptions) {
             });
         }
 
-        // Store all filtered tasks BEFORE collapse/expand for project end line calculation
-        // This ensures the finish date reflects all filtered tasks, not just visible ones
         this.allFilteredTasks = [...tasksAfterLegendFilter];
 
-        // Update group filtered counts BEFORE ordering (which respects collapse state)
         if (wbsGroupingEnabled) {
             this.updateWbsFilteredCounts(tasksAfterLegendFilter);
         }
 
         let orderedTasks: Task[];
         if (wbsGroupingEnabled) {
-            // Use WBS-aware ordering (respects collapse/expand state)
+
             orderedTasks = this.applyWbsOrdering(tasksAfterLegendFilter);
         } else {
-            // Original behavior: sort by start date
+
             orderedTasks = [...tasksAfterLegendFilter].sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
         }
 
-        // Final task list after all filtering and ordering
         let tasksToShow = orderedTasks;
 
-        // NOW assign yOrder after all filtering is complete
-        // For WBS mode, this also assigns yOrder to group headers
         if (wbsGroupingEnabled) {
             this.assignWbsYOrder(tasksToShow);
         } else {
-            // Standard mode: just assign sequential yOrder to tasks
+
             tasksToShow.forEach((task, index) => { task.yOrder = index; });
         }
 
-        // Check if we have any visible items after yOrder assignment
         const tasksWithYOrder = tasksToShow.filter(t => t.yOrder !== undefined);
         const visibleGroupCount = wbsGroupingEnabled ? this.wbsGroups.filter(g => g.yOrder !== undefined).length : 0;
 
@@ -4407,16 +4074,14 @@ private async updateInternal(options: VisualUpdateOptions) {
             return;
         }
 
-        // ✅ CORRECT: Apply filter with valid tasks
         this.applyTaskFilter(tasksToShow.map(t => t.id));
 
         const taskHeight = this.settings.taskAppearance.taskHeight.value;
         const taskPadding = this.settings.layoutSettings.taskPadding.value;
 
-        // Calculate total rows based on the highest yOrder value assigned
         let totalRows = tasksWithYOrder.length;
         if (wbsGroupingEnabled) {
-            // Find the maximum yOrder value across both tasks and groups
+
             let maxYOrder = -1;
             for (const task of tasksWithYOrder) {
                 if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
@@ -4428,7 +4093,7 @@ private async updateInternal(options: VisualUpdateOptions) {
                     maxYOrder = group.yOrder;
                 }
             }
-            // Total rows is max yOrder + 1 (since yOrder is 0-based)
+
             totalRows = maxYOrder + 1;
         }
 
@@ -4441,8 +4106,8 @@ private async updateInternal(options: VisualUpdateOptions) {
         const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
 
         if (!this.xScale || !this.yScale) {
-            this.applyTaskFilter([]); // ← FIX #6: Clear filter when scale creation fails
-            this.displayMessage("Could not create time/band scale. Check Start/Finish dates."); 
+            this.applyTaskFilter([]);
+            this.displayMessage("Could not create time/band scale. Check Start/Finish dates.");
             return;
         }
 
@@ -4452,43 +4117,30 @@ private async updateInternal(options: VisualUpdateOptions) {
         this.mainGroup.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
         this.headerGridLayer.attr("transform", `translate(${this.margin.left}, 0)`);
 
-        // Create/update the margin resizer after SVG is properly sized
         this.createMarginResizer();
 
         const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
         const legendOffset = legendVisible ? this.legendFooterHeight : 0;
         const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
 
-        // Always fill the available viewport height (minus header/legend) so the legend stays pinned.
         this.scrollableContainer
             .style("height", `${availableContentHeight}px`)
             .style("overflow-y", totalSvgHeight > availableContentHeight ? "scroll" : "hidden");
 
-        // Update taskElementHeight before scroll adjustment (needed for position calculation)
         this.taskElementHeight = taskHeight + taskPadding;
 
-        // SCROLL RESTORATION: Handle both strict preservation and WBS anchor-based restoration
-        // Priority 1: Strict scroll preservation (for baseline/previous update toggles)
-        // Priority 2: WBS anchor-based restoration (for WBS group expand/collapse)
         this.restoreScrollPosition(totalSvgHeight);
 
-        // Pass skipInitialRender=true to prevent requestAnimationFrame double-render
-        // since we call drawVisualElements immediately after
         this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding, totalRows, true);
 
-        // Get visible tasks using the centralized WBS-aware helper
         const visibleTasks = this.getVisibleTasks();
 
         this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
 
-        // Render legend after visual elements are drawn
         this.renderLegend(viewportWidth, viewportHeight);
 
-        // Ensure WBS toggle button is visible now that WBS data has been processed
-        // This fixes timing issue where button may not appear on initial load
         this.renderWbsCycleButtons(viewportWidth);
 
-        // Update zoom slider UI and draw mini chart preview
         this.updateZoomSliderUI();
         this.drawZoomSliderMiniChart();
         this.updateZoomSliderTrackMargins();
@@ -4502,7 +4154,6 @@ private async updateInternal(options: VisualUpdateOptions) {
         renderingFailed = true;
         eventService?.renderingFailed(options, errorMessage);
 
-        // ← FIX #7: Clear filter on unexpected errors
         this.applyTaskFilter([]);
         this.displayMessage(`Error updating visual: ${errorMessage}`);
     } finally {
@@ -4511,8 +4162,6 @@ private async updateInternal(options: VisualUpdateOptions) {
         }
         this.isUpdating = false;
 
-        // BUG-012 FIX: Ensure scroll handler is always restored even if an error occurs
-        // This prevents scroll events from being permanently disabled after an error
         if (this.scrollHandlerBackup && this.scrollableContainer) {
             this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
             this.scrollHandlerBackup = null;
@@ -4521,48 +4170,63 @@ private async updateInternal(options: VisualUpdateOptions) {
     }
 }
 
+    private updateRenderOnly(): void {
+
+        if (!this.lastViewport || !this.allTasksToShow) return;
+
+        const scaleResult = this.setupTimeBasedSVGAndScales(
+            this.lastViewport,
+            this.allTasksToShow
+        );
+
+        if (!scaleResult.xScale || !scaleResult.yScale) return;
+
+        this.xScale = scaleResult.xScale;
+        this.yScale = scaleResult.yScale;
+
+        this.calculateVisibleTasks();
+
+        this.redrawVisibleTasks();
+
+        if (this.zoomSliderEnabled) {
+            this.updateZoomSliderUI();
+            this.drawZoomSliderMiniChart();
+            this.updateZoomSliderTrackMargins();
+        }
+    }
+
 private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing viewport-only update");
         const viewportWidth = options.viewport.width;
         const viewportHeight = options.viewport.height;
-        
-        // Update buttons and header elements
-        // Use the centralized function which now includes the baseline toggle
+
         this.updateHeaderElements(viewportWidth);
-        
-        // Recalculate chart dimensions
+
         const chartWidth = Math.max(10, viewportWidth - this.settings.layoutSettings.leftMargin.value - this.margin.right);
         const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
         const legendOffset = legendVisible ? this.legendFooterHeight : 0;
         const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
-        const totalSvgHeight = this.taskTotalCount * this.taskElementHeight + 
+        const totalSvgHeight = this.taskTotalCount * this.taskElementHeight +
                              this.margin.top + this.margin.bottom;
-        
-        // Always fill available height (minus header/legend) to keep legend pinned
+
         this.scrollableContainer.style("height", `${availableContentHeight}px`)
                               .style("overflow-y", totalSvgHeight > availableContentHeight ? "scroll" : "hidden");
-        
-        // Update SVG dimensions
+
         this.mainSvg.attr("width", viewportWidth);
         this.headerSvg.attr("width", viewportWidth);
-        
-        // CRITICAL FIX: Update X scale range for new width
+
         if (this.xScale) {
             this.xScale.range([0, chartWidth]);
             this.debugLog(`Updated X scale range to [0, ${chartWidth}]`);
         }
-        
-        // Recalculate visible tasks for new viewport
+
         this.calculateVisibleTasks();
-        
-        // Clear and redraw with updated scales
+
         this.clearVisual();
-        
-        // Redraw grid lines if needed
+
         const showHorzGridLines = this.settings.gridLines.showGridLines.value;
         const showVertGridLines = this.settings.verticalGridLines.show.value;
-        
-        // Get visible tasks using the centralized WBS-aware helper
+
         const visibleTasks = this.getVisibleTasks();
         const renderableTasks = visibleTasks.filter(t => t.yOrder !== undefined);
 
@@ -4577,7 +4241,6 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
                                       this.gridLayer, this.headerGridLayer);
         }
 
-        // Redraw visible tasks with updated dimensions
         if (this.xScale && this.yScale) {
             this.drawVisualElements(
                 renderableTasks,
@@ -4587,7 +4250,6 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
                 this.yScale.range()[1]
             );
 
-            // Draw Data Date line on viewport-only updates
             this.drawDataDateLine(
                 this.xScale.range()[1],
                 this.xScale,
@@ -4596,34 +4258,24 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
                 this.headerGridLayer
             );
         }
-        
+
         this.debugLog("--- Visual Update End (Viewport Only) ---");
     }
 
 private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing settings-only update");
 
-        // Store old settings to detect changes
         const oldSelectedPathIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value;
         const oldMultiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value;
         const oldShowPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value;
 
-        // --- FIX START: REORDERED LOGIC ---
-
-        // 1. First, process legend data to generate fresh SelectionIDs from the current DataView
         if (options.dataViews?.[0]) {
             this.processLegendData(options.dataViews[0]);
         }
 
-        // 2. THEN populate settings.
-        // getFormattingModel will now find the valid SelectionIds generated in step 1
-        // and create functional color pickers.
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(
             VisualSettings, options.dataViews[0]);
 
-        // --- FIX END ---
-
-        // Check if driving path selection changed
         const newSelectedPathIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value;
         const newMultiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value;
         const newShowPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value;
@@ -4636,31 +4288,27 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
                                    oldMultiPathEnabled !== newMultiPathEnabled ||
                                    oldShowPathInfo !== newShowPathInfo;
 
-        // Sync internal states when settings change via the pane
         if (this.settings?.taskAppearance?.showBaseline !== undefined) {
             this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
         }
 
-        // If driving path selection changed, recalculate criticality
         if (drivingPathChanged) {
             this.debugLog("Driving path selection changed, recalculating...");
             const mode = this.settings?.criticalityMode?.calculationMode?.value?.value ?? 'longestPath';
             if (mode === 'longestPath') {
                 this.identifyLongestPathFromP6();
             } else {
-                // Just update the label visibility (will hide it)
+
                 this.updatePathInfoLabel();
             }
         }
 
-        // Clear and redraw with new settings
         this.clearVisual();
-        // Use the centralized function which includes all header elements
+
         this.updateHeaderElements(options.viewport.width);
         this.createFloatThresholdControl();
         this.createTaskSelectionDropdown();
 
-        // Keep dropdown/labels in sync with the current selection after recreation
         if (this.dropdownInput) {
             if (this.selectedTaskId) {
                 this.dropdownInput.property("value", this.selectedTaskName || "");
@@ -4683,19 +4331,16 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
             this.populateTaskDropdown();
         }
         this.createTraceModeToggle();
-        
-        // Redraw with updated settings
-        // We must recalculate scales here because a setting change (like baseline toggle via format pane)
-        // might affect the X-axis domain or Y-axis layout (task height/padding).
+
         if (this.xScale && this.yScale) {
-             // Calculate total rows for proper scrolling (including WBS groups if enabled)
+
              const taskHeight = this.settings.taskAppearance.taskHeight.value;
              const taskPadding = this.settings.layoutSettings.taskPadding.value;
              const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
              let totalRows = this.allTasksToShow.length;
              if (wbsGroupingEnabled) {
-                 // Find the maximum yOrder value across both tasks and groups
+
                  let maxYOrder = -1;
                  for (const task of this.allTasksToShow) {
                      if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
@@ -4712,31 +4357,25 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
                  }
              }
 
-             // Recalculate scales
              const scaleSetupResult = this.setupTimeBasedSVGAndScales(
                 options.viewport,
-                this.allTasksToShow // Use all tasks for scale calculation
+                this.allTasksToShow
             );
             this.xScale = scaleSetupResult.xScale;
             this.yScale = scaleSetupResult.yScale;
             const chartWidth = scaleSetupResult.chartWidth;
             const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
 
-            // Update taskElementHeight as it might have changed
             this.taskElementHeight = taskHeight + taskPadding;
 
-            // Update virtual scroll with correct totalRows
             const totalSvgHeight = Math.max(50, totalRows * this.taskElementHeight) + this.margin.top + this.margin.bottom;
             this.mainSvg.attr("height", totalSvgHeight);
             this.taskTotalCount = totalRows;
 
-            // Recalculate visible tasks in case layout changed
             this.calculateVisibleTasks();
 
-            // Get visible tasks using the centralized WBS-aware helper
             const visibleTasks = this.getVisibleTasks();
 
-            // Ensure scales are valid before drawing
             if (this.xScale && this.yScale) {
                 this.drawVisualElements(
                     visibleTasks,
@@ -4746,7 +4385,6 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
                     calculatedChartHeight
                 );
 
-                // Draw Data Date line on settings-only updates
                 this.drawDataDateLine(
                     this.xScale.range()[1],
                     this.xScale,
@@ -4798,8 +4436,6 @@ private createMarginResizer(): void {
         .style("background-color", lineColor)
         .style("opacity", "0.7")
         .style("pointer-events", "none");
-
-    // Nib/handle removed per request; keep only the vertical line indicator.
 
     const self = this;
     let startX = 0;
@@ -4959,27 +4595,21 @@ private updateMarginResizerPosition(): void {
 private handleMarginDragUpdate(newLeftMargin: number): void {
     if (!this.xScale || !this.yScale || !this.allTasksToShow) return;
 
-    // Update margin
     this.margin.left = newLeftMargin;
     if (this.settings?.layoutSettings?.leftMargin) {
         this.settings.layoutSettings.leftMargin.value = newLeftMargin;
     }
 
-    // Recalculate chart width based on new margin
     const viewportWidth = this.lastViewport?.width || 0;
     const chartWidth = Math.max(10, viewportWidth - newLeftMargin - this.margin.right);
 
-    // Update X scale range
     this.xScale.range([0, chartWidth]);
 
-    // Update transforms
     this.mainGroup?.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
     this.headerGridLayer?.attr("transform", `translate(${this.margin.left}, 0)`);
 
-    // Redraw only the visual elements (gantt bars, grid lines, etc.) without destroying resizer
     const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
 
-    // Clear only the drawing layers, NOT the resizer
     this.gridLayer?.selectAll("*").remove();
     this.labelGridLayer?.selectAll("*").remove();
     this.arrowLayer?.selectAll("*").remove();
@@ -4987,16 +4617,14 @@ private handleMarginDragUpdate(newLeftMargin: number): void {
     this.taskLabelLayer?.selectAll("*").remove();
     this.headerGridLayer?.selectAll("*").remove();
 
-    // Redraw with new dimensions
     this.drawVisualElements(
         visibleTasks,
         this.xScale,
         this.yScale,
         chartWidth,
-        0  // calculatedChartHeight not needed for redraw
+        0
     );
 
-    // Update resizer position (but don't recreate it)
     this.updateMarginResizerPosition();
     this.updateZoomSliderTrackMargins();
 }
@@ -5009,20 +4637,17 @@ private clearVisual(): void {
     this.labelGridLayer?.selectAll("*").remove();
     this.wbsGroupLayer?.selectAll("*").remove();
 
-    // IMPORTANT: Do NOT remove <defs> so the chart clipPath stays intact.
-    // Removing defs here broke the clip that keeps zoomed bars inside the timeline area.
     this.headerGridLayer?.selectAll("*").remove();
 
-    /* MODIFICATION: Stop removing persistent header elements. They will be updated in place.
+    /* Stop removing persistent header elements. They will be updated in place.
     this.headerSvg?.selectAll(".divider-line").remove();
-    this.headerSvg?.selectAll(".connector-toggle-group").remove(); // Clear connector toggle
+    this.headerSvg?.selectAll(".connector-toggle-group").remove();
     this.stickyHeaderContainer?.selectAll(".visual-title").remove();
     */
 
     this.mainSvg?.selectAll(".message-text").remove();
     this.headerSvg?.selectAll(".message-text").remove();
-    
-    // NEW: Clear canvas
+
     if (this.canvasElement && this.canvasContext) {
         this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
         this.canvasElement.style.display = 'none';
@@ -5032,26 +4657,25 @@ private clearVisual(): void {
 private drawHeaderDivider(viewportWidth: number): void {
         if (!this.headerSvg) return;
 
-        /* MODIFICATION: Use D3 update pattern instead of always appending */
-        
+        /* Use D3 update pattern instead of always appending */
+
         const lineData = [viewportWidth];
-        // Select the existing line (if any) and bind the data
+
         const lineSelection = this.headerSvg.selectAll<SVGLineElement, number>(".divider-line")
             .data(lineData);
 
-        // Enter + Update pattern
         lineSelection.enter()
             .append("line")
             .attr("class", "divider-line")
             .attr("x1", 0)
             .attr("y1", this.headerHeight - 1)
             .attr("y2", this.headerHeight - 1)
-            .attr("stroke", this.resolveColor("#e0e0e0", "foreground")) // Lighter color
+            .attr("stroke", this.resolveColor("#e0e0e0", "foreground"))
             .attr("stroke-width", 1)
-            .merge(lineSelection as any) // Merge enter selection with the update selection (Casting to any if needed due to D3 type definitions)
-            .attr("x2", d => d); // Update the width (x2)
+            .merge(lineSelection as any)
+            .attr("x2", d => d);
     }
-    
+
 private setupTimeBasedSVGAndScales(
     effectiveViewport: IViewport,
     tasksToShow: Task[]
@@ -5066,12 +4690,11 @@ private setupTimeBasedSVGAndScales(
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const svgWidth = effectiveViewport.width;
 
-    // Calculate row count: include group headers when WBS grouping is enabled
     let rowCount = tasksToShow.length;
     const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
     if (wbsGroupingEnabled) {
-        // Find the maximum yOrder value across both tasks and groups
+
         let maxYOrder = -1;
         for (const task of tasksToShow) {
             if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
@@ -5083,7 +4706,7 @@ private setupTimeBasedSVGAndScales(
                 maxYOrder = group.yOrder;
             }
         }
-        // Row count is max yOrder + 1 (since yOrder is 0-based)
+
         if (maxYOrder >= 0) {
             rowCount = maxYOrder + 1;
         }
@@ -5092,20 +4715,15 @@ private setupTimeBasedSVGAndScales(
     const calculatedChartHeight = Math.max(50, rowCount * (taskHeight + taskPadding));
     const chartWidth = Math.max(10, svgWidth - currentLeftMargin - this.margin.right);
 
-    // Collect ALL date timestamps including baseline dates
     const allTimestamps: number[] = [];
 
-    // Include Data Date so scale always accounts for it
     if (this.dataDate instanceof Date && !isNaN(this.dataDate.getTime())) {
         allTimestamps.push(this.dataDate.getTime());
     }
 
-    // NEW: Check if baseline should be included based on the internal toggle state
     const includeBaselineInScale = this.showBaselineInternal;
     const includePreviousUpdateInScale = this.showPreviousUpdateInternal;
 
-    // IMPORTANT: For WBS mode, include dates from summary bars of ALL groups
-    // This maintains consistent time scale perspective regardless of collapse/expand state
     if (wbsGroupingEnabled && this.wbsGroups.length > 0) {
         for (const group of this.wbsGroups) {
             if (group.summaryStartDate && !isNaN(group.summaryStartDate.getTime())) {
@@ -5115,7 +4733,6 @@ private setupTimeBasedSVGAndScales(
                 allTimestamps.push(group.summaryFinishDate.getTime());
             }
 
-            // Include WBS-level previous update and baseline ranges when toggles are on
             if (this.showPreviousUpdateInternal) {
                 if (group.summaryPreviousUpdateStartDate && !isNaN(group.summaryPreviousUpdateStartDate.getTime())) {
                     allTimestamps.push(group.summaryPreviousUpdateStartDate.getTime());
@@ -5137,7 +4754,7 @@ private setupTimeBasedSVGAndScales(
     }
 
     tasksToShow.forEach(task => {
-        // Add regular start/finish dates
+
         if (task.startDate && !isNaN(task.startDate.getTime())) {
             allTimestamps.push(task.startDate.getTime());
         }
@@ -5145,7 +4762,6 @@ private setupTimeBasedSVGAndScales(
             allTimestamps.push(task.finishDate.getTime());
         }
 
-        // IMPORTANT: Only add baseline dates if they exist AND the toggle is ON
         if (includeBaselineInScale) {
             if (task.baselineStartDate && !isNaN(task.baselineStartDate.getTime())) {
                 allTimestamps.push(task.baselineStartDate.getTime());
@@ -5155,7 +4771,6 @@ private setupTimeBasedSVGAndScales(
             }
         }
 
-        // Add previous update dates if toggle is ON
         if (includePreviousUpdateInScale) {
             if (task.previousUpdateStartDate && !isNaN(task.previousUpdateStartDate.getTime())) {
                 allTimestamps.push(task.previousUpdateStartDate.getTime());
@@ -5166,7 +4781,6 @@ private setupTimeBasedSVGAndScales(
         }
     });
 
-    // WBS FIX: When all groups are collapsed, include WBS group summary dates for scale calculation
     if (wbsGroupingEnabled && tasksToShow.length === 0) {
         for (const group of this.wbsGroups) {
             if (group.yOrder !== undefined && group.taskCount > 0) {
@@ -5196,7 +4810,6 @@ private setupTimeBasedSVGAndScales(
         }
     }
 
-    // Filter out any invalid timestamps
     const validTimestamps = allTimestamps.filter(t => t != null && !isNaN(t) && isFinite(t));
 
     if (validTimestamps.length === 0) {
@@ -5209,7 +4822,7 @@ private setupTimeBasedSVGAndScales(
 
     let domainMinDate: Date;
     let domainMaxDate: Date;
-    
+
     if (minTimestamp > maxTimestamp) {
         const midPoint = (minTimestamp + maxTimestamp) / 2;
         const range = Math.max(86400000 * 7, Math.abs(maxTimestamp - minTimestamp) * 1.1);
@@ -5219,16 +4832,14 @@ private setupTimeBasedSVGAndScales(
         domainMinDate = new Date(minTimestamp);
         domainMaxDate = new Date(minTimestamp + 86400000);
     } else {
-        // Add right-side padding so earliest tasks align to the left margin
+
         const domainPaddingMilliseconds = Math.max((maxTimestamp - minTimestamp) * 0.05, 86400000);
         domainMinDate = new Date(minTimestamp);
         domainMaxDate = new Date(maxTimestamp + domainPaddingMilliseconds);
     }
 
-    // Store the full timeline domain for the zoom slider
     this.fullTimelineDomain = [domainMinDate, domainMaxDate];
 
-    // Apply zoom state to calculate visible domain
     let visibleMinDate = domainMinDate;
     let visibleMaxDate = domainMaxDate;
 
@@ -5239,7 +4850,6 @@ private setupTimeBasedSVGAndScales(
         visibleMaxDate = new Date(domainMinDate.getTime() + fullRange * this.zoomRangeEnd);
     }
 
-    // Log for debugging
     this.debugLog(`X-axis domain calculation:
         - Regular dates found: ${tasksToShow.filter(t => t.startDate || t.finishDate).length} tasks
         - Baseline dates included: ${includeBaselineInScale}
@@ -5257,41 +4867,34 @@ private setupTimeBasedSVGAndScales(
 
 private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number, totalRows?: number, skipInitialRender: boolean = false): void {
     this.allTasksToShow = [...tasks];
-    // Use totalRows if provided (includes groups in WBS mode), otherwise use task count
+
     this.taskTotalCount = totalRows !== undefined ? totalRows : tasks.length;
     this.taskElementHeight = taskHeight + taskPadding;
 
-    // Create a placeholder container with proper height to enable scrolling
     const totalContentHeight = this.taskTotalCount * this.taskElementHeight;
 
-    // Set full height for scrolling
     this.mainSvg
         .attr("height", totalContentHeight + this.margin.top + this.margin.bottom);
 
-    // Remove any existing scroll listener properly
     if (this.scrollListener) {
         this.scrollableContainer.on("scroll", null);
         this.scrollListener = null;
     }
 
-    // Setup scroll handler with throttling
     const self = this;
     this.scrollListener = function() {
         if (!self.scrollThrottleTimeout) {
             self.scrollThrottleTimeout = setTimeout(() => {
                 self.scrollThrottleTimeout = null;
                 self.handleScroll();
-            }, 50); // Throttle to 20fps
+            }, 50);
         }
     };
 
     this.scrollableContainer.on("scroll", this.scrollListener);
 
-    // CRITICAL: Calculate initial visible range
     this.calculateVisibleTasks();
 
-    // Only schedule initial render if not skipped (caller will handle rendering)
-    // This prevents double-render when drawVisualElements is called immediately after
     if (!skipInitialRender && this.xScale && this.yScale && this.allTasksToShow.length > 0) {
         requestAnimationFrame(() => {
             this.redrawVisibleTasks();
@@ -5299,14 +4902,11 @@ private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: numbe
     }
 }
 
-// Add this helper method for canvas mouse coordinates
 private getCanvasMouseCoordinates(event: MouseEvent): { x: number, y: number } {
     if (!this.canvasElement) return { x: 0, y: 0 };
-    
+
     const rect = this.canvasElement.getBoundingClientRect();
-    
-    // Simply convert from page coordinates to canvas coordinates
-    // No need to account for DPR here as we're working in CSS pixels
+
     return {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top
@@ -5372,7 +4972,6 @@ private drawRoundedRectPath(
     ctx.closePath();
 }
 
-// Add this helper method for showing tooltips
 private showTaskTooltip(task: Task, event: MouseEvent): void {
     const showTooltips = this.settings?.displayOptions?.showTooltips?.value;
     if (!showTooltips || !task) return;
@@ -5425,26 +5024,20 @@ private hideTooltip(): void {
 }
 
 private updateHeaderElements(viewportWidth: number): void {
-    // Check if elements need updating
 
-    // FIX: Safely get the current text.
-    // Initialize currentToggleText as empty.
     let currentToggleText = "";
     const textSelection = this.toggleButtonGroup?.select("text");
-    
-    // Check if the selection exists AND is not empty before attempting to read its text content.
+
     if (textSelection && !textSelection.empty()) {
         currentToggleText = textSelection.text();
     }
-    
+
     const expectedToggleText = this.showAllTasksInternal ? "Show Critical" : "Show All";
-    
-    // If the text doesn't match (which it won't on initial load, as currentToggleText will be ""), the button is created/updated.
+
     if (currentToggleText !== expectedToggleText) {
         this.createOrUpdateToggleButton(viewportWidth);
     }
-    
-    // Only redraw divider if width changed significantly
+
     const dividerLine = this.headerSvg?.select(".divider-line");
     if (dividerLine && !dividerLine.empty()) {
         const currentX2 = parseFloat(dividerLine.attr("x2"));
@@ -5454,8 +5047,7 @@ private updateHeaderElements(viewportWidth: number): void {
     } else {
         this.drawHeaderDivider(viewportWidth);
     }
-    
-    // Update other header elements as needed
+
     this.createModeToggleButton(viewportWidth);
     this.createOrUpdateBaselineToggleButton(viewportWidth);
     this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
@@ -5466,53 +5058,46 @@ private updateHeaderElements(viewportWidth: number): void {
 
     private calculateVisibleTasks(): void {
         if (!this.scrollableContainer || !this.scrollableContainer.node()) return;
-        
+
         const containerNode = this.scrollableContainer.node();
         const scrollTop = containerNode.scrollTop;
         const viewportHeight = containerNode.clientHeight;
-        
-        // Add buffer rows above and below viewport for smooth scrolling
+
         const bufferCount = Math.ceil(viewportHeight / this.taskElementHeight) * 0.5;
-        
-        // Calculate visible task range based on scroll position
+
         this.viewportStartIndex = Math.max(0, Math.floor(scrollTop / this.taskElementHeight) - bufferCount);
-        
-        // Calculate how many tasks can fit in viewport (plus buffer)
+
         this.visibleTaskCount = Math.ceil(viewportHeight / this.taskElementHeight) + (bufferCount * 2);
-        
-        // Ensure we don't exceed total count
+
         this.viewportEndIndex = Math.min(this.taskTotalCount - 1, this.viewportStartIndex + this.visibleTaskCount);
-        
+
         this.debugLog(`Viewport: ${this.viewportStartIndex} - ${this.viewportEndIndex} of ${this.taskTotalCount}`);
     }
-    
+
 private handleScroll(): void {
     const oldStart = this.viewportStartIndex;
     const oldEnd = this.viewportEndIndex;
-    
+
     this.calculateVisibleTasks();
-    
-    // Only redraw if the visible range has changed OR if canvas is empty
-    const canvasNeedsRedraw = this.canvasElement && 
-                             this.canvasContext && 
+
+    const canvasNeedsRedraw = this.canvasElement &&
+                             this.canvasContext &&
                              this.useCanvasRendering &&
                              !this.canvasHasContent();
-    
-    if (oldStart !== this.viewportStartIndex || 
-        oldEnd !== this.viewportEndIndex || 
+
+    if (oldStart !== this.viewportStartIndex ||
+        oldEnd !== this.viewportEndIndex ||
         canvasNeedsRedraw) {
         this.redrawVisibleTasks();
     }
 }
 
-// Add this helper method
 private canvasHasContent(): boolean {
     if (!this.canvasElement || !this.canvasContext) return false;
 
-    // Check if canvas has any non-transparent pixels
     try {
         const imageData = this.canvasContext.getImageData(0, 0, 1, 1);
-        return imageData.data[3] > 0; // Check alpha channel
+        return imageData.data[3] > 0;
     } catch {
         return false;
     }
@@ -5529,14 +5114,14 @@ private getVisibleTasks(): Task[] {
     const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
     if (wbsGroupingEnabled) {
-        // Filter tasks whose yOrder falls within the visible range
+
         return this.allTasksToShow.filter(t =>
             t.yOrder !== undefined &&
             t.yOrder >= this.viewportStartIndex &&
             t.yOrder <= this.viewportEndIndex
         );
     } else {
-        // Original behavior: slice by array index
+
         return this.allTasksToShow
             .slice(this.viewportStartIndex, this.viewportEndIndex + 1)
             .filter(t => t.yOrder !== undefined);
@@ -5544,7 +5129,7 @@ private getVisibleTasks(): Task[] {
 }
 
 private redrawVisibleTasks(): void {
-    // FIX #3 (TOCTOU): Cache scales at method entry to prevent TOCTOU issues
+
     const xScale = this.xScale;
     const yScale = this.yScale;
     const allTasksToShow = this.allTasksToShow;
@@ -5554,15 +5139,11 @@ private redrawVisibleTasks(): void {
         return;
     }
 
-    // FIX #1: Recalculate visible task indices BEFORE filtering
-    // This ensures viewportStartIndex/viewportEndIndex match current yOrder values
     this.calculateVisibleTasks();
 
-    // Use centralized helper for WBS-aware visible task calculation
     const visibleTasks = this.getVisibleTasks();
     const renderableTasks = visibleTasks.filter(t => t.yOrder !== undefined);
 
-    // Add safety check: if no visible tasks, log warning
     if (renderableTasks.length === 0 && allTasksToShow.length > 0) {
         this.debugLog(`WARNING: getVisibleTasks() returned 0 renderable tasks but allTasksToShow has ${allTasksToShow.length} tasks. Viewport indices: ${this.viewportStartIndex}-${this.viewportEndIndex}, Total count: ${this.taskTotalCount}`);
     }
@@ -5570,49 +5151,43 @@ private redrawVisibleTasks(): void {
     const shouldUseCanvas = renderableTasks.length > this.CANVAS_THRESHOLD;
     const modeChanged = shouldUseCanvas !== this.useCanvasRendering;
 
-    // BUG-011 FIX: Track if we're switching modes to delay hiding until new content is ready
     if (modeChanged) {
         this.useCanvasRendering = shouldUseCanvas;
-        // DON'T hide old layer yet - render new content first, then hide old
-        // This prevents flicker by ensuring new content is visible before old is hidden
+
     }
 
-    // FIX #4: Clear ONLY the target renderer, BEFORE drawing
     if (this.useCanvasRendering) {
-        // Switching TO or STAYING IN canvas mode - clear canvas first
+
         if (this.canvasContext && this.canvasElement) {
             this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
         }
-        // If we just switched FROM SVG, clear SVG content (will be hidden later)
+
         if (modeChanged) {
             this.taskLayer?.selectAll("*").remove();
             this.arrowLayer?.selectAll("*").remove();
         }
     } else {
-        // Switching TO or STAYING IN SVG mode - clear SVG first
+
         this.arrowLayer?.selectAll("*").remove();
         this.taskLayer?.selectAll("*").remove();
-        // If we just switched FROM canvas, clear canvas (will be hidden later)
+
         if (modeChanged && this.canvasContext && this.canvasElement) {
             this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
         }
     }
 
-    // Clear WBS group layer before redrawing
     if (this.wbsGroupLayer) {
         this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
     }
-    // Clear label grid before redraw
+
     if (this.labelGridLayer) {
         this.labelGridLayer.selectAll(".label-grid-line").remove();
     }
-    // FIX #6: Clear task label layer before redrawing to prevent label collisions
-    // This ensures old labels don't overlap with WBS headers or persist after toggles
+
     if (this.taskLabelLayer) {
         this.taskLabelLayer.selectAll("*").remove();
     }
 
-    // MODIFICATION: Prepare for Gridline redraw
     const showHorzGridLines = this.settings.gridLines.showGridLines.value;
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const chartWidth = xScale.range()[1];
@@ -5624,20 +5199,16 @@ private redrawVisibleTasks(): void {
     const selectionLabelWeight = "bold";
     const lineHeight = this.taskLabelLineHeight;
 
-    // MODIFICATION: Always clear stale SVG gridlines before redrawing in either mode.
     if (showHorzGridLines) {
         this.gridLayer?.selectAll(".grid-line.horizontal").remove();
     }
-    
+
     if (this.useCanvasRendering) {
-        // --- Canvas Rendering Path ---
-        // BUG-011 FIX: Hide SVG layers AFTER canvas content is ready (see below)
-        // Position the canvas element with pixel-perfect positioning
+
         if (this.canvasElement) {
             const leftMargin = Math.round(this.margin.left);
             const topMargin = Math.round(this.margin.top);
 
-            // ENHANCEMENT: Start canvas hidden (opacity 0) for fade-in transition when switching modes
             if (modeChanged) {
                 this.canvasElement.style.opacity = '0';
                 this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
@@ -5648,20 +5219,17 @@ private redrawVisibleTasks(): void {
             this.canvasElement.style.left = `${leftMargin}px`;
             this.canvasElement.style.top = `${topMargin}px`;
             this.canvasElement.style.imageRendering = 'auto';
-            this.canvasElement.style.transform = 'translateZ(0)'; // Force GPU acceleration
+            this.canvasElement.style.transform = 'translateZ(0)';
         }
 
-        // Use the new helper to size, clear, and scale the canvas
         if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
 
-            // MODIFICATION: Draw Gridlines on Canvas
             if (showHorzGridLines) {
                 this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
-                // Draw label-margin gridlines via SVG fallback (unclipped)
+
                 this.drawLabelMarginGridLinesCanvasFallback(renderableTasks, yScale, currentLeftMargin);
             }
 
-            // Draw tasks on the prepared canvas
             this.drawTasksCanvas(
                 renderableTasks,
                 xScale,
@@ -5676,11 +5244,10 @@ private redrawVisibleTasks(): void {
                 1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
             );
 
-            // ACCESSIBILITY: Create fallback for canvas rendering
             this.createAccessibleCanvasFallback(renderableTasks, yScale);
 
             if (this.showConnectorLinesInternal) {
-                // Draw arrows on the prepared canvas
+
                 this.drawArrowsCanvas(
                     renderableTasks,
                     xScale,
@@ -5694,7 +5261,6 @@ private redrawVisibleTasks(): void {
                 );
             }
 
-            // Draw task name labels in unclipped SVG layer so they stay visible in the left margin
             this.drawTaskLabelsLayer(
                 renderableTasks,
                 yScale,
@@ -5709,7 +5275,6 @@ private redrawVisibleTasks(): void {
                 lineHeight
             );
 
-            // Draw Data Date line on canvas and header
             this.drawDataDateLine(
                 chartWidth,
                 xScale,
@@ -5718,23 +5283,20 @@ private redrawVisibleTasks(): void {
                 this.headerGridLayer
             );
 
-            // BUG-011 FIX: NOW hide SVG layers (after canvas content is fully rendered)
-            // ENHANCEMENT: Animate the mode transition with fade effects
             if (modeChanged && this.canvasElement) {
-                // Fade in canvas while fading out SVG
+
                 requestAnimationFrame(() => {
                     if (this.canvasElement) {
                         this.canvasElement.style.opacity = '1';
                     }
 
-                    // Fade out SVG layers
                     this.taskLayer
                         .transition()
                         .duration(this.MODE_TRANSITION_DURATION)
                         .style("opacity", 0)
                         .on("end", () => {
                             this.taskLayer.style("display", "none");
-                            this.taskLayer.style("opacity", null);  // Reset for next use
+                            this.taskLayer.style("opacity", null);
                             this.taskLayer?.selectAll("*").remove();
                         });
 
@@ -5744,20 +5306,18 @@ private redrawVisibleTasks(): void {
                         .style("opacity", 0)
                         .on("end", () => {
                             this.arrowLayer.style("display", "none");
-                            this.arrowLayer.style("opacity", null);  // Reset for next use
+                            this.arrowLayer.style("opacity", null);
                             this.arrowLayer?.selectAll("*").remove();
                         });
                 });
             } else {
-                // No mode change - just hide immediately
+
                 this.taskLayer.style("display", "none");
                 this.arrowLayer.style("display", "none");
             }
         }
     } else {
-        // --- SVG Rendering Path ---
-        // BUG-011 FIX: Show SVG layers first, render content, then hide canvas
-        // ENHANCEMENT: Start SVG layers hidden (opacity 0) for fade-in transition when switching modes
+
         if (modeChanged) {
             this.taskLayer
                 .style("opacity", 0)
@@ -5774,15 +5334,12 @@ private redrawVisibleTasks(): void {
             this.arrowLayer.style("visibility", "visible");
         }
 
-        // Apply SVG rendering hints
         this.setupSVGRenderingHints();
 
-        // MODIFICATION: Draw Gridlines on SVG
         if (showHorzGridLines) {
             this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
         }
 
-        // Draw arrows first so they appear behind tasks
         if (this.showConnectorLinesInternal) {
             this.drawArrows(
                 renderableTasks,
@@ -5811,7 +5368,6 @@ private redrawVisibleTasks(): void {
             1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
         );
 
-    // Draw WBS group headers (SVG mode) - only for visible viewport range
     this.drawWbsGroupHeaders(
         xScale,
         yScale,
@@ -5821,12 +5377,10 @@ private redrawVisibleTasks(): void {
         this.viewportEndIndex
     );
 
-        // BUG-011 FIX: NOW hide canvas (after SVG content is fully rendered)
-        // ENHANCEMENT: Animate the mode transition with fade effects
         if (modeChanged && this.canvasElement) {
-            // Fade in SVG layers while fading out canvas
+
             requestAnimationFrame(() => {
-                // Fade in SVG layers
+
                 this.taskLayer
                     .transition()
                     .duration(this.MODE_TRANSITION_DURATION)
@@ -5837,18 +5391,16 @@ private redrawVisibleTasks(): void {
                     .duration(this.MODE_TRANSITION_DURATION)
                     .style("opacity", 1);
 
-                // Fade out canvas
                 if (this.canvasElement) {
                     this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
                     this.canvasElement.style.opacity = '0';
 
-                    // After transition, hide canvas and clear
                     setTimeout(() => {
                         if (this.canvasElement) {
                             this.canvasElement.style.display = 'none';
-                            this.canvasElement.style.transition = '';  // Reset for next use
+                            this.canvasElement.style.transition = '';
                         }
-                        // Clear canvas content to free memory
+
                         if (this.canvasContext && this.canvasElement) {
                             this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
                         }
@@ -5856,12 +5408,11 @@ private redrawVisibleTasks(): void {
                 }
             });
         } else if (this.canvasElement) {
-            // No mode change - just hide immediately
+
             this.canvasElement.style.display = 'none';
         }
     }
 
-    // Draw WBS group headers for canvas mode (using SVG overlay) - only for visible viewport range
     if (this.useCanvasRendering) {
         this.drawWbsGroupHeaders(
             xScale,
@@ -5873,8 +5424,6 @@ private redrawVisibleTasks(): void {
         );
     }
 
-    // Redraw project end and reference lines (Always SVG; clears when toggled off)
-    // Use allFilteredTasks to show finish date of all filtered tasks (not just visible/non-collapsed)
     const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : allTasksToShow;
     this.drawBaselineAndPreviousEndLines(
         xScale,
@@ -5893,7 +5442,6 @@ private redrawVisibleTasks(): void {
         this.headerGridLayer
     );
 
-    // Draw Data Date line if provided
     this.drawDataDateLine(
         xScale.range()[1],
         xScale,
@@ -5916,23 +5464,19 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         ctx.strokeStyle = lineColor;
         ctx.lineWidth = lineWidth;
 
-        // Configure line dash style
         switch (style) {
             case "dashed": ctx.setLineDash([4, 3]); break;
             case "dotted": ctx.setLineDash([1, 2]); break;
             default: ctx.setLineDash([]); break;
         }
 
-        // Define the horizontal span
         const x1 = 0;
         const x2 = chartWidth;
 
-        // Collect all yOrder values from tasks
         const taskYOrders = tasks
             .filter(t => t.yOrder !== undefined && t.yOrder > 0)
             .map(t => t.yOrder as number);
 
-        // If WBS grouping is enabled, also include visible WBS group yOrders
         let allYOrders: number[] = [...taskYOrders];
         if (this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
             const groupYOrders = this.wbsGroups
@@ -5942,13 +5486,12 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
             allYOrders = [...allYOrders, ...groupYOrders];
         }
 
-        // Remove duplicates and sort
         const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
 
         uniqueYOrders.forEach(yOrder => {
             const yPos = yScale(yOrder.toString());
             if (yPos !== undefined && !isNaN(yPos)) {
-                // Ensure pixel alignment for crisp lines
+
                 const alignedY = Math.round(yPos);
                 ctx.beginPath();
                 ctx.moveTo(x1, alignedY);
@@ -5960,7 +5503,6 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         ctx.restore();
     }
 
-    // Unclipped grid lines in the label margin for canvas mode (drawn in SVG)
     private drawLabelMarginGridLinesCanvasFallback(tasks: Task[], yScale: ScaleBand<string>, currentLeftMargin: number): void {
         if (!this.labelGridLayer || !yScale) return;
         this.labelGridLayer.selectAll(".label-grid-line").remove();
@@ -6003,7 +5545,7 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
             .style("stroke-dasharray", lineDashArray)
             .style("pointer-events", "none");
     }
-    
+
     private createScales(
         domainMin: Date, domainMax: Date, chartWidth: number, tasksToShow: Task[],
         calculatedChartHeight: number, taskHeight: number, taskPadding: number
@@ -6022,17 +5564,14 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
             .domain([domainMin, domainMax])
             .range([0, chartWidth]);
 
-        // Build yDomain: include both tasks AND group headers (when WBS is enabled)
         const yDomainSet = new Set<string>();
 
-        // Add task yOrders
         for (const task of tasksToShow) {
             if (task.yOrder !== undefined) {
                 yDomainSet.add(task.yOrder.toString());
             }
         }
 
-        // Add group header yOrders if WBS grouping is enabled
         const wbsGroupingEnabled = this.wbsDataExists &&
             this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
@@ -6044,19 +5583,17 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
             }
         }
 
-        // Convert to sorted array
         const yDomain = Array.from(yDomainSet).sort((a, b) => parseInt(a) - parseInt(b));
 
         if (yDomain.length === 0) {
              this.debugLog("Y-scale domain is empty because no tasks are being plotted.");
-             // Still return xScale if valid
+
              return { xScale: (isNaN(xScale.range()[0]) ? null : xScale), yScale: null, chartWidth, calculatedChartHeight };
         }
 
-// For virtual scrolling, y-scale domain contains all tasks but range positions visible ones
         const yScale = d3.scaleBand<string>()
-            .domain(yDomain) // Keep full domain
-            .range([0, calculatedChartHeight]) // Full range for complete chart height
+            .domain(yDomain)
+            .range([0, calculatedChartHeight])
             .paddingInner(taskPadding / (taskHeight + taskPadding))
             .paddingOuter(taskPadding / (taskHeight + taskPadding) / 2);
 
@@ -6075,26 +5612,24 @@ private drawVisualElements(
         this.debugLog("Skipping full redraw during active scroll");
         return;
     }
-    
-    if (!(this.gridLayer?.node() && this.taskLayer?.node() && this.arrowLayer?.node() && 
+
+    if (!(this.gridLayer?.node() && this.taskLayer?.node() && this.arrowLayer?.node() &&
             xScale && yScale && yScale.bandwidth())) {
         console.error("Cannot draw elements: Missing main layers or invalid scales/bandwidth.");
         this.displayMessage("Error during drawing setup.");
         return;
     }
-    
+
     if (!this.headerGridLayer?.node()) {
         console.error("Cannot draw header elements: Missing header layer.");
         this.displayMessage("Error during drawing setup.");
         return;
     }
 
-    // Always start from a clean overlay state so WBS and labels don't ghost across toggles
     this.taskLabelLayer?.selectAll("*").remove();
     this.labelGridLayer?.selectAll("*").remove();
     this.wbsGroupLayer?.selectAll("*").remove();
 
-    // Update SVG clip rect to prevent bars from rendering past left margin when zoomed
     this.updateChartClipRect(chartWidth, chartHeight);
 
     const taskColor = this.resolveColor(this.settings.taskAppearance.taskColor.value.value, "foreground");
@@ -6111,7 +5646,7 @@ private drawVisualElements(
     const showHorzGridLines = this.settings.gridLines.showGridLines.value;
     const showVertGridLines = this.settings.verticalGridLines.show.value;
     const showDuration = this.settings.textAndLabels.showDuration.value;
-    // MODIFICATION: Ensure currentLeftMargin is defined here for conditional use.
+
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
@@ -6124,12 +5659,11 @@ private drawVisualElements(
     if (!wbsGroupingEnabled) {
         this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
     }
-    
-    // Decide whether to use Canvas or SVG based on task count
+
     this.useCanvasRendering = renderableTasks.length > this.CANVAS_THRESHOLD;
     this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${renderableTasks.length} tasks`);
-    
-    /* MODIFICATION: Remove the unconditional SVG draw. It is handled conditionally below.
+
+    /* Remove the unconditional SVG draw. It is handled conditionally below.
     if (showHorzGridLines) {
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         this.drawHorizontalGridLines(tasksToShow, yScale, chartWidth, currentLeftMargin, chartHeight);
@@ -6137,42 +5671,37 @@ private drawVisualElements(
     */
 
     if (showVertGridLines) {
-        // Vertical gridlines are always drawn in SVG (as they align with the SVG header)
+
         this.drawVerticalGridLines(xScale, chartHeight, this.gridLayer, this.headerGridLayer);
     }
-    
+
     if (this.useCanvasRendering) {
-        // --- Canvas Rendering Path ---
+
         this.taskLayer.style("display", "none");
         this.arrowLayer.style("display", "none");
-        
-        // Position the canvas element and ensure it's visible
+
         if (this.canvasElement) {
             this.canvasElement.style.display = 'block';
-            this.canvasElement.style.visibility = 'visible'; // CRITICAL: Ensure visibility
+            this.canvasElement.style.visibility = 'visible';
             this.canvasElement.style.left = `${this.margin.left}px`;
             this.canvasElement.style.top = `${this.margin.top}px`;
-            this.canvasElement.style.pointerEvents = 'auto'; // Ensure interactions work
-            this.canvasElement.style.zIndex = '1'; // Ensure it's above other elements
+            this.canvasElement.style.pointerEvents = 'auto';
+            this.canvasElement.style.zIndex = '1';
         }
-        
-        // Use the new helper to size, clear, and scale the canvas
+
         if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
 
-            // MODIFICATION: Draw horizontal gridlines on Canvas
             if (showHorzGridLines) {
                 this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
             }
 
-            // Draw tasks on the prepared canvas
             this.drawTasksCanvas(
                 renderableTasks, xScale, yScale,
                 taskColor, milestoneColor, criticalColor,
                 labelColor, showDuration, taskHeight,
                 dateBgColor, dateBgOpacity
             );
-            
-            // Draw arrows on the prepared canvas if needed
+
             if (this.showConnectorLinesInternal) {
                 this.drawArrowsCanvas(
                     renderableTasks, xScale, yScale,
@@ -6181,7 +5710,6 @@ private drawVisualElements(
                 );
             }
 
-            // Draw task name labels in unclipped SVG layer so they remain visible in the margin
             this.drawTaskLabelsLayer(
                 renderableTasks,
                 yScale,
@@ -6197,7 +5725,7 @@ private drawVisualElements(
             );
         }
     } else {
-        // --- SVG Rendering Path ---
+
         if (this.canvasElement) {
             this.canvasElement.style.display = 'none';
             this.canvasElement.style.visibility = 'hidden';
@@ -6206,16 +5734,13 @@ private drawVisualElements(
         this.taskLayer.style("visibility", "visible");
         this.arrowLayer.style("display", "block");
         this.arrowLayer.style("visibility", "visible");
-        
-        // Apply SVG rendering hints
+
         this.setupSVGRenderingHints();
 
-        // MODIFICATION: Draw horizontal gridlines on SVG
         if (showHorzGridLines) {
             this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
         }
-        
-    // Draw arrows first so they appear behind tasks
+
     if (this.showConnectorLinesInternal) {
         this.drawArrows(
             renderableTasks, xScale, yScale,
@@ -6223,7 +5748,7 @@ private drawVisualElements(
             taskHeight, this.settings.taskAppearance.milestoneSize.value
         );
     }
-    
+
     this.drawTasks(
         renderableTasks, xScale, yScale,
         taskColor, milestoneColor, criticalColor,
@@ -6231,10 +5756,8 @@ private drawVisualElements(
             dateBgColor, dateBgOpacity
         );
 
-        // Draw WBS group headers (SVG mode only)
         this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
 
-            // Draw Data Date line when in SVG mode
             this.drawDataDateLine(
                 chartWidth,
                 xScale,
@@ -6244,7 +5767,6 @@ private drawVisualElements(
             );
         }
 
-        // Project end and reference lines are always drawn in SVG (clears when toggled off)
         const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
         this.drawBaselineAndPreviousEndLines(
             xScale,
@@ -6269,12 +5791,10 @@ private drawVisualElements(
         let lineDashArray = "none";
          switch (style) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; break; }
 
-        // Collect all yOrder values from tasks
         const taskYOrders = tasks
             .filter(t => t.yOrder !== undefined && t.yOrder > 0)
             .map(t => t.yOrder as number);
 
-        // If WBS grouping is enabled, also include WBS group yOrders
         let allYOrders: number[] = [...taskYOrders];
         if (this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
             const groupYOrders = this.wbsGroups
@@ -6283,10 +5803,8 @@ private drawVisualElements(
             allYOrders = [...allYOrders, ...groupYOrders];
         }
 
-        // Remove duplicates and sort
         const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
 
-        // Draw clipped gridlines for each yOrder (chart area only)
         this.gridLayer.selectAll(".grid-line.horizontal")
             .data(uniqueYOrders)
             .enter()
@@ -6301,7 +5819,6 @@ private drawVisualElements(
             .style("stroke-dasharray", lineDashArray)
             .style("pointer-events", "none");
 
-        // Unclipped label-area grid lines to keep row guides behind labels
         if (this.labelGridLayer) {
             this.labelGridLayer.selectAll(".label-grid-line")
                 .data(uniqueYOrders)
@@ -6329,13 +5846,13 @@ private drawVisualElements(
             console.warn("Skipping vertical grid lines: Missing layers or invalid X scale.");
             return;
         }
-    
+
         mainGridLayer.selectAll(".vertical-grid-line").remove();
         headerLayer.selectAll(".vertical-grid-label").remove();
-    
+
         const settings = this.settings.verticalGridLines;
         if (!settings.show.value) return;
-    
+
         const lineColor = this.resolveColor(settings.lineColor.value.value, "foreground");
         const lineWidth = settings.lineWidth.value;
         const lineStyle = settings.lineStyle.value.value as string;
@@ -6347,8 +5864,7 @@ private drawVisualElements(
         const labelFontSize = labelFontSizeSetting > 0 ? labelFontSizeSetting : Math.max(8, baseFontSize * 0.8);
         let lineDashArray = "none";
         switch (lineStyle) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; }
-    
-        // --- Adaptive Ticking Logic ---
+
         const typicalLabel = "Sep-27";
         const estimatedLabelWidthPx = typicalLabel.length * labelFontSize * 0.6 + 10;
         let tickInterval = 1;
@@ -6373,13 +5889,12 @@ private drawVisualElements(
                  break;
              }
          }
-    
-        // --- Draw vertical grid LINES in MAIN grid layer ---
+
         mainGridLayer.selectAll(".vertical-grid-line")
             .data(monthTicks)
             .enter()
             .append("line")
-            // ... (line attributes) ...
+
             .attr("class", "vertical-grid-line")
             .attr("x1", (d: Date) => xScale(d))
             .attr("x2", (d: Date) => xScale(d))
@@ -6389,17 +5904,16 @@ private drawVisualElements(
             .style("stroke-width", lineWidth)
             .style("stroke-dasharray", lineDashArray)
             .style("pointer-events", "none");
-    
-        // --- Draw month LABELS in HEADER layer ---
+
         if (showMonthLabels) {
             headerLayer.selectAll(".vertical-grid-label")
                 .data(monthTicks)
                 .enter()
                 .append("text")
-                // ... (label attributes) ...
+
                 .attr("class", "vertical-grid-label")
                 .attr("x", (d: Date) => xScale(d))
-                .attr("y", this.headerHeight - 15) // Updated position: closer to bottom of header
+                .attr("y", this.headerHeight - 15)
                 .attr("text-anchor", "middle")
                 .style("font-size", `${labelFontSize}pt`)
                 .style("fill", labelColor)
@@ -6447,7 +5961,7 @@ private drawTasks(
     const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
     const dateBgPaddingV = this.dateBackgroundPadding.vertical;
     const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
-    const self = this; // Store reference for callbacks
+    const self = this;
     const minInlineDurationWidth = 28;
     const minBarWidthForStrongStroke = 8;
     const minBarWidthForGlow = 10;
@@ -6473,21 +5987,17 @@ private drawTasks(
         }
         return fallbackColor;
     };
-    
-    // Define selection highlight styles
-    const selectionHighlightColor = this.getSelectionColor();
-    const selectionStrokeWidth = 2.5;          // Thicker border for selected task
-    const selectionLabelColor = selectionHighlightColor;
-    const selectionLabelWeight = "bold";       // Bold font for selected task label
 
-    // Apply the data join pattern for task groups
+    const selectionHighlightColor = this.getSelectionColor();
+    const selectionStrokeWidth = 2.5;
+    const selectionLabelColor = selectionHighlightColor;
+    const selectionLabelWeight = "bold";
+
     const taskGroupsSelection = this.taskLayer.selectAll<SVGGElement, Task>(".task-group")
         .data(tasks, (d: Task) => d.internalId);
-    
-    // Exit: Remove elements that no longer have data
+
     taskGroupsSelection.exit().remove();
-    
-    // Enter: Create new elements for new data
+
     const enterGroups = taskGroupsSelection.enter().append("g")
         .attr("class", "task-group")
         .attr("transform", (d: Task) => {
@@ -6495,15 +6005,14 @@ private drawTasks(
             const yPosition = yScale(domainKey);
             if (yPosition === undefined || isNaN(yPosition)) {
                 console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
-                return null; // Use null to filter later
+                return null;
             }
             return `translate(0, ${yPosition})`;
         })
-        .filter(function() { // Filter out groups where transform failed
+        .filter(function() {
             return d3.select(this).attr("transform") !== null;
         });
-    
-    // Update: Update existing elements
+
     taskGroupsSelection.attr("transform", (d: Task) => {
         const domainKey = d.yOrder?.toString() ?? '';
         const yPosition = yScale(domainKey);
@@ -6513,11 +6022,9 @@ private drawTasks(
         }
         return `translate(0, ${yPosition})`;
     });
-    
-    // Merge enter and existing selections
+
     const allTaskGroups = enterGroups.merge(taskGroupsSelection);
 
-    // --- Draw Previous Update Bars FIRST (directly below task bar) ---
     const showPreviousUpdate = this.showPreviousUpdateInternal;
     if (showPreviousUpdate) {
         const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
@@ -6536,7 +6043,7 @@ private drawTasks(
         .append("rect")
             .attr("class", "previous-update-bar")
             .attr("x", (d: Task) => xScale(d.previousUpdateStartDate!))
-            .attr("y", taskHeight + previousUpdateOffset) // Directly below task bar
+            .attr("y", taskHeight + previousUpdateOffset)
             .attr("width", (d: Task) => {
                 const startPos = xScale(d.previousUpdateStartDate!);
                 const finishPos = xScale(d.previousUpdateFinishDate!);
@@ -6553,7 +6060,6 @@ private drawTasks(
         allTaskGroups.selectAll(".previous-update-bar").remove();
     }
 
-    // --- Draw Baseline Bars SECOND (below previous update bars) ---
     const showBaseline = this.showBaselineInternal;
     if (showBaseline) {
         const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
@@ -6561,8 +6067,7 @@ private drawTasks(
         const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
         const baselineRadius = Math.min(3, baselineHeight / 2);
         const baselineOutline = this.getContrastColor(baselineColor);
-        
-        // Calculate Y position based on what's visible above
+
         let baselineY = taskHeight;
         if (showPreviousUpdate) {
             const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
@@ -6598,12 +6103,9 @@ private drawTasks(
     } else {
         allTaskGroups.selectAll(".baseline-bar").remove();
     }
-    
-    // --- Draw Task Bars ---
-    // First remove any existing bars to redraw them (simpler than updating positions)
+
     allTaskGroups.selectAll(".task-bar, .milestone").remove();
 
-    // UPGRADED: Draw bars for normal tasks with enhanced corner radius and shadows
     allTaskGroups.filter((d: Task) =>
         d.type !== 'TT_Mile' && d.type !== 'TT_FinMile' &&
         d.startDate instanceof Date && !isNaN(d.startDate.getTime()) &&
@@ -6616,7 +6118,7 @@ private drawTasks(
             if (d.isNearCritical) return "task-bar near-critical";
             return "task-bar normal";
         })
-        // ACCESSIBILITY: Add ARIA attributes for screen readers
+
         .attr("role", "button")
         .attr("aria-label", (d: Task) => {
             const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
@@ -6629,21 +6131,19 @@ private drawTasks(
         .attr("y", 0)
         .attr("width", (d: Task) => getTaskBarWidth(d))
         .attr("height", taskHeight)
-        // UPGRADED: Increased corner radius from 3px to 5px for smoother appearance
+
         .attr("rx", (d: Task) => Math.min(5, taskHeight * 0.15, getTaskBarWidth(d) / 2))
         .attr("ry", (d: Task) => Math.min(5, taskHeight * 0.15, getTaskBarWidth(d) / 2))
         .style("fill", (d: Task) => getTaskFillColor(d, taskColor))
-        // Stroke: different logic based on legend
+
         .style("stroke", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
 
-            // WITH LEGEND: Use borders to show criticality
             if (this.legendDataExists) {
                 if (d.isCritical) return criticalColor;
                 if (d.isNearCritical) return nearCriticalColor;
             }
 
-            // WITHOUT LEGEND (OLD STYLE): Minimal borders
             return this.getForegroundColor();
         })
         .style("stroke-width", (d: Task) => {
@@ -6656,7 +6156,7 @@ private drawTasks(
                 if (d.isCritical) baseWidth = this.settings.taskAppearance.criticalBorderWidth.value;
                 else if (d.isNearCritical) baseWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
             } else if (d.isCritical) {
-                baseWidth = 1;  // Slightly thicker for critical
+                baseWidth = 1;
             }
 
             if (barWidth < minBarWidthForStrongStroke) {
@@ -6664,11 +6164,11 @@ private drawTasks(
             }
             return baseWidth;
         })
-        // Glow: only with legend
+
         .style("filter", (d: Task) => {
             const barWidth = getTaskBarWidth(d);
             if (barWidth < minBarWidthForGlow) return "none";
-            // WITH LEGEND: Add glow for critical tasks
+
             if (this.legendDataExists) {
                 if (d.isCritical) {
                     const rgb = this.hexToRgb(criticalColor);
@@ -6681,11 +6181,9 @@ private drawTasks(
                 }
             }
 
-            // WITHOUT LEGEND (OLD STYLE): Standard shadow
             return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
         });
 
-    // --- Draw Milestones ---
     allTaskGroups.filter((d: Task) =>
         (d.type === 'TT_Mile' || d.type === 'TT_FinMile') &&
         ((d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ||
@@ -6697,7 +6195,7 @@ private drawTasks(
             if (d.isNearCritical) return "milestone near-critical";
             return "milestone normal";
         })
-        // ACCESSIBILITY: Add ARIA attributes for milestones
+
         .attr("role", "button")
         .attr("aria-label", (d: Task) => {
             const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
@@ -6719,34 +6217,30 @@ private drawTasks(
             return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
         })
         .style("fill", (d: Task) => getTaskFillColor(d, milestoneColor))
-        // Stroke: different logic based on legend
+
         .style("stroke", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
 
-            // WITH LEGEND: Use borders to show criticality
             if (this.legendDataExists) {
                 if (d.isCritical) return criticalColor;
                 if (d.isNearCritical) return nearCriticalColor;
             }
 
-            // WITHOUT LEGEND (OLD STYLE): Standard black border
             return this.getForegroundColor();
         })
         .style("stroke-width", (d: Task) => {
             if (d.internalId === this.selectedTaskId) return 3;
 
-            // WITH LEGEND: Thick borders for critical tasks
             if (this.legendDataExists) {
                 if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
                 if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
             }
 
-            // WITHOUT LEGEND (OLD STYLE): Standard border
             return 1.5;
         })
-        // Glow: only with legend
+
         .style("filter", (d: Task) => {
-            // WITH LEGEND: Add glow for critical tasks
+
             if (this.legendDataExists) {
                 if (d.isCritical) {
                     const rgb = this.hexToRgb(criticalColor);
@@ -6759,11 +6253,9 @@ private drawTasks(
                 }
             }
 
-            // WITHOUT LEGEND (OLD STYLE): Standard shadow
             return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
         });
 
-    // Task labels are drawn in a dedicated unclipped layer so they remain visible in the margin
     this.drawTaskLabelsLayer(
         tasks,
         yScale,
@@ -6777,11 +6269,10 @@ private drawTasks(
         selectionLabelWeight,
         this.taskLabelLineHeight
     );
-    
-    // --- Finish Date Labels (easier to redraw than update) ---
+
     if (showFinishDates) {
         allTaskGroups.selectAll(".date-label-group").remove();
-        
+
         const dateTextFontSize = Math.max(7, generalFontSize * (reduceLabelDensity ? 0.75 : 0.85));
         const dateTextGroups = allTaskGroups
             .filter((d: Task) => shouldShowFinishLabel(d))
@@ -6817,23 +6308,20 @@ private drawTasks(
             .text((d: Task) => self.formatDate(d.finishDate))
             .filter(function() { return d3.select(this).attr("x") !== null; });
 
-        // Add background rect using BBox
         dateTextGroups.each((d: Task, i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
             const group = d3.select(nodes[i] as SVGGElement);
             const textElement = group.select<SVGTextElement>(".finish-date").node();
-            
-            // Separate null checks to avoid accessing properties on null
+
             if (!textElement) {
-                group.remove(); 
+                group.remove();
                 return;
             }
-            
-            // Now safe to check other properties since textElement is not null
+
             if (textElement.getAttribute("x") === null || !textElement.textContent || textElement.textContent.trim() === "") {
-                group.remove(); 
+                group.remove();
                 return;
             }
-            
+
             try {
                 const bbox = textElement.getBBox();
                 if (bbox && bbox.width > 0 && bbox.height > 0 && isFinite(bbox.x) && isFinite(bbox.y)) {
@@ -6843,11 +6331,11 @@ private drawTasks(
                         .attr("y", bbox.y - dateBgPaddingV)
                         .attr("width", bbox.width + (dateBgPaddingH * 2))
                         .attr("height", bbox.height + (dateBgPaddingV * 2))
-                        // UPGRADED: Increased border radius from 3px to 4px for smoother appearance
+
                         .attr("rx", 4).attr("ry", 4)
                         .style("fill", dateBackgroundColor)
                         .style("fill-opacity", dateBackgroundOpacity)
-                        // UPGRADED: Add subtle shadow to date label backgrounds for depth
+
                         .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[1]})`);
                 }
             } catch (e) {
@@ -6856,10 +6344,9 @@ private drawTasks(
         });
     }
 
-    // --- Duration Text (redraw for simplicity) ---
     if (showDuration) {
         allTaskGroups.selectAll(".duration-text").remove();
-        
+
         const durationFontSize = Math.max(7, generalFontSize * 0.8);
         allTaskGroups.filter((d: Task) =>
             d.type !== 'TT_Mile' && d.type !== 'TT_FinMile' &&
@@ -6895,19 +6382,18 @@ private drawTasks(
             .filter(function() { return d3.select(this).attr("x") !== null && d3.select(this).text() !== ""; });
     }
 
-    // --- Attach Tooltips and Click Handlers ---
     const setupInteractivity = (selection: Selection<BaseType, Task, BaseType, unknown>) => {
         selection
             .on("mouseover", (event: MouseEvent, d: Task) => {
                 self.setHoveredTask(d.internalId);
-                // Only apply hover effect if not the selected task
+
                 if (d.internalId !== self.selectedTaskId) {
-                    // Determine the correct hover stroke color and width based on criticality
+
                     let hoverStrokeColor = self.getForegroundColor();
                     let hoverStrokeWidth = "2px";
 
                     if (self.legendDataExists) {
-                        // WITH LEGEND: Preserve critical/near-critical styling on hover
+
                         if (d.isCritical) {
                             hoverStrokeColor = criticalColor;
                             hoverStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
@@ -6916,7 +6402,7 @@ private drawTasks(
                             hoverStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
                         }
                     } else {
-                        // WITHOUT LEGEND: Slightly emphasize on hover
+
                         if (d.isCritical) {
                             hoverStrokeWidth = "1.5px";
                         }
@@ -6928,7 +6414,6 @@ private drawTasks(
                 }
                 d3.select(event.currentTarget as Element).style("cursor", "pointer");
 
-                // Show tooltip if enabled
                 if (showTooltips) {
                     self.showTaskTooltip(d, event);
                 }
@@ -6940,14 +6425,14 @@ private drawTasks(
             })
             .on("mouseout", (event: MouseEvent, d: Task) => {
                 self.setHoveredTask(null);
-                // Restore normal appearance only if not selected
+
                 if (d.internalId !== self.selectedTaskId) {
-                    // Determine the correct default stroke color and width based on criticality
+
                     let defaultStrokeColor = self.getForegroundColor();
                     let defaultStrokeWidth = "0.5";
 
                     if (self.legendDataExists) {
-                        // WITH LEGEND: Restore critical/near-critical styling
+
                         if (d.isCritical) {
                             defaultStrokeColor = criticalColor;
                             defaultStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
@@ -6956,7 +6441,7 @@ private drawTasks(
                             defaultStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
                         }
                     } else {
-                        // WITHOUT LEGEND: Restore standard styling
+
                         if (d.isCritical) {
                             defaultStrokeWidth = "1";
                         }
@@ -6975,7 +6460,7 @@ private drawTasks(
                 self.showContextMenu(event, d);
             })
             .on("click", (event: MouseEvent, d: Task) => {
-                // Toggle task selection
+
                 if (self.selectedTaskId === d.internalId) {
                     self.selectTask(null, null);
                 } else {
@@ -6988,14 +6473,13 @@ private drawTasks(
 
                 event.stopPropagation();
             })
-            // ACCESSIBILITY: Add keyboard navigation support
+
             .on("keydown", (event: KeyboardEvent, d: Task) => {
-                // Handle Enter and Space keys for selection
+
                 if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     event.stopPropagation();
 
-                    // Toggle task selection
                     if (self.selectedTaskId === d.internalId) {
                         self.selectTask(null, null);
                     } else {
@@ -7007,18 +6491,17 @@ private drawTasks(
                     }
                 }
             })
-            // ACCESSIBILITY: Add focus indicators
+
             .on("focus", function(_event: FocusEvent, _d: Task) {
-                // Add visible focus ring
+
                 d3.select(this)
                     .style("outline", "2px solid #0078D4")
                     .style("outline-offset", "2px");
 
-                // Announce to screen readers
                 const element = this as SVGElement;
                 const ariaLabel = element.getAttribute("aria-label");
                 if (ariaLabel) {
-                    // Update aria-live region if it exists
+
                     const liveRegion = d3.select("body").select(".sr-live-region");
                     if (!liveRegion.empty()) {
                         liveRegion.text(`Focused on ${ariaLabel}`);
@@ -7026,14 +6509,13 @@ private drawTasks(
                 }
             })
             .on("blur", function(_event: FocusEvent, _d: Task) {
-                // Remove focus ring
+
                 d3.select(this)
                     .style("outline", null)
                     .style("outline-offset", null);
             });
     };
 
-    // Apply interactivity to both task bars and milestones
     setupInteractivity(allTaskGroups.selectAll(".task-bar, .milestone"));
 }
 
@@ -7064,7 +6546,6 @@ private drawTaskLabelsLayer(
         return yPosition !== undefined && !isNaN(yPosition);
     });
 
-    // Data join on label groups, one per task
     const labelGroups = this.taskLabelLayer
         .selectAll<SVGGElement, Task>(".task-label-group")
         .data(renderableTasks, (d: Task) => d.internalId);
@@ -7084,7 +6565,6 @@ private drawTaskLabelsLayer(
 
     const mergedGroups = enterGroups.merge(labelGroups);
 
-    // Update transforms for existing groups
     mergedGroups.attr("transform", (d: Task) => {
         const domainKey = d.yOrder?.toString() ?? "";
         const yPosition = yScale(domainKey);
@@ -7092,15 +6572,12 @@ private drawTaskLabelsLayer(
         return `translate(0, ${yPosition})`;
     });
 
-    // Remove any groups that ended up without a valid transform
     mergedGroups.filter(function() {
         return d3.select(this).attr("transform") === null;
     }).remove();
 
-    // Clear previous labels before re-rendering
     mergedGroups.selectAll(".task-label").remove();
 
-    // Draw labels with wrapping
     const taskLabels = mergedGroups.append("text")
         .attr("class", "task-label")
         .attr("x", (d: Task) => {
@@ -7167,11 +6644,11 @@ private drawTaskLabelsLayer(
         } else {
             this.selectTask(d.internalId, d.name);
         }
-        
+
         if (this.dropdownInput) {
             this.dropdownInput.property("value", this.selectedTaskName || "");
         }
-        
+
         event.stopPropagation();
     });
 
@@ -7181,385 +6658,278 @@ private drawTaskLabelsLayer(
 }
 
 private drawTasksCanvas(
-    tasks: Task[],
-    xScale: ScaleTime<number, number>,
-    yScale: ScaleBand<string>,
-    taskColor: string,
-    milestoneColor: string,
-    criticalColor: string,
-    labelColor: string,
-    showDuration: boolean,
-    taskHeight: number,
-    dateBackgroundColor: string,
-    dateBackgroundOpacity: number
-): void {
-    if (!this.canvasContext || !this.canvasElement) return;
-    
-    const ctx = this.canvasContext;
-    
-    // Save context state before drawing
-    ctx.save();
-    
-    // Apply consistent line width for pixel-perfect rendering
-    ctx.lineWidth = Math.round(window.devicePixelRatio) / window.devicePixelRatio;
-    
-    try {
-        const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
-        const viewportWidth = this.lastUpdateOptions?.viewport?.width ?? 0;
-        const reduceLabelDensity = this.getLayoutMode(viewportWidth) === 'narrow';
-        const generalFontSize = this.settings.textAndLabels.fontSize.value;
-        const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+        tasks: Task[],
+        xScale: ScaleTime<number, number>,
+        yScale: ScaleBand<string>,
+        taskColor: string,
+        milestoneColor: string,
+        criticalColor: string,
+        labelColor: string,
+        showDuration: boolean,
+        taskHeight: number,
+        dateBackgroundColor: string,
+        dateBackgroundOpacity: number
+    ): void {
+        if (!this.canvasContext || !this.canvasElement) return;
+
+        const ctx = this.canvasContext;
+
+        ctx.save();
+
+        const dpr = window.devicePixelRatio || 1;
+        ctx.lineWidth = 1;
+
         const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
-        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-        const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
-        const minInlineDurationWidth = 28;
-        const minBarWidthForStrongStroke = 8;
         const minBarWidthForGlow = 10;
-        
-        // Previous Update settings
+
         const showPreviousUpdate = this.showPreviousUpdateInternal;
-        const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
-        const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
-        const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
-        
-        // Baseline settings
         const showBaseline = this.showBaselineInternal;
-        const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
-        const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
-        const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
-        
-        // Calculate pixel-perfect font sizes
-        const baseFontSize = 13; // Base pixel size for 10pt
-        const taskNamePixelSize = Math.round((taskNameFontSize / 10) * baseFontSize);
-        const generalPixelSize = Math.round((generalFontSize / 10) * baseFontSize);
-        
-        // Use web-safe font stack with fallbacks
-        const fontFamily = '"Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif';
-        
-        // Set initial font with subpixel antialiasing
-        ctx.font = `${taskNamePixelSize}px ${fontFamily}`;
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = 'start';
-        
-        // Force text rendering mode
-        (ctx as any).textRendering = 'optimizeLegibility';
-        
-        // Draw each task
-        tasks.forEach((task: Task) => {
+
+        type RectBatch = { x: number, y: number, w: number, h: number, r: number };
+        type MilestoneBatch = { x: number, y: number, size: number, rotated: boolean };
+
+        const prevUpdateBatch: RectBatch[] = [];
+        const baselineBatch: RectBatch[] = [];
+
+        const taskBatches = new Map<string, RectBatch[]>();
+        const milestoneBatches = new Map<string, MilestoneBatch[]>();
+
+        for (const task of tasks) {
             const domainKey = task.yOrder?.toString() ?? '';
             const yPosition = yScale(domainKey);
-            if (yPosition === undefined || isNaN(yPosition)) return;
+            if (yPosition === undefined || isNaN(yPosition)) continue;
 
-            // Use pixel-aligned coordinates
             const yPos = Math.round(yPosition);
 
-            // --- Draw Previous Update Bar on Canvas FIRST (directly below task bar) ---
-            if (showPreviousUpdate && task.previousUpdateStartDate && task.previousUpdateFinishDate && 
-                task.previousUpdateFinishDate >= task.previousUpdateStartDate) {
-                const x_prev = Math.round(xScale(task.previousUpdateStartDate));
-                const width_prev = Math.round(Math.max(1, xScale(task.previousUpdateFinishDate) - x_prev));
-                const y_prev = Math.round(yPos + taskHeight + previousUpdateOffset); // Directly below task bar
-                const prevRadius = Math.min(3, Math.round(previousUpdateHeight) / 2);
-
-                this.drawRoundedRectPath(ctx, x_prev, y_prev, width_prev, Math.round(previousUpdateHeight), prevRadius);
-                ctx.fillStyle = previousUpdateColor;
-                ctx.fill();
-
-                const prevAlpha = ctx.globalAlpha;
-                ctx.globalAlpha = 0.25;
-                ctx.strokeStyle = this.getContrastColor(previousUpdateColor);
-                ctx.lineWidth = 0.6;
-                ctx.stroke();
-                ctx.globalAlpha = prevAlpha;
+            if (showPreviousUpdate && task.previousUpdateStartDate && task.previousUpdateFinishDate && task.previousUpdateFinishDate >= task.previousUpdateStartDate) {
+                const x = Math.round(xScale(task.previousUpdateStartDate));
+                const w = Math.round(Math.max(1, xScale(task.previousUpdateFinishDate) - x));
+                const h = Math.round(this.settings.taskAppearance.previousUpdateHeight.value);
+                const y = Math.round(yPos + taskHeight + this.settings.taskAppearance.previousUpdateOffset.value);
+                const r = Math.min(3, h / 2);
+                prevUpdateBatch.push({ x, y, w, h, r });
             }
 
-            // --- Draw Baseline Bar on Canvas SECOND (below previous update bar) ---
-            if (showBaseline && task.baselineStartDate && task.baselineFinishDate && 
-                task.baselineFinishDate >= task.baselineStartDate) {
-                // Calculate Y position based on what's above
-                let y_base: number;
+            if (showBaseline && task.baselineStartDate && task.baselineFinishDate && task.baselineFinishDate >= task.baselineStartDate) {
+                let yBase: number;
                 if (showPreviousUpdate) {
-                    // Position below previous update bar
-                    y_base = Math.round(yPos + taskHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset);
+                    yBase = yPos + taskHeight + this.settings.taskAppearance.previousUpdateOffset.value + this.settings.taskAppearance.previousUpdateHeight.value + this.settings.taskAppearance.baselineOffset.value;
                 } else {
-                    // Position directly below main task bar
-                    y_base = Math.round(yPos + taskHeight + baselineOffset);
+                    yBase = yPos + taskHeight + this.settings.taskAppearance.baselineOffset.value;
                 }
-                
-                const x_base = Math.round(xScale(task.baselineStartDate));
-                const width_base = Math.round(Math.max(1, xScale(task.baselineFinishDate) - x_base));
-                const baseRadius = Math.min(3, Math.round(baselineHeight) / 2);
-
-                this.drawRoundedRectPath(ctx, x_base, y_base, width_base, Math.round(baselineHeight), baseRadius);
-                ctx.fillStyle = baselineColor;
-                ctx.fill();
-
-                const baseAlpha = ctx.globalAlpha;
-                ctx.globalAlpha = 0.25;
-                ctx.strokeStyle = this.getContrastColor(baselineColor);
-                ctx.lineWidth = 0.6;
-                ctx.stroke();
-                ctx.globalAlpha = baseAlpha;
-            }
-            
-            // Determine task fill color based on legend existence
-            let fillColor = taskColor;  // Default
-
-            // Selected task always highlighted
-            if (task.internalId === this.selectedTaskId) {
-                fillColor = this.getSelectionColor();
-            } else {
-                // WITH LEGEND: Use legend colors for fill
-                if (this.legendDataExists && task.legendColor) {
-                    fillColor = task.legendColor;
-                }
-                // WITHOUT LEGEND (OLD STYLE): Use fill to show criticality
-                else if (!this.legendDataExists) {
-                    if (task.isCritical) {
-                        fillColor = criticalColor;
-                    } else if (task.isNearCritical) {
-                        fillColor = nearCriticalColor;
-                    }
-                }
+                const x = Math.round(xScale(task.baselineStartDate));
+                const w = Math.round(Math.max(1, xScale(task.baselineFinishDate) - x));
+                const h = Math.round(this.settings.taskAppearance.baselineHeight.value);
+                const y = Math.round(yBase);
+                const r = Math.min(3, h / 2);
+                baselineBatch.push({ x, y, w, h, r });
             }
 
-            // Determine stroke color and width based on legend existence
+            let fillColor = taskColor;
             let strokeColor = this.getForegroundColor();
             let strokeWidth = 0.5;
+            let shadowBlur = 0;
+            let shadowColor = 'transparent';
+            let shadowOffset = 0;
 
-            if (task.internalId === this.selectedTaskId) {
+            const isSelected = task.internalId === this.selectedTaskId;
+
+            if (isSelected) {
+                fillColor = this.getSelectionColor();
                 strokeColor = this.getSelectionColor();
                 strokeWidth = 3;
+                shadowColor = 'rgba(0, 0, 0, 0.15)';
+                shadowBlur = 6;
+                shadowOffset = 3;
             } else {
-                // WITH LEGEND: Use borders to show criticality
+
+                if (this.legendDataExists && task.legendColor) {
+                    fillColor = task.legendColor;
+                } else if (!this.legendDataExists) {
+                    if (task.isCritical) fillColor = criticalColor;
+                    else if (task.isNearCritical) fillColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
+                }
+
                 if (this.legendDataExists) {
                     if (task.isCritical) {
                         strokeColor = criticalColor;
                         strokeWidth = this.settings.taskAppearance.criticalBorderWidth.value;
                     } else if (task.isNearCritical) {
-                        strokeColor = nearCriticalColor;
+                        strokeColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
                         strokeWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
                     }
+                } else {
+                    if (task.isCritical) strokeWidth = 1;
                 }
-                // WITHOUT LEGEND (OLD STYLE): Minimal borders
-                else {
-                    if (task.isCritical) {
-                        strokeWidth = 1;  // Slightly thicker for critical
+
+                const widthVal = (task.startDate && task.finishDate) ? (xScale(task.finishDate) - xScale(task.startDate)) : 0;
+                if (widthVal >= minBarWidthForGlow || task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+                    if (this.legendDataExists) {
+                        if (task.isCritical) {
+                            const rgb = this.hexToRgb(criticalColor);
+                            shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35)`;
+                            shadowBlur = 3;
+                        } else if (task.isNearCritical) {
+                            const ncColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
+                            const rgb = this.hexToRgb(ncColor);
+                            shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25)`;
+                            shadowBlur = 2;
+                        } else {
+                             shadowColor = 'rgba(0, 0, 0, 0.08)';
+                             shadowBlur = 2;
+                             shadowOffset = 1;
+                        }
+                    } else {
+                        shadowColor = 'rgba(0, 0, 0, 0.08)';
+                        shadowBlur = 2;
+                        shadowOffset = 1;
                     }
                 }
             }
-            
-            // Draw task or milestone with pixel alignment
+
+            const styleKey = `${fillColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
+
             if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-                // UPGRADED: Draw milestone diamond with enhanced stroke and shadow
-                const milestoneDate = task.startDate || task.finishDate;
-                if (milestoneDate) {
-                    const x = Math.round(xScale(milestoneDate));
+                const mDate = task.startDate || task.finishDate;
+                if (mDate) {
+                    const x = Math.round(xScale(mDate));
                     const y = Math.round(yPos + taskHeight / 2);
                     const size = Math.round(Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9)));
-                    const halfSize = size / 2;
 
-                    const isSelected = task.internalId === this.selectedTaskId;
-
-                    // UPGRADED: Add subtle shadow for depth
-                    if (isSelected) {
-                        ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
-                        ctx.shadowBlur = 6;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 3;
-                    } else {
-                        ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
-                        ctx.shadowBlur = 2;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 1;
-                    }
-
-                    ctx.beginPath();
-                    ctx.moveTo(x, y - halfSize);
-                    ctx.lineTo(x + halfSize, y);
-                    ctx.lineTo(x, y + halfSize);
-                    ctx.lineTo(x - halfSize, y);
-                    ctx.closePath();
-
-                    ctx.fillStyle = fillColor;
-                    ctx.fill();
-
-                    // Reset shadow for stroke
-                    ctx.shadowColor = 'transparent';
-                    ctx.shadowBlur = 0;
-                    ctx.shadowOffsetX = 0;
-                    ctx.shadowOffsetY = 0;
-
-                    // Apply stroke based on criticality and selection
-                    ctx.strokeStyle = strokeColor;
-                    ctx.lineWidth = strokeWidth;
-                    ctx.stroke();
+                    if (!milestoneBatches.has(styleKey)) milestoneBatches.set(styleKey, []);
+                    milestoneBatches.get(styleKey)!.push({ x, y, size, rotated: true });
                 }
+            } else if (task.startDate && task.finishDate) {
+                const x = Math.round(xScale(task.startDate));
+                const w = Math.round(Math.max(1, xScale(task.finishDate) - xScale(task.startDate)));
+                const h = Math.round(taskHeight);
+                const r = Math.min(5, Math.round(h * 0.15), Math.round(w / 2));
+
+                if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
+                taskBatches.get(styleKey)!.push({ x, y: yPos, w, h, r });
+            }
+        }
+
+        if (prevUpdateBatch.length > 0) {
+            const pColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
+            const pStroke = this.getContrastColor(pColor);
+
+            ctx.fillStyle = pColor;
+            ctx.strokeStyle = pStroke;
+            ctx.lineWidth = 0.6;
+
+            ctx.beginPath();
+            for (const b of prevUpdateBatch) {
+                this.pathRoundedRect(ctx, b.x, b.y, b.w, b.h, b.r);
+            }
+            ctx.fill();
+
+            ctx.globalAlpha = 0.25;
+            ctx.stroke();
+            ctx.globalAlpha = 1.0;
+        }
+
+        if (baselineBatch.length > 0) {
+            const bColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
+            const bStroke = this.getContrastColor(bColor);
+
+            ctx.fillStyle = bColor;
+            ctx.strokeStyle = bStroke;
+            ctx.lineWidth = 0.6;
+
+            ctx.beginPath();
+            for (const b of baselineBatch) {
+                this.pathRoundedRect(ctx, b.x, b.y, b.w, b.h, b.r);
+            }
+            ctx.fill();
+
+            ctx.globalAlpha = 0.25;
+            ctx.stroke();
+            ctx.globalAlpha = 1.0;
+        }
+
+        taskBatches.forEach((batch, styleKey) => {
+            const [fill, stroke, widthStr, blurStr, shadowCol, offsetStr] = styleKey.split('|');
+            const strokeWidth = parseFloat(widthStr);
+            const shadowBlur = parseFloat(blurStr);
+            const shadowOffset = parseFloat(offsetStr);
+
+            ctx.fillStyle = fill;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = strokeWidth;
+
+            if (shadowBlur > 0) {
+                ctx.shadowColor = shadowCol;
+                ctx.shadowBlur = shadowBlur;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = shadowOffset;
             } else {
-                // UPGRADED: Draw regular task bar with enhanced corner radius and shadow effects
-                if (task.startDate && task.finishDate) {
-                    const x = Math.round(xScale(task.startDate));
-                    const width = Math.round(Math.max(1, xScale(task.finishDate) - xScale(task.startDate)));
-                    const y = Math.round(yPos);
-                    const height = Math.round(taskHeight);
-                    const radius = Math.min(5, Math.round(height * 0.15), Math.round(width / 2));  // UPGRADED: Increased from 3px to 5px
-
-                    // UPGRADED: Add subtle shadow effect for depth
-                    const isSelected = task.internalId === this.selectedTaskId;
-                    const isCritical = task.isCritical;
-
-                    if ((isSelected || isCritical) && width >= minBarWidthForGlow) {
-                        ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
-                        ctx.shadowBlur = isSelected ? 6 : 4;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = isSelected ? 3 : 2;
-                    } else if (width >= minBarWidthForGlow) {
-                        ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
-                        ctx.shadowBlur = 2;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 1;
-                    } else {
-                        ctx.shadowColor = 'transparent';
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                    }
-
-                    // Draw crisp rounded rectangle
-                    ctx.beginPath();
-                    ctx.moveTo(x + radius, y);
-                    ctx.lineTo(x + width - radius, y);
-                    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-                    ctx.lineTo(x + width, y + height - radius);
-                    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-                    ctx.lineTo(x + radius, y + height);
-                    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-                    ctx.lineTo(x, y + radius);
-                    ctx.quadraticCurveTo(x, y, x + radius, y);
-                    ctx.closePath();
-
-                    ctx.fillStyle = fillColor;
-                    ctx.fill();
-
-                    // Reset shadow for stroke
-                    ctx.shadowColor = 'transparent';
-                    ctx.shadowBlur = 0;
-                    ctx.shadowOffsetX = 0;
-                    ctx.shadowOffsetY = 0;
-
-                    // Apply stroke based on criticality and selection
-                    const adjustedStrokeWidth = width < minBarWidthForStrongStroke
-                        ? Math.min(strokeWidth, 1)
-                        : strokeWidth;
-
-                    if (adjustedStrokeWidth > 0.5) {
-                        ctx.strokeStyle = strokeColor;
-                        ctx.lineWidth = adjustedStrokeWidth;
-                        ctx.stroke();
-                    }
-
-                    // UPGRADED: Draw duration text with better sizing, readability, and text shadow
-                    if (showDuration && task.duration > 0) {
-                        const durationText = `${Math.round(task.duration)}d`;
-                        // UPGRADED: Slightly larger and bolder for better readability
-                        const durationFontSize = Math.round((Math.max(7.5, generalFontSize * 0.85) / 10) * baseFontSize);
-
-                        ctx.save();
-                        ctx.font = `bold ${durationFontSize}px ${fontFamily}`;
-                        ctx.fillStyle = this.getDurationTextColor(fillColor);
-                        ctx.textAlign = "center";
-                        ctx.textBaseline = "middle";
-
-                        const centerX = Math.round(x + width / 2);
-                        const centerY = Math.round(y + height / 2);
-
-                        const textWidth = ctx.measureText(durationText).width;
-                        const minWidth = Math.max(minInlineDurationWidth, textWidth + 8);
-                        if (width >= minWidth) {
-                            // UPGRADED: Add subtle text shadow/outline for better readability on colored bars
-                            ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-                            ctx.shadowBlur = 2;
-                            ctx.shadowOffsetX = 0;
-                            ctx.shadowOffsetY = 1;
-                            ctx.fillText(durationText, centerX, centerY);
-                        }
-                        ctx.restore();
-                    }
-                }
+                ctx.shadowColor = 'transparent';
             }
-            
-            // Draw task name with improved clarity
-            const labelX = Math.round(-currentLeftMargin + this.labelPaddingLeft);
-            const labelY = Math.round(yPos + taskHeight / 2);
-            
-            ctx.font = `${taskNamePixelSize}px ${fontFamily}`;
-            ctx.fillStyle = task.internalId === this.selectedTaskId ? this.getSelectionColor() : labelColor;
-            ctx.textAlign = "start";
-            ctx.textBaseline = "middle";
-            
-            // Text truncation
-            const maxWidth = Math.round(currentLeftMargin - this.labelPaddingLeft - 5);
-            let taskName = task.name || "";
-            const metrics = ctx.measureText(taskName);
-            
-            if (metrics.width > maxWidth) {
-                while (taskName.length > 0 && ctx.measureText(taskName + "...").width > maxWidth) {
-                    taskName = taskName.slice(0, -1);
-                }
-                taskName += "...";
-            }
-            
-            // Draw with pixel alignment
-            ctx.fillText(taskName, labelX, labelY);
-            
-            // Draw finish date if enabled
-            const showDenseFinishDate = !reduceLabelDensity ||
-                task.internalId === this.selectedTaskId ||
-                task.isCritical ||
-                task.type === 'TT_Mile' ||
-                task.type === 'TT_FinMile';
 
-            if (showFinishDates && showDenseFinishDate && task.finishDate) {
-                const dateText = this.formatDate(task.finishDate);
-                const dateX = Math.round(task.type === 'TT_Mile' || task.type === 'TT_FinMile'
-                    ? xScale(task.startDate || task.finishDate) + milestoneSizeSetting / 2 + this.dateLabelOffset
-                    : xScale(task.finishDate) + this.dateLabelOffset);
-                    
-                const dateFontSize = Math.round((Math.max(7, generalFontSize * (reduceLabelDensity ? 0.75 : 0.85)) / 10) * baseFontSize);
-                
-                ctx.save();
-                ctx.font = `${dateFontSize}px ${fontFamily}`;
-                
-                // Measure text for background
-                const textMetrics = ctx.measureText(dateText);
-                const bgPadding = this.dateBackgroundPadding;
-                const textHeight = dateFontSize;
-                
-                // Draw background
-                ctx.fillStyle = dateBackgroundColor;
-                ctx.globalAlpha = dateBackgroundOpacity;
-                
-                const bgX = Math.round(dateX - bgPadding.horizontal);
-                const bgY = Math.round(labelY - textHeight/2 - bgPadding.vertical);
-                const bgWidth = Math.round(textMetrics.width + bgPadding.horizontal * 2);
-                const bgHeight = Math.round(textHeight + bgPadding.vertical * 2);
-                
-                ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
-                ctx.globalAlpha = 1.0;
-                
-                // Draw text
-                ctx.fillStyle = labelColor;
-                ctx.textAlign = "start";
-                ctx.textBaseline = "middle";
-                ctx.fillText(dateText, dateX, labelY);
-                
-                ctx.restore();
+            ctx.beginPath();
+            for (const b of batch) {
+                this.pathRoundedRect(ctx, b.x, b.y, b.w, b.h, b.r);
             }
+            ctx.fill();
+
+            ctx.shadowColor = 'transparent';
+            if (strokeWidth > 0) ctx.stroke();
         });
-    } finally {
+
+        milestoneBatches.forEach((batch, styleKey) => {
+            const [fill, stroke, widthStr, blurStr, shadowCol, offsetStr] = styleKey.split('|');
+            const strokeWidth = parseFloat(widthStr);
+            const shadowBlur = parseFloat(blurStr);
+            const shadowOffset = parseFloat(offsetStr);
+
+            ctx.fillStyle = fill;
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = strokeWidth;
+
+            if (shadowBlur > 0) {
+                ctx.shadowColor = shadowCol;
+                ctx.shadowBlur = shadowBlur;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = shadowOffset;
+            } else {
+                ctx.shadowColor = 'transparent';
+            }
+
+            ctx.beginPath();
+            for (const m of batch) {
+                const half = m.size / 2;
+                ctx.moveTo(m.x, m.y - half);
+                ctx.lineTo(m.x + half, m.y);
+                ctx.lineTo(m.x, m.y + half);
+                ctx.lineTo(m.x - half, m.y);
+                ctx.closePath();
+            }
+            ctx.fill();
+
+            ctx.shadowColor = 'transparent';
+            if (strokeWidth > 0) ctx.stroke();
+        });
+
         ctx.restore();
     }
-}
+
+    /**
+     * Helper to add a rounded rect to the current path
+     * (Inlined for batching performance)
+     */
+    private pathRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number): void {
+        const r = Math.max(0, Math.min(radius, height / 2, width / 2));
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + width - r, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+        ctx.lineTo(x + width, y + height - r);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+        ctx.lineTo(x + r, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+    }
 
 /**
  * ACCESSIBILITY: Creates an invisible but screen-reader accessible fallback for canvas rendering.
@@ -7570,10 +6940,8 @@ private drawTasksCanvas(
 private createAccessibleCanvasFallback(tasks: Task[], yScale: ScaleBand<string>): void {
     if (!this.mainSvg) return;
 
-    // Remove existing accessible layer
     this.mainSvg.selectAll(".accessible-fallback-layer").remove();
 
-    // Create accessible SVG layer (invisible but screen-reader accessible)
     const accessibleLayer = this.mainSvg.append("g")
         .attr("class", "accessible-fallback-layer")
         .attr("role", "list")
@@ -7581,7 +6949,6 @@ private createAccessibleCanvasFallback(tasks: Task[], yScale: ScaleBand<string>)
         .style("opacity", 0)
         .style("pointer-events", "none");
 
-    // Create accessible elements for each task
     const taskGroups = accessibleLayer.selectAll(".accessible-task")
         .data(tasks, (d: Task) => d.internalId)
         .enter()
@@ -7594,7 +6961,6 @@ private createAccessibleCanvasFallback(tasks: Task[], yScale: ScaleBand<string>)
             return yPosition !== undefined ? `translate(0, ${yPosition})` : "translate(0, 0)";
         });
 
-    // Add focusable rect for each task
     taskGroups.append("rect")
         .attr("role", "button")
         .attr("aria-label", (d: Task) => {
@@ -7619,7 +6985,6 @@ private createAccessibleCanvasFallback(tasks: Task[], yScale: ScaleBand<string>)
                 event.preventDefault();
                 event.stopPropagation();
 
-                // Toggle task selection
                 if (this.selectedTaskId === d.internalId) {
                     this.selectTask(null, null);
                 } else {
@@ -7655,7 +7020,6 @@ private _setupCanvasForDrawing(chartWidth: number, chartHeight: number): boolean
         return false;
     }
 
-    // Get all possible pixel ratios for better cross-browser support
     const ctx = this.canvasElement.getContext('2d');
     const devicePixelRatio = window.devicePixelRatio || 1;
     const backingStoreRatio = (ctx as any).webkitBackingStorePixelRatio ||
@@ -7663,53 +7027,43 @@ private _setupCanvasForDrawing(chartWidth: number, chartHeight: number): boolean
                              (ctx as any).msBackingStorePixelRatio ||
                              (ctx as any).oBackingStorePixelRatio ||
                              (ctx as any).backingStorePixelRatio || 1;
-    
-    // Calculate the actual ratio we should use
+
     const ratio = devicePixelRatio / backingStoreRatio;
 
-    // Round dimensions to avoid subpixel rendering
     const displayWidth = Math.round(chartWidth);
     const displayHeight = Math.round(chartHeight);
     const canvasWidth = Math.round(displayWidth * ratio);
     const canvasHeight = Math.round(displayHeight * ratio);
 
-    // Set the CSS display size of the canvas
     this.canvasElement.style.width = `${displayWidth}px`;
     this.canvasElement.style.height = `${displayHeight}px`;
 
-    // Set the actual backing store size
     this.canvasElement.width = canvasWidth;
     this.canvasElement.height = canvasHeight;
 
-    // Get fresh context with optimized settings
     this.canvasContext = this.canvasElement.getContext('2d', {
         alpha: false,
-        desynchronized: false, // Changed to false for better stability in iframes
+        desynchronized: false,
         willReadFrequently: false
     });
-    
+
     if (!this.canvasContext) {
         console.error("Failed to get 2D context from canvas.");
         return false;
     }
 
-    // Reset and scale the context
     this.canvasContext.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-    // Clear the canvas with white background
     this.canvasContext.fillStyle = '#FFFFFF';
     this.canvasContext.fillRect(0, 0, displayWidth, displayHeight);
 
-    // Set up clipping region to prevent drawing past chart boundaries (fixes zoom overflow)
     this.canvasContext.beginPath();
     this.canvasContext.rect(0, 0, displayWidth, displayHeight);
     this.canvasContext.clip();
 
-    // Set rendering quality hints
-    this.canvasContext.imageSmoothingEnabled = false; // Disable for crisper text
+    this.canvasContext.imageSmoothingEnabled = false;
     this.canvasContext.imageSmoothingQuality = 'high';
 
-    // Additional rendering hints for text
     (this.canvasContext as any).textRendering = 'optimizeLegibility';
     (this.canvasContext as any).webkitFontSmoothing = 'antialiased';
     (this.canvasContext as any).mozOsxFontSmoothing = 'grayscale';
@@ -7730,22 +7084,20 @@ private drawArrowsCanvas(
     milestoneSizeSetting: number
 ): void {
     if (!this.canvasContext || !this.canvasElement) return;
-    
+
     const ctx = this.canvasContext;
-    
-    // Save context state
+
     ctx.save();
-    
+
     try {
         const connectionEndPadding = 0;
         const elbowOffset = this.settings.connectorLines.elbowOffset.value;
-        
-        // Build position map
+
         const taskPositions = new Map<string, number>();
         tasks.forEach((task: Task) => {
             if (task.yOrder !== undefined) taskPositions.set(task.internalId, task.yOrder);
         });
-        
+
         const visibleTaskIds = new Set(taskPositions.keys());
         const visibleRelationships: Relationship[] = [];
         for (const predecessorId of visibleTaskIds) {
@@ -7758,7 +7110,6 @@ private drawArrowsCanvas(
             }
         }
 
-        // UPGRADED: Professional connector line rendering with smooth curves and anti-aliasing
         visibleRelationships.forEach((rel: Relationship) => {
             const pred = this.taskIdToTask.get(rel.predecessorId);
             const succ = this.taskIdToTask.get(rel.successorId);
@@ -7777,7 +7128,6 @@ private drawArrowsCanvas(
             const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
             const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
 
-            // Calculate start and end dates
             let baseStartDate: Date | null | undefined = null;
             let baseEndDate: Date | null | undefined = null;
 
@@ -7804,7 +7154,7 @@ private drawArrowsCanvas(
             const endX = xScale(baseEndDate);
 
             const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-            const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;  // Increased from 2
+            const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
             const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
 
             let effectiveStartX = startX;
@@ -7818,7 +7168,6 @@ private drawArrowsCanvas(
             else effectiveEndX += endGap;
             if (succIsMilestone && (relType === 'FF' || relType === 'SF')) effectiveEndX = endX + endGap - connectionEndPadding;
 
-            // Professional line styling with enhanced visuals
             const isCritical = rel.isCritical;
             const baseLineWidth = isCritical ? criticalConnectorWidth : connectorWidth;
             const enhancedLineWidth = isCritical
@@ -7829,29 +7178,27 @@ private drawArrowsCanvas(
             ctx.globalAlpha = this.getConnectorOpacity(rel);
             ctx.strokeStyle = isCritical ? criticalColor : connectorColor;
             ctx.lineWidth = enhancedLineWidth;
-            ctx.lineCap = 'round';  // Rounded line caps for smoother appearance
-            ctx.lineJoin = 'round';  // Rounded joins for smoother corners
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
 
-            // Enable anti-aliasing for smoother lines
             (ctx as any).imageSmoothingEnabled = true;
             (ctx as any).imageSmoothingQuality = 'high';
 
-            // Draw path with smooth curves
             ctx.beginPath();
             ctx.moveTo(effectiveStartX, predY);
 
-            const cornerRadius = 8;  // Radius for smooth corners
+            const cornerRadius = 8;
 
             if (Math.abs(predY - succY) < 1) {
-                // Horizontal line
+
                 ctx.lineTo(effectiveEndX, succY);
             } else {
-                // Draw appropriate connector based on type with smooth corners
+
                 const isGoingDown = succY > predY;
 
                 switch(relType) {
                     case 'FS':
-                        // Smooth L-shape with rounded corner
+
                         if (Math.abs(effectiveStartX - effectiveStartX) > cornerRadius * 2 &&
                             Math.abs(succY - predY) > cornerRadius * 2) {
                             const verticalStart = predY + (isGoingDown ? cornerRadius : -cornerRadius);
@@ -7862,14 +7209,14 @@ private drawArrowsCanvas(
                             ctx.arcTo(effectiveStartX, succY, horizontalEnd, succY, cornerRadius);
                             ctx.lineTo(effectiveEndX, succY);
                         } else {
-                            // Fallback to straight lines if too small for curves
+
                             ctx.lineTo(effectiveStartX, succY);
                             ctx.lineTo(effectiveEndX, succY);
                         }
                         break;
                     case 'SS':
                         const ssOffsetX = Math.min(effectiveStartX, effectiveEndX) - elbowOffset;
-                        // Three-segment path with smooth corners
+
                         if (Math.abs(effectiveStartX - ssOffsetX) > cornerRadius &&
                             Math.abs(succY - predY) > cornerRadius * 2) {
                             ctx.lineTo(ssOffsetX + cornerRadius, predY);
@@ -7904,7 +7251,7 @@ private drawArrowsCanvas(
                         const sfStartOffset = effectiveStartX - elbowOffset;
                         const sfEndOffset = effectiveEndX + elbowOffset;
                         const midY = (predY + succY) / 2;
-                        // Complex path with multiple smooth corners
+
                         if (Math.abs(effectiveStartX - sfStartOffset) > cornerRadius) {
                             ctx.lineTo(sfStartOffset + cornerRadius, predY);
                             ctx.arcTo(sfStartOffset, predY, sfStartOffset, midY, cornerRadius);
@@ -7918,7 +7265,7 @@ private drawArrowsCanvas(
                             ctx.arcTo(sfEndOffset, succY, effectiveEndX, succY, cornerRadius);
                             ctx.lineTo(effectiveEndX, succY);
                         } else {
-                            // Fallback
+
                             ctx.lineTo(sfStartOffset, predY);
                             ctx.lineTo(sfStartOffset, midY);
                             ctx.lineTo(sfEndOffset, midY);
@@ -7927,7 +7274,7 @@ private drawArrowsCanvas(
                         }
                         break;
                     default:
-                        // Fallback to FS style
+
                         ctx.lineTo(effectiveStartX, succY);
                         ctx.lineTo(effectiveEndX, succY);
                 }
@@ -7937,49 +7284,42 @@ private drawArrowsCanvas(
             ctx.globalAlpha = previousAlpha;
         });
     } finally {
-        // Always restore context state
+
         ctx.restore();
     }
 }
 
-/** 
+/**
  * Positions the tooltip intelligently to prevent it from being cut off at screen edges
  * @param tooltipNode The tooltip DOM element
  * @param event The mouse event that triggered the tooltip
  */
     private positionTooltip(tooltipNode: HTMLElement | null, event: MouseEvent): void {
         if (!tooltipNode) return;
-        
-        // Get viewport dimensions
+
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
-        
-        // Get tooltip dimensions
+
         const tooltipRect = tooltipNode.getBoundingClientRect();
         const tooltipWidth = tooltipRect.width;
         const tooltipHeight = tooltipRect.height;
-        
-        // Calculate available space in different directions
-        const spaceRight = viewportWidth - event.clientX - 15; // 15px is default right offset
-        const spaceBottom = viewportHeight - event.clientY - 10; // 10px is default bottom offset
-        
-        // Default positions (standard positioning)
+
+        const spaceRight = viewportWidth - event.clientX - 15;
+        const spaceBottom = viewportHeight - event.clientY - 10;
+
         let xPos = event.pageX + 15;
         let yPos = event.pageY - 10;
-        
-        // Check if tooltip would extend beyond right edge
+
         if (spaceRight < tooltipWidth) {
-            // Position tooltip to the left of the cursor instead
+
             xPos = Math.max(10, event.pageX - tooltipWidth - 10);
         }
-        
-        // Check if tooltip would extend beyond bottom edge
+
         if (spaceBottom < tooltipHeight) {
-            // Position tooltip above the cursor instead
+
             yPos = Math.max(10, event.pageY - tooltipHeight - 10);
         }
-        
-        // Apply the calculated position
+
         d3.select(tooltipNode)
             .style("left", `${xPos}px`)
             .style("top", `${yPos}px`);
@@ -7995,9 +7335,9 @@ private drawArrowsCanvas(
         criticalConnectorWidth: number,
         taskHeight: number,
         milestoneSizeSetting: number
-        // arrowSize parameter removed
+
     ): void {
-        // If connector lines are hidden, clear any existing lines and return
+
         if (!this.showConnectorLinesInternal) {
             if (this.arrowLayer) {
                 this.arrowLayer.selectAll(".relationship-arrow, .connection-dot-start, .connection-dot-end").remove();
@@ -8011,8 +7351,7 @@ private drawArrowsCanvas(
         }
         this.arrowLayer.selectAll(".relationship-arrow, .connection-dot-start, .connection-dot-end").remove();
 
-        // Replace arrowHeadVisibleLength calculation with fixed value
-        const connectionEndPadding = 0; // Fixed padding instead of dynamic arrow size
+        const connectionEndPadding = 0;
         const elbowOffset = this.settings.connectorLines.elbowOffset.value;
 
         const taskPositions = new Map<string, number>();
@@ -8032,7 +7371,6 @@ private drawArrowsCanvas(
             }
         }
 
-        // UPGRADED: Professional SVG connector lines with smooth curves and rounded caps/joins
         this.arrowLayer.selectAll(".relationship-arrow")
             .data(visibleRelationships, (d: Relationship) => `${d.predecessorId}-${d.successorId}`)
             .enter()
@@ -8045,9 +7383,9 @@ private drawArrowsCanvas(
                 const baseWidth = d.isCritical ? criticalConnectorWidth : connectorWidth;
                 return d.isCritical ? Math.max(1.6, baseWidth) : Math.max(1, baseWidth);
             })
-            .attr("stroke-linecap", "round")  // UPGRADED: Rounded line caps for smoother appearance
-            .attr("stroke-linejoin", "round")  // UPGRADED: Rounded joins for smoother corners
-            .attr("marker-end", (d: Relationship) => d.isCritical ? "url(#arrowhead-critical)" : "url(#arrowhead)")  // RESTORED: Arrowheads!
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round")
+            .attr("marker-end", (d: Relationship) => d.isCritical ? "url(#arrowhead-critical)" : "url(#arrowhead)")
             .attr("d", (rel: Relationship): string | null => {
                 const pred = this.taskIdToTask.get(rel.predecessorId);
                 const succ = this.taskIdToTask.get(rel.successorId);
@@ -8086,7 +7424,7 @@ private drawArrowsCanvas(
                 if (startX === null || endX === null || isNaN(startX) || isNaN(endX)) return null;
 
                 const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-                const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;  // UPGRADED: Increased from 2 to 3
+                const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
                 const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
 
                 let effectiveStartX = startX;
@@ -8105,23 +7443,21 @@ private drawArrowsCanvas(
                 const pEndX = effectiveEndX;
                 const pEndY = succY;
 
-                if (Math.abs(pStartX - pEndX) < elbowOffset && Math.abs(pStartY - pEndY) < 1) return null; // Skip tiny paths
+                if (Math.abs(pStartX - pEndX) < elbowOffset && Math.abs(pStartY - pEndY) < 1) return null;
 
-                // UPGRADED: Smooth corner radius for professional appearance
                 const cornerRadius = 8;
                 let pathData: string;
 
-                // Check if tasks are at the same vertical level
                 if (Math.abs(pStartY - pEndY) < 1) {
-                    // Simple horizontal connection for all relationship types when tasks at same level
+
                     pathData = `M ${pStartX},${pStartY} H ${pEndX}`;
                 } else {
-                    // UPGRADED: Different path creation based on relationship type with smooth quadratic curves
+
                     const isGoingDown = pEndY > pStartY;
 
                     switch(relType) {
                         case 'FS':
-                            // Finish to Start: Smooth L-shape with rounded corner
+
                             if (Math.abs(pEndY - pStartY) > cornerRadius * 2) {
                                 const verticalEnd = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
                                 pathData = `M ${pStartX},${pStartY} L ${pStartX},${verticalEnd} Q ${pStartX},${pEndY} ${pStartX + cornerRadius},${pEndY} L ${pEndX},${pEndY}`;
@@ -8131,7 +7467,7 @@ private drawArrowsCanvas(
                             break;
 
                         case 'SS':
-                            // Start to Start: Path with smooth corners at both turns
+
                             const ssOffsetX = Math.min(pStartX, pEndX) - elbowOffset;
                             if (Math.abs(pStartX - ssOffsetX) > cornerRadius && Math.abs(pEndY - pStartY) > cornerRadius * 2) {
                                 const h1End = ssOffsetX + cornerRadius;
@@ -8143,7 +7479,7 @@ private drawArrowsCanvas(
                             break;
 
                         case 'FF':
-                            // Finish to Finish: Path with smooth corners at both turns
+
                             const ffOffsetX = Math.max(pStartX, pEndX) + elbowOffset;
                             if (Math.abs(ffOffsetX - pStartX) > cornerRadius && Math.abs(pEndY - pStartY) > cornerRadius * 2) {
                                 const h1End = ffOffsetX - cornerRadius;
@@ -8155,7 +7491,7 @@ private drawArrowsCanvas(
                             break;
 
                         case 'SF':
-                            // Start to Finish: Complex path with multiple smooth corners
+
                             const sfStartOffset = pStartX - elbowOffset;
                             const sfEndOffset = pEndX + elbowOffset;
                             const midY = (pStartY + pEndY) / 2;
@@ -8173,7 +7509,7 @@ private drawArrowsCanvas(
                             break;
 
                         default:
-                            // Fallback to FS style
+
                             pathData = `M ${pStartX},${pStartY} V ${pEndY} H ${pEndX}`;
                     }
                 }
@@ -8181,7 +7517,6 @@ private drawArrowsCanvas(
             })
             .filter(function() { return d3.select(this).attr("d") !== null; });
 
-        // Add connection dots at start and end points for clarity
         this.arrowLayer.selectAll(".connection-dot-start")
             .data(visibleRelationships, (d: Relationship) => `start-${d.predecessorId}-${d.successorId}`)
             .enter()
@@ -8225,7 +7560,6 @@ private drawArrowsCanvas(
                 return predYBandPos + taskHeight / 2;
             });
 
-        // Add connection dots at end points
         this.arrowLayer.selectAll(".connection-dot-end")
             .data(visibleRelationships, (d: Relationship) => `end-${d.predecessorId}-${d.successorId}`)
             .enter()
@@ -8320,7 +7654,6 @@ private drawArrowsCanvas(
 
         if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
 
-        // Always clear previous render so toggles don't leave stale lines
         mainGridLayer.select(`.${className}-line`).remove();
         headerLayer.selectAll(`.${className}-label-group`).remove();
 
@@ -8381,7 +7714,7 @@ private drawArrowsCanvas(
         chartWidth: number,
         xScale: ScaleTime<number, number>,
         visibleTasks: Task[],
-        allTasks: Task[],  // Added parameter for all tasks
+        allTasks: Task[],
         chartHeight: number,
         mainGridLayer: Selection<SVGGElement, unknown, null, undefined>,
         headerLayer: Selection<SVGGElement, unknown, null, undefined>
@@ -8435,7 +7768,6 @@ private drawArrowsCanvas(
     ): void {
         if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
 
-        // Always clear previous render so stale lines don't remain when toggled off or data missing
         mainGridLayer.select(".data-date-line").remove();
         headerLayer.selectAll(".data-date-label-group").remove();
 
@@ -8460,10 +7792,8 @@ private drawArrowsCanvas(
 
         const dataDateX = xScale(this.dataDate);
 
-        // If the data date is outside the visible range, don't render to avoid overflow into the label margin
         if (!isFinite(dataDateX) || dataDateX < 0 || dataDateX > chartWidth) { return; }
 
-        // Always draw on SVG grid layer (mirrors Project End line behavior)
         const effectiveHeight = chartHeight > 0 ? chartHeight : (this.mainSvg ? (parseFloat(this.mainSvg.attr("height")) || 0) : 0);
 
         mainGridLayer.append("line")
@@ -8476,7 +7806,6 @@ private drawArrowsCanvas(
             .attr("clip-path", "url(#chart-area-clip)")
             .style("pointer-events", "none");
 
-        // Also draw on canvas when canvas rendering is active to ensure visibility above the canvas layer
         if (this.useCanvasRendering && this.canvasContext) {
             const ctx = this.canvasContext;
             ctx.save();
@@ -8545,7 +7874,6 @@ private drawArrowsCanvas(
 
         const lineSettings = this.settings.projectEndLine;
 
-        // Baseline finish line (requires baseline toggle ON)
         const baselineToggleOn = this.showBaselineInternal;
         const baselineShowSetting = lineSettings.baselineShow?.value ?? false;
         const baselineTargetDate = (baselineToggleOn && baselineShowSetting)
@@ -8574,7 +7902,7 @@ private drawArrowsCanvas(
             labelFontSize: baselineLabelFontSize,
             labelBackgroundColor: baselineLabelBackgroundColor,
             labelBackgroundOpacity: baselineLabelBackgroundOpacity,
-            labelY: this.headerHeight - 36, // stagger labels to reduce overlap
+            labelY: this.headerHeight - 36,
             labelFormatter: (d: Date) => baselineShowLabelPrefix ? `Baseline Finish: ${this.formatLineDate(d)}` : `Baseline: ${this.formatLineDate(d)}`,
             xScale,
             chartHeight,
@@ -8582,7 +7910,6 @@ private drawArrowsCanvas(
             headerLayer
         });
 
-        // Previous Update finish line (requires previous update toggle ON)
         const prevToggleOn = this.showPreviousUpdateInternal;
         const prevShowSetting = lineSettings.previousUpdateShow?.value ?? false;
         const prevTargetDate = (prevToggleOn && prevShowSetting)
@@ -8611,7 +7938,7 @@ private drawArrowsCanvas(
             labelFontSize: prevLabelFontSize,
             labelBackgroundColor: prevLabelBackgroundColor,
             labelBackgroundOpacity: prevLabelBackgroundOpacity,
-            labelY: this.headerHeight - 50, // stagger labels to reduce overlap
+            labelY: this.headerHeight - 50,
             labelFormatter: (d: Date) => prevShowLabelPrefix ? `Previous Finish: ${this.formatLineDate(d)}` : `Previous: ${this.formatLineDate(d)}`,
             xScale,
             chartHeight,
@@ -8628,55 +7955,46 @@ private applyFloatBasedCriticality(): void {
     this.debugLog("Applying Float-Based criticality using Total Float values...");
     const startTime = performance.now();
 
-    // Clear driving chains since we're not in Longest Path mode
     this.allDrivingChains = [];
 
-    // Counters for logging
     let criticalCount = 0;
     let nearCriticalCount = 0;
 
-    // Apply task criticality based on TOTAL FLOAT
     for (const task of this.allTasksData) {
         if (task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)) {
             task.totalFloat = task.userProvidedTotalFloat;
             task.isCritical = task.totalFloat <= 0;
             task.isCriticalByFloat = task.isCritical;
 
-            // Near-critical determination
             if (this.showNearCritical && !task.isCritical && this.floatThreshold > 0) {
                 task.isNearCritical = task.totalFloat > 0 && task.totalFloat <= this.floatThreshold;
             } else {
                 task.isNearCritical = false;
             }
 
-            // Update counters
             if (task.isCritical) criticalCount++;
             else if (task.isNearCritical) nearCriticalCount++;
         } else {
-            // No total float value provided
+
             task.totalFloat = Infinity;
             task.isCritical = false;
             task.isCriticalByFloat = false;
             task.isNearCritical = false;
         }
 
-        // Reset relationship-based criticality (not used in Float-Based mode)
         task.isCriticalByRel = false;
 
-        // Set CPM values based on float
         task.earlyStart = 0;
         task.earlyFinish = task.duration;
         task.lateStart = task.totalFloat === Infinity ? Infinity : 0;
         task.lateFinish = task.totalFloat === Infinity ? Infinity : task.duration;
     }
 
-    // All relationships are non-critical in Float-Based mode
     for (const rel of this.relationships) {
         rel.isCritical = false;
         rel.isDriving = false;
     }
 
-    // Update path info display (hides multi-path controls in Float-Based mode)
     this.updatePathInfoLabel();
 
     const endTime = performance.now();
@@ -8696,7 +8014,6 @@ private identifyLongestPathFromP6(): void {
         return;
     }
 
-    // Phase 1: Reset criticality flags - use for...of instead of forEach
     for (const task of this.allTasksData) {
         task.isCritical = false;
         task.isCriticalByFloat = false;
@@ -8705,10 +8022,8 @@ private identifyLongestPathFromP6(): void {
         task.totalFloat = Infinity;
     }
 
-    // Step 1: Calculate which relationships are driving
     this.identifyDrivingRelationships();
 
-    // Step 2: Find the project finish
     const projectFinishTask = this.findProjectFinishTask();
     if (!projectFinishTask) {
         console.warn("Could not identify project finish task");
@@ -8717,17 +8032,14 @@ private identifyLongestPathFromP6(): void {
 
     this.debugLog(`Project finish task: ${projectFinishTask.name} (${projectFinishTask.internalId})`);
 
-    // Step 3: Find all driving chains to the project finish
     const drivingChains = this.findAllDrivingChainsToTask(projectFinishTask.internalId);
 
-    // Step 4: Sort chains by duration and store all of them
     this.allDrivingChains = this.sortAndStoreDrivingChains(drivingChains);
 
-    // Step 5: Get the selected chain based on user preference
     const selectedChain = this.getSelectedDrivingChain();
 
     if (selectedChain) {
-        // Phase 1: Mark tasks in the selected chain as critical - use for...of
+
         for (const taskId of selectedChain.tasks) {
             const task = this.taskIdToTask.get(taskId);
             if (task) {
@@ -8737,20 +8049,17 @@ private identifyLongestPathFromP6(): void {
             }
         }
 
-        // Phase 1: Mark relationships in the selected chain as critical - use for...of
         for (const rel of selectedChain.relationships) {
             rel.isCritical = true;
         }
 
         this.debugLog(`Selected driving path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}: ${selectedChain.tasks.size} tasks, duration ${selectedChain.totalDuration}`);
     }
-    
-    // Apply near-critical logic if enabled
+
     if (this.showNearCritical && this.floatThreshold > 0) {
         this.identifyNearCriticalTasks();
     }
 
-    // Update path info display
     this.updatePathInfoLabel();
 
     const endTime = performance.now();
@@ -8762,7 +8071,7 @@ private identifyLongestPathFromP6(): void {
  * Identifies which relationships are driving based on minimum float
  */
 private identifyDrivingRelationships(): void {
-    // Phase 1: Calculate relationship float for all relationships
+
     for (const rel of this.relationships) {
         const pred = this.taskIdToTask.get(rel.predecessorId);
         const succ = this.taskIdToTask.get(rel.successorId);
@@ -8776,11 +8085,10 @@ private identifyDrivingRelationships(): void {
 
         let relFloat: number;
 
-        // Use provided free float if available
         if (rel.freeFloat !== null && rel.freeFloat !== undefined) {
             relFloat = rel.freeFloat;
         } else {
-            // Calculate relationship float if not provided
+
             if (!pred.startDate || !pred.finishDate ||
                 !succ.startDate || !succ.finishDate) {
                 rel.relationshipFloat = Infinity;
@@ -8792,7 +8100,6 @@ private identifyDrivingRelationships(): void {
             const relType = rel.type || 'FS';
             const lag = rel.lag || 0;
 
-            // Get dates in days since epoch
             const predStart = pred.startDate.getTime() / 86400000;
             const predFinish = pred.finishDate.getTime() / 86400000;
             const succStart = succ.startDate.getTime() / 86400000;
@@ -8813,7 +8120,6 @@ private identifyDrivingRelationships(): void {
         rel.isCritical = false;
     }
 
-    // Phase 2: Group relationships by successor
     const successorGroups = new Map<string, Relationship[]>();
     for (const rel of this.relationships) {
         if (!successorGroups.has(rel.successorId)) {
@@ -8822,7 +8128,6 @@ private identifyDrivingRelationships(): void {
         successorGroups.get(rel.successorId)!.push(rel);
     }
 
-    // Phase 3: For each successor, mark the predecessor(s) with minimum float as driving
     for (const [successorId, rels] of successorGroups) {
         let minFloat = Infinity;
         for (const rel of rels) {
@@ -8832,7 +8137,6 @@ private identifyDrivingRelationships(): void {
             }
         }
 
-        // Mark all relationships with minimum float as driving
         for (const rel of rels) {
             const relFloat = rel.relationshipFloat ?? Infinity;
             if (Math.abs(relFloat - minFloat) <= this.floatTolerance) {
@@ -8852,7 +8156,6 @@ private findProjectFinishTask(): Task | null {
     let latestFinish: Date | null = null;
     let candidates: Task[] = [];
 
-    // Find all tasks with the latest finish date
     for (const task of this.allTasksData) {
         if (!task.finishDate) continue;
 
@@ -8872,7 +8175,7 @@ private findProjectFinishTask(): Task | null {
     for (let i = 1; i < candidates.length; i++) {
         const candidate = candidates[i];
         const candidateStart = candidate.startDate?.getTime() ?? Infinity;
-        
+
         if (candidateStart < earliestStart) {
             earliestStart = candidateStart;
             bestCandidate = candidate;
@@ -8916,13 +8219,12 @@ private findAllDrivingChainsToTask(targetTaskId: string): Array<{
             return;
         }
 
-        // Find driving predecessors using filter
         const drivingPreds = this.relationships.filter(rel =>
             rel.successorId === taskId && rel.isDriving
         );
 
         if (drivingPreds.length === 0) {
-            // Chain start - record it
+
             const chainTasks = new Set(currentPath);
             const chainRels = [...currentRelationships];
 
@@ -8999,7 +8301,6 @@ private sortAndStoreDrivingChains(chains: Array<{
 }> {
     if (chains.length === 0) return [];
 
-    // Sort by: earliest start date first, then longest duration as tiebreaker
     const sortedChains = [...chains].sort((a, b) => {
         const aDate = a.startingTask?.startDate?.getTime() ?? Infinity;
         const bDate = b.startingTask?.startDate?.getTime() ?? Infinity;
@@ -9012,7 +8313,6 @@ private sortAndStoreDrivingChains(chains: Array<{
 
     this.debugLog(`Found ${sortedChains.length} driving paths`);
 
-    // Log first few paths for debugging
     const logCount = Math.min(sortedChains.length, 5);
     for (let i = 0; i < logCount; i++) {
         const chain = sortedChains[i];
@@ -9039,13 +8339,10 @@ private getSelectedDrivingChain(): {
 } | null {
     if (this.allDrivingChains.length === 0) return null;
 
-    // Get the selected path index from settings (1-based)
     const settingsIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value ?? 1;
 
-    // Convert to 0-based and clamp to valid range
     this.selectedPathIndex = Math.max(0, Math.min(settingsIndex - 1, this.allDrivingChains.length - 1));
 
-    // If multi-path toggle is disabled, always return the first (best) path
     const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
 
     if (!multiPathEnabled) {
@@ -9060,60 +8357,50 @@ private getSelectedDrivingChain(): {
 
 /**
  * Updates the path information label display with interactive navigation
- * UPGRADED: Professional navigation buttons with enhanced design and smooth animations
+ * Professional navigation buttons with enhanced design and smooth animations
  * Shows "Path 1/1" even with single path so users understand there's only one driving path
  */
 private updatePathInfoLabel(): void {
     if (!this.pathInfoLabel) return;
 
-    // Check if multi-path display is enabled
     const showPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value ?? true;
     const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
 
-    // Show if enabled and in Longest Path mode (even with single path)
     const mode = this.settings?.criticalityMode?.calculationMode?.value?.value ?? 'longestPath';
     const hasMultiplePaths = this.allDrivingChains.length > 1;
     const hasAnyPaths = this.allDrivingChains.length > 0;
 
-    // Hide only if: no paths, not in LP mode, or display disabled
     if (!showPathInfo || mode !== 'longestPath' || !hasAnyPaths || !multiPathEnabled) {
         this.pathInfoLabel.style("display", "none");
         return;
     }
 
-    // Get current chain info
     const currentChain = this.allDrivingChains[this.selectedPathIndex];
     if (!currentChain) {
         this.pathInfoLabel.style("display", "none");
         return;
     }
 
-    // Get responsive layout mode
     const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
     const layoutMode = this.getLayoutMode(viewportWidth);
     const isCompact = layoutMode === 'narrow';
     const isMedium = layoutMode === 'medium';
 
-    // Update container padding based on layout mode
     this.pathInfoLabel
         .style("padding", isCompact ? `0 ${this.UI_TOKENS.spacing.xs}px` : `0 ${this.UI_TOKENS.spacing.sm}px`)
         .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`);
 
-    // Clear existing content
     this.pathInfoLabel.selectAll("*").remove();
 
-    // Format the display info
     const pathNumber = this.selectedPathIndex + 1;
     const totalPaths = this.allDrivingChains.length;
     const duration = currentChain.totalDuration.toFixed(1);
     const taskCount = currentChain.tasks.size;
 
-    // Determine button styles based on whether navigation is possible
     const buttonOpacity = hasMultiplePaths ? "1" : "0.35";
     const buttonCursor = hasMultiplePaths ? "pointer" : "default";
     const buttonTitle = hasMultiplePaths ? "Previous driving path" : "Only one driving path";
 
-    // Professional Previous button with SVG arrow
     const prevButton = this.pathInfoLabel.append("div")
         .style("cursor", buttonCursor)
         .style("opacity", buttonOpacity)
@@ -9128,7 +8415,6 @@ private updatePathInfoLabel(): void {
         .style("height", "22px")
         .attr("title", buttonTitle);
 
-    // SVG arrow for previous button
     const prevSvg = prevButton.append("svg")
         .attr("width", "12")
         .attr("height", "12")
@@ -9144,7 +8430,6 @@ private updatePathInfoLabel(): void {
 
     const self = this;
 
-    // Only add hover/click handlers if navigation is possible
     if (hasMultiplePaths) {
         prevButton
             .on("mouseover", function() {
@@ -9170,7 +8455,6 @@ private updatePathInfoLabel(): void {
         });
     }
 
-    // Professional path info text container - responsive layout
     const infoContainer = this.pathInfoLabel.append("div")
         .style("display", "flex")
         .style("align-items", "center")
@@ -9178,13 +8462,11 @@ private updatePathInfoLabel(): void {
         .style("padding", isCompact ? "0 1px" : "0 4px")
         .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`);
 
-    // Path indicator - always show, but compact in narrow mode
     infoContainer.append("span")
-        .style("font-weight", "700")  // Bolder
+        .style("font-weight", "700")
         .style("letter-spacing", "0.15px")
         .text(isCompact ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`);
 
-    // Show additional info only in wide and medium modes
     if (!isCompact) {
         infoContainer.append("span")
             .style("color", this.UI_TOKENS.color.primary.default)
@@ -9195,7 +8477,6 @@ private updatePathInfoLabel(): void {
             .style("font-weight", "500")
             .text(`${taskCount} tasks`);
 
-        // Duration only in wide mode
         if (!isMedium) {
             infoContainer.append("span")
                 .style("color", this.UI_TOKENS.color.primary.default)
@@ -9208,7 +8489,6 @@ private updatePathInfoLabel(): void {
         }
     }
 
-    // Professional Next button with SVG arrow (disabled when single path)
     const nextButtonTitle = hasMultiplePaths ? "Next driving path" : "Only one driving path";
     const nextButton = this.pathInfoLabel.append("div")
         .style("cursor", buttonCursor)
@@ -9224,7 +8504,6 @@ private updatePathInfoLabel(): void {
         .style("height", "22px")
         .attr("title", nextButtonTitle);
 
-    // SVG arrow for next button
     const nextSvg = nextButton.append("svg")
         .attr("width", "12")
         .attr("height", "12")
@@ -9238,7 +8517,6 @@ private updatePathInfoLabel(): void {
         .attr("stroke-linejoin", "round")
         .attr("fill", "none");
 
-    // Only add hover/click handlers if navigation is possible
     if (hasMultiplePaths) {
         nextButton
             .on("mouseover", function() {
@@ -9269,10 +8547,10 @@ private updatePathInfoLabel(): void {
 
 /**
  * Navigate to the previous driving path
- * FIX BUG-015: Provides feedback when navigation is not possible
+ * Provides feedback when navigation is not possible
  */
 private navigateToPreviousPath(): void {
-    // FIX BUG-015: Provide feedback when navigation not possible
+
     if (this.allDrivingChains.length === 0) {
         this.debugLog("[Path Navigation] No driving chains available");
         return;
@@ -9284,20 +8562,16 @@ private navigateToPreviousPath(): void {
         return;
     }
 
-    // Move to previous path (with wrapping)
     this.selectedPathIndex = this.selectedPathIndex === 0
         ? this.allDrivingChains.length - 1
         : this.selectedPathIndex - 1;
 
     this.debugLog(`[Path Navigation] Switched to path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}`);
 
-    // Persist the change
     this.persistPathSelection();
 
-    // Recalculate and redraw
     this.identifyLongestPathFromP6();
 
-    // Force full redraw
     this.forceFullUpdate = true;
     if (this.lastUpdateOptions) {
         this.update(this.lastUpdateOptions);
@@ -9306,10 +8580,10 @@ private navigateToPreviousPath(): void {
 
 /**
  * Navigate to the next driving path
- * FIX BUG-015: Provides feedback when navigation is not possible
+ * Provides feedback when navigation is not possible
  */
 private navigateToNextPath(): void {
-    // FIX BUG-015: Provide feedback when navigation not possible
+
     if (this.allDrivingChains.length === 0) {
         this.debugLog("[Path Navigation] No driving chains available");
         return;
@@ -9321,18 +8595,14 @@ private navigateToNextPath(): void {
         return;
     }
 
-    // Move to next path (with wrapping)
     this.selectedPathIndex = (this.selectedPathIndex + 1) % this.allDrivingChains.length;
 
     this.debugLog(`[Path Navigation] Switched to path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}`);
 
-    // Persist the change
     this.persistPathSelection();
 
-    // Recalculate and redraw
     this.identifyLongestPathFromP6();
 
-    // Force full redraw
     this.forceFullUpdate = true;
     if (this.lastUpdateOptions) {
         this.update(this.lastUpdateOptions);
@@ -9340,15 +8610,14 @@ private navigateToNextPath(): void {
 }
 
 /**
- * FIX BUG-015: Helper method for user feedback when navigation not possible
+ * Helper method for user feedback when navigation not possible
  * Shows a brief message in the path info label
  */
 private showPathNavigationFeedback(message: string): void {
     if (this.pathInfoLabel) {
-        // Store original content
+
         const originalDisplay = this.pathInfoLabel.style("display");
 
-        // Show feedback message temporarily
         this.pathInfoLabel
             .style("display", "flex")
             .selectAll("*").remove();
@@ -9359,7 +8628,6 @@ private showPathNavigationFeedback(message: string): void {
             .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
             .text(message);
 
-        // Restore original state after 2 seconds
         setTimeout(() => {
             this.pathInfoLabel.style("display", originalDisplay);
             this.updatePathInfoLabel();
@@ -9374,12 +8642,10 @@ private persistPathSelection(): void {
     try {
         const pathIndex1Based = this.selectedPathIndex + 1;
 
-        // Update local settings
         if (this.settings?.drivingPathSelection?.selectedPathIndex) {
             this.settings.drivingPathSelection.selectedPathIndex.value = pathIndex1Based;
         }
 
-        // Persist to Power BI
         this.host.persistProperties({
             merge: [{
                 objectName: "drivingPathSelection",
@@ -9394,9 +8660,8 @@ private persistPathSelection(): void {
     }
 }
 
-
 private identifyNearCriticalTasks(): void {
-    // Only identify near-critical tasks if threshold > 0
+
     if (this.floatThreshold <= 0) {
         this.debugLog("Float threshold is 0, skipping near-critical identification");
         return;
@@ -9415,30 +8680,30 @@ private identifyNearCriticalTasks(): void {
             successorMap.set(rel.successorId, relFloat);
         }
     }
-    
+
     this.allTasksData.forEach(task => {
         if (task.isCritical) return;
-        
+
         let minFloatToCritical = Infinity;
         const visited = new Set<string>();
         const queue: Array<{taskId: string, accumulatedFloat: number}> = [
             {taskId: task.internalId, accumulatedFloat: 0}
         ];
-        
+
         while (queue.length > 0) {
             const {taskId, accumulatedFloat} = queue.shift()!;
-            
+
             if (visited.has(taskId)) continue;
             visited.add(taskId);
-            
+
             const currentTask = this.taskIdToTask.get(taskId);
             if (!currentTask) continue;
-            
+
             if (currentTask.isCritical) {
                 minFloatToCritical = Math.min(minFloatToCritical, accumulatedFloat);
                 continue;
             }
-            
+
             const successorFloats = predecessorToSuccessorMinFloat.get(taskId);
             if (!successorFloats) {
                 continue;
@@ -9452,7 +8717,7 @@ private identifyNearCriticalTasks(): void {
                 });
             }
         }
-        
+
         if (minFloatToCritical <= this.floatThreshold) {
             task.isNearCritical = true;
             task.totalFloat = minFloatToCritical;
@@ -9462,7 +8727,7 @@ private identifyNearCriticalTasks(): void {
 
 /**
  * Calculates CPM backward to a selected target task
- * FIXED: Populates allDrivingChains for multi-path support
+ * Populates allDrivingChains for multi-path support
  */
 private calculateCPMToTask(targetTaskId: string | null): void {
     this.debugLog(`Calculating P6 driving path to task: ${targetTaskId || "None"}`);
@@ -9479,7 +8744,6 @@ private calculateCPMToTask(targetTaskId: string | null): void {
         return;
     }
 
-    // Reset all tasks
     for (const task of this.allTasksData) {
         task.isCritical = false;
         task.isCriticalByFloat = false;
@@ -9488,14 +8752,10 @@ private calculateCPMToTask(targetTaskId: string | null): void {
         task.totalFloat = Infinity;
     }
 
-    // Identify driving relationships
     this.identifyDrivingRelationships();
 
-    // Find all driving chains to the target
     const chains = this.findAllDrivingChainsToTask(targetTaskId);
 
-    // Store chains for multi-path cycling
-    // Sort by: earliest start date first, then longest duration as tiebreaker
     this.allDrivingChains = [...chains].sort((a, b) => {
         const aDate = a.startingTask?.startDate?.getTime() ?? Infinity;
         const bDate = b.startingTask?.startDate?.getTime() ?? Infinity;
@@ -9506,16 +8766,14 @@ private calculateCPMToTask(targetTaskId: string | null): void {
         return b.totalDuration - a.totalDuration;
     });
 
-    // Validate and clamp selectedPathIndex
     if (this.selectedPathIndex >= this.allDrivingChains.length) {
         this.selectedPathIndex = 0;
     }
 
-    // Get the selected chain
     const selectedChain = this.getSelectedDrivingChain();
 
     if (selectedChain) {
-        // Mark tasks in selected chain as critical
+
         for (const taskId of selectedChain.tasks) {
             const task = this.taskIdToTask.get(taskId);
             if (task) {
@@ -9525,7 +8783,6 @@ private calculateCPMToTask(targetTaskId: string | null): void {
             }
         }
 
-        // Mark relationships in selected chain as critical
         for (const rel of selectedChain.relationships) {
             rel.isCritical = true;
         }
@@ -9535,11 +8792,9 @@ private calculateCPMToTask(targetTaskId: string | null): void {
             `starting ${this.formatDate(selectedChain.startingTask?.startDate)}`);
     }
 
-    // Always mark target task as critical
     targetTask.isCritical = true;
     targetTask.isCriticalByFloat = true;
 
-    // Update path info display
     this.updatePathInfoLabel();
 }
 
@@ -9562,7 +8817,6 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
         return;
     }
 
-    // Reset all tasks
     for (const task of this.allTasksData) {
         task.isCritical = false;
         task.isCriticalByFloat = false;
@@ -9571,10 +8825,8 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
         task.totalFloat = Infinity;
     }
 
-    // Identify driving relationships
     this.identifyDrivingRelationships();
 
-    // Find all forward driving chains using recursive DFS
     const completedChains: Array<{
         tasks: Set<string>,
         relationships: Relationship[],
@@ -9600,13 +8852,12 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
 
         const taskDuration = currentDuration + task.duration;
 
-        // Find driving successors using filter
         const drivingSuccs = this.relationships.filter(rel =>
             rel.predecessorId === taskId && rel.isDriving
         );
 
         if (drivingSuccs.length === 0) {
-            // Chain end - record it
+
             completedChains.push({
                 tasks: new Set(currentPath),
                 relationships: [...currentRelationships],
@@ -9624,7 +8875,6 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
         currentPath.delete(taskId);
     };
 
-    // Start DFS from source task (duration starts at 0, task duration added inside)
     currentPath.add(sourceTaskId);
     visited.add(sourceTaskId);
 
@@ -9633,7 +8883,7 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
     );
 
     if (drivingSuccs.length === 0) {
-        // Source task is an endpoint
+
         completedChains.push({
             tasks: new Set([sourceTaskId]),
             relationships: [],
@@ -9648,20 +8898,18 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
         }
     }
 
-    // Store chains for multi-path support
     this.allDrivingChains = completedChains.map(c => ({
         tasks: c.tasks,
         relationships: c.relationships,
         totalDuration: c.totalDuration,
-        startingTask: sourceTask  // For forward trace, starting task is the source
+        startingTask: sourceTask
     }));
 
-    // Sort by: latest finish date first, then longest duration
     this.allDrivingChains.sort((a, b) => {
-        // For forward traces, we need to get the ending task
+
         const aEndTask = completedChains.find(c => c.tasks === a.tasks)?.endingTask;
         const bEndTask = completedChains.find(c => c.tasks === b.tasks)?.endingTask;
-        
+
         const aDate = aEndTask?.finishDate?.getTime() ?? -Infinity;
         const bDate = bEndTask?.finishDate?.getTime() ?? -Infinity;
 
@@ -9671,16 +8919,14 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
         return b.totalDuration - a.totalDuration;
     });
 
-    // Validate selectedPathIndex
     if (this.selectedPathIndex >= this.allDrivingChains.length) {
         this.selectedPathIndex = 0;
     }
 
-    // Get selected chain
     const selectedChain = this.getSelectedDrivingChain();
 
     if (selectedChain) {
-        // Mark tasks in best path as critical
+
         for (const taskId of selectedChain.tasks) {
             const task = this.taskIdToTask.get(taskId);
             if (task) {
@@ -9697,13 +8943,12 @@ private calculateCPMFromTask(sourceTaskId: string | null): void {
         this.debugLog(`Forward path from ${sourceTaskId}: ${selectedChain.tasks.size} tasks, ` +
             `${this.allDrivingChains.length} chains found`);
     } else {
-        // No forward driving path - selected task is an endpoint
+
         sourceTask.isCritical = true;
         sourceTask.isCriticalByFloat = true;
         this.debugLog(`No forward driving path from ${sourceTaskId}. Task marked as critical endpoint.`);
     }
 
-    // Update path info display
     this.updatePathInfoLabel();
 }
 
@@ -9718,15 +8963,13 @@ private identifyPredecessorTasksFloatBased(targetTaskId: string): Set<string> {
     const visited = new Set<string>();
     visited.add(targetTaskId);
 
-    // Safety limits to prevent memory explosion
-    const MAX_TASKS = 10000; // Hard limit on tasks to trace
-    const MAX_ITERATIONS = 50000; // Prevent infinite loops
+    const MAX_TASKS = 10000;
+    const MAX_ITERATIONS = 50000;
     let iterations = 0;
 
     while (queue.length > 0 && iterations < MAX_ITERATIONS) {
         iterations++;
 
-        // Check if we've hit the task limit
         if (tasksInPath.size > MAX_TASKS) {
             console.warn(`Backward trace from ${targetTaskId} hit task limit (${MAX_TASKS}). Stopping to prevent memory exhaustion.`);
             break;
@@ -9768,15 +9011,13 @@ private identifySuccessorTasksFloatBased(sourceTaskId: string): Set<string> {
     const visited = new Set<string>();
     visited.add(sourceTaskId);
 
-    // Safety limits to prevent memory explosion
-    const MAX_TASKS = 10000; // Hard limit on tasks to trace
-    const MAX_ITERATIONS = 50000; // Prevent infinite loops
+    const MAX_TASKS = 10000;
+    const MAX_ITERATIONS = 50000;
     let iterations = 0;
 
     while (queue.length > 0 && iterations < MAX_ITERATIONS) {
         iterations++;
 
-        // Check if we've hit the task limit
         if (tasksInPath.size > MAX_TASKS) {
             console.warn(`Forward trace from ${sourceTaskId} hit task limit (${MAX_TASKS}). Stopping to prevent memory exhaustion.`);
             break;
@@ -9784,7 +9025,6 @@ private identifySuccessorTasksFloatBased(sourceTaskId: string): Set<string> {
 
         const currentTaskId = queue.shift()!;
 
-        // predecessorIndex maps: predecessor → Set<successors>
         const successorIds = this.predecessorIndex.get(currentTaskId) || new Set();
 
         for (const succId of successorIds) {
@@ -9813,12 +9053,12 @@ private identifySuccessorTasksFloatBased(sourceTaskId: string): Set<string> {
 private extractTaskId(row: any[]): string | null {
     const idIdx = this.getColumnIndex(this.lastUpdateOptions?.dataViews[0], 'taskId');
     if (idIdx === -1) return null;
-    
+
     const rawTaskId = row[idIdx];
     if (rawTaskId == null || (typeof rawTaskId !== 'string' && typeof rawTaskId !== 'number')) {
         return null;
     }
-    
+
     const taskIdStr = String(rawTaskId).trim();
     return taskIdStr === '' ? null : taskIdStr;
 }
@@ -9829,12 +9069,12 @@ private extractTaskId(row: any[]): string | null {
 private extractPredecessorId(row: any[]): string | null {
     const predIdIdx = this.getColumnIndex(this.lastUpdateOptions?.dataViews[0], 'predecessorId');
     if (predIdIdx === -1) return null;
-    
+
     const rawPredId = row[predIdIdx];
     if (rawPredId == null || (typeof rawPredId !== 'string' && typeof rawPredId !== 'number')) {
         return null;
     }
-    
+
     const predIdStr = String(rawPredId).trim();
     return predIdStr === '' ? null : predIdStr;
 }
@@ -9842,11 +9082,10 @@ private extractPredecessorId(row: any[]): string | null {
 private createTaskFromRow(row: any[], rowIndex: number): Task | null {
     const dataView = this.lastUpdateOptions?.dataViews?.[0];
     if (!dataView) return null;
-    
+
     const taskId = this.extractTaskId(row);
     if (!taskId) return null;
-    
-    // Get column indices
+
     const nameIdx = this.getColumnIndex(dataView, 'taskName');
     const typeIdx = this.getColumnIndex(dataView, 'taskType');
     const durationIdx = this.getColumnIndex(dataView, 'duration');
@@ -9858,17 +9097,15 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
     const baselineFinishDateIdx = this.getColumnIndex(dataView, 'baselineFinishDate');
     const previousUpdateStartDateIdx = this.getColumnIndex(dataView, 'previousUpdateStartDate');
     const previousUpdateFinishDateIdx = this.getColumnIndex(dataView, 'previousUpdateFinishDate');
-    
-    // Extract task properties
-    const taskName = (nameIdx !== -1 && row[nameIdx] != null) 
-        ? String(row[nameIdx]).trim() 
+
+    const taskName = (nameIdx !== -1 && row[nameIdx] != null)
+        ? String(row[nameIdx]).trim()
         : `Task ${taskId}`;
-        
-    const taskType = (typeIdx !== -1 && row[typeIdx] != null) 
-        ? String(row[typeIdx]).trim() 
+
+    const taskType = (typeIdx !== -1 && row[typeIdx] != null)
+        ? String(row[typeIdx]).trim()
         : 'TT_Task';
-    
-    // Parse duration
+
     let duration = 0;
     if (durationIdx !== -1 && row[durationIdx] != null) {
         const parsedDuration = Number(row[durationIdx]);
@@ -9880,8 +9117,7 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         duration = 0;
     }
     duration = Math.max(0, duration);
-    
-    // Parse user-provided total float
+
     let userProvidedTotalFloat: number | undefined = undefined;
     if (totalFloatIdx !== -1 && row[totalFloatIdx] != null) {
         const parsedFloat = Number(row[totalFloatIdx]);
@@ -9889,8 +9125,7 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
             userProvidedTotalFloat = parsedFloat;
         }
     }
-    
-    // Parse task free float (NEW)
+
     let taskFreeFloat: number | undefined = undefined;
     if (taskFreeFloatIdx !== -1 && row[taskFreeFloatIdx] != null) {
         const parsedFloat = Number(row[taskFreeFloatIdx]);
@@ -9898,38 +9133,33 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
             taskFreeFloat = parsedFloat;
         }
     }
-    
-    // Parse dates
-    const startDate = (startDateIdx !== -1 && row[startDateIdx] != null) 
-        ? this.parseDate(row[startDateIdx]) 
+
+    const startDate = (startDateIdx !== -1 && row[startDateIdx] != null)
+        ? this.parseDate(row[startDateIdx])
         : null;
-    const finishDate = (finishDateIdx !== -1 && row[finishDateIdx] != null) 
-        ? this.parseDate(row[finishDateIdx]) 
-        : null;
-    
-    // Parse baseline dates
-    const baselineStartDate = (baselineStartDateIdx !== -1 && row[baselineStartDateIdx] != null) 
-        ? this.parseDate(row[baselineStartDateIdx]) 
-        : null;
-    const baselineFinishDate = (baselineFinishDateIdx !== -1 && row[baselineFinishDateIdx] != null) 
-        ? this.parseDate(row[baselineFinishDateIdx]) 
+    const finishDate = (finishDateIdx !== -1 && row[finishDateIdx] != null)
+        ? this.parseDate(row[finishDateIdx])
         : null;
 
-    // Parse previous update dates
-    const previousUpdateStartDate = (previousUpdateStartDateIdx !== -1 && row[previousUpdateStartDateIdx] != null) 
-        ? this.parseDate(row[previousUpdateStartDateIdx]) 
+    const baselineStartDate = (baselineStartDateIdx !== -1 && row[baselineStartDateIdx] != null)
+        ? this.parseDate(row[baselineStartDateIdx])
         : null;
-    const previousUpdateFinishDate = (previousUpdateFinishDateIdx !== -1 && row[previousUpdateFinishDateIdx] != null) 
-        ? this.parseDate(row[previousUpdateFinishDateIdx]) 
+    const baselineFinishDate = (baselineFinishDateIdx !== -1 && row[baselineFinishDateIdx] != null)
+        ? this.parseDate(row[baselineFinishDateIdx])
         : null;
-    
-    // Parse legend value
+
+    const previousUpdateStartDate = (previousUpdateStartDateIdx !== -1 && row[previousUpdateStartDateIdx] != null)
+        ? this.parseDate(row[previousUpdateStartDateIdx])
+        : null;
+    const previousUpdateFinishDate = (previousUpdateFinishDateIdx !== -1 && row[previousUpdateFinishDateIdx] != null)
+        ? this.parseDate(row[previousUpdateFinishDateIdx])
+        : null;
+
     const legendIdx = this.getColumnIndex(dataView, 'legend');
     const legendValue = (legendIdx !== -1 && row[legendIdx] != null)
         ? String(row[legendIdx])
         : undefined;
 
-    // Parse WBS level values dynamically from wbsLevelColumnIndices
     const wbsLevels: string[] = [];
     for (const colIdx of this.wbsLevelColumnIndices) {
         if (colIdx !== -1 && row[colIdx] != null) {
@@ -9940,7 +9170,6 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         }
     }
 
-    // Get tooltip data
     const tooltipData = this.extractTooltipData(row, dataView);
 
     const safeRowIndex = rowIndex >= 0 ? rowIndex : 0;
@@ -9948,7 +9177,6 @@ private createTaskFromRow(row: any[], rowIndex: number): Task | null {
         ? this.host.createSelectionIdBuilder().withTable(dataView.table, safeRowIndex).createSelectionId()
         : undefined;
 
-    // Create task object
     const task: Task = {
         id: row[this.getColumnIndex(dataView, 'taskId')],
         internalId: taskId,
@@ -9992,12 +9220,11 @@ private extractTooltipData(row: any[], dataView: DataView): Array<{key: string, 
     const columns = dataView.metadata?.columns;
     if (!columns) return undefined;
 
-    // Collect tooltip columns with their metadata
     const tooltipColumns: Array<{column: any, rowIndex: number}> = [];
 
     columns.forEach((column, index) => {
         if (column.roles?.tooltip) {
-            // Log column properties for debugging (first occurrence only)
+
             if (index === 0 || !this.tooltipDebugLogged) {
                 this.debugLog(`Tooltip column: ${column.displayName}, index: ${column.index}, queryName: ${column.queryName}`);
             }
@@ -10010,12 +9237,10 @@ private extractTooltipData(row: any[], dataView: DataView): Array<{key: string, 
 
     this.tooltipDebugLogged = true;
 
-    // Try sorting by queryName which often contains role index
     tooltipColumns.sort((a, b) => {
         const aQuery = a.column.queryName || '';
         const bQuery = b.column.queryName || '';
 
-        // Extract numeric indices from queryNames like "Sum(Field).tooltip.0"
         const aMatch = aQuery.match(/\.tooltip\.(\d+)$/);
         const bMatch = bQuery.match(/\.tooltip\.(\d+)$/);
 
@@ -10023,22 +9248,19 @@ private extractTooltipData(row: any[], dataView: DataView): Array<{key: string, 
             return parseInt(aMatch[1]) - parseInt(bMatch[1]);
         }
 
-        // Fallback to Power BI's internal column index. This usually corresponds to the order fields were added to the bucket.
         if (a.column.index !== undefined && b.column.index !== undefined) {
             return a.column.index - b.column.index;
         }
 
-        // Final fallback to the order they appeared in the metadata.
         return a.rowIndex - b.rowIndex;
     });
 
-    // Build tooltip data array in the correct order
     const tooltipData: Array<{key: string, value: PrimitiveValue}> = [];
 
     for (const item of tooltipColumns) {
         const value = row[item.rowIndex];
         if (value !== null && value !== undefined) {
-            // Check if this should be treated as a date
+
             if (item.column.type?.dateTime || this.mightBeDate(value)) {
                 const parsedDate = this.parseDate(value);
                 if (parsedDate) {
@@ -10049,7 +9271,7 @@ private extractTooltipData(row: any[], dataView: DataView): Array<{key: string, 
                     continue;
                 }
             }
-            // Otherwise store original value
+
             tooltipData.push({
                 key: item.column.displayName || `Field ${item.rowIndex}`,
                 value: value
@@ -10063,8 +9285,7 @@ private extractTooltipData(row: any[], dataView: DataView): Array<{key: string, 
 private transformDataOptimized(dataView: DataView): void {
     this.debugLog("Transforming data with enhanced optimization...");
     const startTime = performance.now();
-    
-    // Clear existing data
+
     this.allTasksData = [];
     this.relationships = [];
     this.taskIdToTask.clear();
@@ -10077,11 +9298,10 @@ private transformDataOptimized(dataView: DataView): void {
         console.error("Data transformation failed: No table data or columns found.");
         return;
     }
-    
+
     const rows = dataView.table.rows;
     const columns = dataView.metadata.columns;
 
-    // Get column indices once
     const idIdx = this.getColumnIndex(dataView, "taskId");
     if (idIdx !== -1) {
         this.taskIdQueryName = dataView.metadata.columns[idIdx].queryName || null;
@@ -10113,7 +9333,6 @@ private transformDataOptimized(dataView: DataView): void {
         return;
     }
 
-    // Single pass data structures
     const taskDataMap = new Map<
         string,
         {
@@ -10129,10 +9348,8 @@ private transformDataOptimized(dataView: DataView): void {
         }
     >();
 
-    // NEW: track every predecessor id we see so we can create synthetic start tasks
     const allPredecessorIds = new Set<string>();
 
-    // SINGLE PASS: Group all rows by task ID
     for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
         const row = rows[rowIndex];
         const taskId = this.extractTaskId(row);
@@ -10141,7 +9358,6 @@ private transformDataOptimized(dataView: DataView): void {
             continue;
         }
 
-        // Capture Data Date (use earliest valid value to keep it consistent across rows)
         if (dataDateIdx !== -1 && row[dataDateIdx] != null) {
             const parsedDataDate = this.parseDate(row[dataDateIdx]);
             if (parsedDataDate) {
@@ -10152,7 +9368,6 @@ private transformDataOptimized(dataView: DataView): void {
             }
         }
 
-        // Get or create task data entry
         let taskData = taskDataMap.get(taskId);
         if (!taskData) {
             taskData = {
@@ -10166,14 +9381,12 @@ private transformDataOptimized(dataView: DataView): void {
 
         taskData.rows.push(row);
 
-        // Extract relationship data if present
         if (predIdIdx !== -1 && row[predIdIdx] != null) {
             const predId = this.extractPredecessorId(row);
             if (predId && predId !== taskId) {
-                // NEW: remember that this id exists as a predecessor
+
                 allPredecessorIds.add(predId);
 
-                // Parse relationship properties
                 const relTypeRaw =
                     relTypeIdx !== -1 && row[relTypeIdx] != null
                         ? String(row[relTypeIdx]).trim().toUpperCase()
@@ -10191,7 +9404,6 @@ private transformDataOptimized(dataView: DataView): void {
                     }
                 }
 
-                // Extract relationship free float if provided
                 let relFreeFloat: number | null = null;
                 if (relFreeFloatIdx !== -1 && row[relFreeFloatIdx] != null) {
                     const parsedFreeFloat = Number(row[relFreeFloatIdx]);
@@ -10200,7 +9412,6 @@ private transformDataOptimized(dataView: DataView): void {
                     }
                 }
 
-                // Check if this relationship already exists
                 const existingRel = taskData.relationships.find(
                     (r) => r.predId === predId
                 );
@@ -10216,8 +9427,6 @@ private transformDataOptimized(dataView: DataView): void {
         }
     }
 
-    // NEW: figure out how many "predecessor-only" tasks we have
-    // (appear only as predecessors, never as a successor/taskId)
     let syntheticTaskCount = 0;
     for (const predId of allPredecessorIds) {
         if (!taskDataMap.has(predId)) {
@@ -10225,17 +9434,14 @@ private transformDataOptimized(dataView: DataView): void {
         }
     }
 
-    // Phase 1: Process grouped data to create tasks and relationships
-    // Pre-allocate arrays for better performance (including synthetic tasks)
     this.allTasksData = new Array(taskDataMap.size + syntheticTaskCount);
     this.relationships = [];
 
     const successorMap = new Map<string, Task[]>();
     let taskIndex = 0;
 
-    // Phase 1: Use for...of instead of forEach for better performance
     for (const [taskId, taskData] of taskDataMap) {
-        // Create task from first row (they should all have same task data)
+
         if (taskData.rows.length > 0 && !taskData.task) {
             taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex);
         }
@@ -10243,41 +9449,35 @@ private transformDataOptimized(dataView: DataView): void {
 
         const task = taskData.task;
 
-        // Build predecessor index
         if (!this.predecessorIndex.has(taskId)) {
             this.predecessorIndex.set(taskId, new Set());
         }
 
-        // Apply relationships to task
         for (const rel of taskData.relationships) {
             task.predecessorIds.push(rel.predId);
             task.relationshipTypes[rel.predId] = rel.relType;
             task.relationshipLags[rel.predId] = rel.lag;
 
-            // Update predecessor index
             if (!this.predecessorIndex.has(rel.predId)) {
                 this.predecessorIndex.set(rel.predId, new Set());
             }
             this.predecessorIndex.get(rel.predId)!.add(taskId);
 
-            // Add to successor map for later processing
             if (!successorMap.has(rel.predId)) {
                 successorMap.set(rel.predId, []);
             }
             successorMap.get(rel.predId)!.push(task);
 
-            // Create relationship object with free float from data if available
             const relationship: Relationship = {
                 predecessorId: rel.predId,
                 successorId: taskId,
                 type: rel.relType,
-                freeFloat: rel.freeFloat, // Use provided free float or null
+                freeFloat: rel.freeFloat,
                 lag: rel.lag,
                 isCritical: false,
             };
             this.relationships.push(relationship);
 
-            // Add to relationship index (by successor/task id)
             if (!this.relationshipIndex.has(taskId)) {
                 this.relationshipIndex.set(taskId, []);
             }
@@ -10289,14 +9489,12 @@ private transformDataOptimized(dataView: DataView): void {
             this.relationshipByPredecessor.get(rel.predId)!.push(relationship);
         }
 
-        // Add task to collections
         this.allTasksData[taskIndex++] = task;
         this.taskIdToTask.set(taskId, task);
     }
 
-    // NEW: Phase 1b – create synthetic tasks for ids that only ever appear as predecessors
     for (const predId of allPredecessorIds) {
-        // If we already created a real task for this id (it appeared as a successor), skip it
+
         if (this.taskIdToTask.has(predId)) {
             continue;
         }
@@ -10305,7 +9503,7 @@ private transformDataOptimized(dataView: DataView): void {
             id: predId,
             internalId: predId,
             name: String(predId),
-            type: "Synthetic",       // You can rename this to whatever makes sense
+            type: "Synthetic",
             duration: 0,
             userProvidedTotalFloat: undefined,
             taskFreeFloat: undefined,
@@ -10336,29 +9534,23 @@ private transformDataOptimized(dataView: DataView): void {
         this.taskIdToTask.set(predId, syntheticTask);
     }
 
-    // Trim array to actual size if needed (should normally be exact)
     if (taskIndex < this.allTasksData.length) {
         this.allTasksData.length = taskIndex;
     }
 
-    // Phase 2: Assign successors and predecessors with cached lookups
     for (const task of this.allTasksData) {
-        // Set successors from map (synthetic tasks will get their successors from the map as well)
+
         task.successors = successorMap.get(task.internalId) || [];
 
-        // Set predecessor task references (now includes synthetic predecessor-only tasks)
         task.predecessors = task.predecessorIds
             .map((id) => this.taskIdToTask.get(id))
             .filter((t) => t !== undefined) as Task[];
     }
 
-    // Process legend data and assign colours
     this.processLegendData(dataView);
 
-    // Process WBS data and build hierarchy
     this.processWBSData();
 
-    // DATA QUALITY: Validate data quality and warn users of potential issues
     this.validateDataQuality();
 
     const endTime = performance.now();
@@ -10367,7 +9559,6 @@ private transformDataOptimized(dataView: DataView): void {
             `Found ${this.allTasksData.length} tasks and ${this.relationships.length} relationships.`
     );
 }
-
 
 /**
  * DATA QUALITY: Validates data quality and reports issues to the user
@@ -10380,7 +9571,6 @@ private transformDataOptimized(dataView: DataView): void {
 private validateDataQuality(): void {
     const warnings: string[] = [];
 
-    // Check 1: Duplicate Task IDs (already handled by Map overwrite, but warn user)
     const seenIds = new Map<string, number>();
     for (const task of this.allTasksData) {
         const count = seenIds.get(task.id as string) || 0;
@@ -10395,13 +9585,11 @@ private validateDataQuality(): void {
         warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
     }
 
-    // Check 2: Circular dependencies
     const circularPaths = this.detectCircularDependencies();
     if (circularPaths.length > 0) {
         warnings.push(`Circular dependencies detected in ${circularPaths.length} path(s): ${circularPaths.slice(0, 3).join(', ')}${circularPaths.length > 3 ? '...' : ''}`);
     }
 
-    // Check 3: Invalid date ranges
     const invalidDates: string[] = [];
     for (const task of this.allTasksData) {
         if (task.startDate instanceof Date && task.finishDate instanceof Date &&
@@ -10416,7 +9604,6 @@ private validateDataQuality(): void {
         warnings.push(`Invalid date ranges (start > finish): ${invalidDates.slice(0, 5).join(', ')}${invalidDates.length > 5 ? ` and ${invalidDates.length - 5} more` : ''}`);
     }
 
-    // Check 4: Tasks with no valid dates
     const noDateTasks = this.allTasksData.filter(task =>
         !(task.startDate instanceof Date && !isNaN(task.startDate.getTime())) &&
         !(task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()))
@@ -10426,14 +9613,12 @@ private validateDataQuality(): void {
         warnings.push(`${noDateTasks.length} task(s) have no valid dates and will not be displayed`);
     }
 
-    // Check 5: Synthetic tasks (predecessor-only tasks missing task details)
     const syntheticTasks = this.allTasksData.filter(task => task.type === "Synthetic");
     if (syntheticTasks.length > 0) {
         const syntheticIds = syntheticTasks.map(t => t.id).slice(0, 5);
         warnings.push(`${syntheticTasks.length} task(s) referenced as predecessors but missing from task list: ${syntheticIds.join(', ')}${syntheticTasks.length > 5 ? '...' : ''}. Add these tasks to your data source with proper Task Name values.`);
     }
 
-    // Report warnings to console (enterprise visuals should log data quality issues)
     if (warnings.length > 0) {
         console.warn('Data Quality Issues Detected:');
         warnings.forEach((warning, index) => {
@@ -10449,7 +9634,7 @@ private validateDataQuality(): void {
 private detectCircularDependencies(): string[] {
     const circularPaths: string[] = [];
     const seenCycles = new Set<string>();
-    const visitState = new Map<string, 0 | 1 | 2>(); // 0=unvisited, 1=visiting, 2=done
+    const visitState = new Map<string, 0 | 1 | 2>();
     const parent = new Map<string, string | null>();
 
     type StackFrame = { id: string; preds: string[]; index: number };
@@ -10515,20 +9700,19 @@ private detectCircularDependencies(): string[] {
  * Process legend data and assign colors to tasks based on legend values
  */
 private processLegendData(dataView: DataView): void {
-    // Reset legend data
+
     this.legendDataExists = false;
     this.legendColorMap.clear();
     this.legendCategories = [];
     this.legendSelectionIds.clear();
     this.legendFieldName = "";
 
-    // Check if legend field exists in metadata
     const columns = dataView.metadata?.columns;
     if (!columns) return;
 
     const legendColumn = columns.find(col => col.roles?.legend);
     if (!legendColumn) {
-        // No legend field - clear legend colors from all tasks
+
         for (const task of this.allTasksData) {
             task.legendColor = undefined;
         }
@@ -10538,7 +9722,6 @@ private processLegendData(dataView: DataView): void {
     this.legendFieldName = legendColumn.displayName || "Legend";
     this.legendDataExists = true;
 
-    // Collect unique legend values from tasks
     const legendValueSet = new Set<string>();
     for (const task of this.allTasksData) {
         if (task.legendValue) {
@@ -10548,7 +9731,6 @@ private processLegendData(dataView: DataView): void {
 
     this.legendCategories = Array.from(legendValueSet);
 
-    // Sort categories BEFORE assigning colors (so indices match the sorted order)
     const sortOrder = this.settings?.legend?.sortOrder?.value?.value || "none";
     if (sortOrder === "ascending") {
         this.legendCategories.sort((a, b) => a.localeCompare(b));
@@ -10556,33 +9738,29 @@ private processLegendData(dataView: DataView): void {
         this.legendCategories.sort((a, b) => b.localeCompare(a));
     }
 
-    // Assign colors from persisted settings or theme palette
     const legendColorsObjects = dataView.metadata?.objects?.legendColors;
     const useHighContrast = this.highContrastMode;
     for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
         const category = this.legendCategories[i];
-        const colorKey = `color${i + 1}`; // color1, color2, etc.
+        const colorKey = `color${i + 1}`;
 
         if (useHighContrast) {
             this.legendColorMap.set(category, this.highContrastForeground);
             continue;
         }
 
-        // Check if user has set a custom color for this slot
         const persistedColor = legendColorsObjects?.[colorKey];
 
         if (persistedColor && typeof persistedColor === 'object' && 'solid' in persistedColor) {
-            // Use persisted color
+
             this.legendColorMap.set(category, (persistedColor as any).solid.color);
         } else {
-            // Use theme default color
+
             const defaultColor = this.host.colorPalette.getColor(category).value;
             this.legendColorMap.set(category, defaultColor);
         }
     }
 
-    // Assign colors to tasks (this part remains valid)
-    // We map the task's legend value to the color map we just built
     for (const task of this.allTasksData) {
         if (task.legendValue) {
             task.legendColor = this.legendColorMap.get(task.legendValue);
@@ -10599,20 +9777,19 @@ private processLegendData(dataView: DataView): void {
  * Builds the WBS hierarchy from task WBS level fields and calculates summary metrics
  */
 private processWBSData(): void {
-    // Reset WBS data
+
     this.wbsDataExists = false;
     this.wbsGroups = [];
     this.wbsGroupMap.clear();
     this.wbsRootGroups = [];
     this.wbsAvailableLevels = [];
 
-    // Check if any task has WBS data (using dynamic wbsLevels array)
     const hasWbsData = this.allTasksData.some(task =>
         task.wbsLevels && task.wbsLevels.length > 0
     );
 
     if (!hasWbsData) {
-        // No WBS data - clear WBS properties from tasks
+
         for (const task of this.allTasksData) {
             task.wbsGroupId = undefined;
             task.wbsIndentLevel = 0;
@@ -10624,31 +9801,28 @@ private processWBSData(): void {
     const defaultExpanded = this.settings?.wbsGrouping?.defaultExpanded?.value ?? true;
     const expandCollapseAll = this.settings?.wbsGrouping?.expandCollapseAll?.value ?? true;
 
-    // Check if expandCollapseAll toggle has changed - if so, we'll override all states
     const expandCollapseAllChanged = this.lastExpandCollapseAllState !== null &&
                                       this.lastExpandCollapseAllState !== expandCollapseAll;
     if (expandCollapseAllChanged) {
-        // Clear persisted states so new groups will use the current expandCollapseAll value
+
         this.wbsExpandedState.clear();
     }
     this.lastExpandCollapseAllState = expandCollapseAll;
 
-    // Build unique WBS paths and assign to tasks
-    // Path format: "L1:Value1|L2:Value2|L3:Value3" (dynamic levels based on columns added)
     for (const task of this.allTasksData) {
         const pathParts: string[] = [];
 
         if (task.wbsLevels && task.wbsLevels.length > 0) {
-            // Build path from the wbsLevels array - levels are 1-based
+
             for (let i = 0; i < task.wbsLevels.length; i++) {
-                const level = i + 1; // 1-based level
+                const level = i + 1;
                 pathParts.push(`L${level}:${task.wbsLevels[i]}`);
             }
         }
 
         if (pathParts.length > 0) {
             task.wbsGroupId = pathParts.join('|');
-            // Indent level is the depth in the hierarchy (0-based, equals number of levels - 1)
+
             task.wbsIndentLevel = pathParts.length - 1;
         } else {
             task.wbsGroupId = undefined;
@@ -10656,14 +9830,11 @@ private processWBSData(): void {
         }
     }
 
-    // Build hierarchical group structure
-    // First, collect all unique group paths at each level
     const groupPaths = new Set<string>();
 
     for (const task of this.allTasksData) {
         if (!task.wbsGroupId) continue;
 
-        // Add all parent paths as well
         const parts = task.wbsGroupId.split('|');
         let currentPath = '';
         for (const part of parts) {
@@ -10672,7 +9843,6 @@ private processWBSData(): void {
         }
     }
 
-    // Create WBSGroup objects for each unique path
     for (const path of groupPaths) {
         const parts = path.split('|');
         const lastPart = parts[parts.length - 1];
@@ -10684,7 +9854,6 @@ private processWBSData(): void {
         const name = levelMatch[2];
         const parentPath = parts.length > 1 ? parts.slice(0, -1).join('|') : null;
 
-        // Check if we have a persisted expansion state, otherwise use current expandCollapseAll value
         const isExpanded = this.wbsExpandedState.has(path)
             ? this.wbsExpandedState.get(path)!
             : expandCollapseAll;
@@ -10720,7 +9889,6 @@ private processWBSData(): void {
         this.wbsGroupMap.set(path, group);
     }
 
-    // Build parent-child relationships
     for (const group of this.wbsGroups) {
         if (group.parentId) {
             const parent = this.wbsGroupMap.get(group.parentId);
@@ -10732,7 +9900,6 @@ private processWBSData(): void {
         }
     }
 
-    // Assign tasks to their immediate (deepest) group
     for (const task of this.allTasksData) {
         if (task.wbsGroupId) {
             const group = this.wbsGroupMap.get(task.wbsGroupId);
@@ -10742,24 +9909,20 @@ private processWBSData(): void {
         }
     }
 
-    // Calculate allTasks (including children) and summary metrics recursively
     const calculateGroupMetrics = (group: WBSGroup): void => {
-        // Start with direct tasks
+
         group.allTasks = [...group.tasks];
 
-        // Recursively process children first
         for (const child of group.children) {
             calculateGroupMetrics(child);
-            // Add child's allTasks to this group's allTasks
+
             group.allTasks.push(...child.allTasks);
         }
 
-        // Calculate summary metrics from all tasks
         group.taskCount = group.allTasks.length;
         group.hasCriticalTasks = group.allTasks.some(t => t.isCritical);
         group.hasNearCriticalTasks = group.allTasks.some(t => t.isNearCritical);
 
-        // Calculate summary dates (earliest start, latest finish)
         let minStart: Date | null = null;
         let maxFinish: Date | null = null;
         let nearCriticalMinStart: Date | null = null;
@@ -10823,30 +9986,25 @@ private processWBSData(): void {
         group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
     };
 
-    // Calculate metrics for all root groups (which recursively calculates for all children)
     for (const rootGroup of this.wbsRootGroups) {
         calculateGroupMetrics(rootGroup);
     }
 
-    // Sort groups by earliest start date for logical task flow ordering
-    // Groups with earlier tasks appear first, making the visual flow chronologically
     const sortByStartDate = (a: WBSGroup, b: WBSGroup): number => {
         const aStart = a.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
         const bStart = b.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
         if (aStart !== bStart) return aStart - bStart;
-        // If start dates are equal, fall back to alphabetical for consistency
+
         return a.fullPath.localeCompare(b.fullPath);
     };
 
     this.wbsGroups.sort(sortByStartDate);
     this.wbsRootGroups.sort(sortByStartDate);
 
-    // Sort children within each group by their start date
     for (const group of this.wbsGroups) {
         group.children.sort(sortByStartDate);
     }
 
-    // Track which levels exist and re-apply any level-based expansion preference
     this.refreshWbsAvailableLevels();
     if (this.wbsExpandToLevel !== undefined && !this.wbsManualExpansionOverride) {
         this.applyWbsExpandLevel(this.wbsExpandToLevel);
@@ -10924,7 +10082,7 @@ private getNextWbsExpandLevel(): number | null {
         return null;
     }
     const levels = Array.from(new Set(this.wbsAvailableLevels)).sort((a, b) => a - b);
-    const sequence: Array<number> = [0, ...levels]; // collapse -> per-level (no wrap)
+    const sequence: Array<number> = [0, ...levels];
     const current = this.getCurrentWbsExpandLevel();
     const idx = sequence.findIndex(l => l === current);
     if (idx === -1) {
@@ -10950,14 +10108,14 @@ private getPreviousWbsExpandLevel(): number | null {
 }
 
 private applyWbsExpandLevel(targetLevel: number | null): void {
-    // If no groups yet, just store the intent
+
     if (!this.wbsGroups.length) {
         this.wbsExpandToLevel = targetLevel;
         this.wbsExpandedInternal = targetLevel !== 0;
         return;
     }
 
-    const maxLevel = this.getMaxWbsLevel(); // 0 if no available levels
+    const maxLevel = this.getMaxWbsLevel();
     const effectiveLevel = targetLevel === null
         ? null
         : Math.min(Math.max(targetLevel, 0), maxLevel);
@@ -10965,25 +10123,22 @@ private applyWbsExpandLevel(targetLevel: number | null): void {
     this.wbsExpandToLevel = effectiveLevel;
     this.wbsExpandedInternal = effectiveLevel !== 0;
 
-    // BUG-007 FIX: Preserve manually toggled groups while applying level-based states to others
-    // Only clear states for non-manually-toggled groups
     for (const group of this.wbsGroups) {
-        // If group was manually toggled, preserve its current state
+
         if (this.wbsManuallyToggledGroups.has(group.id)) {
-            // Keep existing state from wbsExpandedState (already set by manual toggle)
+
             const existingState = this.wbsExpandedState.get(group.id);
             if (existingState !== undefined) {
                 group.isExpanded = existingState;
             }
         } else {
-            // Apply level-based expansion for non-manually-toggled groups
+
             const expanded = effectiveLevel === null ? true : group.level <= effectiveLevel;
             group.isExpanded = expanded;
             this.wbsExpandedState.set(group.id, expanded);
         }
     }
 
-    // Update wbsExpandedInternal based on all groups
     this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
 }
 
@@ -10998,7 +10153,7 @@ private captureWbsAnchorForGlobalToggle(): void {
     const container = this.scrollableContainer.node();
     const scrollTop = container.scrollTop;
     const viewportHeight = container.clientHeight || 0;
-    const targetY = scrollTop + viewportHeight / 2; // aim for middle of viewport
+    const targetY = scrollTop + viewportHeight / 2;
 
     let bestGroup: WBSGroup | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
@@ -11018,10 +10173,10 @@ private captureWbsAnchorForGlobalToggle(): void {
         const visualOffset = groupAbsoluteY - scrollTop;
         this.wbsToggleScrollAnchor = { groupId: bestGroup.id, visualOffset };
         this.preserveScrollOnUpdate = true;
-        this.scrollPreservationUntil = Date.now() + 2000; // guard against retriggers
+        this.scrollPreservationUntil = Date.now() + 2000;
         this.debugLog(`Global WBS anchor captured: group=${bestGroup.id}, yOrder=${bestGroup.yOrder}, offset=${visualOffset}`);
     } else {
-        // Fallback: preserve current scrollTop strictly
+
         this.preservedScrollTop = scrollTop;
         this.preserveScrollOnUpdate = true;
         this.scrollPreservationUntil = Date.now() + 2000;
@@ -11038,9 +10193,6 @@ private toggleWbsGroupExpansion(groupId: string): void {
     this.lastWbsToggleTimestamp = Date.now();
     this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
 
-    // CRITICAL: Clear any pending scroll throttle timeout to prevent it from
-    // interfering with the WBS toggle update. Without this, drawVisualElements()
-    // would skip rendering if a scroll just happened (scrollThrottleTimeout !== null)
     if (this.scrollThrottleTimeout) {
         clearTimeout(this.scrollThrottleTimeout);
         this.scrollThrottleTimeout = null;
@@ -11048,8 +10200,6 @@ private toggleWbsGroupExpansion(groupId: string): void {
 
     this.hideTooltip();
 
-    // Before toggling, capture the group's visual position (position relative to viewport)
-    // so we can restore it after re-render
     if (this.scrollableContainer?.node() && group.yOrder !== undefined) {
         const scrollTop = this.scrollableContainer.node().scrollTop;
         const groupAbsoluteY = group.yOrder * this.taskElementHeight;
@@ -11058,14 +10208,12 @@ private toggleWbsGroupExpansion(groupId: string): void {
         this.debugLog(`WBS toggle: Capturing anchor for group ${groupId}, yOrder=${group.yOrder}, visualOffset=${visualOffset}`);
     }
 
-    // Switching a single group puts us in manual mode (stop enforcing level-based expansion)
     const priorExpandedInternal = this.wbsExpandedInternal;
     if (this.wbsExpandToLevel === undefined) {
         this.wbsExpandToLevel = priorExpandedInternal ? null : 0;
     }
     this.wbsManualExpansionOverride = true;
 
-    // BUG-007 FIX: Track this group as manually toggled so it's preserved on global level cycling
     this.wbsManuallyToggledGroups.add(groupId);
 
     group.isExpanded = !group.isExpanded;
@@ -11086,16 +10234,14 @@ private toggleWbsGroupExpansion(groupId: string): void {
         }]
     });
 
-    // Clear overlay layers so collapsed tasks don't leave lingering labels while we rerender
     this.taskLabelLayer?.selectAll("*").remove();
     this.labelGridLayer?.selectAll("*").remove();
     this.wbsGroupLayer?.selectAll("*").remove();
 
-    // Trigger re-render while preserving scroll position
     if (this.lastUpdateOptions) {
         this.forceFullUpdate = true;
-        this.preserveScrollOnUpdate = true; // Preserve scroll for individual group expansion
-        // Set a cooldown to prevent scroll reset from Power BI re-triggered updates
+        this.preserveScrollOnUpdate = true;
+
         this.scrollPreservationUntil = Date.now() + 2000;
         this.updateInternal(this.lastUpdateOptions);
     }
@@ -11110,15 +10256,15 @@ private toggleWbsGroupExpansion(groupId: string): void {
  * This must be called AFTER the scroll container height is set but BEFORE setupVirtualScroll().
  * The order is critical: container height → scroll restoration → virtual scroll setup
  *
- * IMPORTANT: This method removes the scroll listener before setting scrollTop to prevent
- * handleScroll() from firing. setupVirtualScroll() will create and attach a NEW listener,
+ * This method removes the scroll listener before setting scrollTop to prevent
+ * handleScroll() from firing. setupVirtualScroll() will create and attach a new listener,
  * so we don't need to re-attach the old one.
  *
  * @param totalSvgHeight - Total height of SVG content for calculating max scroll bounds
  */
 private restoreScrollPosition(totalSvgHeight: number): void {
     if (!this.scrollableContainer?.node()) {
-        // Clear any pending restoration state
+
         this.preservedScrollTop = null;
         this.wbsToggleScrollAnchor = null;
         return;
@@ -11127,40 +10273,29 @@ private restoreScrollPosition(totalSvgHeight: number): void {
     const containerNode = this.scrollableContainer.node();
     const maxScroll = Math.max(0, totalSvgHeight - containerNode.clientHeight);
 
-    // Remove scroll listener BEFORE setting scrollTop to prevent handleScroll() from firing.
-    // setupVirtualScroll() will create and attach a NEW listener after this method returns.
     if (this.scrollListener) {
         this.scrollableContainer.on("scroll", null);
-        // Note: We don't null out this.scrollListener here because setupVirtualScroll
-        // will check for it and remove it again (harmless), then create a new one.
+
     }
 
-    // PRIORITY 1: Strict scroll preservation (baseline/previous update toggles)
-    // This is used when the row layout doesn't change, only visual elements do.
     if (this.preservedScrollTop !== null) {
         const targetScrollTop = this.preservedScrollTop;
-        this.preservedScrollTop = null; // Clear after use
+        this.preservedScrollTop = null;
 
-        // Clamp to valid range (content height may have changed due to scale recalculation)
         const clampedScrollTop = Math.max(0, Math.min(targetScrollTop, maxScroll));
 
         this.debugLog(`Strict scroll restoration: target=${targetScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
 
         containerNode.scrollTop = clampedScrollTop;
 
-        // Force synchronous layout reflow to ensure browser processes the scroll change
-        // before setupVirtualScroll calls calculateVisibleTasks()
-        void containerNode.scrollTop; // Reading forces reflow
+        void containerNode.scrollTop;
 
-        return; // Strict preservation takes priority, skip WBS anchor
+        return;
     }
 
-    // PRIORITY 2: WBS anchor-based restoration (WBS group expand/collapse)
-    // This is used when expanding/collapsing a WBS group - the clicked group should
-    // remain at the same visual position (pixels from top of viewport).
     if (this.wbsToggleScrollAnchor) {
         const { groupId, visualOffset } = this.wbsToggleScrollAnchor;
-        this.wbsToggleScrollAnchor = null; // Clear after use
+        this.wbsToggleScrollAnchor = null;
 
         const group = this.wbsGroupMap.get(groupId);
         if (!group || group.yOrder === undefined) {
@@ -11168,12 +10303,8 @@ private restoreScrollPosition(totalSvgHeight: number): void {
             return;
         }
 
-        // Calculate the new absolute Y position of the group header
         const newAbsoluteY = group.yOrder * this.taskElementHeight;
 
-        // Calculate the scroll position that keeps the group at the same visual offset
-        // visualOffset = groupAbsoluteY - scrollTop (captured before expansion)
-        // newScrollTop = newAbsoluteY - visualOffset (to maintain same visual position)
         const newScrollTop = newAbsoluteY - visualOffset;
         const clampedScrollTop = Math.max(0, Math.min(newScrollTop, maxScroll));
 
@@ -11183,9 +10314,7 @@ private restoreScrollPosition(totalSvgHeight: number): void {
 
         containerNode.scrollTop = clampedScrollTop;
 
-        // Force synchronous layout reflow to ensure browser processes the scroll change
-        // before setupVirtualScroll calls calculateVisibleTasks()
-        void containerNode.scrollTop; // Reading forces reflow
+        void containerNode.scrollTop;
     }
 }
 
@@ -11197,16 +10326,13 @@ private applyWbsOrdering(tasks: Task[]): Task[] {
     const orderedTasks: Task[] = [];
     const taskSet = new Set(tasks.map(t => t.internalId));
 
-    // Helper to process a group and its children recursively
     const processGroup = (group: WBSGroup): void => {
         if (group.isExpanded) {
-            // Process child groups first (sorted alphabetically)
+
             for (const child of group.children) {
                 processGroup(child);
             }
 
-            // Then add direct tasks of this group (only if they're in our input list)
-            // Sort by start date within the group
             const directTasks = group.tasks
                 .filter(t => taskSet.has(t.internalId))
                 .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
@@ -11215,15 +10341,13 @@ private applyWbsOrdering(tasks: Task[]): Task[] {
                 orderedTasks.push(task);
             }
         }
-        // If group is collapsed, its tasks and children are not added
+
     };
 
-    // Process root groups in order
     for (const rootGroup of this.wbsRootGroups) {
         processGroup(rootGroup);
     }
 
-    // Add tasks without WBS assignment at the end (sorted by start date)
     const tasksWithoutWbs = tasks
         .filter(t => !t.wbsGroupId)
         .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
@@ -11242,7 +10366,7 @@ private applyWbsOrdering(tasks: Task[]): Task[] {
  * @param filteredTasks - Tasks after filtering (legend, etc.) but before collapse/expand ordering
  */
 private updateWbsFilteredCounts(filteredTasks: Task[]): void {
-    // Reset visible counts
+
     for (const group of this.wbsGroups) {
         group.visibleTaskCount = 0;
         group.summaryStartDate = null;
@@ -11259,10 +10383,8 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         group.summaryPreviousUpdateFinishDate = null;
     }
 
-    // Create a set of filtered task IDs for quick lookup
     const filteredTaskIds = new Set(filteredTasks.map(t => t.internalId));
 
-    // Count tasks that passed filtering (regardless of collapse state)
     for (const task of filteredTasks) {
         if (task.wbsGroupId) {
             const group = this.wbsGroupMap.get(task.wbsGroupId);
@@ -11272,8 +10394,6 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         }
     }
 
-    // Recalculate summary dates based on FILTERED tasks only
-    // Also calculate critical date ranges for partial highlighting
     const calculateFilteredSummary = (group: WBSGroup): void => {
         let minStart: Date | null = null;
         let maxFinish: Date | null = null;
@@ -11288,9 +10408,8 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         let prevUpdateMinStart: Date | null = null;
         let prevUpdateMaxFinish: Date | null = null;
 
-        // Check direct tasks
         for (const task of group.tasks) {
-            // Only include tasks that passed filtering
+
             if (!filteredTaskIds.has(task.internalId)) continue;
 
             if (task.startDate && (!minStart || task.startDate < minStart)) {
@@ -11300,7 +10419,6 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
                 maxFinish = task.finishDate;
             }
 
-            // Track critical task date range separately
             if (task.isCritical) {
                 hasCritical = true;
                 if (task.startDate && (!criticalMinStart || task.startDate < criticalMinStart)) {
@@ -11344,7 +10462,6 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
             }
         }
 
-        // Recursively process children
         for (const child of group.children) {
             calculateFilteredSummary(child);
             if (child.hasCriticalTasks) hasCritical = true;
@@ -11354,7 +10471,7 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
             if (child.summaryFinishDate && (!maxFinish || child.summaryFinishDate > maxFinish)) {
                 maxFinish = child.summaryFinishDate;
             }
-            // Merge child critical date ranges
+
             if (child.criticalStartDate && (!criticalMinStart || child.criticalStartDate < criticalMinStart)) {
                 criticalMinStart = child.criticalStartDate;
             }
@@ -11399,12 +10516,10 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
     };
 
-    // Calculate filtered summaries for all root groups
     for (const rootGroup of this.wbsRootGroups) {
         calculateFilteredSummary(rootGroup);
     }
 
-    // Propagate counts up the hierarchy
     const propagateCounts = (group: WBSGroup): void => {
         for (const child of group.children) {
             propagateCounts(child);
@@ -11415,21 +10530,16 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         propagateCounts(rootGroup);
     }
 
-    // Re-sort groups based on the FILTERED summary dates
-    // This ensures that in Critical Mode, groups are sorted by the earliest
-    // start date of critical tasks, not all tasks
     const sortByFilteredStartDate = (a: WBSGroup, b: WBSGroup): number => {
         const aStart = a.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
         const bStart = b.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
         if (aStart !== bStart) return aStart - bStart;
-        // If start dates are equal, fall back to alphabetical for consistency
+
         return a.fullPath.localeCompare(b.fullPath);
     };
 
-    // Sort root groups
     this.wbsRootGroups.sort(sortByFilteredStartDate);
 
-    // Sort children within each group
     for (const group of this.wbsGroups) {
         group.children.sort(sortByFilteredStartDate);
     }
@@ -11442,58 +10552,43 @@ private updateWbsFilteredCounts(filteredTasks: Task[]): void {
  * @param tasksToShow - Final filtered list of tasks to display (after collapse/expand)
  */
 private assignWbsYOrder(tasksToShow: Task[]): void {
-    // Reset yOrder for all groups
+
     for (const group of this.wbsGroups) {
         group.yOrder = undefined;
     }
 
-    // Reset yOrder for ALL tasks to prevent stale values from conflicting with group yOrders
     for (const task of this.allTasksData) {
         task.yOrder = undefined;
     }
 
-    // Note: visibleTaskCount is already set by updateWbsFilteredCounts()
-    // It represents tasks that passed filtering, NOT tasks currently shown after collapse/expand
-    // This is intentional so that collapsed groups remain visible
-
-    // Create a Set of task IDs from the tasks that will be displayed
-    // (This is AFTER collapse/expand has been applied by applyWbsOrdering)
     const visibleTaskIds = new Set(tasksToShow.map(t => t.internalId));
 
-    // Now assign yOrder in a unified sequence
     let currentYOrder = 0;
 
-    // Helper to check if a group should be visible
     const hideEmptyGroups = this.settings?.wbsGrouping?.hideEmptyGroups?.value ?? true;
     const isGroupVisible = (group: WBSGroup): boolean => {
-        // If hideEmptyGroups is enabled, hide groups with no visible/filtered tasks
+
         if (hideEmptyGroups && group.visibleTaskCount === 0) return false;
 
-        // Still hide groups with no tasks at all (regardless of setting)
         if (group.taskCount === 0) return false;
 
-        // Root groups are visible if they have tasks
         if (!group.parentId) return true;
 
-        // Child groups are visible if parent is expanded and visible
         const parent = this.wbsGroupMap.get(group.parentId);
         return parent ? parent.isExpanded && isGroupVisible(parent) : true;
     };
 
-    // Recursive function to assign yOrder to groups and their tasks
     const assignYOrderRecursive = (group: WBSGroup): void => {
         if (!isGroupVisible(group)) return;
 
-        // Assign yOrder to the group header itself
         group.yOrder = currentYOrder++;
 
         if (group.isExpanded) {
-            // Process child groups first
+
             for (const child of group.children) {
                 assignYOrderRecursive(child);
             }
 
-            // Then assign yOrder to direct tasks that are in the visible list
             const directVisibleTasks = group.tasks
                 .filter(t => visibleTaskIds.has(t.internalId))
                 .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
@@ -11502,15 +10597,13 @@ private assignWbsYOrder(tasksToShow: Task[]): void {
                 task.yOrder = currentYOrder++;
             }
         }
-        // If collapsed, tasks don't get yOrder (they're hidden)
+
     };
 
-    // Process all root groups
     for (const rootGroup of this.wbsRootGroups) {
         assignYOrderRecursive(rootGroup);
     }
 
-    // Handle tasks without WBS assignment
     const tasksWithoutWbs = tasksToShow
         .filter(t => !t.wbsGroupId)
         .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
@@ -11534,16 +10627,16 @@ private drawWbsGroupHeaders(
     viewportStartIndex?: number,
     viewportEndIndex?: number
 ): void {
-    // FIX #2: Validate scales are non-null before proceeding
+
     if (!xScale || !yScale) {
         console.warn("drawWbsGroupHeaders: Skipping render - xScale or yScale is null");
-        // Remove any existing WBS group elements to prevent stale rendering
+
         this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
         return;
     }
 
     if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
-        // Remove any existing WBS group elements
+
         this.taskLayer?.selectAll('.wbs-group-header').remove();
         return;
     }
@@ -11555,7 +10648,7 @@ private drawWbsGroupHeaders(
     const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
     const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
     const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-    // Get custom group name settings (use taskNameFontSize if groupNameFontSize is 0)
+
     const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
     const groupNameFontSize = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
     const defaultGroupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? "#333333";
@@ -11571,38 +10664,30 @@ private drawWbsGroupHeaders(
     const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
     const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
 
-    // Create a separate layer for WBS headers if it doesn't exist
-    // Insert AFTER gridLayer so WBS headers appear on top of gridlines
     if (!this.wbsGroupLayer) {
         this.wbsGroupLayer = this.mainGroup.insert('g', '.arrow-layer')
             .attr('class', 'wbs-group-layer');
     }
 
-    // Clear existing headers
     this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
 
     const self = this;
 
-    // Draw each group that has a yOrder assigned and is within the visible viewport
     for (const group of this.wbsGroups) {
-        // Skip groups without yOrder (they're not visible)
+
         if (group.yOrder === undefined) continue;
 
-        // If viewport range is provided, only render groups within the visible range
         if (viewportStartIndex !== undefined && viewportEndIndex !== undefined) {
             if (group.yOrder < viewportStartIndex || group.yOrder > viewportEndIndex) {
                 continue;
             }
         }
 
-        // Get Y position from the group's own yOrder
-        // yScale returns the START of the band, so we need to position elements within the band
         const domainKey = group.yOrder.toString();
         const bandStart = yScale(domainKey);
 
-        if (bandStart === undefined) continue; // Safety check
+        if (bandStart === undefined) continue;
 
-        // Calculate center of band for positioning (same as tasks)
         const bandCenter = bandStart + taskHeight / 2;
 
         const indent = Math.max(0, (group.level - 1) * indentPerLevel);
@@ -11616,16 +10701,12 @@ private drawWbsGroupHeaders(
             .attr('data-group-id', group.id)
             .style('cursor', 'pointer');
 
-        // Background rectangle will be sized after text is rendered to accommodate wrapping
         const bgOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
 
-        // Summary bars are drawn inside a clipped sublayer so they never spill into the label margin
         const barsGroup = headerGroup.append('g')
             .attr('class', 'wbs-summary-bars')
             .attr('clip-path', 'url(#chart-area-clip)');
 
-        // Summary bar - DRAW FIRST so it appears BEHIND the text (SVG z-order)
-        // Show summary bar when group has tasks; use subtler styling when expanded.
         if (showGroupSummary && group.taskCount > 0 &&
             group.summaryStartDate && group.summaryFinishDate) {
             const isCollapsed = !group.isExpanded;
@@ -11633,7 +10714,7 @@ private drawWbsGroupHeaders(
             const finishX = xScale(group.summaryFinishDate);
             const barWidth = Math.max(2, finishX - startX);
             const barHeight = Math.max(2, taskHeight * (isCollapsed ? 0.65 : 0.35));
-            const barY = bandCenter - barHeight / 2; // Center bar within the band
+            const barY = bandCenter - barHeight / 2;
             const barRadius = Math.min(3, Math.max(1, barHeight / 2));
 
             const baseOpacity = isCollapsed ? 0.78 : 0.25;
@@ -11656,7 +10737,6 @@ private drawWbsGroupHeaders(
                 : Math.max(1, Math.min(baselineOffset, barHeight * 0.6));
             const baselineRadius = Math.min(3, baselineBarHeight / 2);
 
-            // Previous update summary bar (mirrors task-level behavior)
             if (showPreviousUpdate &&
                 group.summaryPreviousUpdateStartDate && group.summaryPreviousUpdateFinishDate &&
                 group.summaryPreviousUpdateFinishDate >= group.summaryPreviousUpdateStartDate) {
@@ -11677,7 +10757,6 @@ private drawWbsGroupHeaders(
                     .style('opacity', barOpacity);
             }
 
-            // Baseline summary bar (mirrors task-level behavior)
             if (showBaseline &&
                 group.summaryBaselineStartDate && group.summaryBaselineFinishDate &&
                 group.summaryBaselineFinishDate >= group.summaryBaselineStartDate) {
@@ -11700,7 +10779,6 @@ private drawWbsGroupHeaders(
                     .style('opacity', barOpacity);
             }
 
-            // Draw the base (non-critical) summary bar
             barsGroup.append('rect')
                 .attr('class', 'wbs-summary-bar')
                 .attr('x', startX)
@@ -11736,7 +10814,6 @@ private drawWbsGroupHeaders(
                     .style('opacity', capOpacity);
             }
 
-            // Highlight near-critical portion when applicable (Float-Based mode, threshold > 0)
             if (showNearCriticalSummary && group.hasNearCriticalTasks && group.nearCriticalStartDate && group.nearCriticalFinishDate) {
                 const clampedNearStartDate = group.summaryStartDate
                     ? new Date(Math.max(group.nearCriticalStartDate.getTime(), group.summaryStartDate.getTime()))
@@ -11766,15 +10843,11 @@ private drawWbsGroupHeaders(
                 }
             }
 
-            // If there are critical tasks, overlay the critical portion in red
             if (group.hasCriticalTasks && group.criticalStartDate && group.criticalFinishDate) {
                 const criticalStartX = xScale(group.criticalStartDate);
                 const criticalFinishX = xScale(group.criticalFinishDate);
                 const criticalWidth = Math.max(2, criticalFinishX - criticalStartX);
 
-                // Determine if we need rounded corners on each end
-                // Left rounded if critical starts at or before summary start
-                // Right rounded if critical ends at or after summary finish
                 const criticalStartsAtBeginning = criticalStartX <= startX + 1;
                 const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
 
@@ -11791,8 +10864,7 @@ private drawWbsGroupHeaders(
             }
         }
 
-        // Expand/collapse indicator
-        const expandIcon = group.isExpanded ? '\u25BC' : '\u25B6'; // ▼ or ▶
+        const expandIcon = group.isExpanded ? '\u25BC' : '\u25B6';
         const mutedTextColor = this.resolveColor("#777777", "foreground");
         const iconColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
 
@@ -11805,7 +10877,6 @@ private drawWbsGroupHeaders(
             .style('fill', iconColor)
             .text(expandIcon);
 
-        // Group name with concise count suffix
         const baseName = group.name;
         const tasksLabel = this.getLocalizedString("wbs.tasksLabel", "tasks");
         const visibleLabel = this.getLocalizedString("wbs.visibleLabel", "visible");
@@ -11819,14 +10890,12 @@ private drawWbsGroupHeaders(
         }
         const displayName = countSuffix ? `${baseName} - ${countSuffix}` : baseName;
 
-        // Determine text color based on visibility (use custom groupNameColor, dimmed if no visible tasks)
         const textColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
         const textOpacity = (group.visibleTaskCount === 0) ? 0.65 : 1.0;
 
-        // Calculate available width for group name text (with wrapping)
         const textX = -currentLeftMargin + indent + 22;
-        const textY = bandCenter; // Center text within the band (same as tasks)
-        const availableWidth = currentLeftMargin - indent - 30; // Leave some padding
+        const textY = bandCenter;
+        const availableWidth = currentLeftMargin - indent - 30;
         const lineHeight = '1.1em';
         const maxLines = 2;
 
@@ -11841,7 +10910,6 @@ private drawWbsGroupHeaders(
             .style('fill', textColor)
             .style('opacity', textOpacity);
 
-        // Apply text wrapping similar to task names
         const words = displayName.split(/\s+/).reverse();
         let word: string | undefined;
         let line: string[] = [];
@@ -11869,7 +10937,7 @@ private drawWbsGroupHeaders(
                             .text(word);
                         lineCount++;
                     } else {
-                        // Truncate with ellipsis on last line
+
                         const currentText = tspan.text();
                         if (currentText.length > 3) {
                             tspan.text(currentText.slice(0, -3) + '...');
@@ -11878,25 +10946,21 @@ private drawWbsGroupHeaders(
                     }
                 }
             } catch (e) {
-                // Fallback if getComputedTextLength fails
+
                 tspan.text(line.join(' '));
                 break;
             }
         }
 
-        // If text wrapped to 2 lines, adjust first line up to center the text block
         if (lineCount > 1) {
             firstTspan.attr('dy', '-0.55em');
         }
 
-        // Now draw the background rectangle sized to accommodate the text
-        // Calculate height based on whether text wrapped to 2 lines
         const lineHeightPx = groupNameFontSize * 1.1;
         const bgHeight = lineCount > 1 ? taskHeight + lineHeightPx : taskHeight + 4;
-        // Position background to cover the band, centered around bandCenter
+
         const bgY = bandCenter - bgHeight / 2;
 
-        // Insert background at the beginning of the group so it's behind everything
         headerGroup.insert('rect', ':first-child')
             .attr('class', 'wbs-header-bg')
             .attr('x', -currentLeftMargin + indent)
@@ -11906,7 +10970,6 @@ private drawWbsGroupHeaders(
             .style('fill', groupHeaderColor)
             .style('opacity', bgOpacity);
 
-        // Click handler for expand/collapse
         headerGroup.on('click', function() {
             self.hideTooltip();
             self.toggleWbsGroupExpansion(group.id);
@@ -11914,71 +10977,65 @@ private drawWbsGroupHeaders(
     }
 }
 
-    // Helper method to detect possible date values
     private mightBeDate(value: PrimitiveValue): boolean {
-        // If already a Date, then it's a date
+
         if (value instanceof Date) return true;
-        
-        // Check if string has date-like format
+
         if (typeof value === 'string') {
-            // Check for ISO date formats or common date separators
+
             return /^\d{4}-\d{1,2}-\d{1,2}|^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(value);
         }
-        
-        // Check if number might be a timestamp (milliseconds since epoch)
+
         if (typeof value === 'number') {
-            // Very rough check: timestamps typically have 10+ digits for ms since epoch
-            // This is a simplistic check - could be refined further
-            return value > 946684800000; // Jan 1, 2000 as Unix timestamp (in ms)
+
+            return value > 946684800000;
         }
-        
+
         return false;
     }
-
 
 private validateDataView(dataView: DataView): boolean {
     if (!dataView?.table?.rows || !dataView.metadata?.columns) {
         console.warn("validateDataView: Missing table/rows or metadata/columns.");
         return false;
     }
-    
+
     const hasId = this.hasDataRole(dataView, 'taskId');
     const hasStartDate = this.hasDataRole(dataView, 'startDate');
     const hasFinishDate = this.hasDataRole(dataView, 'finishDate');
-    
-    // Mode-specific validation
+
     const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
     const hasDuration = this.hasDataRole(dataView, 'duration');
     const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
     const hasTaskFreeFloat = this.hasDataRole(dataView, 'taskFreeFloat');
 
     let isValid = true;
-    if (!hasId) { 
-        console.warn("validateDataView: Missing 'taskId' data role."); 
-        isValid = false; 
+    if (!hasId) {
+        console.warn("validateDataView: Missing 'taskId' data role.");
+        isValid = false;
     }
-    
+
     if (mode === 'floatBased') {
-        // Float-Based mode: BOTH total float and task free float are required
-        if (!hasTotalFloat) { 
-            console.warn("validateDataView: Float-Based mode requires 'taskTotalFloat' data role for criticality."); 
-            isValid = false; 
+
+        if (!hasTotalFloat) {
+            console.warn("validateDataView: Float-Based mode requires 'taskTotalFloat' data role for criticality.");
+            isValid = false;
         }
     } else {
-        // Longest Path mode: duration is required
-        if (!hasDuration) { 
-            console.warn("validateDataView: Longest Path mode requires 'duration' data role (needed for CPM)."); 
-            isValid = false; 
+
+        if (!hasDuration) {
+            console.warn("validateDataView: Longest Path mode requires 'duration' data role (needed for CPM).");
+            isValid = false;
         }
     }
-    
-    if (!hasStartDate) { 
-        console.warn("validateDataView: Missing 'startDate' data role (needed for plotting)."); 
-        isValid = false; 
+
+    if (!hasStartDate) {
+        console.warn("validateDataView: Missing 'startDate' data role (needed for plotting).");
+        isValid = false;
     }
-    if (!hasFinishDate) { 
-        console.warn("validateDataView: Missing 'finishDate' data role (needed for plotting)."); 
-        isValid = false; 
+    if (!hasFinishDate) {
+        console.warn("validateDataView: Missing 'finishDate' data role (needed for plotting).");
+        isValid = false;
     }
 
     return isValid;
@@ -11998,18 +11055,17 @@ private validateDataView(dataView: DataView): boolean {
         if (dateValue == null) return null;
         let date: Date | null = null;
 
-        try { // Wrap parsing attempts in try-catch
+        try {
             if (dateValue instanceof Date) {
                 if (!isNaN(dateValue.getTime())) date = dateValue;
             }
             else if (typeof dateValue === 'string') {
                 let dateStrToParse = dateValue.trim();
                 if (dateStrToParse) {
-                    // ISO 8601 or RFC 2822 are more reliably parsed by Date.parse
+
                     const parsedTimestamp = Date.parse(dateStrToParse);
                     if (!isNaN(parsedTimestamp)) date = new Date(parsedTimestamp);
 
-                    // Fallback: try direct new Date() (less reliable for ambiguous formats)
                     if (!date) {
                         date = new Date(dateStrToParse);
                         if (isNaN(date.getTime())) date = null;
@@ -12019,37 +11075,32 @@ private validateDataView(dataView: DataView): boolean {
             else if (typeof dateValue === 'number') {
                  const num = dateValue;
                  if (!isNaN(num) && isFinite(num)) {
-                     // Check for Excel Date Serial Number (Windows epoch: Dec 30 1899)
-                     // 25569 is days between 1900-01-01 and 1970-01-01 (Unix epoch)
-                     // Excel incorrectly treats 1900 as a leap year, need to adjust if date <= Feb 28 1900
-                     if (num > 0 && num < 60) { // Handle potential dates near Excel Epoch start carefully
-                        // Excel's "day 1" is Dec 31, 1899 (interpreted as Jan 1, 1900)
-                        // Excel's "day 60" is Feb 29, 1900 (incorrect leap day)
-                        // For simplicity, we'll assume standard Excel serial after day 60
-                     } else if (num >= 61 && num < 2958466) { // Approx year 9999
-                         // Convert Excel serial date (days since Dec 30, 1899) to Unix timestamp (milliseconds since Jan 1, 1970)
+
+                     if (num > 0 && num < 60) {
+
+                     } else if (num >= 61 && num < 2958466) {
+
                          date = new Date(Math.round((num - 25569) * 86400 * 1000));
                      }
-                     // Check for plausible Unix Timestamp (ms) - typical range
-                     else if (num > 631152000000 && num < Date.now() + 3153600000000 * 20) { // Allow 20 years future
+
+                     else if (num > 631152000000 && num < Date.now() + 3153600000000 * 20) {
                          date = new Date(num);
                      }
-                     // Check for Unix Timestamp (seconds) - convert to ms
+
                      else if (num > 631152000 && num < (Date.now() / 1000) + 31536000 * 20) {
                          date = new Date(num * 1000);
                      }
 
-                     if (date && isNaN(date.getTime())) date = null; // Validate resulting date
+                     if (date && isNaN(date.getTime())) date = null;
                  }
             }
         } catch (e) {
-             date = null; // Ensure date is null on any parsing error
+             date = null;
              console.warn(`Error parsing date value: "${String(dateValue)}"`, e);
         }
 
-
         if (!date) {
-            // console.warn(`Could not parse date value: "${String(dateValue)}" (Type: ${typeof dateValue}).`);
+
         }
         return date;
     }
@@ -12102,7 +11153,6 @@ private validateDataView(dataView: DataView): boolean {
         }
     }
 
-
     private limitTasks(tasksToFilter: Task[], maxTasks: number): Task[] {
         const effectiveMaxTasks = (!isNaN(maxTasks) && maxTasks > 0) ? Math.floor(maxTasks) : this.defaultMaxTasks;
 
@@ -12112,7 +11162,6 @@ private validateDataView(dataView: DataView): boolean {
 
         this.debugLog(`Limiting tasks shown from ${tasksToFilter.length} to ${effectiveMaxTasks}`);
 
-        // Create a map to preserve original order from tasksToFilter
         const originalIndexMap = new Map<string, number>();
         tasksToFilter.forEach((task, index) => {
             originalIndexMap.set(task.internalId, index);
@@ -12120,15 +11169,13 @@ private validateDataView(dataView: DataView): boolean {
 
         const tasksToShow: Task[] = [];
         const shownTaskIds = new Set<string>();
-    
-        // Always include first task
+
         if (tasksToFilter.length > 0) {
             const firstTask = tasksToFilter[0];
             tasksToShow.push(firstTask);
             shownTaskIds.add(firstTask.internalId);
         }
-    
-        // Always include last task (if different and space permits)
+
         if (tasksToFilter.length > 1 && tasksToShow.length < effectiveMaxTasks) {
             const lastTask = tasksToFilter[tasksToFilter.length - 1];
             if (!shownTaskIds.has(lastTask.internalId)) {
@@ -12136,11 +11183,9 @@ private validateDataView(dataView: DataView): boolean {
                 shownTaskIds.add(lastTask.internalId);
             }
         }
-    
-        // Get tasks not yet included (excluding first/last)
+
         const remainingTasks = tasksToFilter.slice(1, -1).filter(task => !shownTaskIds.has(task.internalId));
-    
-        // Prioritize critical tasks
+
         let slotsAvailable = effectiveMaxTasks - tasksToShow.length;
         if (slotsAvailable > 0) {
             const criticalTasks = remainingTasks.filter(task => task.isCritical);
@@ -12150,11 +11195,10 @@ private validateDataView(dataView: DataView): boolean {
                 shownTaskIds.add(task.internalId);
             });
         }
-        
-        // Prioritize near-critical tasks (NEW)
+
         slotsAvailable = effectiveMaxTasks - tasksToShow.length;
         if (slotsAvailable > 0) {
-            const nearCriticalTasks = remainingTasks.filter(task => 
+            const nearCriticalTasks = remainingTasks.filter(task =>
                 !shownTaskIds.has(task.internalId) && task.isNearCritical);
             const nearCriticalToAdd = nearCriticalTasks.slice(0, slotsAvailable);
             nearCriticalToAdd.forEach(task => {
@@ -12162,12 +11206,11 @@ private validateDataView(dataView: DataView): boolean {
                 shownTaskIds.add(task.internalId);
             });
         }
-    
-        // Prioritize milestones (non-critical and non-near-critical ones)
+
         slotsAvailable = effectiveMaxTasks - tasksToShow.length;
         if (slotsAvailable > 0) {
              const milestones = remainingTasks.filter(task =>
-                 !shownTaskIds.has(task.internalId) && // Not already added
+                 !shownTaskIds.has(task.internalId) &&
                  (task.type === 'TT_Mile' || task.type === 'TT_FinMile')
              );
              const milestonesToAdd = milestones.slice(0, slotsAvailable);
@@ -12176,17 +11219,16 @@ private validateDataView(dataView: DataView): boolean {
                  shownTaskIds.add(milestone.internalId);
              });
         }
-    
-        // Fill remaining slots with sampled regular tasks
+
         slotsAvailable = effectiveMaxTasks - tasksToShow.length;
         if (slotsAvailable > 0) {
             const regularTasks = remainingTasks.filter(task => !shownTaskIds.has(task.internalId));
-    
+
             if (regularTasks.length > 0) {
                 if (regularTasks.length <= slotsAvailable) {
                     regularTasks.forEach(task => { tasksToShow.push(task); shownTaskIds.add(task.internalId); });
                 } else {
-                    // Sample evenly
+
                     const step = Math.max(1, regularTasks.length / slotsAvailable);
                     for (let i = 0; i < slotsAvailable && tasksToShow.length < effectiveMaxTasks; i++) {
                         const index = Math.min(regularTasks.length - 1, Math.floor(i * step));
@@ -12195,7 +11237,7 @@ private validateDataView(dataView: DataView): boolean {
                             tasksToShow.push(taskToAdd);
                             shownTaskIds.add(taskToAdd.internalId);
                         } else {
-                            // Find next available if sampled one was already added
+
                             let nextIndex = index + 1;
                             while (nextIndex < regularTasks.length && shownTaskIds.has(regularTasks[nextIndex].internalId)) { nextIndex++; }
                             if (nextIndex < regularTasks.length) {
@@ -12208,8 +11250,7 @@ private validateDataView(dataView: DataView): boolean {
                 }
             }
         }
-    
-        // Re-sort the final limited set to preserve the original order from tasksToFilter
+
         tasksToShow.sort((a, b) => {
             const indexA = originalIndexMap.get(a.internalId) ?? Infinity;
             const indexB = originalIndexMap.get(b.internalId) ?? Infinity;
@@ -12260,10 +11301,9 @@ private validateDataView(dataView: DataView): boolean {
 
 private displayMessage(message: string): void {
     this.debugLog("Displaying Message:", message);
-    
-    // Clear any active cross-filters when showing error messages
-    this.applyTaskFilter([]); // ← ADDED THIS LINE FOR EXTRA SAFETY
-    
+
+    this.applyTaskFilter([]);
+
     this.clearLandingPage();
 
     const containerNode = this.scrollableContainer?.node();
@@ -12309,26 +11349,22 @@ private createTaskSelectionDropdown(): void {
     const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
     const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
 
-    // Show/hide dropdown based on settings
     this.dropdownContainer.style("display", enableTaskSelection ? "block" : "none");
     if (!enableTaskSelection) {
         this.selectedTaskLabel.style("display", "none");
         return;
     }
 
-    // Remove existing input and list to recreate them
     this.dropdownContainer.selectAll("*").remove();
 
-    // Position in second row of header - below the first row of toggles (responsive)
     this.dropdownContainer
         .style("position", "absolute")
-        .style("top", "44px")    // Below first row (standard height 32px + spacing 12px)
-        .style("left", `${secondRowLayout.dropdown.left}px`)   // Responsive alignment
+        .style("top", "44px")
+        .style("left", `${secondRowLayout.dropdown.left}px`)
         .style("right", "auto")
         .style("transform", "none")
         .style("z-index", "20");
 
-    // Create the input with unified professional styling
     this.dropdownInput = this.dropdownContainer.append("input")
         .attr("type", "text")
         .attr("class", "task-selection-input")
@@ -12341,7 +11377,7 @@ private createTaskSelectionDropdown(): void {
         .attr("aria-activedescendant", null)
         .attr("aria-label", searchPlaceholder)
         .style("width", `${dropdownWidth}px`)
-        .style("height", `${this.UI_TOKENS.height.standard}px`)  // Match standard height
+        .style("height", `${this.UI_TOKENS.height.standard}px`)
         .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
         .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
         .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
@@ -12354,7 +11390,6 @@ private createTaskSelectionDropdown(): void {
         .style("box-shadow", this.UI_TOKENS.shadow[2])
         .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    // Add focus effects with unified design
     const selfRef = this;
     this.dropdownInput
         .on("focus", function() {
@@ -12370,7 +11405,6 @@ private createTaskSelectionDropdown(): void {
                 .style("box-shadow", selfRef.UI_TOKENS.shadow[2]);
         });
 
-    // Create dropdown list with unified professional styling
     this.dropdownList = this.dropdownContainer.append("div")
         .attr("class", "task-selection-list")
         .attr("id", this.dropdownListId)
@@ -12394,19 +11428,17 @@ private createTaskSelectionDropdown(): void {
 
     const self = this;
 
-    // FIX BUG-010: Track mousedown on dropdown to prevent premature closing
     this.dropdownList
         .on("mousedown", () => {
             this.isDropdownInteracting = true;
         })
         .on("mouseup", () => {
-            // Reset after a brief delay to allow click to process
+
             setTimeout(() => {
                 this.isDropdownInteracting = false;
             }, 50);
         });
 
-    // Input event handlers
     this.dropdownInput
         .on("input", function() {
             const inputValue = (this as HTMLInputElement).value.trim();
@@ -12422,21 +11454,20 @@ private createTaskSelectionDropdown(): void {
             self.renderTaskDropdown((this as HTMLInputElement).value.trim());
             self.openDropdown();
 
-            // Disable pointer events on the trace toggle while dropdown is open
             self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                 .style("pointer-events", "none");
         })
         .on("blur", function() {
-            // FIX BUG-010: Check if user is clicking inside dropdown before closing
+
             setTimeout(() => {
-                // Only close if not interacting with dropdown
+
                 if (!self.isDropdownInteracting) {
                     self.closeDropdown(false);
                 }
-                // Re-enable trace toggle regardless
+
                 self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                     .style("pointer-events", "auto");
-            }, 150); // Reduced from 200ms for better responsiveness
+            }, 150);
         })
         .on("keydown", function(event: KeyboardEvent) {
             if (event.key === "ArrowDown") {
@@ -12452,7 +11483,6 @@ private createTaskSelectionDropdown(): void {
                 self.isDropdownInteracting = false;
                 self.closeDropdown(true);
 
-                // Re-enable trace toggle
                 self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                     .style("pointer-events", "auto");
 
@@ -12460,14 +11490,12 @@ private createTaskSelectionDropdown(): void {
             }
         });
 
-    // Populate the dropdown with current value if selected
     if (this.selectedTaskId && this.selectedTaskName) {
         this.dropdownInput.property("value", this.selectedTaskName);
     }
 
-    // Update selected task label visibility (keep this on the right)
     if (this.selectedTaskLabel) {
-        // Selected task label stays on the right side
+
         this.selectedTaskLabel
             .style("position", "absolute")
             .style("top", "10px")
@@ -12656,7 +11684,7 @@ private renderTaskDropdown(searchText: string): void {
 
     if (this.dropdownTaskCache.length === 0) {
         console.warn("No tasks available to populate dropdown");
-        // Show "No tasks available" message
+
         this.dropdownList.selectAll("*").remove();
         this.dropdownList.append("div")
             .attr("class", "dropdown-item no-data")
@@ -12866,18 +11894,18 @@ private updateDropdownActiveState(): void {
 }
 
 private selectTask(taskId: string | null, taskName: string | null): void {
-    // If same task clicked again, deselect it
+
     if (this.selectedTaskId === taskId && taskId !== null) {
         taskId = null;
         taskName = null;
     }
-    
+
     const taskChanged = this.selectedTaskId !== taskId;
-    
+
     if (!taskChanged) {
-        return; // No change, no update needed
+        return;
     }
-    
+
     this.selectedTaskId = taskId;
     this.selectedTaskName = taskName;
     const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
@@ -12891,15 +11919,12 @@ private selectTask(taskId: string | null, taskName: string | null): void {
         }
     }
 
-    // Batch UI updates
     this.createTraceModeToggle();
-    
-    // Update dropdown if exists
+
     if (this.dropdownInput) {
         this.dropdownInput.property("value", taskName || "");
     }
-    
-    // Update selected task label
+
     if (this.selectedTaskLabel) {
         if (taskId && taskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
             this.selectedTaskLabel
@@ -12909,8 +11934,7 @@ private selectTask(taskId: string | null, taskName: string | null): void {
             this.selectedTaskLabel.style("display", "none");
         }
     }
-    
-    // Persist the selected task
+
     this.host.persistProperties({
         merge: [{
             objectName: "persistedState",
@@ -12918,18 +11942,15 @@ private selectTask(taskId: string | null, taskName: string | null): void {
             selector: null
         }]
     });
-    
-    // Force canvas refresh before update
+
     this.forceCanvasRefresh();
-    
-    // Ensure selected task is visible if needed
+
     if (taskId) {
         requestAnimationFrame(() => {
             this.ensureTaskVisible(taskId);
         });
     }
-    
-    // Force full update
+
     this.forceFullUpdate = true;
     if (this.lastUpdateOptions) {
         this.update(this.lastUpdateOptions);
@@ -12939,20 +11960,18 @@ private selectTask(taskId: string | null, taskName: string | null): void {
 private ensureTaskVisible(taskId: string): void {
     const task = this.taskIdToTask.get(taskId);
     if (!task || task.yOrder === undefined) return;
-    
+
     const taskIndex = task.yOrder;
-    // Check if task is outside current viewport
+
     if (taskIndex < this.viewportStartIndex || taskIndex > this.viewportEndIndex) {
-        // Scroll to make task visible (centered if possible)
+
         const containerNode = this.scrollableContainer.node();
         const viewportHeight = containerNode.clientHeight;
-        const targetScrollTop = (taskIndex * this.taskElementHeight) - 
+        const targetScrollTop = (taskIndex * this.taskElementHeight) -
                                (viewportHeight / 2) + (this.taskElementHeight / 2);
-        
-        // Scroll to position
+
         containerNode.scrollTop = Math.max(0, targetScrollTop);
-        
-        // Force recalculation of visible tasks
+
         this.handleScroll();
     }
 }
@@ -12963,44 +11982,38 @@ private ensureTaskVisible(taskId: string): void {
              console.error("FormattingSettingsService not initialized before getFormattingModel call.");
              return { cards: [] };
         }
-        // Ensure settings are populated if called before first update (might happen in PBI service)
+
         if (!this.settings && this.lastUpdateOptions?.dataViews?.[0]) {
              this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, this.lastUpdateOptions.dataViews[0]);
         } else if (!this.settings) {
-             // Create default settings if no data/options available yet
+
              this.settings = new VisualSettings();
         }
 
-        // Modify legendColors card before building model if legend exists
         if (this.legendDataExists && this.legendCategories.length > 0 && this.settings?.legendColors) {
             const ColorPicker = formattingSettings.ColorPicker;
 
-            // Update the display name of the card
             this.settings.legendColors.displayName = "Data Colors";
 
-            // Create dynamic color picker slices for each category (up to 20)
             const slices: formattingSettings.Slice[] = [];
             for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
                 const category = this.legendCategories[i];
                 const colorKey = `color${i + 1}`;
 
-                // Get the current color for this category
                 const currentColor = this.legendColorMap.get(category) || "#000000";
 
-                // Create a color picker with the category name as display name
                 const colorPicker = new ColorPicker({
                     name: colorKey,
-                    displayName: category, // Show actual category name
+                    displayName: category,
                     value: { value: currentColor }
                 });
 
                 slices.push(colorPicker);
             }
 
-            // Replace the slices in the legendColors card
             this.settings.legendColors.slices = slices;
         } else if (this.settings?.legendColors) {
-            // Hide the card if no legend data exists
+
             this.settings.legendColors.visible = false;
         }
 
@@ -13035,28 +12048,26 @@ private ensureTaskVisible(taskId: string): void {
      * Toggle a legend category on/off for filtering
      */
     private toggleLegendCategory(category: string): void {
-        // If currently empty (all selected), clicking adds ONLY this category (filter TO it)
+
         if (this.selectedLegendCategories.size === 0) {
             this.selectedLegendCategories.add(category);
         } else {
-            // Toggle the category
+
             if (this.selectedLegendCategories.has(category)) {
                 this.selectedLegendCategories.delete(category);
-                // If all are deselected, reset to "all selected" state
+
                 if (this.selectedLegendCategories.size === 0) {
-                    // Keep it empty - empty = all selected
+
                 }
             } else {
                 this.selectedLegendCategories.add(category);
-                // If all categories are now selected, reset to empty set for efficiency
+
                 if (this.selectedLegendCategories.size === this.legendCategories.length) {
                     this.selectedLegendCategories.clear();
                 }
             }
         }
 
-        // BUG-006 FIX: Persist legend selection state
-        // Convert Set to comma-separated string for storage
         const selectedCategoriesStr = Array.from(this.selectedLegendCategories).join(',');
         this.host.persistProperties({
             merge: [{
@@ -13066,18 +12077,13 @@ private ensureTaskVisible(taskId: string): void {
             }]
         });
 
-        // BUG-005 FIX: Preserve scroll position when toggling legend filter
-        // Legend filtering doesn't reorder tasks, just shows/hides them, so scroll should be preserved
         this.captureScrollPosition();
         this.forceFullUpdate = true;
 
-        // Re-render the visual with the new filter
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
         }
 
-        // FIX BUG-014: Update mini chart after legend filter change
-        // Must be called after update completes to reflect filtered data
         requestAnimationFrame(() => {
             this.drawZoomSliderMiniChart();
         });
@@ -13089,7 +12095,6 @@ private ensureTaskVisible(taskId: string): void {
     private renderLegend(viewportWidth: number, viewportHeight: number): void {
         if (!this.legendContainer) return;
 
-        // Check if legend should be shown
         const showLegend = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
 
         if (!showLegend) {
@@ -13097,18 +12102,14 @@ private ensureTaskVisible(taskId: string): void {
             return;
         }
 
-        // Show legend container - flexbox handles height automatically
         this.legendContainer.style("display", "block");
 
-        // Get legend settings
         const fontSize = this.settings.legend.fontSize.value;
         const showTitle = this.settings.legend.showTitle.value;
         const titleText = this.settings.legend.titleText.value || this.legendFieldName;
 
-        // Clear existing legend content
         this.legendContainer.selectAll("*").remove();
 
-        // Main container with flexbox layout
         const mainContainer = this.legendContainer.append("div")
             .attr("class", "legend-main")
             .style("display", "flex")
@@ -13117,7 +12118,6 @@ private ensureTaskVisible(taskId: string): void {
             .style("padding", "8px 12px")
             .style("box-sizing", "border-box");
 
-        // Left scroll arrow
         const leftArrow = mainContainer.append("div")
             .attr("class", "legend-scroll-arrow legend-scroll-left")
             .attr("role", "button")
@@ -13126,14 +12126,12 @@ private ensureTaskVisible(taskId: string): void {
             .style("flex-shrink", "0")
             .text("<");
 
-        // Scrollable content wrapper
         const scrollWrapper = mainContainer.append("div")
             .attr("class", "legend-scroll-wrapper")
             .style("flex", "1")
             .style("overflow", "hidden")
             .style("position", "relative");
 
-        // Scrollable content container
         const scrollableContent = scrollWrapper.append("div")
             .attr("class", "legend-scroll-content")
             .style("display", "flex")
@@ -13142,7 +12140,6 @@ private ensureTaskVisible(taskId: string): void {
             .style("transition", "transform 0.3s ease")
             .style("padding", "5px 0");
 
-        // Add title if enabled
         if (showTitle && titleText) {
             scrollableContent.append("div")
                 .attr("class", "legend-title")
@@ -13151,7 +12148,6 @@ private ensureTaskVisible(taskId: string): void {
                 .text(`${titleText}:`);
         }
 
-        // UX ENHANCEMENT: Add selection count indicator
         const selectedCount = this.selectedLegendCategories.size === 0 ? this.legendCategories.length : this.selectedLegendCategories.size;
         const totalCount = this.legendCategories.length;
 
@@ -13162,10 +12158,9 @@ private ensureTaskVisible(taskId: string): void {
             .attr("title", "Number of visible categories")
             .text(`${selectedCount} of ${totalCount} shown`);
 
-        // Add legend items
         this.legendCategories.forEach(category => {
             const color = this.legendColorMap.get(category) || "#999";
-            // Check if this category is selected (empty set = all selected)
+
             const isSelected = this.selectedLegendCategories.size === 0 || this.selectedLegendCategories.has(category);
 
             const item = scrollableContent.append("div")
@@ -13173,12 +12168,12 @@ private ensureTaskVisible(taskId: string): void {
                 .classed("is-selected", isSelected)
                 .style("--legend-color", color)
                 .attr("data-category", category)
-                // UX ENHANCEMENT: Add role and aria attributes for accessibility
+
                 .attr("role", "button")
                 .attr("aria-label", `${isSelected ? 'Hide' : 'Show'} ${category} tasks. Click to toggle visibility.`)
                 .attr("aria-pressed", isSelected ? "true" : "false")
                 .attr("tabindex", 0)
-                // UX ENHANCEMENT: Add title attribute for discoverability
+
                 .attr("title", `Click to ${isSelected ? 'hide' : 'show'} "${category}" tasks`)
                 .style("display", "flex")
                 .style("align-items", "center")
@@ -13187,7 +12182,6 @@ private ensureTaskVisible(taskId: string): void {
                 .style("cursor", "pointer")
                 .style("user-select", "none");
 
-            // Color swatch
             item.append("div")
                 .attr("class", "legend-swatch")
                 .style("width", "16px")
@@ -13197,19 +12191,16 @@ private ensureTaskVisible(taskId: string): void {
                 .style("border-radius", "3px")
                 .style("flex-shrink", "0");
 
-            // Label
             item.append("span")
                 .attr("class", "legend-label")
                 .style("font-size", `${fontSize}px`)
                 .style("white-space", "nowrap")
                 .text(category);
 
-            // Click handler for filtering
             item.on("click", () => {
                 this.toggleLegendCategory(category);
             });
 
-            // UX ENHANCEMENT: Keyboard support
             item.on("keydown", (event: KeyboardEvent) => {
                 if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
@@ -13217,10 +12208,8 @@ private ensureTaskVisible(taskId: string): void {
                 }
             });
 
-            // Hover/focus states handled via CSS
         });
 
-        // Right scroll arrow
         const rightArrow = mainContainer.append("div")
             .attr("class", "legend-scroll-arrow legend-scroll-right")
             .attr("role", "button")
@@ -13229,9 +12218,8 @@ private ensureTaskVisible(taskId: string): void {
             .style("flex-shrink", "0")
             .text(">");
 
-        // Scroll logic
         let scrollPosition = 0;
-        const scrollAmount = 200; // pixels to scroll per click
+        const scrollAmount = 200;
 
         const updateArrowStates = () => {
             const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
@@ -13283,7 +12271,6 @@ private ensureTaskVisible(taskId: string): void {
             }
         });
 
-        // Wait a frame for layout to settle, then update arrow states
         setTimeout(() => updateArrowStates(), 0);
     }
 
@@ -13291,10 +12278,9 @@ private ensureTaskVisible(taskId: string): void {
      * Convert hex color to RGB object
      */
     private hexToRgb(hex: string): { r: number; g: number; b: number } {
-        // Remove # if present
+
         hex = hex.replace(/^#/, '');
 
-        // Parse hex values
         const bigint = parseInt(hex, 16);
         const r = (bigint >> 16) & 255;
         const g = (bigint >> 8) & 255;
@@ -13340,7 +12326,7 @@ private ensureTaskVisible(taskId: string): void {
     private getContrastColor(backgroundColor: string): string {
         const rgb = this.hexToRgb(backgroundColor);
         const luminance = this.getLuminance(rgb.r, rgb.g, rgb.b);
-        // Use white text for dark backgrounds, black for light backgrounds
+
         return luminance > 0.5 ? '#000000' : '#FFFFFF';
     }
 
@@ -13350,7 +12336,6 @@ private ensureTaskVisible(taskId: string): void {
     private getDurationTextColor(backgroundColor: string): string {
         const settingColor = this.settings.textAndLabels.durationTextColor.value.value;
 
-        // If set to "Auto", calculate contrast color
         if (settingColor === "Auto" || !settingColor) {
             return this.getContrastColor(backgroundColor);
         }
@@ -13754,12 +12739,11 @@ private ensureTaskVisible(taskId: string): void {
         }
     }
 
-    // Debug helper
     private debugLog(...args: unknown[]): void {
         if (this.debug) {
             console.log(...args);
         }
     }
 
-} // End of Visual class
+}
 
