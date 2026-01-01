@@ -414,11 +414,16 @@ export declare class Visual implements IVisual {
     private drawProjectEndLine;
     private drawDataDateLine;
     private drawBaselineAndPreviousEndLines;
+    /**
+     * Applies Float-Based criticality using user-provided Total Float values
+     * Tasks are critical if Total Float ≤ 0, near-critical if 0 < Total Float ≤ threshold
+     */
     private applyFloatBasedCriticality;
     /**
      * Identifies the longest path using P6 scheduled dates (reflective approach)
      */
     private identifyLongestPathFromP6;
+    /**
     /**
      * Identifies which relationships are driving based on minimum float
      */
@@ -429,6 +434,7 @@ export declare class Visual implements IVisual {
     private findProjectFinishTask;
     /**
      * Finds all driving chains leading to a specific task
+     * Uses recursive DFS with global visited set to prevent re-exploration
      */
     private findAllDrivingChainsToTask;
     /**
@@ -436,11 +442,13 @@ export declare class Visual implements IVisual {
      */
     private selectLongestChain;
     /**
-     * Sorts driving chains by duration (descending) and stores them for multi-path toggle
+     * Sorts driving chains and stores them for multi-path toggle
+     * Sorting: earliest start date first, then longest duration as tiebreaker
      */
     private sortAndStoreDrivingChains;
     /**
      * Gets the currently selected driving chain based on settings
+     * Validates index bounds to prevent errors when switching views
      */
     private getSelectedDrivingChain;
     /**
@@ -469,16 +477,18 @@ export declare class Visual implements IVisual {
      */
     private persistPathSelection;
     private identifyNearCriticalTasks;
+    /**
+     * Calculates CPM backward to a selected target task
+     * FIXED: Populates allDrivingChains for multi-path support
+     */
     private calculateCPMToTask;
     /**
-     * Calculates CPM (Critical Path Method) forward from a selected source task
-     * OPTIMIZED: Converted from exponential recursion to iterative stack-based DFS
-     * PERFORMANCE FIX: Uses indexed lookups instead of filtering entire relationship array
+     * Calculates CPM forward from a selected source task to the latest finish date
+     * Uses recursive DFS with global visited set
      */
     private calculateCPMFromTask;
     /**
      * Traces backward from a target task to find all predecessor tasks (Float-Based mode)
-     * OPTIMIZED: Added safety limits to prevent memory exhaustion
      */
     private identifyPredecessorTasksFloatBased;
     /**
