@@ -2083,7 +2083,6 @@ private toggleWbsEnabled(): void {
             this.taskLabelLayer?.selectAll("*").remove();
             this.labelGridLayer?.selectAll("*").remove();
             this.wbsExpandedInternal = false;
-            this.wbsExpandToLevel = undefined;
             this.wbsManualExpansionOverride = false;
             this.wbsManuallyToggledGroups.clear();
             this.wbsToggleScrollAnchor = null;

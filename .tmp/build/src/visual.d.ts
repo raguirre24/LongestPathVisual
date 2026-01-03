@@ -247,13 +247,13 @@ export declare class Visual implements IVisual {
     private cycleWbsExpandLevel;
     /**
      * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
-     * UPGRADED: Professional pill-style toggle with smooth animations and refined visuals
+     * Professional pill-style toggle with smooth animations and refined visuals
      * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
      */
     private createModeToggleButton;
     private toggleCriticalityMode;
     /**
-     * UPGRADED: Creates the Float Threshold control with premium input design and enhanced UX
+     * Creates the Float Threshold control with premium input design and enhanced UX
      */
     private createFloatThresholdControl;
     /**
@@ -460,22 +460,22 @@ export declare class Visual implements IVisual {
     private getSelectedDrivingChain;
     /**
      * Updates the path information label display with interactive navigation
-     * UPGRADED: Professional navigation buttons with enhanced design and smooth animations
+     * Professional navigation buttons with enhanced design and smooth animations
      * Shows "Path 1/1" even with single path so users understand there's only one driving path
      */
     private updatePathInfoLabel;
     /**
      * Navigate to the previous driving path
-     * FIX BUG-015: Provides feedback when navigation is not possible
+     * Provides feedback when navigation is not possible
      */
     private navigateToPreviousPath;
     /**
      * Navigate to the next driving path
-     * FIX BUG-015: Provides feedback when navigation is not possible
+     * Provides feedback when navigation is not possible
      */
     private navigateToNextPath;
     /**
-     * FIX BUG-015: Helper method for user feedback when navigation not possible
+     * Helper method for user feedback when navigation not possible
      * Shows a brief message in the path info label
      */
     private showPathNavigationFeedback;
@@ -486,7 +486,7 @@ export declare class Visual implements IVisual {
     private identifyNearCriticalTasks;
     /**
      * Calculates CPM backward to a selected target task
-     * FIXED: Populates allDrivingChains for multi-path support
+     * Populates allDrivingChains for multi-path support
      */
     private calculateCPMToTask;
     /**
@@ -569,8 +569,8 @@ export declare class Visual implements IVisual {
      * This must be called AFTER the scroll container height is set but BEFORE setupVirtualScroll().
      * The order is critical: container height → scroll restoration → virtual scroll setup
      *
-     * IMPORTANT: This method removes the scroll listener before setting scrollTop to prevent
-     * handleScroll() from firing. setupVirtualScroll() will create and attach a NEW listener,
+     * This method removes the scroll listener before setting scrollTop to prevent
+     * handleScroll() from firing. setupVirtualScroll() will create and attach a new listener,
      * so we don't need to re-attach the old one.
      *
      * @param totalSvgHeight - Total height of SVG content for calculating max scroll bounds
