@@ -52,7 +52,7 @@ interface Task {
     previousUpdateStartDate?: Date | null;
     previousUpdateFinishDate?: Date | null;
     yOrder?: number;
-    tooltipData?: Array<{key: string, value: PrimitiveValue}>;
+    tooltipData?: Array<{ key: string, value: PrimitiveValue }>;
     selectionId?: powerbi.visuals.ISelectionId;
     legendValue?: string;
     legendColor?: string;
@@ -565,472 +565,472 @@ export class Visual implements IVisual {
         };
     }
 
-constructor(options: VisualConstructorOptions) {
-    this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
-    this.target = options.element;
-    this.host = options.host;
-    this.localizationManager = this.host.createLocalizationManager();
-    this.formattingSettingsService = new FormattingSettingsService(this.localizationManager);
-    this.selectionManager = this.host.createSelectionManager();
-    this.tooltipService = this.host.tooltipService;
-    this.eventService = this.host.eventService;
-    this.zoomMouseMoveHandler = (event: MouseEvent) => this.handleZoomDrag(event);
-    this.zoomMouseUpHandler = () => this.endZoomDrag();
-    this.zoomTouchMoveHandler = (event: TouchEvent) => {
-        if (this.isZoomSliderDragging && event.touches.length > 0) {
-            const touch = event.touches[0];
-            this.handleZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent);
-        }
-    };
-    this.zoomTouchEndHandler = () => this.endZoomDrag();
-    this.refreshDateFormatters();
+    constructor(options: VisualConstructorOptions) {
+        this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
+        this.target = options.element;
+        this.host = options.host;
+        this.localizationManager = this.host.createLocalizationManager();
+        this.formattingSettingsService = new FormattingSettingsService(this.localizationManager);
+        this.selectionManager = this.host.createSelectionManager();
+        this.tooltipService = this.host.tooltipService;
+        this.eventService = this.host.eventService;
+        this.zoomMouseMoveHandler = (event: MouseEvent) => this.handleZoomDrag(event);
+        this.zoomMouseUpHandler = () => this.endZoomDrag();
+        this.zoomTouchMoveHandler = (event: TouchEvent) => {
+            if (this.isZoomSliderDragging && event.touches.length > 0) {
+                const touch = event.touches[0];
+                this.handleZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent);
+            }
+        };
+        this.zoomTouchEndHandler = () => this.endZoomDrag();
+        this.refreshDateFormatters();
 
-    this.showAllTasksInternal = true;
+        this.showAllTasksInternal = true;
 
-    this.showBaselineInternal = true;
-    this.showPreviousUpdateInternal = true;
-    this.isInitialLoad = true;
-    this.floatThreshold = 0;
-    this.showConnectorLinesInternal = true;
-    this.wbsExpandedInternal = true;
+        this.showBaselineInternal = true;
+        this.showPreviousUpdateInternal = true;
+        this.isInitialLoad = true;
+        this.floatThreshold = 0;
+        this.showConnectorLinesInternal = true;
+        this.wbsExpandedInternal = true;
 
-    this.tooltipClassName = `critical-path-tooltip-${Date.now()}`;
+        this.tooltipClassName = `critical-path-tooltip-${Date.now()}`;
 
-    const visualWrapper = d3.select(this.target).append("div")
-        .attr("class", "visual-wrapper")
-        .style("height", "100%")
-        .style("width", "100%")
-        .style("overflow", "hidden")
-        .style("position", "relative")
-        .style("display", "flex")
-        .style("flex-direction", "column");
+        const visualWrapper = d3.select(this.target).append("div")
+            .attr("class", "visual-wrapper")
+            .style("height", "100%")
+            .style("width", "100%")
+            .style("overflow", "hidden")
+            .style("position", "relative")
+            .style("display", "flex")
+            .style("flex-direction", "column");
 
-    this.stickyHeaderContainer = visualWrapper.append("div")
-        .attr("class", "sticky-header-container")
-        .style("position", "sticky")
-        .style("top", "0")
-        .style("left", "0")
-        .style("width", "100%")
-        .style("height", `${this.headerHeight}px`)
-        .style("min-height", `${this.headerHeight}px`)
-        .style("flex-shrink", "0")
-        .style("z-index", "100")
-        .style("background-color", "white")
-        .style("overflow", "visible");
+        this.stickyHeaderContainer = visualWrapper.append("div")
+            .attr("class", "sticky-header-container")
+            .style("position", "sticky")
+            .style("top", "0")
+            .style("left", "0")
+            .style("width", "100%")
+            .style("height", `${this.headerHeight}px`)
+            .style("min-height", `${this.headerHeight}px`)
+            .style("flex-shrink", "0")
+            .style("z-index", "100")
+            .style("background-color", "white")
+            .style("overflow", "visible");
 
-    this.headerSvg = this.stickyHeaderContainer.append("svg")
-        .attr("class", "header-svg")
-        .attr("width", "100%")
-        .attr("height", "100%");
+        this.headerSvg = this.stickyHeaderContainer.append("svg")
+            .attr("class", "header-svg")
+            .attr("width", "100%")
+            .attr("height", "100%");
 
-    this.headerGridLayer = this.headerSvg.append("g")
-        .attr("class", "header-grid-layer");
+        this.headerGridLayer = this.headerSvg.append("g")
+            .attr("class", "header-grid-layer");
 
-    this.toggleButtonGroup = this.headerSvg.append("g")
-        .attr("class", "toggle-button-group")
-        .style("cursor", "pointer");
+        this.toggleButtonGroup = this.headerSvg.append("g")
+            .attr("class", "toggle-button-group")
+            .style("cursor", "pointer");
 
-    this.dropdownContainer = this.stickyHeaderContainer.append("div")
-        .attr("class", "task-selection-dropdown-container")
-        .style("position", "absolute")
-        .style("top", "10px")
-        .style("left", "150px")
-        .style("z-index", "20")
-        .style("display", "none");
-
-    const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
-    this.dropdownInput = this.dropdownContainer.append("input")
-        .attr("type", "text")
-        .attr("class", "task-selection-input")
-        .attr("placeholder", searchPlaceholder)
-        .style("width", "250px")
-        .style("padding", "5px 8px")
-        .style("border", "1px solid #ccc")
-        .style("border-radius", "4px")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "9px")
-        .style("color", "#333");
-
-    this.dropdownList = this.dropdownContainer.append("div")
-        .attr("class", "task-selection-list")
-        .style("position", "absolute")
-        .style("top", "100%")
-        .style("left", "0")
-        .style("max-height", "150px")
-        .style("overflow-y", "auto")
-        .style("width", "100%")
-        .style("background", "white")
-        .style("border", "1px solid #ccc")
-        .style("border-top", "none")
-        .style("border-radius", "0 0 4px 4px")
-        .style("box-shadow", "0 2px 5px rgba(0,0,0,0.1)")
-        .style("display", "none")
-        .style("z-index", "30")
-        .style("pointer-events", "auto")
-        .style("margin-bottom", "40px");
-
-    this.createFloatThresholdControl();
-
-    this.selectedTaskLabel = this.stickyHeaderContainer.append("div")
-        .attr("class", "selected-task-label")
-        .style("position", "absolute")
-        .style("top", "10px")
-        .style("right", "15px")
-        .style("padding", "5px 10px")
-        .style("background-color", "rgba(255,255,255,0.8)")
-        .style("border", "1px solid #ccc")
-        .style("border-radius", "4px")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "9px")
-        .style("color", "#333")
-        .style("font-weight", "bold")
-        .style("display", "none");
-
-    this.pathInfoLabel = this.stickyHeaderContainer.append("div")
-        .attr("class", "path-info-label")
-        .style("position", "absolute")
-        .style("top", "6px")
-        .style("right", "10px")
-        .style("height", `${this.UI_TOKENS.height.standard}px`)
-        .style("padding", `0 ${this.UI_TOKENS.spacing.sm}px`)
-        .style("display", "none")
-        .style("align-items", "center")
-        .style("gap", `${this.UI_TOKENS.spacing.sm}px`)
-        .style("background-color", this.UI_TOKENS.color.neutral.white)
-        .style("border", `1.5px solid ${this.UI_TOKENS.color.primary.default}`)
-        .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
-        .style("box-shadow", this.UI_TOKENS.shadow[4])
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-        .style("color", this.UI_TOKENS.color.primary.default)
-        .style("font-weight", "600")
-        .style("letter-spacing", "0.1px")
-        .style("white-space", "nowrap")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    this.scrollableContainer = visualWrapper.append("div")
-        .attr("class", "criticalPathContainer")
-        .style("flex", "1")
-        .style("min-height", "0")
-        .style("overflow-anchor", "none")
-        .style("width", "100%")
-        .style("overflow-y", "auto")
-        .style("overflow-x", "hidden")
-        .style("padding-top", `0px`)
-        .style("position", "relative");
-
-    this.loadingOverlay = this.scrollableContainer.append("div")
-        .attr("class", "loading-overlay")
-        .style("position", "absolute")
-        .style("top", "0")
-        .style("left", "0")
-        .style("width", "100%")
-        .style("height", "100%")
-        .style("display", "none")
-        .style("align-items", "center")
-        .style("justify-content", "center")
-        .style("flex-direction", "column")
-        .style("background", "rgba(255,255,255,0.92)")
-        .style("backdrop-filter", "blur(2px)")
-        .style("z-index", "50");
-
-    const overlayContent = this.loadingOverlay.append("div")
-        .style("min-width", "260px")
-        .style("padding", "12px 16px")
-        .style("border-radius", "10px")
-        .style("box-shadow", "0 4px 12px rgba(0,0,0,0.12)")
-        .style("background", "#ffffff")
-        .style("display", "flex")
-        .style("flex-direction", "column")
-        .style("gap", "10px");
-
-    this.loadingText = overlayContent.append("div")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "13px")
-        .style("color", "#323130")
-        .style("font-weight", "600")
-        .text("Loading data…");
-
-    this.loadingRowsText = overlayContent.append("div")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "20px")
-        .style("color", "#0078D4")
-        .style("font-weight", "700")
-        .style("text-align", "center")
-        .style("margin", "4px 0")
-        .text("0 rows");
-
-    const barTrack = overlayContent.append("div")
-        .style("height", "6px")
-        .style("width", "100%")
-        .style("border-radius", "999px")
-        .style("background", "#f3f2f1")
-        .style("overflow", "hidden");
-
-    barTrack.append("div")
-        .style("height", "100%")
-        .style("width", "35%")
-        .style("border-radius", "999px")
-        .style("background", "linear-gradient(90deg, #0078D4, #1890F5)")
-        .style("animation", "loadingBarPulse 1.2s ease-in-out infinite")
-        .style("transform", "translateX(-30%)");
-
-    this.loadingProgressText = overlayContent.append("div")
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-size", "11px")
-        .style("color", "#605E5C")
-        .style("text-align", "center")
-        .text("");
-
-    if (!document.getElementById("loading-bar-pulse-style")) {
-        const styleEl = document.createElement("style");
-        styleEl.id = "loading-bar-pulse-style";
-        styleEl.textContent = `@keyframes loadingBarPulse { 0% { transform: translateX(-40%); } 50% { transform: translateX(20%); } 100% { transform: translateX(100%); } } @keyframes loadingBarDeterminate { from { width: 0%; } }`;
-        document.head.appendChild(styleEl);
-    }
-
-    this.mainSvg = this.scrollableContainer.append("svg")
-        .classed("criticalPathVisual", true)
-        .style("display", "block");
-
-    this.mainGroup = this.mainSvg.append("g").classed("main-group", true);
-
-    const defs = this.mainSvg.append("defs");
-    this.chartClipPath = defs.append("clipPath")
-        .attr("id", "chart-area-clip");
-    this.chartClipRect = this.chartClipPath.append("rect")
-        .attr("x", 0)
-        .attr("y", 0)
-        .attr("width", 1000)
-        .attr("height", 10000);
-
-    this.gridLayer = this.mainGroup.append("g")
-        .attr("class", "grid-layer")
-        .attr("clip-path", "url(#chart-area-clip)");
-
-    this.labelGridLayer = this.mainGroup.append("g")
-        .attr("class", "label-grid-layer");
-    this.arrowLayer = this.mainGroup.append("g")
-        .attr("class", "arrow-layer")
-        .attr("clip-path", "url(#chart-area-clip)");
-    this.taskLayer = this.mainGroup.append("g")
-        .attr("class", "task-layer")
-        .attr("clip-path", "url(#chart-area-clip)");
-
-    this.taskLabelLayer = this.mainGroup.append("g")
-        .attr("class", "task-label-layer");
-
-    this.createZoomSliderUI(visualWrapper);
-
-    this.legendContainer = visualWrapper.append("div")
-        .attr("class", "sticky-legend-footer")
-        .style("width", "100%")
-        .style("height", `${this.legendFooterHeight}px`)
-        .style("min-height", `${this.legendFooterHeight}px`)
-        .style("flex-shrink", "0")
-        .style("z-index", "100")
-        .style("background-color", "white")
-        .style("border-top", "2px solid #e0e0e0")
-        .style("box-shadow", "0 -2px 4px rgba(0,0,0,0.1)")
-        .style("display", "none")
-        .style("overflow", "hidden");
-
-    this.canvasElement = document.createElement('canvas');
-    this.canvasElement.style.position = 'absolute';
-    this.canvasElement.style.pointerEvents = 'auto';
-    this.canvasElement.className = 'canvas-layer';
-    this.canvasElement.style.display = 'none';
-    this.canvasElement.style.visibility = 'hidden';
-
-    this.canvasElement.style.imageRendering = '-webkit-optimize-contrast';
-    this.canvasElement.style.imageRendering = 'crisp-edges';
-    (this.canvasElement.style as any).msInterpolationMode = 'nearest-neighbor';
-    this.canvasElement.style.transform = 'translate3d(0,0,0)';
-    this.canvasElement.style.backfaceVisibility = 'hidden';
-    this.canvasElement.style.webkitBackfaceVisibility = 'hidden';
-    this.canvasElement.style.willChange = 'transform';
-    this.canvasElement.style.perspective = '1000px';
-
-    this.scrollableContainer.node()?.appendChild(this.canvasElement);
-
-    this.canvasLayer = d3.select(this.canvasElement);
-
-    this.applyPublishModeOptimizations();
-
-    d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
-
-    this.tooltipDiv = d3.select("body").append("div")
-        .attr("class", `critical-path-tooltip ${this.tooltipClassName}`)
-        .style("position", "absolute")
-        .style("visibility", "hidden")
-        .style("background-color", "white")
-        .style("border", "1px solid #ddd")
-        .style("border-radius", "5px")
-        .style("padding", "10px")
-        .style("box-shadow", "0 2px 10px rgba(0,0,0,0.2)")
-        .style("pointer-events", "none")
-        .style("z-index", "1000")
-        .style("max-width", "300px")
-        .style("font-size", "12px")
-        .style("line-height", "1.4")
-        .style("color", "#333");
-
-    const existingLiveRegion = d3.select("body").select(".sr-live-region");
-    if (existingLiveRegion.empty()) {
-        d3.select("body").append("div")
-            .attr("class", "sr-live-region")
-            .attr("aria-live", "polite")
-            .attr("aria-atomic", "true")
+        this.dropdownContainer = this.stickyHeaderContainer.append("div")
+            .attr("class", "task-selection-dropdown-container")
             .style("position", "absolute")
-            .style("left", "-10000px")
-            .style("width", "1px")
-            .style("height", "1px")
+            .style("top", "10px")
+            .style("left", "150px")
+            .style("z-index", "20")
+            .style("display", "none");
+
+        const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
+        this.dropdownInput = this.dropdownContainer.append("input")
+            .attr("type", "text")
+            .attr("class", "task-selection-input")
+            .attr("placeholder", searchPlaceholder)
+            .style("width", "250px")
+            .style("padding", "5px 8px")
+            .style("border", "1px solid #ccc")
+            .style("border-radius", "4px")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "9px")
+            .style("color", "#333");
+
+        this.dropdownList = this.dropdownContainer.append("div")
+            .attr("class", "task-selection-list")
+            .style("position", "absolute")
+            .style("top", "100%")
+            .style("left", "0")
+            .style("max-height", "150px")
+            .style("overflow-y", "auto")
+            .style("width", "100%")
+            .style("background", "white")
+            .style("border", "1px solid #ccc")
+            .style("border-top", "none")
+            .style("border-radius", "0 0 4px 4px")
+            .style("box-shadow", "0 2px 5px rgba(0,0,0,0.1)")
+            .style("display", "none")
+            .style("z-index", "30")
+            .style("pointer-events", "auto")
+            .style("margin-bottom", "40px");
+
+        this.createFloatThresholdControl();
+
+        this.selectedTaskLabel = this.stickyHeaderContainer.append("div")
+            .attr("class", "selected-task-label")
+            .style("position", "absolute")
+            .style("top", "10px")
+            .style("right", "15px")
+            .style("padding", "5px 10px")
+            .style("background-color", "rgba(255,255,255,0.8)")
+            .style("border", "1px solid #ccc")
+            .style("border-radius", "4px")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "9px")
+            .style("color", "#333")
+            .style("font-weight", "bold")
+            .style("display", "none");
+
+        this.pathInfoLabel = this.stickyHeaderContainer.append("div")
+            .attr("class", "path-info-label")
+            .style("position", "absolute")
+            .style("top", "6px")
+            .style("right", "10px")
+            .style("height", `${this.UI_TOKENS.height.standard}px`)
+            .style("padding", `0 ${this.UI_TOKENS.spacing.sm}px`)
+            .style("display", "none")
+            .style("align-items", "center")
+            .style("gap", `${this.UI_TOKENS.spacing.sm}px`)
+            .style("background-color", this.UI_TOKENS.color.neutral.white)
+            .style("border", `1.5px solid ${this.UI_TOKENS.color.primary.default}`)
+            .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
+            .style("box-shadow", this.UI_TOKENS.shadow[4])
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .style("color", this.UI_TOKENS.color.primary.default)
+            .style("font-weight", "600")
+            .style("letter-spacing", "0.1px")
+            .style("white-space", "nowrap")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        this.scrollableContainer = visualWrapper.append("div")
+            .attr("class", "criticalPathContainer")
+            .style("flex", "1")
+            .style("min-height", "0")
+            .style("overflow-anchor", "none")
+            .style("width", "100%")
+            .style("overflow-y", "auto")
+            .style("overflow-x", "hidden")
+            .style("padding-top", `0px`)
+            .style("position", "relative");
+
+        this.loadingOverlay = this.scrollableContainer.append("div")
+            .attr("class", "loading-overlay")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0")
+            .style("width", "100%")
+            .style("height", "100%")
+            .style("display", "none")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("flex-direction", "column")
+            .style("background", "rgba(255,255,255,0.92)")
+            .style("backdrop-filter", "blur(2px)")
+            .style("z-index", "50");
+
+        const overlayContent = this.loadingOverlay.append("div")
+            .style("min-width", "260px")
+            .style("padding", "12px 16px")
+            .style("border-radius", "10px")
+            .style("box-shadow", "0 4px 12px rgba(0,0,0,0.12)")
+            .style("background", "#ffffff")
+            .style("display", "flex")
+            .style("flex-direction", "column")
+            .style("gap", "10px");
+
+        this.loadingText = overlayContent.append("div")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "13px")
+            .style("color", "#323130")
+            .style("font-weight", "600")
+            .text("Loading data…");
+
+        this.loadingRowsText = overlayContent.append("div")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "20px")
+            .style("color", "#0078D4")
+            .style("font-weight", "700")
+            .style("text-align", "center")
+            .style("margin", "4px 0")
+            .text("0 rows");
+
+        const barTrack = overlayContent.append("div")
+            .style("height", "6px")
+            .style("width", "100%")
+            .style("border-radius", "999px")
+            .style("background", "#f3f2f1")
             .style("overflow", "hidden");
-    }
 
-    this.traceMode = "backward";
+        barTrack.append("div")
+            .style("height", "100%")
+            .style("width", "35%")
+            .style("border-radius", "999px")
+            .style("background", "linear-gradient(90deg, #0078D4, #1890F5)")
+            .style("animation", "loadingBarPulse 1.2s ease-in-out infinite")
+            .style("transform", "translateX(-30%)");
 
-    this.createConnectorLinesToggleButton();
+        this.loadingProgressText = overlayContent.append("div")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "11px")
+            .style("color", "#605E5C")
+            .style("text-align", "center")
+            .text("");
 
-    d3.select(this.canvasElement).on("click", (event: MouseEvent) => {
-        if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
-
-        const coords = this.getCanvasMouseCoordinates(event);
-        const clickedTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
-
-        if (clickedTask) {
-            if (this.selectedTaskId === clickedTask.internalId) {
-                this.selectTask(null, null);
-            } else {
-                this.selectTask(clickedTask.internalId, clickedTask.name);
-            }
-
-            if (this.dropdownInput) {
-                this.dropdownInput.property("value", this.selectedTaskName || "");
-            }
+        if (!document.getElementById("loading-bar-pulse-style")) {
+            const styleEl = document.createElement("style");
+            styleEl.id = "loading-bar-pulse-style";
+            styleEl.textContent = `@keyframes loadingBarPulse { 0% { transform: translateX(-40%); } 50% { transform: translateX(20%); } 100% { transform: translateX(100%); } } @keyframes loadingBarDeterminate { from { width: 0%; } }`;
+            document.head.appendChild(styleEl);
         }
-    });
 
-    d3.select(this.canvasElement).on("contextmenu", (event: MouseEvent) => {
-        if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
+        this.mainSvg = this.scrollableContainer.append("svg")
+            .classed("criticalPathVisual", true)
+            .style("display", "block");
 
-        const coords = this.getCanvasMouseCoordinates(event);
-        const clickedTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
-        if (clickedTask) {
-            this.showContextMenu(event, clickedTask);
+        this.mainGroup = this.mainSvg.append("g").classed("main-group", true);
+
+        const defs = this.mainSvg.append("defs");
+        this.chartClipPath = defs.append("clipPath")
+            .attr("id", "chart-area-clip");
+        this.chartClipRect = this.chartClipPath.append("rect")
+            .attr("x", 0)
+            .attr("y", 0)
+            .attr("width", 1000)
+            .attr("height", 10000);
+
+        this.gridLayer = this.mainGroup.append("g")
+            .attr("class", "grid-layer")
+            .attr("clip-path", "url(#chart-area-clip)");
+
+        this.labelGridLayer = this.mainGroup.append("g")
+            .attr("class", "label-grid-layer");
+        this.arrowLayer = this.mainGroup.append("g")
+            .attr("class", "arrow-layer")
+            .attr("clip-path", "url(#chart-area-clip)");
+        this.taskLayer = this.mainGroup.append("g")
+            .attr("class", "task-layer")
+            .attr("clip-path", "url(#chart-area-clip)");
+
+        this.taskLabelLayer = this.mainGroup.append("g")
+            .attr("class", "task-label-layer");
+
+        this.createZoomSliderUI(visualWrapper);
+
+        this.legendContainer = visualWrapper.append("div")
+            .attr("class", "sticky-legend-footer")
+            .style("width", "100%")
+            .style("height", `${this.legendFooterHeight}px`)
+            .style("min-height", `${this.legendFooterHeight}px`)
+            .style("flex-shrink", "0")
+            .style("z-index", "100")
+            .style("background-color", "white")
+            .style("border-top", "2px solid #e0e0e0")
+            .style("box-shadow", "0 -2px 4px rgba(0,0,0,0.1)")
+            .style("display", "none")
+            .style("overflow", "hidden");
+
+        this.canvasElement = document.createElement('canvas');
+        this.canvasElement.style.position = 'absolute';
+        this.canvasElement.style.pointerEvents = 'auto';
+        this.canvasElement.className = 'canvas-layer';
+        this.canvasElement.style.display = 'none';
+        this.canvasElement.style.visibility = 'hidden';
+
+        this.canvasElement.style.imageRendering = '-webkit-optimize-contrast';
+        this.canvasElement.style.imageRendering = 'crisp-edges';
+        (this.canvasElement.style as any).msInterpolationMode = 'nearest-neighbor';
+        this.canvasElement.style.transform = 'translate3d(0,0,0)';
+        this.canvasElement.style.backfaceVisibility = 'hidden';
+        this.canvasElement.style.webkitBackfaceVisibility = 'hidden';
+        this.canvasElement.style.willChange = 'transform';
+        this.canvasElement.style.perspective = '1000px';
+
+        this.scrollableContainer.node()?.appendChild(this.canvasElement);
+
+        this.canvasLayer = d3.select(this.canvasElement);
+
+        this.applyPublishModeOptimizations();
+
+        d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
+
+        this.tooltipDiv = d3.select("body").append("div")
+            .attr("class", `critical-path-tooltip ${this.tooltipClassName}`)
+            .style("position", "absolute")
+            .style("visibility", "hidden")
+            .style("background-color", "white")
+            .style("border", "1px solid #ddd")
+            .style("border-radius", "5px")
+            .style("padding", "10px")
+            .style("box-shadow", "0 2px 10px rgba(0,0,0,0.2)")
+            .style("pointer-events", "none")
+            .style("z-index", "1000")
+            .style("max-width", "300px")
+            .style("font-size", "12px")
+            .style("line-height", "1.4")
+            .style("color", "#333");
+
+        const existingLiveRegion = d3.select("body").select(".sr-live-region");
+        if (existingLiveRegion.empty()) {
+            d3.select("body").append("div")
+                .attr("class", "sr-live-region")
+                .attr("aria-live", "polite")
+                .attr("aria-atomic", "true")
+                .style("position", "absolute")
+                .style("left", "-10000px")
+                .style("width", "1px")
+                .style("height", "1px")
+                .style("overflow", "hidden");
         }
-    });
 
-    d3.select(this.canvasElement).on("mousemove", (event: MouseEvent) => {
-        if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
+        this.traceMode = "backward";
 
-        const showTooltips = this.settings.displayOptions.showTooltips.value;
-        const coords = this.getCanvasMouseCoordinates(event);
-        const hoveredTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
-        const previousHoveredId = this.hoveredTaskId;
-        const nextHoveredId = hoveredTask ? hoveredTask.internalId : null;
+        this.createConnectorLinesToggleButton();
 
-        this.setHoveredTask(nextHoveredId);
+        d3.select(this.canvasElement).on("click", (event: MouseEvent) => {
+            if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
 
-        if (hoveredTask) {
-            if (showTooltips) {
-                if (previousHoveredId === hoveredTask.internalId) {
-                    this.moveTaskTooltip(event);
+            const coords = this.getCanvasMouseCoordinates(event);
+            const clickedTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
+
+            if (clickedTask) {
+                if (this.selectedTaskId === clickedTask.internalId) {
+                    this.selectTask(null, null);
                 } else {
-                    this.showTaskTooltip(hoveredTask, event);
+                    this.selectTask(clickedTask.internalId, clickedTask.name);
+                }
+
+                if (this.dropdownInput) {
+                    this.dropdownInput.property("value", this.selectedTaskName || "");
                 }
             }
-            d3.select(this.canvasElement).style("cursor", "pointer");
-        } else {
-            if (showTooltips) {
-                this.hideTooltip();
+        });
+
+        d3.select(this.canvasElement).on("contextmenu", (event: MouseEvent) => {
+            if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
+
+            const coords = this.getCanvasMouseCoordinates(event);
+            const clickedTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
+            if (clickedTask) {
+                this.showContextMenu(event, clickedTask);
             }
+        });
+
+        d3.select(this.canvasElement).on("mousemove", (event: MouseEvent) => {
+            if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
+
+            const showTooltips = this.settings.displayOptions.showTooltips.value;
+            const coords = this.getCanvasMouseCoordinates(event);
+            const hoveredTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
+            const previousHoveredId = this.hoveredTaskId;
+            const nextHoveredId = hoveredTask ? hoveredTask.internalId : null;
+
+            this.setHoveredTask(nextHoveredId);
+
+            if (hoveredTask) {
+                if (showTooltips) {
+                    if (previousHoveredId === hoveredTask.internalId) {
+                        this.moveTaskTooltip(event);
+                    } else {
+                        this.showTaskTooltip(hoveredTask, event);
+                    }
+                }
+                d3.select(this.canvasElement).style("cursor", "pointer");
+            } else {
+                if (showTooltips) {
+                    this.hideTooltip();
+                }
+                d3.select(this.canvasElement).style("cursor", "default");
+            }
+        });
+
+        d3.select(this.canvasElement).on("mouseout", () => {
+            this.setHoveredTask(null);
+            this.hideTooltip();
             d3.select(this.canvasElement).style("cursor", "default");
+        });
+    }
+
+    private forceCanvasRefresh(): void {
+        this.debugLog("Forcing canvas refresh");
+
+        if (this.canvasElement && this.canvasContext) {
+            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
         }
-    });
 
-    d3.select(this.canvasElement).on("mouseout", () => {
-        this.setHoveredTask(null);
-        this.hideTooltip();
-        d3.select(this.canvasElement).style("cursor", "default");
-    });
-}
+        if (this.taskLayer) {
+            this.taskLayer.selectAll("*").remove();
+        }
+        if (this.arrowLayer) {
+            this.arrowLayer.selectAll("*").remove();
+        }
+        if (this.taskLabelLayer) {
+            this.taskLabelLayer.selectAll("*").remove();
+        }
+        if (this.labelGridLayer) {
+            this.labelGridLayer.selectAll("*").remove();
+        }
 
-private forceCanvasRefresh(): void {
-    this.debugLog("Forcing canvas refresh");
+        if (this.wbsGroupLayer) {
+            this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
+        }
 
-    if (this.canvasElement && this.canvasContext) {
-        this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
-    }
+        if (this.scrollableContainer?.node() && this.allTasksToShow?.length > 0) {
+            this.calculateVisibleTasks();
 
-    if (this.taskLayer) {
-        this.taskLayer.selectAll("*").remove();
-    }
-    if (this.arrowLayer) {
-        this.arrowLayer.selectAll("*").remove();
-    }
-    if (this.taskLabelLayer) {
-        this.taskLabelLayer.selectAll("*").remove();
-    }
-    if (this.labelGridLayer) {
-        this.labelGridLayer.selectAll("*").remove();
-    }
-
-    if (this.wbsGroupLayer) {
-        this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
-    }
-
-    if (this.scrollableContainer?.node() && this.allTasksToShow?.length > 0) {
-        this.calculateVisibleTasks();
-
-        if (this.xScale && this.yScale) {
-            requestAnimationFrame(() => {
-                this.redrawVisibleTasks();
-            });
+            if (this.xScale && this.yScale) {
+                requestAnimationFrame(() => {
+                    this.redrawVisibleTasks();
+                });
+            }
         }
     }
-}
 
-private debouncedUpdate(): void {
-    if (this.updateDebounceTimeout) {
-        clearTimeout(this.updateDebounceTimeout);
-    }
-
-    this.updateDebounceTimeout = setTimeout(() => {
-        if (this.pendingUpdate) {
-            const options = this.pendingUpdate;
-            this.pendingUpdate = null;
-            this.update(options);
+    private debouncedUpdate(): void {
+        if (this.updateDebounceTimeout) {
+            clearTimeout(this.updateDebounceTimeout);
         }
-        this.updateDebounceTimeout = null;
-    }, this.UPDATE_DEBOUNCE_MS);
-}
 
-private requestUpdate(forceFullUpdate: boolean = false): void {
-    if (!this.lastUpdateOptions) {
-        console.error("Cannot trigger update - lastUpdateOptions is null.");
-        return;
+        this.updateDebounceTimeout = setTimeout(() => {
+            if (this.pendingUpdate) {
+                const options = this.pendingUpdate;
+                this.pendingUpdate = null;
+                this.update(options);
+            }
+            this.updateDebounceTimeout = null;
+        }, this.UPDATE_DEBOUNCE_MS);
     }
 
-    if (forceFullUpdate) {
-        this.forceFullUpdate = true;
+    private requestUpdate(forceFullUpdate: boolean = false): void {
+        if (!this.lastUpdateOptions) {
+            console.error("Cannot trigger update - lastUpdateOptions is null.");
+            return;
+        }
+
+        if (forceFullUpdate) {
+            this.forceFullUpdate = true;
+        }
+
+        this.pendingUpdate = this.lastUpdateOptions;
+        this.debouncedUpdate();
     }
 
-    this.pendingUpdate = this.lastUpdateOptions;
-    this.debouncedUpdate();
-}
+    private applyPublishModeOptimizations(): void {
 
-private applyPublishModeOptimizations(): void {
+        const isInIframe = window.self !== window.top;
 
-    const isInIframe = window.self !== window.top;
+        if (isInIframe || window.location.hostname.includes('powerbi.com')) {
 
-    if (isInIframe || window.location.hostname.includes('powerbi.com')) {
-
-        const styleId = 'critical-path-publish-fixes';
-        if (!document.getElementById(styleId)) {
-            const style = document.createElement('style');
-            style.id = styleId;
-            style.textContent = `
+            const styleId = 'critical-path-publish-fixes';
+            if (!document.getElementById(styleId)) {
+                const style = document.createElement('style');
+                style.id = styleId;
+                style.textContent = `
                 .criticalPathVisual {
                     -webkit-font-smoothing: antialiased !important;
                     -moz-osx-font-smoothing: grayscale !important;
@@ -1062,2264 +1062,2264 @@ private applyPublishModeOptimizations(): void {
                     vector-effect: non-scaling-stroke !important;
                 }
             `;
-            document.head.appendChild(style);
-        }
+                document.head.appendChild(style);
+            }
 
-        if (this.target) {
-            this.target.style.zoom = '1';
-            (this.target.style as any).imageRendering = '-webkit-optimize-contrast';
-        }
-    }
-}
-
-private setupSVGRenderingHints(): void {
-
-    if (this.mainSvg) {
-        this.mainSvg
-            .attr("shape-rendering", "crispEdges")
-            .attr("text-rendering", "optimizeLegibility");
-    }
-
-    if (this.headerSvg) {
-        this.headerSvg
-            .attr("shape-rendering", "crispEdges")
-            .attr("text-rendering", "optimizeLegibility");
-    }
-
-    [this.mainGroup, this.gridLayer, this.arrowLayer, this.taskLayer,
-     this.headerGridLayer, this.toggleButtonGroup].forEach(group => {
-        if (group) {
-            group.attr("shape-rendering", "geometricPrecision");
-        }
-    });
-}
-
-private getDataSignature(dataView: DataView): string {
-    const rowCount = dataView.table?.rows?.length ?? 0;
-    const columnKey = dataView.metadata?.columns
-        ? dataView.metadata.columns.map(col => col.queryName || col.displayName || "").join("|")
-        : "";
-    return `${rowCount}|${columnKey}`;
-}
-
-private hasValidPlotDates(task: Task): boolean {
-    return task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
-        task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
-        task.finishDate >= task.startDate;
-}
-
-private ensureTaskSortCache(signature: string): void {
-    if (this.cachedSortedTasksSignature === signature) {
-        return;
-    }
-
-    const sortedByStartDate = this.allTasksData
-        .filter(task => task.startDate instanceof Date && !isNaN(task.startDate.getTime()))
-        .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-
-    this.cachedTasksSortedByStartDate = sortedByStartDate;
-    this.cachedPlottableTasksSorted = sortedByStartDate.filter(task => this.hasValidPlotDates(task));
-    this.cachedSortedTasksSignature = signature;
-}
-
-private determineUpdateType(options: VisualUpdateOptions): UpdateType {
-
-    const wasForced = this.forceFullUpdate;
-    try {
-        this.forceFullUpdate = false;
-
-        if (wasForced) {
-            this.debugLog("Force full update requested");
-            return UpdateType.Full;
-        }
-
-        if (!this.lastUpdateOptions) {
-            return UpdateType.Full;
-        }
-
-        let dataChanged = false;
-        let settingsChanged = false;
-        let viewportChanged = false;
-
-        if (options.type & VisualUpdateType.Data) {
-            dataChanged = true;
-            this.debugLog("Data change detected via PBI flags (e.g., external filter).");
-        }
-        if (options.type & VisualUpdateType.Resize) {
-            viewportChanged = true;
-        }
-        if ((options.type & VisualUpdateType.Style) ||
-            (options.type & VisualUpdateType.ViewMode)) {
-             settingsChanged = true;
-        }
-
-        if (!dataChanged) {
-            const currentDataView = options.dataViews?.[0];
-            const lastDataView = this.lastUpdateOptions.dataViews?.[0];
-
-            if (currentDataView && lastDataView) {
-                const currentRowCount = currentDataView.table?.rows?.length || 0;
-                const lastRowCount = lastDataView.table?.rows?.length || 0;
-                if (currentRowCount !== lastRowCount) {
-                    dataChanged = true;
-                    this.debugLog("Data change detected via row count mismatch.");
-                }
-            } else if (currentDataView !== lastDataView) {
-                dataChanged = true;
+            if (this.target) {
+                this.target.style.zoom = '1';
+                (this.target.style as any).imageRendering = '-webkit-optimize-contrast';
             }
         }
+    }
 
-        if (!viewportChanged) {
-            viewportChanged = this.lastViewport ?
-                (options.viewport.width !== this.lastViewport.width ||
-                options.viewport.height !== this.lastViewport.height) : true;
+    private setupSVGRenderingHints(): void {
+
+        if (this.mainSvg) {
+            this.mainSvg
+                .attr("shape-rendering", "crispEdges")
+                .attr("text-rendering", "optimizeLegibility");
         }
 
-        let isSignificantViewportChange = false;
-        if (this.lastViewport && viewportChanged) {
-            const widthChangeRatio = Math.abs(options.viewport.width - this.lastViewport.width) / (this.lastViewport.width || 1);
-            const heightChangeRatio = Math.abs(options.viewport.height - this.lastViewport.height) / (this.lastViewport.height || 1);
-            isSignificantViewportChange = widthChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD ||
-                                        heightChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD;
+        if (this.headerSvg) {
+            this.headerSvg
+                .attr("shape-rendering", "crispEdges")
+                .attr("text-rendering", "optimizeLegibility");
         }
 
-        if (dataChanged) {
-            return UpdateType.Full;
-        } else if (isSignificantViewportChange) {
-            this.debugLog("Significant viewport change detected - treating as full update");
-            return UpdateType.Full;
-        } else if (viewportChanged && !dataChanged && !settingsChanged) {
-            return UpdateType.ViewportOnly;
-        } else if (settingsChanged && !dataChanged) {
-            return UpdateType.SettingsOnly;
-        }
-
-        if (settingsChanged || viewportChanged) {
-            return UpdateType.Full;
-        }
-
-        return UpdateType.Full;
-    } finally {
-
-        this.forceFullUpdate = false;
-    }
-}
-
-public destroy(): void {
-
-    if (this.updateDebounceTimeout) {
-        clearTimeout(this.updateDebounceTimeout);
-        this.updateDebounceTimeout = null;
-    }
-
-    if (this.scrollThrottleTimeout) {
-        clearTimeout(this.scrollThrottleTimeout);
-        this.scrollThrottleTimeout = null;
-    }
-
-    if (this.dropdownFilterTimeout) {
-        clearTimeout(this.dropdownFilterTimeout);
-        this.dropdownFilterTimeout = null;
-    }
-
-    d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
-
-    if (this.scrollListener && this.scrollableContainer) {
-        this.scrollableContainer.on("scroll", null);
-        this.scrollListener = null;
-    }
-
-    this.detachZoomDragListeners();
-
-    this.pendingUpdate = null;
-
-    this.applyTaskFilter([]);
-
-    const styleId = 'critical-path-publish-fixes';
-    const styleElement = document.getElementById(styleId);
-    if (styleElement) {
-        styleElement.remove();
-    }
-
-    this.debugLog("Critical Path Visual destroyed.");
-}
-
-private captureScrollPosition(): void {
-    if (this.scrollableContainer?.node()) {
-        this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
-        this.preserveScrollOnUpdate = true;
-        this.scrollPreservationUntil = Date.now() + 1500;
-        this.debugLog(`Scroll position captured: ${this.preservedScrollTop}`);
-    }
-}
-
-private setHoveredTask(taskId: string | null): void {
-    const nextTaskId = taskId ?? null;
-    if (this.hoveredTaskId === nextTaskId) {
-        return;
-    }
-    this.hoveredTaskId = nextTaskId;
-    this.updateConnectorHoverStyles();
-}
-
-private isRelationshipHovered(rel: Relationship): boolean {
-    return this.hoveredTaskId !== null &&
-        (rel.predecessorId === this.hoveredTaskId || rel.successorId === this.hoveredTaskId);
-}
-
-private getConnectorOpacity(rel: Relationship): number {
-    if (!this.hoveredTaskId) {
-        return rel.isCritical ? 0.85 : 0.35;
-    }
-    return this.isRelationshipHovered(rel)
-        ? (rel.isCritical ? 0.95 : 0.85)
-        : 0.12;
-}
-
-private updateConnectorHoverStyles(): void {
-    if (!this.showConnectorLinesInternal || this.useCanvasRendering || !this.arrowLayer) {
-        return;
-    }
-
-    this.arrowLayer.selectAll<SVGPathElement, Relationship>(".relationship-arrow")
-        .style("stroke-opacity", (d: Relationship) => this.getConnectorOpacity(d));
-
-    this.arrowLayer.selectAll<SVGCircleElement, Relationship>(".connection-dot-start, .connection-dot-end")
-        .style("fill-opacity", (d: Relationship) => this.getConnectorOpacity(d))
-        .style("stroke-opacity", 0.6);
-}
-
-private toggleTaskDisplayInternal(): void {
-    try {
-        this.debugLog("Internal Toggle method called!");
-        this.showAllTasksInternal = !this.showAllTasksInternal;
-        this.debugLog("New showAllTasksInternal value:", this.showAllTasksInternal);
-
-        this.host.persistProperties({
-            merge: [{
-                objectName: "displayOptions",
-                properties: { showAllTasks: this.showAllTasksInternal },
-                selector: null
-            }]
+        [this.mainGroup, this.gridLayer, this.arrowLayer, this.taskLayer,
+        this.headerGridLayer, this.toggleButtonGroup].forEach(group => {
+            if (group) {
+                group.attr("shape-rendering", "geometricPrecision");
+            }
         });
-
-        this.forceCanvasRefresh();
-
-        this.captureScrollPosition();
-
-        this.forceFullUpdate = true;
-        if (this.lastUpdateOptions) {
-            this.update(this.lastUpdateOptions);
-        }
-
-        this.drawZoomSliderMiniChart();
-
-        this.debugLog("Visual update triggered by internal toggle");
-    } catch (error) {
-        console.error("Error in internal toggle method:", error);
     }
-}
 
-private toggleBaselineDisplayInternal(): void {
-    try {
-        this.debugLog("Baseline Toggle method called!");
-        this.showBaselineInternal = !this.showBaselineInternal;
-        this.debugLog("New showBaselineInternal value:", this.showBaselineInternal);
+    private getDataSignature(dataView: DataView): string {
+        const rowCount = dataView.table?.rows?.length ?? 0;
+        const columnKey = dataView.metadata?.columns
+            ? dataView.metadata.columns.map(col => col.queryName || col.displayName || "").join("|")
+            : "";
+        return `${rowCount}|${columnKey}`;
+    }
 
-        this.createOrUpdateBaselineToggleButton(this.lastUpdateOptions?.viewport.width || 800);
+    private hasValidPlotDates(task: Task): boolean {
+        return task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
+            task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
+            task.finishDate >= task.startDate;
+    }
 
-        this.host.persistProperties({
-            merge: [{
-                objectName: "taskAppearance",
-                properties: { showBaseline: this.showBaselineInternal },
-                selector: null
-            }]
-        });
-
-        if (this.scrollableContainer?.node()) {
-            this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
-            this.debugLog(`Baseline toggle: Captured scrollTop=${this.preservedScrollTop}`);
+    private ensureTaskSortCache(signature: string): void {
+        if (this.cachedSortedTasksSignature === signature) {
+            return;
         }
 
-        this.forceFullUpdate = true;
-        this.preserveScrollOnUpdate = true;
+        const sortedByStartDate = this.allTasksData
+            .filter(task => task.startDate instanceof Date && !isNaN(task.startDate.getTime()))
+            .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
 
-        this.scrollPreservationUntil = Date.now() + 1500;
+        this.cachedTasksSortedByStartDate = sortedByStartDate;
+        this.cachedPlottableTasksSorted = sortedByStartDate.filter(task => this.hasValidPlotDates(task));
+        this.cachedSortedTasksSignature = signature;
+    }
+
+    private determineUpdateType(options: VisualUpdateOptions): UpdateType {
+
+        const wasForced = this.forceFullUpdate;
+        try {
+            this.forceFullUpdate = false;
+
+            if (wasForced) {
+                this.debugLog("Force full update requested");
+                return UpdateType.Full;
+            }
+
+            if (!this.lastUpdateOptions) {
+                return UpdateType.Full;
+            }
+
+            let dataChanged = false;
+            let settingsChanged = false;
+            let viewportChanged = false;
+
+            if (options.type & VisualUpdateType.Data) {
+                dataChanged = true;
+                this.debugLog("Data change detected via PBI flags (e.g., external filter).");
+            }
+            if (options.type & VisualUpdateType.Resize) {
+                viewportChanged = true;
+            }
+            if ((options.type & VisualUpdateType.Style) ||
+                (options.type & VisualUpdateType.ViewMode)) {
+                settingsChanged = true;
+            }
+
+            if (!dataChanged) {
+                const currentDataView = options.dataViews?.[0];
+                const lastDataView = this.lastUpdateOptions.dataViews?.[0];
+
+                if (currentDataView && lastDataView) {
+                    const currentRowCount = currentDataView.table?.rows?.length || 0;
+                    const lastRowCount = lastDataView.table?.rows?.length || 0;
+                    if (currentRowCount !== lastRowCount) {
+                        dataChanged = true;
+                        this.debugLog("Data change detected via row count mismatch.");
+                    }
+                } else if (currentDataView !== lastDataView) {
+                    dataChanged = true;
+                }
+            }
+
+            if (!viewportChanged) {
+                viewportChanged = this.lastViewport ?
+                    (options.viewport.width !== this.lastViewport.width ||
+                        options.viewport.height !== this.lastViewport.height) : true;
+            }
+
+            let isSignificantViewportChange = false;
+            if (this.lastViewport && viewportChanged) {
+                const widthChangeRatio = Math.abs(options.viewport.width - this.lastViewport.width) / (this.lastViewport.width || 1);
+                const heightChangeRatio = Math.abs(options.viewport.height - this.lastViewport.height) / (this.lastViewport.height || 1);
+                isSignificantViewportChange = widthChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD ||
+                    heightChangeRatio > this.VIEWPORT_CHANGE_THRESHOLD;
+            }
+
+            if (dataChanged) {
+                return UpdateType.Full;
+            } else if (isSignificantViewportChange) {
+                this.debugLog("Significant viewport change detected - treating as full update");
+                return UpdateType.Full;
+            } else if (viewportChanged && !dataChanged && !settingsChanged) {
+                return UpdateType.ViewportOnly;
+            } else if (settingsChanged && !dataChanged) {
+                return UpdateType.SettingsOnly;
+            }
+
+            if (settingsChanged || viewportChanged) {
+                return UpdateType.Full;
+            }
+
+            return UpdateType.Full;
+        } finally {
+
+            this.forceFullUpdate = false;
+        }
+    }
+
+    public destroy(): void {
+
+        if (this.updateDebounceTimeout) {
+            clearTimeout(this.updateDebounceTimeout);
+            this.updateDebounceTimeout = null;
+        }
 
         if (this.scrollThrottleTimeout) {
             clearTimeout(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
         }
 
-        if (this.lastUpdateOptions) {
-            this.update(this.lastUpdateOptions);
+        if (this.dropdownFilterTimeout) {
+            clearTimeout(this.dropdownFilterTimeout);
+            this.dropdownFilterTimeout = null;
         }
 
-        this.debugLog("Visual update triggered by baseline toggle");
-    } catch (error) {
-        console.error("Error in baseline toggle method:", error);
+        d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
+
+        if (this.scrollListener && this.scrollableContainer) {
+            this.scrollableContainer.on("scroll", null);
+            this.scrollListener = null;
+        }
+
+        this.detachZoomDragListeners();
+
+        this.pendingUpdate = null;
+
+        this.applyTaskFilter([]);
+
+        const styleId = 'critical-path-publish-fixes';
+        const styleElement = document.getElementById(styleId);
+        if (styleElement) {
+            styleElement.remove();
+        }
+
+        this.debugLog("Critical Path Visual destroyed.");
     }
-}
 
-private togglePreviousUpdateDisplayInternal(): void {
-    try {
-        this.debugLog("Previous Update Toggle method called!");
-        this.showPreviousUpdateInternal = !this.showPreviousUpdateInternal;
-        this.debugLog("New showPreviousUpdateInternal value:", this.showPreviousUpdateInternal);
-
-        this.createOrUpdatePreviousUpdateToggleButton(this.lastUpdateOptions?.viewport.width || 800);
-
-        this.host.persistProperties({
-            merge: [{
-                objectName: "taskAppearance",
-                properties: { showPreviousUpdate: this.showPreviousUpdateInternal },
-                selector: null
-            }]
-        });
-
+    private captureScrollPosition(): void {
         if (this.scrollableContainer?.node()) {
             this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
-            this.debugLog(`Previous update toggle: Captured scrollTop=${this.preservedScrollTop}`);
+            this.preserveScrollOnUpdate = true;
+            this.scrollPreservationUntil = Date.now() + 1500;
+            this.debugLog(`Scroll position captured: ${this.preservedScrollTop}`);
         }
-
-        this.forceFullUpdate = true;
-        this.preserveScrollOnUpdate = true;
-
-        this.scrollPreservationUntil = Date.now() + 1500;
-
-        if (this.scrollThrottleTimeout) {
-            clearTimeout(this.scrollThrottleTimeout);
-            this.scrollThrottleTimeout = null;
-        }
-
-        if (this.lastUpdateOptions) {
-            this.update(this.lastUpdateOptions);
-        }
-
-        this.debugLog("Visual update triggered by previous update toggle");
-    } catch (error) {
-        console.error("Error in previous update toggle method:", error);
     }
-}
 
-private createOrUpdateToggleButton(viewportWidth: number): void {
-    if (!this.toggleButtonGroup || !this.headerSvg) return;
-
-    this.toggleButtonGroup.selectAll("*")
-        .on("click", null)
-        .on("mouseover", null)
-        .on("mouseout", null);
-
-    this.toggleButtonGroup.selectAll("*").remove();
-
-    const layout = this.getHeaderButtonLayout(viewportWidth);
-    const buttonWidth = layout.showAllCritical.width;
-    const buttonHeight = this.UI_TOKENS.height.standard;
-    const buttonX = layout.showAllCritical.x;
-    const buttonY = this.UI_TOKENS.spacing.sm;
-
-    const isShowingCritical = this.showAllTasksInternal;
-
-    this.toggleButtonGroup
-        .attr("transform", `translate(${buttonX}, ${buttonY})`)
-        .attr("role", "button")
-        .attr("aria-label", isShowingCritical ? "Show critical path only" : "Show all tasks")
-        .attr("aria-pressed", (!isShowingCritical).toString())
-        .attr("tabindex", "0");
-
-    const buttonRect = this.toggleButtonGroup.append("rect")
-        .attr("width", buttonWidth)
-        .attr("height", buttonHeight)
-        .attr("rx", this.UI_TOKENS.radius.medium)
-        .attr("ry", this.UI_TOKENS.radius.medium)
-        .style("fill", this.UI_TOKENS.color.neutral.white)
-        .style("stroke", this.UI_TOKENS.color.neutral.grey60)
-        .style("stroke-width", 1.5)
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    const iconPadding = this.UI_TOKENS.spacing.lg;
-    const iconColor = isShowingCritical
-        ? this.UI_TOKENS.color.danger.default
-        : this.UI_TOKENS.color.success.default;
-
-    this.toggleButtonGroup.append("circle")
-        .attr("cx", iconPadding)
-        .attr("cy", buttonHeight / 2)
-        .attr("r", 10)
-        .style("fill", isShowingCritical ? this.UI_TOKENS.color.danger.subtle : this.UI_TOKENS.color.success.subtle)
-        .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    this.toggleButtonGroup.append("path")
-        .attr("d", isShowingCritical
-            ? "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z"
-            : "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3")
-        .attr("transform", `translate(${iconPadding}, ${buttonHeight/2})`)
-        .attr("stroke", iconColor)
-        .attr("stroke-width", 2.25)
-        .attr("fill", isShowingCritical ? iconColor : "none")
-        .attr("stroke-linecap", "round")
-        .attr("stroke-linejoin", "round")
-        .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    const buttonText = layout.mode === 'narrow'
-        ? (isShowingCritical ? "Critical" : "All")
-        : (isShowingCritical ? "Show Critical" : "Show All");
-
-    this.toggleButtonGroup.append("text")
-        .attr("x", buttonWidth / 2 + this.UI_TOKENS.spacing.md)
-        .attr("y", buttonHeight / 2)
-        .attr("text-anchor", "middle")
-        .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-        .style("fill", this.UI_TOKENS.color.neutral.grey160)
-        .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
-        .style("letter-spacing", "0.2px")
-        .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-        .text(buttonText);
-
-    const self = this;
-    this.toggleButtonGroup
-        .on("mouseover", function() {
-            d3.select(this).select("rect")
-                .style("fill", self.UI_TOKENS.color.neutral.grey10)
-                .style("stroke", self.UI_TOKENS.color.neutral.grey90)
-                .style("stroke-width", 2)
-                .style("transform", "translateY(-2px)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-        })
-        .on("mouseout", function() {
-            d3.select(this).select("rect")
-                .style("fill", self.UI_TOKENS.color.neutral.white)
-                .style("stroke", self.UI_TOKENS.color.neutral.grey60)
-                .style("stroke-width", 1.5)
-                .style("transform", "translateY(0)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
-        })
-        .on("mousedown", function() {
-            d3.select(this).select("rect")
-                .style("transform", "translateY(0) scale(0.96)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
-        })
-        .on("mouseup", function() {
-            d3.select(this).select("rect")
-                .style("transform", "translateY(-2px) scale(1)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-        });
-
-    const clickOverlay = this.toggleButtonGroup.append("rect")
-        .attr("width", buttonWidth)
-        .attr("height", buttonHeight)
-        .attr("rx", this.UI_TOKENS.radius.medium)
-        .attr("ry", this.UI_TOKENS.radius.medium)
-        .style("fill", "transparent")
-        .style("cursor", "pointer");
-
-    clickOverlay.on("click", function(event) {
-        if (event) event.stopPropagation();
-        self.toggleTaskDisplayInternal();
-    });
-
-    this.toggleButtonGroup.on("keydown", function(event) {
-        if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            self.toggleTaskDisplayInternal();
+    private setHoveredTask(taskId: string | null): void {
+        const nextTaskId = taskId ?? null;
+        if (this.hoveredTaskId === nextTaskId) {
+            return;
         }
-    });
+        this.hoveredTaskId = nextTaskId;
+        this.updateConnectorHoverStyles();
+    }
 
-    this.toggleButtonGroup.append("title")
-        .text(isShowingCritical
-            ? "Click to filter and show only critical path tasks"
-            : "Click to show all tasks in the project");
-}
+    private isRelationshipHovered(rel: Relationship): boolean {
+        return this.hoveredTaskId !== null &&
+            (rel.predecessorId === this.hoveredTaskId || rel.successorId === this.hoveredTaskId);
+    }
 
-private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
-    if (!this.headerSvg) return;
+    private getConnectorOpacity(rel: Relationship): number {
+        if (!this.hoveredTaskId) {
+            return rel.isCritical ? 0.85 : 0.35;
+        }
+        return this.isRelationshipHovered(rel)
+            ? (rel.isCritical ? 0.95 : 0.85)
+            : 0.12;
+    }
 
-    this.headerSvg.selectAll(".baseline-toggle-group").remove();
+    private updateConnectorHoverStyles(): void {
+        if (!this.showConnectorLinesInternal || this.useCanvasRendering || !this.arrowLayer) {
+            return;
+        }
 
-    const dataView = this.lastUpdateOptions?.dataViews?.[0];
-    const hasBaselineStart = dataView ? this.hasDataRole(dataView, 'baselineStartDate') : false;
-    const hasBaselineFinish = dataView ? this.hasDataRole(dataView, 'baselineFinishDate') : false;
-    const isAvailable = hasBaselineStart && hasBaselineFinish;
+        this.arrowLayer.selectAll<SVGPathElement, Relationship>(".relationship-arrow")
+            .style("stroke-opacity", (d: Relationship) => this.getConnectorOpacity(d));
 
-    const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
-    const lightBaselineColor = this.lightenColor(baselineColor, 0.93);
-    const hoverBaselineColor = this.lightenColor(baselineColor, 0.85);
-    const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+        this.arrowLayer.selectAll<SVGCircleElement, Relationship>(".connection-dot-start, .connection-dot-end")
+            .style("fill-opacity", (d: Relationship) => this.getConnectorOpacity(d))
+            .style("stroke-opacity", 0.6);
+    }
 
-    const layout = this.getHeaderButtonLayout(viewportWidth);
-    const { x: buttonX, width: buttonWidth, iconOnly } = layout.baseline;
+    private toggleTaskDisplayInternal(): void {
+        try {
+            this.debugLog("Internal Toggle method called!");
+            this.showAllTasksInternal = !this.showAllTasksInternal;
+            this.debugLog("New showAllTasksInternal value:", this.showAllTasksInternal);
 
-    const baselineToggleGroup = this.headerSvg.append("g")
-        .attr("class", "baseline-toggle-group")
-        .style("cursor", isAvailable ? "pointer" : "not-allowed")
-        .attr("role", "button")
-        .attr("aria-label", `${this.showBaselineInternal ? 'Hide' : 'Show'} baseline task bars`)
-        .attr("aria-pressed", this.showBaselineInternal.toString())
-        .attr("aria-disabled", (!isAvailable).toString())
-        .attr("tabindex", isAvailable ? "0" : "-1");
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "displayOptions",
+                    properties: { showAllTasks: this.showAllTasksInternal },
+                    selector: null
+                }]
+            });
 
-    const buttonHeight = this.UI_TOKENS.height.standard;
-    const buttonY = this.UI_TOKENS.spacing.sm;
+            this.forceCanvasRefresh();
 
-    baselineToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+            this.captureScrollPosition();
 
-    const buttonRect = baselineToggleGroup.append("rect")
-        .attr("width", buttonWidth)
-        .attr("height", buttonHeight)
-        .attr("rx", this.UI_TOKENS.radius.medium)
-        .attr("ry", this.UI_TOKENS.radius.medium)
-        .style("fill", this.showBaselineInternal ? lightBaselineColor : this.UI_TOKENS.color.neutral.white)
-        .style("stroke", baselineColor)
-        .style("stroke-width", this.showBaselineInternal ? 2 : 1.5)
-        .style("opacity", isAvailable ? 1 : 0.4)
-        .style("filter", isAvailable ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+            this.forceFullUpdate = true;
+            if (this.lastUpdateOptions) {
+                this.update(this.lastUpdateOptions);
+            }
 
-    const iconX = iconOnly ? (buttonWidth / 2 - 8) : (this.UI_TOKENS.spacing.lg + 2);
-    const iconY = buttonHeight / 2;
+            this.drawZoomSliderMiniChart();
 
-    baselineToggleGroup.append("circle")
-        .attr("cx", iconX + 8)
-        .attr("cy", iconY)
-        .attr("r", 11)
-        .style("fill", this.showBaselineInternal ? this.lightenColor(baselineColor, 0.95) : this.UI_TOKENS.color.neutral.grey10)
-        .style("opacity", 0.6)
-        .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+            this.debugLog("Visual update triggered by internal toggle");
+        } catch (error) {
+            console.error("Error in internal toggle method:", error);
+        }
+    }
 
-    baselineToggleGroup.append("rect")
-        .attr("x", iconX)
-        .attr("y", iconY - 8)
-        .attr("width", 16)
-        .attr("height", 4.5)
-        .attr("rx", 2)
-        .attr("ry", 2)
-        .attr("fill", this.showBaselineInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90)
-        .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+    private toggleBaselineDisplayInternal(): void {
+        try {
+            this.debugLog("Baseline Toggle method called!");
+            this.showBaselineInternal = !this.showBaselineInternal;
+            this.debugLog("New showBaselineInternal value:", this.showBaselineInternal);
 
-    baselineToggleGroup.append("rect")
-        .attr("x", iconX)
-        .attr("y", iconY - 1.5)
-        .attr("width", 16)
-        .attr("height", 3.5)
-        .attr("rx", 1.5)
-        .attr("ry", 1.5)
-        .attr("fill", this.showBaselineInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey60)
-        .style("opacity", this.showBaselineInternal ? 1 : 0.6)
-        .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+            this.createOrUpdateBaselineToggleButton(this.lastUpdateOptions?.viewport.width || 800);
 
-    baselineToggleGroup.append("rect")
-        .attr("x", iconX)
-        .attr("y", iconY + 4)
-        .attr("width", 16)
-        .attr("height", 3.5)
-        .attr("rx", 1.5)
-        .attr("ry", 1.5)
-        .attr("fill", this.showBaselineInternal ? baselineColor : this.UI_TOKENS.color.neutral.grey60)
-        .style("opacity", this.showBaselineInternal ? 1 : 0.6)
-        .style("pointer-events", "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "taskAppearance",
+                    properties: { showBaseline: this.showBaselineInternal },
+                    selector: null
+                }]
+            });
 
-    if (!iconOnly) {
-        baselineToggleGroup.append("text")
-            .attr("x", iconX + 26)
+            if (this.scrollableContainer?.node()) {
+                this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
+                this.debugLog(`Baseline toggle: Captured scrollTop=${this.preservedScrollTop}`);
+            }
+
+            this.forceFullUpdate = true;
+            this.preserveScrollOnUpdate = true;
+
+            this.scrollPreservationUntil = Date.now() + 1500;
+
+            if (this.scrollThrottleTimeout) {
+                clearTimeout(this.scrollThrottleTimeout);
+                this.scrollThrottleTimeout = null;
+            }
+
+            if (this.lastUpdateOptions) {
+                this.update(this.lastUpdateOptions);
+            }
+
+            this.debugLog("Visual update triggered by baseline toggle");
+        } catch (error) {
+            console.error("Error in baseline toggle method:", error);
+        }
+    }
+
+    private togglePreviousUpdateDisplayInternal(): void {
+        try {
+            this.debugLog("Previous Update Toggle method called!");
+            this.showPreviousUpdateInternal = !this.showPreviousUpdateInternal;
+            this.debugLog("New showPreviousUpdateInternal value:", this.showPreviousUpdateInternal);
+
+            this.createOrUpdatePreviousUpdateToggleButton(this.lastUpdateOptions?.viewport.width || 800);
+
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "taskAppearance",
+                    properties: { showPreviousUpdate: this.showPreviousUpdateInternal },
+                    selector: null
+                }]
+            });
+
+            if (this.scrollableContainer?.node()) {
+                this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
+                this.debugLog(`Previous update toggle: Captured scrollTop=${this.preservedScrollTop}`);
+            }
+
+            this.forceFullUpdate = true;
+            this.preserveScrollOnUpdate = true;
+
+            this.scrollPreservationUntil = Date.now() + 1500;
+
+            if (this.scrollThrottleTimeout) {
+                clearTimeout(this.scrollThrottleTimeout);
+                this.scrollThrottleTimeout = null;
+            }
+
+            if (this.lastUpdateOptions) {
+                this.update(this.lastUpdateOptions);
+            }
+
+            this.debugLog("Visual update triggered by previous update toggle");
+        } catch (error) {
+            console.error("Error in previous update toggle method:", error);
+        }
+    }
+
+    private createOrUpdateToggleButton(viewportWidth: number): void {
+        if (!this.toggleButtonGroup || !this.headerSvg) return;
+
+        this.toggleButtonGroup.selectAll("*")
+            .on("click", null)
+            .on("mouseover", null)
+            .on("mouseout", null);
+
+        this.toggleButtonGroup.selectAll("*").remove();
+
+        const layout = this.getHeaderButtonLayout(viewportWidth);
+        const buttonWidth = layout.showAllCritical.width;
+        const buttonHeight = this.UI_TOKENS.height.standard;
+        const buttonX = layout.showAllCritical.x;
+        const buttonY = this.UI_TOKENS.spacing.sm;
+
+        const isShowingCritical = this.showAllTasksInternal;
+
+        this.toggleButtonGroup
+            .attr("transform", `translate(${buttonX}, ${buttonY})`)
+            .attr("role", "button")
+            .attr("aria-label", isShowingCritical ? "Show critical path only" : "Show all tasks")
+            .attr("aria-pressed", (!isShowingCritical).toString())
+            .attr("tabindex", "0");
+
+        const buttonRect = this.toggleButtonGroup.append("rect")
+            .attr("width", buttonWidth)
+            .attr("height", buttonHeight)
+            .attr("rx", this.UI_TOKENS.radius.medium)
+            .attr("ry", this.UI_TOKENS.radius.medium)
+            .style("fill", this.UI_TOKENS.color.neutral.white)
+            .style("stroke", this.UI_TOKENS.color.neutral.grey60)
+            .style("stroke-width", 1.5)
+            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        const iconPadding = this.UI_TOKENS.spacing.lg;
+        const iconColor = isShowingCritical
+            ? this.UI_TOKENS.color.danger.default
+            : this.UI_TOKENS.color.success.default;
+
+        this.toggleButtonGroup.append("circle")
+            .attr("cx", iconPadding)
+            .attr("cy", buttonHeight / 2)
+            .attr("r", 10)
+            .style("fill", isShowingCritical ? this.UI_TOKENS.color.danger.subtle : this.UI_TOKENS.color.success.subtle)
+            .style("pointer-events", "none")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        this.toggleButtonGroup.append("path")
+            .attr("d", isShowingCritical
+                ? "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z"
+                : "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3")
+            .attr("transform", `translate(${iconPadding}, ${buttonHeight / 2})`)
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 2.25)
+            .attr("fill", isShowingCritical ? iconColor : "none")
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round")
+            .style("pointer-events", "none")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        const buttonText = layout.mode === 'narrow'
+            ? (isShowingCritical ? "Critical" : "All")
+            : (isShowingCritical ? "Show Critical" : "Show All");
+
+        this.toggleButtonGroup.append("text")
+            .attr("x", buttonWidth / 2 + this.UI_TOKENS.spacing.md)
             .attr("y", buttonHeight / 2)
+            .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
             .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
             .style("fill", this.UI_TOKENS.color.neutral.grey160)
-            .style("font-weight", this.showBaselineInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
+            .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
             .style("letter-spacing", "0.2px")
             .style("pointer-events", "none")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-            .text("Baseline");
-    }
+            .text(buttonText);
 
-    baselineToggleGroup.append("title")
-        .text(isAvailable
-            ? (this.showBaselineInternal ? "Click to hide baseline task bars" : "Click to show baseline task bars below main bars")
-            : "Requires Baseline Start Date and Baseline Finish Date fields to be mapped");
-
-    if (isAvailable) {
         const self = this;
-
-        baselineToggleGroup
-            .on("mouseover", function() {
+        this.toggleButtonGroup
+            .on("mouseover", function () {
                 d3.select(this).select("rect")
-                    .style("fill", self.showBaselineInternal ? hoverBaselineColor : self.UI_TOKENS.color.neutral.grey10)
-                    .style("stroke-width", 2.5)
+                    .style("fill", self.UI_TOKENS.color.neutral.grey10)
+                    .style("stroke", self.UI_TOKENS.color.neutral.grey90)
+                    .style("stroke-width", 2)
                     .style("transform", "translateY(-2px)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
             })
-            .on("mouseout", function() {
+            .on("mouseout", function () {
                 d3.select(this).select("rect")
-                    .style("fill", self.showBaselineInternal ? lightBaselineColor : self.UI_TOKENS.color.neutral.white)
-                    .style("stroke-width", self.showBaselineInternal ? 2 : 1.5)
+                    .style("fill", self.UI_TOKENS.color.neutral.white)
+                    .style("stroke", self.UI_TOKENS.color.neutral.grey60)
+                    .style("stroke-width", 1.5)
                     .style("transform", "translateY(0)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
             })
-            .on("mousedown", function() {
+            .on("mousedown", function () {
                 d3.select(this).select("rect")
                     .style("transform", "translateY(0) scale(0.96)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
             })
-            .on("mouseup", function() {
+            .on("mouseup", function () {
                 d3.select(this).select("rect")
                     .style("transform", "translateY(-2px) scale(1)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
             });
 
-        baselineToggleGroup.on("click", function(event) {
+        const clickOverlay = this.toggleButtonGroup.append("rect")
+            .attr("width", buttonWidth)
+            .attr("height", buttonHeight)
+            .attr("rx", this.UI_TOKENS.radius.medium)
+            .attr("ry", this.UI_TOKENS.radius.medium)
+            .style("fill", "transparent")
+            .style("cursor", "pointer");
+
+        clickOverlay.on("click", function (event) {
             if (event) event.stopPropagation();
-            self.toggleBaselineDisplayInternal();
+            self.toggleTaskDisplayInternal();
         });
 
-        baselineToggleGroup.on("keydown", function(event) {
+        this.toggleButtonGroup.on("keydown", function (event) {
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                self.toggleBaselineDisplayInternal();
+                self.toggleTaskDisplayInternal();
             }
         });
+
+        this.toggleButtonGroup.append("title")
+            .text(isShowingCritical
+                ? "Click to filter and show only critical path tasks"
+                : "Click to show all tasks in the project");
     }
-}
 
-private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
-    if (!this.headerSvg) return;
+    private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
+        if (!this.headerSvg) return;
 
-    this.headerSvg.selectAll(".previous-update-toggle-group").remove();
+        this.headerSvg.selectAll(".baseline-toggle-group").remove();
 
-    const dataView = this.lastUpdateOptions?.dataViews?.[0];
-    const hasPreviousUpdateStart = dataView ? this.hasDataRole(dataView, 'previousUpdateStartDate') : false;
-    const hasPreviousUpdateFinish = dataView ? this.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
-    const isAvailable = hasPreviousUpdateStart && hasPreviousUpdateFinish;
+        const dataView = this.lastUpdateOptions?.dataViews?.[0];
+        const hasBaselineStart = dataView ? this.hasDataRole(dataView, 'baselineStartDate') : false;
+        const hasBaselineFinish = dataView ? this.hasDataRole(dataView, 'baselineFinishDate') : false;
+        const isAvailable = hasBaselineStart && hasBaselineFinish;
 
-    const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
-    const lightPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.90);
-    const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.80);
-    const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const lightBaselineColor = this.lightenColor(baselineColor, 0.93);
+        const hoverBaselineColor = this.lightenColor(baselineColor, 0.85);
+        const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
 
-    const layout = this.getHeaderButtonLayout(viewportWidth);
-    const { x: buttonX, width: buttonWidth, iconOnly } = layout.previousUpdate;
+        const layout = this.getHeaderButtonLayout(viewportWidth);
+        const { x: buttonX, width: buttonWidth, iconOnly } = layout.baseline;
 
-    const previousUpdateToggleGroup = this.headerSvg.append("g")
-        .attr("class", "previous-update-toggle-group")
-        .style("cursor", isAvailable ? "pointer" : "not-allowed")
-        .attr("role", "button")
-        .attr("aria-label", `${this.showPreviousUpdateInternal ? 'Hide' : 'Show'} previous update task bars`)
-        .attr("aria-pressed", this.showPreviousUpdateInternal.toString())
-        .attr("aria-disabled", (!isAvailable).toString())
-        .attr("tabindex", isAvailable ? "0" : "-1");
+        const baselineToggleGroup = this.headerSvg.append("g")
+            .attr("class", "baseline-toggle-group")
+            .style("cursor", isAvailable ? "pointer" : "not-allowed")
+            .attr("role", "button")
+            .attr("aria-label", `${this.showBaselineInternal ? 'Hide' : 'Show'} baseline task bars`)
+            .attr("aria-pressed", this.showBaselineInternal.toString())
+            .attr("aria-disabled", (!isAvailable).toString())
+            .attr("tabindex", isAvailable ? "0" : "-1");
 
-    const buttonHeight = this.UI_TOKENS.height.standard;
-    const buttonY = this.UI_TOKENS.spacing.sm;
+        const buttonHeight = this.UI_TOKENS.height.standard;
+        const buttonY = this.UI_TOKENS.spacing.sm;
 
-    previousUpdateToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+        baselineToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    const buttonRect = previousUpdateToggleGroup.append("rect")
-        .attr("width", buttonWidth)
-        .attr("height", buttonHeight)
-        .attr("rx", this.UI_TOKENS.radius.medium)
-        .attr("ry", this.UI_TOKENS.radius.medium)
-        .style("fill", this.showPreviousUpdateInternal ? lightPreviousUpdateColor : this.UI_TOKENS.color.neutral.white)
-        .style("stroke", previousUpdateColor)
-        .style("stroke-width", this.showPreviousUpdateInternal ? 2 : 1.5)
-        .style("opacity", isAvailable ? 1 : 0.4)
-        .style("filter", isAvailable ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+        const buttonRect = baselineToggleGroup.append("rect")
+            .attr("width", buttonWidth)
+            .attr("height", buttonHeight)
+            .attr("rx", this.UI_TOKENS.radius.medium)
+            .attr("ry", this.UI_TOKENS.radius.medium)
+            .style("fill", this.showBaselineInternal ? lightBaselineColor : this.UI_TOKENS.color.neutral.white)
+            .style("stroke", baselineColor)
+            .style("stroke-width", this.showBaselineInternal ? 2 : 1.5)
+            .style("opacity", isAvailable ? 1 : 0.4)
+            .style("filter", isAvailable ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-    const iconX = iconOnly ? (buttonWidth / 2 - 8) : this.UI_TOKENS.spacing.lg;
-    const iconY = buttonHeight / 2;
+        const iconX = iconOnly ? (buttonWidth / 2 - 8) : (this.UI_TOKENS.spacing.lg + 2);
+        const iconY = buttonHeight / 2;
 
-    previousUpdateToggleGroup.append("circle")
-        .attr("cx", iconX + 8)
-        .attr("cy", iconY)
-        .attr("r", iconOnly ? 11 : 14)
-        .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey20)
-        .attr("opacity", this.showPreviousUpdateInternal ? 0.15 : 0.5)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    previousUpdateToggleGroup.append("rect")
-        .attr("x", iconX)
-        .attr("y", iconY - 7)
-        .attr("width", 16)
-        .attr("height", 4)
-        .attr("rx", 1.5)
-        .attr("ry", 1.5)
-        .attr("fill", this.showPreviousUpdateInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    previousUpdateToggleGroup.append("rect")
-        .attr("x", iconX)
-        .attr("y", iconY - 1)
-        .attr("width", 16)
-        .attr("height", 3)
-        .attr("rx", 1)
-        .attr("ry", 1)
-        .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey60)
-        .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    previousUpdateToggleGroup.append("rect")
-        .attr("x", iconX)
-        .attr("y", iconY + 4)
-        .attr("width", 16)
-        .attr("height", 3)
-        .attr("rx", 1)
-        .attr("ry", 1)
-        .attr("fill", this.showPreviousUpdateInternal ? baselineColor : this.UI_TOKENS.color.neutral.grey60)
-        .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    if (!iconOnly) {
-        previousUpdateToggleGroup.append("text")
-            .attr("x", iconX + 24)
-            .attr("y", buttonHeight / 2)
-            .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-            .style("letter-spacing", "0.2px")
-            .style("fill", this.UI_TOKENS.color.neutral.grey160)
-            .style("font-weight", this.showPreviousUpdateInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
+        baselineToggleGroup.append("circle")
+            .attr("cx", iconX + 8)
+            .attr("cy", iconY)
+            .attr("r", 11)
+            .style("fill", this.showBaselineInternal ? this.lightenColor(baselineColor, 0.95) : this.UI_TOKENS.color.neutral.grey10)
+            .style("opacity", 0.6)
             .style("pointer-events", "none")
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-            .text("Prev Update");
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        baselineToggleGroup.append("rect")
+            .attr("x", iconX)
+            .attr("y", iconY - 8)
+            .attr("width", 16)
+            .attr("height", 4.5)
+            .attr("rx", 2)
+            .attr("ry", 2)
+            .attr("fill", this.showBaselineInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90)
+            .style("pointer-events", "none")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        baselineToggleGroup.append("rect")
+            .attr("x", iconX)
+            .attr("y", iconY - 1.5)
+            .attr("width", 16)
+            .attr("height", 3.5)
+            .attr("rx", 1.5)
+            .attr("ry", 1.5)
+            .attr("fill", this.showBaselineInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey60)
+            .style("opacity", this.showBaselineInternal ? 1 : 0.6)
+            .style("pointer-events", "none")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        baselineToggleGroup.append("rect")
+            .attr("x", iconX)
+            .attr("y", iconY + 4)
+            .attr("width", 16)
+            .attr("height", 3.5)
+            .attr("rx", 1.5)
+            .attr("ry", 1.5)
+            .attr("fill", this.showBaselineInternal ? baselineColor : this.UI_TOKENS.color.neutral.grey60)
+            .style("opacity", this.showBaselineInternal ? 1 : 0.6)
+            .style("pointer-events", "none")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        if (!iconOnly) {
+            baselineToggleGroup.append("text")
+                .attr("x", iconX + 26)
+                .attr("y", buttonHeight / 2)
+                .attr("dominant-baseline", "central")
+                .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+                .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+                .style("fill", this.UI_TOKENS.color.neutral.grey160)
+                .style("font-weight", this.showBaselineInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
+                .style("letter-spacing", "0.2px")
+                .style("pointer-events", "none")
+                .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+                .text("Baseline");
+        }
+
+        baselineToggleGroup.append("title")
+            .text(isAvailable
+                ? (this.showBaselineInternal ? "Click to hide baseline task bars" : "Click to show baseline task bars below main bars")
+                : "Requires Baseline Start Date and Baseline Finish Date fields to be mapped");
+
+        if (isAvailable) {
+            const self = this;
+
+            baselineToggleGroup
+                .on("mouseover", function () {
+                    d3.select(this).select("rect")
+                        .style("fill", self.showBaselineInternal ? hoverBaselineColor : self.UI_TOKENS.color.neutral.grey10)
+                        .style("stroke-width", 2.5)
+                        .style("transform", "translateY(-2px)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+                })
+                .on("mouseout", function () {
+                    d3.select(this).select("rect")
+                        .style("fill", self.showBaselineInternal ? lightBaselineColor : self.UI_TOKENS.color.neutral.white)
+                        .style("stroke-width", self.showBaselineInternal ? 2 : 1.5)
+                        .style("transform", "translateY(0)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+                })
+                .on("mousedown", function () {
+                    d3.select(this).select("rect")
+                        .style("transform", "translateY(0) scale(0.96)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
+                })
+                .on("mouseup", function () {
+                    d3.select(this).select("rect")
+                        .style("transform", "translateY(-2px) scale(1)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+                });
+
+            baselineToggleGroup.on("click", function (event) {
+                if (event) event.stopPropagation();
+                self.toggleBaselineDisplayInternal();
+            });
+
+            baselineToggleGroup.on("keydown", function (event) {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    self.toggleBaselineDisplayInternal();
+                }
+            });
+        }
     }
 
-    previousUpdateToggleGroup.append("title")
-        .text(isAvailable
-            ? (this.showPreviousUpdateInternal ? "Click to hide previous update task bars" : "Click to show previous update task bars between main and baseline")
-            : "Requires Previous Update Start Date and Previous Update Finish Date fields to be mapped");
+    private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
+        if (!this.headerSvg) return;
 
-    if (isAvailable) {
+        this.headerSvg.selectAll(".previous-update-toggle-group").remove();
+
+        const dataView = this.lastUpdateOptions?.dataViews?.[0];
+        const hasPreviousUpdateStart = dataView ? this.hasDataRole(dataView, 'previousUpdateStartDate') : false;
+        const hasPreviousUpdateFinish = dataView ? this.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
+        const isAvailable = hasPreviousUpdateStart && hasPreviousUpdateFinish;
+
+        const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+        const lightPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.90);
+        const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.80);
+        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+
+        const layout = this.getHeaderButtonLayout(viewportWidth);
+        const { x: buttonX, width: buttonWidth, iconOnly } = layout.previousUpdate;
+
+        const previousUpdateToggleGroup = this.headerSvg.append("g")
+            .attr("class", "previous-update-toggle-group")
+            .style("cursor", isAvailable ? "pointer" : "not-allowed")
+            .attr("role", "button")
+            .attr("aria-label", `${this.showPreviousUpdateInternal ? 'Hide' : 'Show'} previous update task bars`)
+            .attr("aria-pressed", this.showPreviousUpdateInternal.toString())
+            .attr("aria-disabled", (!isAvailable).toString())
+            .attr("tabindex", isAvailable ? "0" : "-1");
+
+        const buttonHeight = this.UI_TOKENS.height.standard;
+        const buttonY = this.UI_TOKENS.spacing.sm;
+
+        previousUpdateToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+        const buttonRect = previousUpdateToggleGroup.append("rect")
+            .attr("width", buttonWidth)
+            .attr("height", buttonHeight)
+            .attr("rx", this.UI_TOKENS.radius.medium)
+            .attr("ry", this.UI_TOKENS.radius.medium)
+            .style("fill", this.showPreviousUpdateInternal ? lightPreviousUpdateColor : this.UI_TOKENS.color.neutral.white)
+            .style("stroke", previousUpdateColor)
+            .style("stroke-width", this.showPreviousUpdateInternal ? 2 : 1.5)
+            .style("opacity", isAvailable ? 1 : 0.4)
+            .style("filter", isAvailable ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        const iconX = iconOnly ? (buttonWidth / 2 - 8) : this.UI_TOKENS.spacing.lg;
+        const iconY = buttonHeight / 2;
+
+        previousUpdateToggleGroup.append("circle")
+            .attr("cx", iconX + 8)
+            .attr("cy", iconY)
+            .attr("r", iconOnly ? 11 : 14)
+            .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey20)
+            .attr("opacity", this.showPreviousUpdateInternal ? 0.15 : 0.5)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        previousUpdateToggleGroup.append("rect")
+            .attr("x", iconX)
+            .attr("y", iconY - 7)
+            .attr("width", 16)
+            .attr("height", 4)
+            .attr("rx", 1.5)
+            .attr("ry", 1.5)
+            .attr("fill", this.showPreviousUpdateInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        previousUpdateToggleGroup.append("rect")
+            .attr("x", iconX)
+            .attr("y", iconY - 1)
+            .attr("width", 16)
+            .attr("height", 3)
+            .attr("rx", 1)
+            .attr("ry", 1)
+            .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey60)
+            .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        previousUpdateToggleGroup.append("rect")
+            .attr("x", iconX)
+            .attr("y", iconY + 4)
+            .attr("width", 16)
+            .attr("height", 3)
+            .attr("rx", 1)
+            .attr("ry", 1)
+            .attr("fill", this.showPreviousUpdateInternal ? baselineColor : this.UI_TOKENS.color.neutral.grey60)
+            .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        if (!iconOnly) {
+            previousUpdateToggleGroup.append("text")
+                .attr("x", iconX + 24)
+                .attr("y", buttonHeight / 2)
+                .attr("dominant-baseline", "central")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+                .style("letter-spacing", "0.2px")
+                .style("fill", this.UI_TOKENS.color.neutral.grey160)
+                .style("font-weight", this.showPreviousUpdateInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
+                .style("pointer-events", "none")
+                .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+                .text("Prev Update");
+        }
+
+        previousUpdateToggleGroup.append("title")
+            .text(isAvailable
+                ? (this.showPreviousUpdateInternal ? "Click to hide previous update task bars" : "Click to show previous update task bars between main and baseline")
+                : "Requires Previous Update Start Date and Previous Update Finish Date fields to be mapped");
+
+        if (isAvailable) {
+            const self = this;
+
+            previousUpdateToggleGroup
+                .on("mouseover", function () {
+                    d3.select(this).select("rect")
+                        .style("fill", self.showPreviousUpdateInternal ? hoverPreviousUpdateColor : self.UI_TOKENS.color.neutral.grey20)
+                        .style("transform", "translateY(-2px)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+                })
+                .on("mouseout", function () {
+                    d3.select(this).select("rect")
+                        .style("fill", self.showPreviousUpdateInternal ? lightPreviousUpdateColor : self.UI_TOKENS.color.neutral.white)
+                        .style("transform", "translateY(0)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+                })
+                .on("mousedown", function () {
+                    d3.select(this).select("rect")
+                        .style("transform", "translateY(0) scale(0.98)");
+                })
+                .on("mouseup", function () {
+                    d3.select(this).select("rect")
+                        .style("transform", "translateY(-2px) scale(1)");
+                });
+
+            previousUpdateToggleGroup.on("click", function (event) {
+                if (event) event.stopPropagation();
+                self.togglePreviousUpdateDisplayInternal();
+            });
+
+            previousUpdateToggleGroup.on("keydown", function (event) {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    self.togglePreviousUpdateDisplayInternal();
+                }
+            });
+        }
+    }
+
+    private lightenColor(color: string, factor: number): string {
+
+        const hex = color.replace('#', '');
+        const r = parseInt(hex.substr(0, 2), 16);
+        const g = parseInt(hex.substr(2, 2), 16);
+        const b = parseInt(hex.substr(4, 2), 16);
+
+        const newR = Math.round(r + (255 - r) * factor);
+        const newG = Math.round(g + (255 - g) * factor);
+        const newB = Math.round(b + (255 - b) * factor);
+
+        return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
+    }
+
+    private createConnectorLinesToggleButton(viewportWidth?: number): void {
+        if (!this.headerSvg) return;
+
+        this.headerSvg.selectAll(".connector-toggle-group").remove();
+
+        const showConnectorToggle = this.settings?.connectorLines?.showConnectorToggle?.value ?? false;
+        if (!showConnectorToggle) return;
+
+        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+        const { x: buttonX, size: buttonSize } = layout.connectorLines;
+
+        const connectorToggleGroup = this.headerSvg.append("g")
+            .attr("class", "connector-toggle-group")
+            .style("cursor", "pointer")
+            .attr("role", "button")
+            .attr("aria-label", `${this.showConnectorLinesInternal ? 'Hide' : 'Show'} connector lines between tasks`)
+            .attr("aria-pressed", this.showConnectorLinesInternal.toString())
+            .attr("tabindex", "0");
+
+        const buttonY = this.UI_TOKENS.spacing.sm;
+
+        connectorToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+        const buttonRect = connectorToggleGroup.append("rect")
+            .attr("width", buttonSize)
+            .attr("height", buttonSize)
+            .attr("rx", this.UI_TOKENS.radius.medium)
+            .attr("ry", this.UI_TOKENS.radius.medium)
+            .style("fill", this.showConnectorLinesInternal
+                ? this.UI_TOKENS.color.success.light
+                : this.UI_TOKENS.color.neutral.white)
+            .style("stroke", this.showConnectorLinesInternal
+                ? this.UI_TOKENS.color.success.default
+                : this.UI_TOKENS.color.neutral.grey60)
+            .style("stroke-width", this.showConnectorLinesInternal ? 2 : 1.5)
+            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        const iconCenter = (buttonSize / 2) - 2;
+        const iconG = connectorToggleGroup.append("g")
+            .attr("transform", `translate(${iconCenter}, ${iconCenter})`);
+
+        iconG.append("path")
+            .attr("d", "M-6,-3 L0,3 L6,-3")
+            .attr("stroke", this.showConnectorLinesInternal
+                ? this.UI_TOKENS.color.success.default
+                : this.UI_TOKENS.color.neutral.grey130)
+            .attr("stroke-width", 2)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round")
+            .attr("stroke-dasharray", this.showConnectorLinesInternal ? "none" : "3,2")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        if (this.showConnectorLinesInternal) {
+            iconG.append("circle")
+                .attr("cx", -6)
+                .attr("cy", -3)
+                .attr("r", 1.5)
+                .attr("fill", this.UI_TOKENS.color.success.default);
+
+            iconG.append("circle")
+                .attr("cx", 6)
+                .attr("cy", -3)
+                .attr("r", 1.5)
+                .attr("fill", this.UI_TOKENS.color.success.default);
+        }
+
+        connectorToggleGroup.append("title")
+            .text(this.showConnectorLinesInternal
+                ? "Click to hide connector lines between dependent tasks"
+                : "Click to show connector lines between dependent tasks");
+
         const self = this;
-
-        previousUpdateToggleGroup
-            .on("mouseover", function() {
+        connectorToggleGroup
+            .on("mouseover", function () {
                 d3.select(this).select("rect")
-                    .style("fill", self.showPreviousUpdateInternal ? hoverPreviousUpdateColor : self.UI_TOKENS.color.neutral.grey20)
+                    .style("fill", self.showConnectorLinesInternal
+                        ? self.UI_TOKENS.color.success.default
+                        : self.UI_TOKENS.color.neutral.grey20)
                     .style("transform", "translateY(-2px)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+
+                if (self.showConnectorLinesInternal) {
+                    d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+                    d3.select(this).selectAll("circle").attr("fill", self.UI_TOKENS.color.neutral.white);
+                }
             })
-            .on("mouseout", function() {
+            .on("mouseout", function () {
                 d3.select(this).select("rect")
-                    .style("fill", self.showPreviousUpdateInternal ? lightPreviousUpdateColor : self.UI_TOKENS.color.neutral.white)
+                    .style("fill", self.showConnectorLinesInternal
+                        ? self.UI_TOKENS.color.success.light
+                        : self.UI_TOKENS.color.neutral.white)
                     .style("transform", "translateY(0)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+                if (self.showConnectorLinesInternal) {
+                    d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.success.default);
+                    d3.select(this).selectAll("circle").attr("fill", self.UI_TOKENS.color.success.default);
+                }
             })
-            .on("mousedown", function() {
+            .on("mousedown", function () {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(0) scale(0.98)");
+                    .style("transform", "translateY(0) scale(0.95)");
             })
-            .on("mouseup", function() {
+            .on("mouseup", function () {
                 d3.select(this).select("rect")
                     .style("transform", "translateY(-2px) scale(1)");
             });
 
-        previousUpdateToggleGroup.on("click", function(event) {
+        connectorToggleGroup.on("click", function (event) {
             if (event) event.stopPropagation();
-            self.togglePreviousUpdateDisplayInternal();
+            self.toggleConnectorLinesDisplay();
         });
 
-        previousUpdateToggleGroup.on("keydown", function(event) {
+        connectorToggleGroup.on("keydown", function (event) {
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                self.togglePreviousUpdateDisplayInternal();
+                self.toggleConnectorLinesDisplay();
             }
         });
     }
-}
 
-private lightenColor(color: string, factor: number): string {
+    private createOrUpdateWbsEnableToggleButton(viewportWidth?: number): void {
+        if (!this.headerSvg) return;
 
-    const hex = color.replace('#', '');
-    const r = parseInt(hex.substr(0, 2), 16);
-    const g = parseInt(hex.substr(2, 2), 16);
-    const b = parseInt(hex.substr(4, 2), 16);
+        this.headerSvg.selectAll(".wbs-enable-toggle-group").remove();
 
-    const newR = Math.round(r + (255 - r) * factor);
-    const newG = Math.round(g + (255 - g) * factor);
-    const newB = Math.round(b + (255 - b) * factor);
-
-    return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
-}
-
-private createConnectorLinesToggleButton(viewportWidth?: number): void {
-    if (!this.headerSvg) return;
-
-    this.headerSvg.selectAll(".connector-toggle-group").remove();
-
-    const showConnectorToggle = this.settings?.connectorLines?.showConnectorToggle?.value ?? false;
-    if (!showConnectorToggle) return;
-
-    const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-    const { x: buttonX, size: buttonSize } = layout.connectorLines;
-
-    const connectorToggleGroup = this.headerSvg.append("g")
-        .attr("class", "connector-toggle-group")
-        .style("cursor", "pointer")
-        .attr("role", "button")
-        .attr("aria-label", `${this.showConnectorLinesInternal ? 'Hide' : 'Show'} connector lines between tasks`)
-        .attr("aria-pressed", this.showConnectorLinesInternal.toString())
-        .attr("tabindex", "0");
-
-    const buttonY = this.UI_TOKENS.spacing.sm;
-
-    connectorToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
-
-    const buttonRect = connectorToggleGroup.append("rect")
-        .attr("width", buttonSize)
-        .attr("height", buttonSize)
-        .attr("rx", this.UI_TOKENS.radius.medium)
-        .attr("ry", this.UI_TOKENS.radius.medium)
-        .style("fill", this.showConnectorLinesInternal
-            ? this.UI_TOKENS.color.success.light
-            : this.UI_TOKENS.color.neutral.white)
-        .style("stroke", this.showConnectorLinesInternal
-            ? this.UI_TOKENS.color.success.default
-            : this.UI_TOKENS.color.neutral.grey60)
-        .style("stroke-width", this.showConnectorLinesInternal ? 2 : 1.5)
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    const iconCenter = (buttonSize / 2) - 2;
-    const iconG = connectorToggleGroup.append("g")
-        .attr("transform", `translate(${iconCenter}, ${iconCenter})`);
-
-    iconG.append("path")
-        .attr("d", "M-6,-3 L0,3 L6,-3")
-        .attr("stroke", this.showConnectorLinesInternal
-            ? this.UI_TOKENS.color.success.default
-            : this.UI_TOKENS.color.neutral.grey130)
-        .attr("stroke-width", 2)
-        .attr("fill", "none")
-        .attr("stroke-linecap", "round")
-        .attr("stroke-linejoin", "round")
-        .attr("stroke-dasharray", this.showConnectorLinesInternal ? "none" : "3,2")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    if (this.showConnectorLinesInternal) {
-        iconG.append("circle")
-            .attr("cx", -6)
-            .attr("cy", -3)
-            .attr("r", 1.5)
-            .attr("fill", this.UI_TOKENS.color.success.default);
-
-        iconG.append("circle")
-            .attr("cx", 6)
-            .attr("cy", -3)
-            .attr("r", 1.5)
-            .attr("fill", this.UI_TOKENS.color.success.default);
-    }
-
-    connectorToggleGroup.append("title")
-        .text(this.showConnectorLinesInternal
-            ? "Click to hide connector lines between dependent tasks"
-            : "Click to show connector lines between dependent tasks");
-
-    const self = this;
-    connectorToggleGroup
-        .on("mouseover", function() {
-            d3.select(this).select("rect")
-                .style("fill", self.showConnectorLinesInternal
-                    ? self.UI_TOKENS.color.success.default
-                    : self.UI_TOKENS.color.neutral.grey20)
-                .style("transform", "translateY(-2px)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-
-            if (self.showConnectorLinesInternal) {
-                d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
-                d3.select(this).selectAll("circle").attr("fill", self.UI_TOKENS.color.neutral.white);
-            }
-        })
-        .on("mouseout", function() {
-            d3.select(this).select("rect")
-                .style("fill", self.showConnectorLinesInternal
-                    ? self.UI_TOKENS.color.success.light
-                    : self.UI_TOKENS.color.neutral.white)
-                .style("transform", "translateY(0)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
-
-            if (self.showConnectorLinesInternal) {
-                d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.success.default);
-                d3.select(this).selectAll("circle").attr("fill", self.UI_TOKENS.color.success.default);
-            }
-        })
-        .on("mousedown", function() {
-            d3.select(this).select("rect")
-                .style("transform", "translateY(0) scale(0.95)");
-        })
-        .on("mouseup", function() {
-            d3.select(this).select("rect")
-                .style("transform", "translateY(-2px) scale(1)");
-        });
-
-    connectorToggleGroup.on("click", function(event) {
-        if (event) event.stopPropagation();
-        self.toggleConnectorLinesDisplay();
-    });
-
-    connectorToggleGroup.on("keydown", function(event) {
-        if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            self.toggleConnectorLinesDisplay();
-        }
-    });
-}
-
-private createOrUpdateWbsEnableToggleButton(viewportWidth?: number): void {
-    if (!this.headerSvg) return;
-
-    this.headerSvg.selectAll(".wbs-enable-toggle-group").remove();
-
-    const wbsColumnsExist = this.wbsDataExistsInMetadata;
-    const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
-    if (!wbsColumnsExist || !showWbsToggle) return;
-
-    const isEnabled = !!this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-
-    const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-    const { x: buttonX, width: buttonWidth } = layout.wbsEnable;
-    const buttonHeight = this.UI_TOKENS.height.standard;
-    const buttonY = this.UI_TOKENS.spacing.sm;
-
-    const group = this.headerSvg.append("g")
-        .attr("class", "wbs-enable-toggle-group")
-        .style("cursor", "pointer")
-        .attr("role", "button")
-        .attr("aria-pressed", isEnabled.toString())
-        .attr("aria-label", isEnabled ? "Turn off WBS grouping" : "Turn on WBS grouping")
-        .attr("tabindex", "0")
-        .attr("transform", `translate(${buttonX}, ${buttonY})`);
-
-    const fill = isEnabled ? this.UI_TOKENS.color.primary.light : this.UI_TOKENS.color.neutral.white;
-    const stroke = isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey60;
-    const textColor = isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey130;
-
-    group.append("rect")
-        .attr("width", buttonWidth)
-        .attr("height", buttonHeight)
-        .attr("rx", this.UI_TOKENS.radius.medium)
-        .attr("ry", this.UI_TOKENS.radius.medium)
-        .style("fill", fill)
-        .style("stroke", stroke)
-        .style("stroke-width", isEnabled ? 2 : 1.5)
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    const textY = buttonHeight / 2;
-    group.append("text")
-        .attr("x", buttonWidth / 2 + 6)
-        .attr("y", textY)
-        .attr("text-anchor", "middle")
-        .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-        .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
-        .style("fill", textColor)
-        .text("WBS");
-
-    group.append("circle")
-        .attr("cx", 10)
-        .attr("cy", textY)
-        .attr("r", 4)
-        .style("fill", isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey60);
-
-    const self = this;
-    group.on("mouseover", function() {
-        d3.select(this).select("rect")
-            .style("fill", isEnabled ? self.UI_TOKENS.color.primary.default : self.UI_TOKENS.color.neutral.grey20)
-            .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[6]})`);
-    }).on("mouseout", function() {
-        d3.select(this).select("rect")
-            .style("fill", fill)
-            .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
-    });
-
-    group.on("click", function(event) {
-        if (event) event.stopPropagation();
-        self.toggleWbsEnabled();
-    });
-
-    group.on("keydown", function(event: KeyboardEvent) {
-        if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            self.toggleWbsEnabled();
-        }
-    });
-}
-
-/**
- * Creates both WBS expand (forward cycle) and collapse (reverse cycle) buttons
- */
-private renderWbsCycleButtons(viewportWidth?: number): void {
-    this.createWbsExpandCycleToggleButton(viewportWidth);
-    this.createWbsCollapseCycleToggleButton(viewportWidth);
-}
-
-/**
- * Toggles WBS grouping on/off for the viewer (persisted in formatting properties).
- */
-private toggleWbsEnabled(): void {
-    try {
         const wbsColumnsExist = this.wbsDataExistsInMetadata;
-        if (!wbsColumnsExist || !this.settings?.wbsGrouping?.enableWbsGrouping) return;
+        const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
+        if (!wbsColumnsExist || !showWbsToggle) return;
 
-        const newEnabled = !this.settings.wbsGrouping.enableWbsGrouping.value;
-        this.settings.wbsGrouping.enableWbsGrouping.value = newEnabled;
-        this.wbsEnableOverride = newEnabled;
-        this.lastWbsToggleTimestamp = Date.now();
-        this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
+        const isEnabled = !!this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
-        if (!newEnabled) {
-            this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
-            this.taskLabelLayer?.selectAll("*").remove();
-            this.labelGridLayer?.selectAll("*").remove();
-            this.wbsExpandedInternal = false;
-            this.wbsManualExpansionOverride = false;
-            this.wbsManuallyToggledGroups.clear();
-            this.wbsToggleScrollAnchor = null;
-        }
+        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+        const { x: buttonX, width: buttonWidth } = layout.wbsEnable;
+        const buttonHeight = this.UI_TOKENS.height.standard;
+        const buttonY = this.UI_TOKENS.spacing.sm;
 
-        this.host.persistProperties({
-            merge: [{
-                objectName: "wbsGrouping",
-                properties: { enableWbsGrouping: newEnabled },
-                selector: null
-            }]
-        });
+        const group = this.headerSvg.append("g")
+            .attr("class", "wbs-enable-toggle-group")
+            .style("cursor", "pointer")
+            .attr("role", "button")
+            .attr("aria-pressed", isEnabled.toString())
+            .attr("aria-label", isEnabled ? "Turn off WBS grouping" : "Turn on WBS grouping")
+            .attr("tabindex", "0")
+            .attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-        if (this.scrollableContainer?.node()) {
-            this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
-            this.preserveScrollOnUpdate = true;
-            this.scrollPreservationUntil = Date.now() + 1500;
-        }
+        const fill = isEnabled ? this.UI_TOKENS.color.primary.light : this.UI_TOKENS.color.neutral.white;
+        const stroke = isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey60;
+        const textColor = isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey130;
 
-        this.forceFullUpdate = true;
+        group.append("rect")
+            .attr("width", buttonWidth)
+            .attr("height", buttonHeight)
+            .attr("rx", this.UI_TOKENS.radius.medium)
+            .attr("ry", this.UI_TOKENS.radius.medium)
+            .style("fill", fill)
+            .style("stroke", stroke)
+            .style("stroke-width", isEnabled ? 2 : 1.5)
+            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-        if (this.scrollThrottleTimeout) {
-            clearTimeout(this.scrollThrottleTimeout);
-            this.scrollThrottleTimeout = null;
-        }
+        const textY = buttonHeight / 2;
+        group.append("text")
+            .attr("x", buttonWidth / 2 + 6)
+            .attr("y", textY)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+            .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
+            .style("fill", textColor)
+            .text("WBS");
 
-        const viewportWidth = this.lastUpdateOptions?.viewport.width || 800;
-        this.createOrUpdateWbsEnableToggleButton(viewportWidth);
+        group.append("circle")
+            .attr("cx", 10)
+            .attr("cy", textY)
+            .attr("r", 4)
+            .style("fill", isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey60);
 
-        if (this.lastUpdateOptions) {
-            this.update(this.lastUpdateOptions);
-        } else {
-
-            this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
-        }
-    } catch (error) {
-        console.error("Error toggling WBS grouping:", error);
-    }
-}
-
-/**
- * Creates the WBS Expand cycle toggle button with icon-only design
- * Similar styling to Connector Lines toggle for visual consistency
- */
-private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
-    if (!this.headerSvg) return;
-
-    this.headerSvg.selectAll(".wbs-expand-toggle-group").remove();
-
-    const wbsColumnsExist = this.wbsDataExistsInMetadata;
-    const wbsEnabled = wbsColumnsExist && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-    const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
-    if (!wbsEnabled || !showWbsToggle) return;
-
-    if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
-        this.refreshWbsAvailableLevels();
-    }
-
-    const isCustom = this.wbsManualExpansionOverride;
-    const currentLevel = this.getCurrentWbsExpandLevel();
-    const levelLabel = isCustom
-        ? "Custom (manual overrides)"
-        : this.getWbsExpandLevelLabel(this.wbsExpandToLevel !== undefined ? this.wbsExpandToLevel : currentLevel);
-    const nextLevelValue = this.getNextWbsExpandLevel();
-    const nextLevelLabel = nextLevelValue !== null
-        ? this.getWbsExpandLevelLabel(nextLevelValue)
-        : this.getWbsExpandLevelLabel(currentLevel);
-
-    const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-    const { x: buttonX, size: buttonSize } = layout.wbsExpandToggle;
-
-    const wbsToggleGroup = this.headerSvg.append("g")
-        .attr("class", "wbs-expand-toggle-group")
-        .style("cursor", "pointer")
-        .attr("role", "button")
-        .attr("aria-label", isCustom
-            ? "Custom (manual overrides). Click to expand and clear overrides"
-            : `${levelLabel} (click to expand)`)
-        .attr("aria-pressed", this.wbsExpandedInternal.toString())
-        .attr("tabindex", "0");
-
-    const buttonY = this.UI_TOKENS.spacing.sm;
-
-    wbsToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
-
-    wbsToggleGroup.append("rect")
-        .attr("width", buttonSize)
-        .attr("height", buttonSize)
-        .attr("rx", this.UI_TOKENS.radius.medium)
-        .attr("ry", this.UI_TOKENS.radius.medium)
-        .style("fill", this.wbsExpandedInternal
-            ? this.UI_TOKENS.color.primary.light
-            : this.UI_TOKENS.color.neutral.white)
-        .style("stroke", this.wbsExpandedInternal
-            ? this.UI_TOKENS.color.primary.default
-            : this.UI_TOKENS.color.neutral.grey60)
-        .style("stroke-width", this.wbsExpandedInternal ? 2 : 1.5)
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    const iconCenterX = buttonSize / 2;
-    const iconCenterY = (buttonSize / 2) - 4;
-    const iconG = wbsToggleGroup.append("g")
-        .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
-
-    const iconColor = this.wbsExpandedInternal
-        ? this.UI_TOKENS.color.primary.default
-        : this.UI_TOKENS.color.neutral.grey130;
-
-    iconG.append("circle")
-        .attr("r", 11)
-        .attr("fill", this.wbsExpandedInternal ? this.UI_TOKENS.color.primary.subtle : this.UI_TOKENS.color.neutral.grey10)
-        .attr("opacity", 0.7);
-
-    iconG.append("path")
-        .attr("d", "M-4,0 L4,0 M0,-4 L0,4")
-        .attr("stroke", iconColor)
-        .attr("stroke-width", 2.2)
-        .attr("fill", "none")
-        .attr("stroke-linecap", "round");
-
-    iconG.append("path")
-        .attr("d", "M-4,5 L0,8 L4,5")
-        .attr("stroke", iconColor)
-        .attr("stroke-width", 1.8)
-        .attr("fill", "none")
-        .attr("stroke-linecap", "round")
-        .attr("stroke-linejoin", "round");
-
-    const badgeText = isCustom
-        ? "C"
-        : currentLevel === 0
-            ? "0"
-            : `L${currentLevel}`;
-    wbsToggleGroup.append("text")
-        .attr("x", buttonSize / 2)
-        .attr("y", buttonSize - 10)
-        .attr("text-anchor", "middle")
-        .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-        .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
-        .style("fill", iconColor)
-        .text(badgeText);
-
-    const levelsDesc = this.wbsAvailableLevels.length > 0
-        ? this.wbsAvailableLevels.map(l => `L${l}`).join(" -> ")
-        : "no levels";
-    const expandSteps = this.wbsAvailableLevels.length > 0
-        ? `Expand steps: 0 -> ${levelsDesc} (stops at max).`
-        : "Expand steps: 0 (stops at 0).";
-    wbsToggleGroup.append("title")
-        .text(`${levelLabel}. Next: ${nextLevelLabel}. ${isCustom ? "Manual overrides will be cleared." : expandSteps}`);
-
-    const self = this;
-    wbsToggleGroup
-        .on("mouseover", function() {
+        const self = this;
+        group.on("mouseover", function () {
             d3.select(this).select("rect")
-                .style("fill", self.wbsExpandedInternal
-                    ? self.UI_TOKENS.color.primary.default
-                    : self.UI_TOKENS.color.neutral.grey20)
-                .style("transform", "translateY(-2px)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-
-            if (self.wbsExpandedInternal) {
-                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
-            }
-        })
-        .on("mouseout", function() {
+                .style("fill", isEnabled ? self.UI_TOKENS.color.primary.default : self.UI_TOKENS.color.neutral.grey20)
+                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[6]})`);
+        }).on("mouseout", function () {
             d3.select(this).select("rect")
-                .style("fill", self.wbsExpandedInternal
-                    ? self.UI_TOKENS.color.primary.light
-                    : self.UI_TOKENS.color.neutral.white)
-                .style("transform", "translateY(0)")
+                .style("fill", fill)
                 .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
-
-            if (self.wbsExpandedInternal) {
-                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
-            }
-        })
-        .on("mousedown", function() {
-            d3.select(this).select("rect")
-                .style("transform", "translateY(0) scale(0.95)");
-        })
-        .on("mouseup", function() {
-            d3.select(this).select("rect")
-                .style("transform", "translateY(-2px) scale(1)");
         });
 
-    wbsToggleGroup.on("click", function(event) {
-        if (event) event.stopPropagation();
-        self.toggleWbsExpandCollapseDisplay();
-    });
+        group.on("click", function (event) {
+            if (event) event.stopPropagation();
+            self.toggleWbsEnabled();
+        });
 
-    wbsToggleGroup.on("keydown", function(event) {
-        if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            self.toggleWbsExpandCollapseDisplay();
-        }
-    });
-}
-
-/**
- * Creates the WBS Collapse cycle toggle button with icon-only design (reverse order)
- */
-private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
-    if (!this.headerSvg) return;
-
-    this.headerSvg.selectAll(".wbs-collapse-toggle-group").remove();
-
-    const wbsColumnsExist = this.wbsDataExistsInMetadata;
-    const wbsEnabled = wbsColumnsExist && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-    const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
-    if (!wbsEnabled || !showWbsToggle) return;
-
-    if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
-        this.refreshWbsAvailableLevels();
+        group.on("keydown", function (event: KeyboardEvent) {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                self.toggleWbsEnabled();
+            }
+        });
     }
 
-    const isCustom = this.wbsManualExpansionOverride;
-    const currentLevel = this.getCurrentWbsExpandLevel();
-    const levelLabel = isCustom
-        ? "Custom (manual overrides)"
-        : this.getWbsExpandLevelLabel(this.wbsExpandToLevel !== undefined ? this.wbsExpandToLevel : currentLevel);
-    const previousLevelValue = this.getPreviousWbsExpandLevel();
-    const previousLevelLabel = previousLevelValue !== null
-        ? this.getWbsExpandLevelLabel(previousLevelValue)
-        : this.getWbsExpandLevelLabel(currentLevel);
+    /**
+     * Creates both WBS expand (forward cycle) and collapse (reverse cycle) buttons
+     */
+    private renderWbsCycleButtons(viewportWidth?: number): void {
+        this.createWbsExpandCycleToggleButton(viewportWidth);
+        this.createWbsCollapseCycleToggleButton(viewportWidth);
+    }
 
-    const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-    const { x: buttonX, size: buttonSize } = layout.wbsCollapseToggle;
+    /**
+     * Toggles WBS grouping on/off for the viewer (persisted in formatting properties).
+     */
+    private toggleWbsEnabled(): void {
+        try {
+            const wbsColumnsExist = this.wbsDataExistsInMetadata;
+            if (!wbsColumnsExist || !this.settings?.wbsGrouping?.enableWbsGrouping) return;
 
-    const isCollapsed = this.wbsExpandToLevel === 0 || !this.wbsExpandedInternal;
+            const newEnabled = !this.settings.wbsGrouping.enableWbsGrouping.value;
+            this.settings.wbsGrouping.enableWbsGrouping.value = newEnabled;
+            this.wbsEnableOverride = newEnabled;
+            this.lastWbsToggleTimestamp = Date.now();
+            this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
 
-    const wbsCollapseGroup = this.headerSvg.append("g")
-        .attr("class", "wbs-collapse-toggle-group")
-        .style("cursor", "pointer")
-        .attr("role", "button")
-        .attr("aria-label", isCustom
-            ? "Custom (manual overrides). Click to collapse and clear overrides"
-            : `${levelLabel} (click to collapse)`)
-        .attr("aria-pressed", isCollapsed.toString())
-        .attr("tabindex", "0");
-
-    const buttonY = this.UI_TOKENS.spacing.sm;
-
-    wbsCollapseGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
-
-    wbsCollapseGroup.append("rect")
-        .attr("width", buttonSize)
-        .attr("height", buttonSize)
-        .attr("rx", this.UI_TOKENS.radius.medium)
-        .attr("ry", this.UI_TOKENS.radius.medium)
-        .style("fill", isCollapsed
-            ? this.UI_TOKENS.color.primary.light
-            : this.UI_TOKENS.color.neutral.white)
-        .style("stroke", isCollapsed
-            ? this.UI_TOKENS.color.primary.default
-            : this.UI_TOKENS.color.neutral.grey60)
-        .style("stroke-width", isCollapsed ? 2 : 1.5)
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    const iconCenterX = buttonSize / 2;
-    const iconCenterY = (buttonSize / 2) - 4;
-    const iconG = wbsCollapseGroup.append("g")
-        .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
-
-    const iconColor = isCollapsed
-        ? this.UI_TOKENS.color.primary.default
-        : this.UI_TOKENS.color.neutral.grey130;
-
-    iconG.append("circle")
-        .attr("r", 11)
-        .attr("fill", isCollapsed ? this.UI_TOKENS.color.primary.subtle : this.UI_TOKENS.color.neutral.grey10)
-        .attr("opacity", 0.7);
-
-    iconG.append("path")
-        .attr("d", "M-5,0 L5,0")
-        .attr("stroke", iconColor)
-        .attr("stroke-width", 2.2)
-        .attr("fill", "none")
-        .attr("stroke-linecap", "round");
-
-    iconG.append("path")
-        .attr("d", "M-4,-3 L0,-7 L4,-3")
-        .attr("stroke", iconColor)
-        .attr("stroke-width", 1.8)
-        .attr("fill", "none")
-        .attr("stroke-linecap", "round")
-        .attr("stroke-linejoin", "round");
-
-    const badgeText = isCustom
-        ? "C"
-        : currentLevel === 0
-            ? "0"
-            : `L${currentLevel}`;
-    wbsCollapseGroup.append("text")
-        .attr("x", buttonSize / 2)
-        .attr("y", buttonSize - 10)
-        .attr("text-anchor", "middle")
-        .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-        .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
-        .style("fill", iconColor)
-        .text(badgeText);
-
-    const levelsDesc = this.wbsAvailableLevels.length > 0
-        ? [...this.wbsAvailableLevels].sort((a, b) => b - a).map(l => `L${l}`).join(" -> ")
-        : "no levels";
-    const collapseSteps = this.wbsAvailableLevels.length > 0
-        ? `Collapse steps: ${levelsDesc} -> 0 (stops at 0).`
-        : "Collapse steps: 0 (stops at 0).";
-    wbsCollapseGroup.append("title")
-        .text(`${levelLabel}. Previous: ${previousLevelLabel}. ${isCustom ? "Manual overrides will be cleared." : collapseSteps}`);
-
-    const self = this;
-    wbsCollapseGroup
-        .on("mouseover", function() {
-            d3.select(this).select("rect")
-                .style("fill", isCollapsed
-                    ? self.UI_TOKENS.color.primary.default
-                    : self.UI_TOKENS.color.neutral.grey20)
-                .style("transform", "translateY(-2px)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-
-            if (isCollapsed) {
-                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+            if (!newEnabled) {
+                this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
+                this.taskLabelLayer?.selectAll("*").remove();
+                this.labelGridLayer?.selectAll("*").remove();
+                this.wbsExpandedInternal = false;
+                this.wbsManualExpansionOverride = false;
+                this.wbsManuallyToggledGroups.clear();
+                this.wbsToggleScrollAnchor = null;
             }
-        })
-        .on("mouseout", function() {
-            d3.select(this).select("rect")
-                .style("fill", isCollapsed
-                    ? self.UI_TOKENS.color.primary.light
-                    : self.UI_TOKENS.color.neutral.white)
-                .style("transform", "translateY(0)")
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
 
-            if (isCollapsed) {
-                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "wbsGrouping",
+                    properties: { enableWbsGrouping: newEnabled },
+                    selector: null
+                }]
+            });
+
+            if (this.scrollableContainer?.node()) {
+                this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
+                this.preserveScrollOnUpdate = true;
+                this.scrollPreservationUntil = Date.now() + 1500;
             }
-        })
-        .on("mousedown", function() {
-            d3.select(this).select("rect")
-                .style("transform", "translateY(0) scale(0.95)");
-        })
-        .on("mouseup", function() {
-            d3.select(this).select("rect")
-                .style("transform", "translateY(-2px) scale(1)");
-        });
 
-    wbsCollapseGroup.on("click", function(event) {
-        if (event) event.stopPropagation();
-        self.toggleWbsCollapseCycleDisplay();
-    });
+            this.forceFullUpdate = true;
 
-    wbsCollapseGroup.on("keydown", function(event) {
-        if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            self.toggleWbsCollapseCycleDisplay();
+            if (this.scrollThrottleTimeout) {
+                clearTimeout(this.scrollThrottleTimeout);
+                this.scrollThrottleTimeout = null;
+            }
+
+            const viewportWidth = this.lastUpdateOptions?.viewport.width || 800;
+            this.createOrUpdateWbsEnableToggleButton(viewportWidth);
+
+            if (this.lastUpdateOptions) {
+                this.update(this.lastUpdateOptions);
+            } else {
+
+                this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
+            }
+        } catch (error) {
+            console.error("Error toggling WBS grouping:", error);
         }
-    });
-}
+    }
 
-/**
- * Cycles the WBS expand depth (collapse -> Level 1/2/3/.../N -> expand all)
- * Levels are dynamic based on the number of WBS columns added by the user
- */
-private toggleWbsExpandCollapseDisplay(): void {
-    this.cycleWbsExpandLevel("next");
-}
+    /**
+     * Creates the WBS Expand cycle toggle button with icon-only design
+     * Similar styling to Connector Lines toggle for visual consistency
+     */
+    private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
+        if (!this.headerSvg) return;
 
-/**
- * Cycles the WBS expand depth in reverse order (expand all -> ... -> collapse)
- */
-private toggleWbsCollapseCycleDisplay(): void {
-    this.cycleWbsExpandLevel("previous");
-}
+        this.headerSvg.selectAll(".wbs-expand-toggle-group").remove();
 
-private cycleWbsExpandLevel(direction: "next" | "previous"): void {
-    try {
-        if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
-            return;
-        }
-
-        this.hideTooltip();
-        this.lastWbsToggleTimestamp = Date.now();
-        this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
+        const wbsColumnsExist = this.wbsDataExistsInMetadata;
+        const wbsEnabled = wbsColumnsExist && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+        const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
+        if (!wbsEnabled || !showWbsToggle) return;
 
         if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
             this.refreshWbsAvailableLevels();
         }
 
-        const levelGetter = direction === "previous"
-            ? this.getPreviousWbsExpandLevel.bind(this)
-            : this.getNextWbsExpandLevel.bind(this);
-
+        const isCustom = this.wbsManualExpansionOverride;
         const currentLevel = this.getCurrentWbsExpandLevel();
-        const nextLevel = levelGetter();
-        if (nextLevel === null && this.wbsAvailableLevels.length === 0) {
-            return;
-        }
-        const effectiveNext = nextLevel;
-        const hasManualOverrides = this.wbsManualExpansionOverride || this.wbsManuallyToggledGroups.size > 0;
+        const levelLabel = isCustom
+            ? "Custom (manual overrides)"
+            : this.getWbsExpandLevelLabel(this.wbsExpandToLevel !== undefined ? this.wbsExpandToLevel : currentLevel);
+        const nextLevelValue = this.getNextWbsExpandLevel();
+        const nextLevelLabel = nextLevelValue !== null
+            ? this.getWbsExpandLevelLabel(nextLevelValue)
+            : this.getWbsExpandLevelLabel(currentLevel);
 
-        if (!hasManualOverrides && effectiveNext === currentLevel) {
-            return;
-        }
+        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+        const { x: buttonX, size: buttonSize } = layout.wbsExpandToggle;
 
-        this.debugLog("WBS expand depth cycle", {
-            current: currentLevel,
-            next: effectiveNext,
-            direction,
-            availableLevels: this.wbsAvailableLevels
-        });
+        const wbsToggleGroup = this.headerSvg.append("g")
+            .attr("class", "wbs-expand-toggle-group")
+            .style("cursor", "pointer")
+            .attr("role", "button")
+            .attr("aria-label", isCustom
+                ? "Custom (manual overrides). Click to expand and clear overrides"
+                : `${levelLabel} (click to expand)`)
+            .attr("aria-pressed", this.wbsExpandedInternal.toString())
+            .attr("tabindex", "0");
 
-        this.wbsManualExpansionOverride = false;
+        const buttonY = this.UI_TOKENS.spacing.sm;
 
-        if (hasManualOverrides) {
-            this.wbsManuallyToggledGroups.clear();
-            this.wbsExpandedState.clear();
-            this.debugLog("Cleared manual WBS overrides for global toggle");
-        }
+        wbsToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-        this.captureWbsAnchorForGlobalToggle();
+        wbsToggleGroup.append("rect")
+            .attr("width", buttonSize)
+            .attr("height", buttonSize)
+            .attr("rx", this.UI_TOKENS.radius.medium)
+            .attr("ry", this.UI_TOKENS.radius.medium)
+            .style("fill", this.wbsExpandedInternal
+                ? this.UI_TOKENS.color.primary.light
+                : this.UI_TOKENS.color.neutral.white)
+            .style("stroke", this.wbsExpandedInternal
+                ? this.UI_TOKENS.color.primary.default
+                : this.UI_TOKENS.color.neutral.grey60)
+            .style("stroke-width", this.wbsExpandedInternal ? 2 : 1.5)
+            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-        this.applyWbsExpandLevel(effectiveNext);
+        const iconCenterX = buttonSize / 2;
+        const iconCenterY = (buttonSize / 2) - 4;
+        const iconG = wbsToggleGroup.append("g")
+            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
 
-        this.taskLabelLayer?.selectAll("*").remove();
-        this.labelGridLayer?.selectAll("*").remove();
-        this.wbsGroupLayer?.selectAll("*").remove();
+        const iconColor = this.wbsExpandedInternal
+            ? this.UI_TOKENS.color.primary.default
+            : this.UI_TOKENS.color.neutral.grey130;
 
-        const persistedLevel = effectiveNext === null ? -1 : effectiveNext;
-        const expandedStatePayload = this.getWbsExpandedStatePayload();
-        const manualGroupsPayload = Array.from(this.wbsManuallyToggledGroups);
+        iconG.append("circle")
+            .attr("r", 11)
+            .attr("fill", this.wbsExpandedInternal ? this.UI_TOKENS.color.primary.subtle : this.UI_TOKENS.color.neutral.grey10)
+            .attr("opacity", 0.7);
 
-        this.host.persistProperties({
-            merge: [{
-                objectName: "wbsGrouping",
-                properties: { expandCollapseAll: this.wbsExpandedInternal },
-                selector: null
-            }, {
-                objectName: "persistedState",
-                properties: {
-                    wbsExpandLevel: persistedLevel,
-                    wbsExpandedState: JSON.stringify(expandedStatePayload),
-                    wbsManualToggledGroups: JSON.stringify(manualGroupsPayload)
-                },
-                selector: null
-            }]
-        });
+        iconG.append("path")
+            .attr("d", "M-4,0 L4,0 M0,-4 L0,4")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 2.2)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round");
 
-        const viewportWidth = this.lastUpdateOptions?.viewport?.width
-            || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
-            || 800;
-        this.renderWbsCycleButtons(viewportWidth);
+        iconG.append("path")
+            .attr("d", "M-4,5 L0,8 L4,5")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 1.8)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round");
 
-        this.forceFullUpdate = true;
+        const badgeText = isCustom
+            ? "C"
+            : currentLevel === 0
+                ? "0"
+                : `L${currentLevel}`;
+        wbsToggleGroup.append("text")
+            .attr("x", buttonSize / 2)
+            .attr("y", buttonSize - 10)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
+            .style("fill", iconColor)
+            .text(badgeText);
 
-        this.preserveScrollOnUpdate = true;
+        const levelsDesc = this.wbsAvailableLevels.length > 0
+            ? this.wbsAvailableLevels.map(l => `L${l}`).join(" -> ")
+            : "no levels";
+        const expandSteps = this.wbsAvailableLevels.length > 0
+            ? `Expand steps: 0 -> ${levelsDesc} (stops at max).`
+            : "Expand steps: 0 (stops at 0).";
+        wbsToggleGroup.append("title")
+            .text(`${levelLabel}. Next: ${nextLevelLabel}. ${isCustom ? "Manual overrides will be cleared." : expandSteps}`);
 
-        if (this.scrollThrottleTimeout) {
-            clearTimeout(this.scrollThrottleTimeout);
-            this.scrollThrottleTimeout = null;
-        }
-
-        if (this.lastUpdateOptions) {
-            this.update(this.lastUpdateOptions);
-        }
-
-        this.debugLog("WBS expand depth updated", { level: effectiveNext, direction });
-    } catch (error) {
-        console.error(`Error in WBS toggle method (${direction}):`, error);
-    }
-}
-
-/**
- * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
- * Professional pill-style toggle with smooth animations and refined visuals
- * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
- */
-private createModeToggleButton(viewportWidth: number): void {
-    if (!this.headerSvg) return;
-
-    this.headerSvg.selectAll(".mode-toggle-group").remove();
-
-    const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-    const isFloatBased = currentMode === 'floatBased';
-    const dataView = this.lastUpdateOptions?.dataViews?.[0];
-    const hasTotalFloat = dataView ? this.hasDataRole(dataView, 'taskTotalFloat') : false;
-
-    const layout = this.getHeaderButtonLayout(viewportWidth);
-    const buttonWidth = layout.modeToggle.width;
-    const buttonHeight = this.UI_TOKENS.height.standard;
-    const buttonX = layout.modeToggle.x;
-    const buttonY = this.UI_TOKENS.spacing.sm;
-
-    const modeToggleGroup = this.headerSvg.append("g")
-        .attr("class", "mode-toggle-group")
-        .style("cursor", hasTotalFloat ? "pointer" : "not-allowed")
-        .attr("role", "button")
-        .attr("aria-label", `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`)
-        .attr("aria-pressed", isFloatBased.toString())
-        .attr("aria-disabled", (!hasTotalFloat).toString())
-        .attr("tabindex", hasTotalFloat ? "0" : "-1");
-
-    modeToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
-
-    const buttonG = modeToggleGroup.append("g")
-        .attr("class", "mode-button-container");
-
-    const bgColor = isFloatBased ? this.UI_TOKENS.color.warning.subtle : this.UI_TOKENS.color.primary.subtle;
-    const borderColor = isFloatBased ? this.UI_TOKENS.color.warning.default : this.UI_TOKENS.color.primary.default;
-    const hoverBgColor = isFloatBased ? this.UI_TOKENS.color.warning.lighter : this.UI_TOKENS.color.primary.lighter;
-
-    const buttonRect = buttonG.append("rect")
-        .attr("width", buttonWidth)
-        .attr("height", buttonHeight)
-        .attr("rx", this.UI_TOKENS.radius.pill)
-        .attr("ry", this.UI_TOKENS.radius.pill)
-        .style("fill", bgColor)
-        .style("stroke", borderColor)
-        .style("stroke-width", 2)
-        .style("filter", hasTotalFloat ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
-        .style("opacity", hasTotalFloat ? 1 : 0.4)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    const pillWidth = Math.min(106, buttonWidth - 20);
-    const pillHeight = 22;
-    const pillG = buttonG.append("g")
-        .attr("transform", `translate(${(buttonWidth - pillWidth) / 2}, ${buttonHeight/2})`);
-
-    const pillX = isFloatBased ? pillWidth/2 : 0;
-
-    pillG.append("rect")
-        .attr("class", "mode-pill-bg")
-        .attr("x", 0)
-        .attr("y", -pillHeight/2)
-        .attr("width", pillWidth)
-        .attr("height", pillHeight)
-        .attr("rx", this.UI_TOKENS.radius.large)
-        .attr("ry", this.UI_TOKENS.radius.large)
-        .style("fill", this.UI_TOKENS.color.neutral.grey20)
-        .style("opacity", 0.8);
-
-    const slidingPill = pillG.append("rect")
-        .attr("class", "mode-pill")
-        .attr("x", pillX)
-        .attr("y", -pillHeight/2)
-        .attr("width", pillWidth/2)
-        .attr("height", pillHeight)
-        .attr("rx", this.UI_TOKENS.radius.large)
-        .attr("ry", this.UI_TOKENS.radius.large)
-        .style("fill", borderColor)
-        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[4]})`)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.slow}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    const labelY = 0;
-
-    pillG.append("text")
-        .attr("x", pillWidth/4)
-        .attr("y", labelY)
-        .attr("text-anchor", "middle")
-        .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-        .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.medium : this.UI_TOKENS.fontWeight.bold)
-        .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.grey130 : this.UI_TOKENS.color.neutral.white)
-        .style("pointer-events", "none")
-        .style("letter-spacing", "0.5px")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-        .text("LP");
-
-    pillG.append("text")
-        .attr("x", 3*pillWidth/4)
-        .attr("y", labelY)
-        .attr("text-anchor", "middle")
-        .attr("dominant-baseline", "central")
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-        .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.bold : this.UI_TOKENS.fontWeight.medium)
-        .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-        .style("pointer-events", "none")
-        .style("letter-spacing", "0.5px")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-        .text("Float");
-
-    modeToggleGroup.append("title")
-        .text(hasTotalFloat
-            ? `Current mode: ${isFloatBased ? 'Float-Based Criticality' : 'Longest Path (CPM)'}\nClick to switch calculation method`
-            : "Float-Based mode requires Task Total Float field to be mapped");
-
-    if (hasTotalFloat) {
         const self = this;
-
-        modeToggleGroup
-            .on("mouseover", function() {
-                d3.select(this).select(".mode-button-container rect")
-                    .style("fill", hoverBgColor)
-                    .style("stroke-width", 2.5)
+        wbsToggleGroup
+            .on("mouseover", function () {
+                d3.select(this).select("rect")
+                    .style("fill", self.wbsExpandedInternal
+                        ? self.UI_TOKENS.color.primary.default
+                        : self.UI_TOKENS.color.neutral.grey20)
                     .style("transform", "translateY(-2px)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+
+                if (self.wbsExpandedInternal) {
+                    d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+                }
             })
-            .on("mouseout", function() {
-                d3.select(this).select(".mode-button-container rect")
-                    .style("fill", bgColor)
-                    .style("stroke-width", 2)
+            .on("mouseout", function () {
+                d3.select(this).select("rect")
+                    .style("fill", self.wbsExpandedInternal
+                        ? self.UI_TOKENS.color.primary.light
+                        : self.UI_TOKENS.color.neutral.white)
                     .style("transform", "translateY(0)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+                if (self.wbsExpandedInternal) {
+                    d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
+                }
             })
-            .on("mousedown", function() {
-                d3.select(this).select(".mode-button-container rect")
-                    .style("transform", "translateY(0) scale(0.96)")
-                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
+            .on("mousedown", function () {
+                d3.select(this).select("rect")
+                    .style("transform", "translateY(0) scale(0.95)");
             })
-            .on("mouseup", function() {
-                d3.select(this).select(".mode-button-container rect")
-                    .style("transform", "translateY(-2px) scale(1)")
-                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+            .on("mouseup", function () {
+                d3.select(this).select("rect")
+                    .style("transform", "translateY(-2px) scale(1)");
             });
 
-        modeToggleGroup.on("click", function(event) {
+        wbsToggleGroup.on("click", function (event) {
             if (event) event.stopPropagation();
-            self.toggleCriticalityMode();
+            self.toggleWbsExpandCollapseDisplay();
         });
 
-        modeToggleGroup.on("keydown", function(event) {
+        wbsToggleGroup.on("keydown", function (event) {
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                self.toggleCriticalityMode();
+                self.toggleWbsExpandCollapseDisplay();
             }
         });
     }
-}
 
-private toggleCriticalityMode(): void {
-    try {
-        const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-        const newMode = currentMode === 'longestPath' ? 'floatBased' : 'longestPath';
+    /**
+     * Creates the WBS Collapse cycle toggle button with icon-only design (reverse order)
+     */
+    private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
+        if (!this.headerSvg) return;
 
-        this.debugLog(`Toggling criticality mode from ${currentMode} to ${newMode}`);
+        this.headerSvg.selectAll(".wbs-collapse-toggle-group").remove();
 
-        if (newMode === 'longestPath' && this.floatThreshold > 0) {
-            this.debugLog(`Resetting float threshold from ${this.floatThreshold} to 0`);
-            this.floatThreshold = 0;
+        const wbsColumnsExist = this.wbsDataExistsInMetadata;
+        const wbsEnabled = wbsColumnsExist && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+        const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
+        if (!wbsEnabled || !showWbsToggle) return;
 
-            if (this.floatThresholdInput) {
-                this.floatThresholdInput.property("value", "0");
-            }
+        if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
+            this.refreshWbsAvailableLevels();
         }
 
-        this.allTasksData.forEach(task => {
-            task.isNearCritical = false;
+        const isCustom = this.wbsManualExpansionOverride;
+        const currentLevel = this.getCurrentWbsExpandLevel();
+        const levelLabel = isCustom
+            ? "Custom (manual overrides)"
+            : this.getWbsExpandLevelLabel(this.wbsExpandToLevel !== undefined ? this.wbsExpandToLevel : currentLevel);
+        const previousLevelValue = this.getPreviousWbsExpandLevel();
+        const previousLevelLabel = previousLevelValue !== null
+            ? this.getWbsExpandLevelLabel(previousLevelValue)
+            : this.getWbsExpandLevelLabel(currentLevel);
 
-            if (newMode === 'longestPath') {
-                task.isCriticalByFloat = false;
-            }
-        });
+        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+        const { x: buttonX, size: buttonSize } = layout.wbsCollapseToggle;
 
-        if (this.settings?.criticalityMode?.calculationMode) {
-            this.settings.criticalityMode.calculationMode.value = {
-                value: newMode,
-                displayName: newMode === 'longestPath' ? 'Longest Path' : 'Float-Based'
-            };
-        }
+        const isCollapsed = this.wbsExpandToLevel === 0 || !this.wbsExpandedInternal;
 
-        const properties: any[] = [{
-            objectName: "criticalityMode",
-            properties: { calculationMode: newMode },
-            selector: null
-        }];
-
-        if (newMode === 'longestPath') {
-            properties.push({
-                objectName: "persistedState",
-                properties: { floatThreshold: 0 },
-                selector: null
-            });
-        }
-
-        this.host.persistProperties({ merge: properties });
-
-        this.createModeToggleButton(this.lastUpdateOptions?.viewport.width || 800);
-        this.createFloatThresholdControl();
-
-        this.forceCanvasRefresh();
-
-        this.captureScrollPosition();
-
-        this.forceFullUpdate = true;
-
-        if (this.scrollThrottleTimeout) {
-            clearTimeout(this.scrollThrottleTimeout);
-            this.scrollThrottleTimeout = null;
-        }
-
-        if (this.lastUpdateOptions) {
-            this.update(this.lastUpdateOptions);
-        }
-
-        this.debugLog("Visual update triggered by mode toggle");
-
-    } catch (error) {
-        console.error("Error toggling criticality mode:", error);
-    }
-}
-
-/**
- * Creates the Float Threshold control with premium input design and enhanced UX
- */
-private createFloatThresholdControl(): void {
-    this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
-
-    const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-    const isFloatBased = currentMode === 'floatBased';
-
-    if (!this.showNearCritical || !isFloatBased) {
-        this.floatThresholdInput = null as any;
-        return;
-    }
-
-    const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
-    const layoutMode = this.getLayoutMode(viewportWidth);
-    const isCompact = layoutMode === 'narrow';
-    const isMedium = layoutMode === 'medium';
-    const maxWidth = isCompact ? 180 : (isMedium ? 210 : 240);
-    const horizontalPadding = isCompact
-        ? this.UI_TOKENS.spacing.sm
-        : (isMedium ? this.UI_TOKENS.spacing.md : this.UI_TOKENS.spacing.lg);
-
-    const controlContainer = this.stickyHeaderContainer.append("div")
-        .attr("class", "float-threshold-wrapper")
-        .attr("role", "group")
-        .attr("aria-label", "Near-critical threshold setting")
-        .style("position", "absolute")
-        .style("right", "10px")
-        .style("top", `${this.UI_TOKENS.spacing.sm}px`)
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`)
-        .style("height", `${isCompact ? this.UI_TOKENS.height.standard : this.UI_TOKENS.height.comfortable}px`)
-        .style("padding", `0 ${horizontalPadding}px`)
-        .style("max-width", `${maxWidth}px`)
-        .style("background-color", this.UI_TOKENS.color.neutral.white)
-        .style("border", `1.5px solid ${this.UI_TOKENS.color.warning.default}`)
-        .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
-        .style("box-shadow", this.UI_TOKENS.shadow[2])
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    const labelContainer = controlContainer.append("div")
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("gap", `${this.UI_TOKENS.spacing.xs}px`);
-
-    const iconSize = 12;
-    const iconSvg = labelContainer.append("svg")
-        .attr("width", iconSize)
-        .attr("height", iconSize)
-        .attr("viewBox", `0 0 ${iconSize} ${iconSize}`)
-        .style("flex-shrink", "0");
-
-    iconSvg.append("circle")
-        .attr("cx", iconSize/2)
-        .attr("cy", iconSize/2)
-        .attr("r", iconSize/2)
-        .attr("fill", this.UI_TOKENS.color.warning.default);
-
-    const labelText = isCompact ? "NC ≤" : (isMedium ? "Near-Crit ≤" : "Near-Critical ≤");
-    labelContainer.append("span")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-        .style("letter-spacing", "0.1px")
-        .style("color", this.UI_TOKENS.color.neutral.grey160)
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-weight", this.UI_TOKENS.fontWeight.medium)
-        .style("white-space", "nowrap")
-        .text(labelText);
-
-    const inputWidth = isCompact ? 42 : (isMedium ? 50 : 54);
-    this.floatThresholdInput = controlContainer.append("input")
-        .attr("type", "number")
-        .attr("min", "0")
-        .attr("step", "1")
-        .attr("value", this.floatThreshold)
-        .attr("aria-label", "Near-critical threshold in days")
-        .style("width", `${inputWidth}px`)
-        .style("height", "24px")
-        .style("padding", `${this.UI_TOKENS.spacing.xs}px ${this.UI_TOKENS.spacing.sm}px`)
-        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-        .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
-        .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-        .style("font-family", "Segoe UI, sans-serif")
-        .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
-        .style("text-align", "center")
-        .style("outline", "none")
-        .style("background-color", this.UI_TOKENS.color.neutral.white)
-        .style("color", this.UI_TOKENS.color.neutral.grey160)
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    if (!isCompact) {
-        controlContainer.append("span")
-            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-            .style("letter-spacing", "0.1px")
-            .style("color", this.UI_TOKENS.color.neutral.grey130)
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-weight", this.UI_TOKENS.fontWeight.medium)
-            .style("white-space", "nowrap")
-            .text("days");
-    }
-
-    if (!isCompact) {
-        const helpIcon = controlContainer.append("div")
+        const wbsCollapseGroup = this.headerSvg.append("g")
+            .attr("class", "wbs-collapse-toggle-group")
+            .style("cursor", "pointer")
             .attr("role", "button")
-            .attr("aria-label", "Information about near-critical threshold")
-            .attr("tabindex", "0")
-            .style("width", "16px")
-            .style("height", "16px")
-            .style("border-radius", "50%")
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-            .style("background-color", this.UI_TOKENS.color.neutral.grey10)
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("cursor", "help")
-            .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
-            .style("color", this.UI_TOKENS.color.neutral.grey130)
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-weight", this.UI_TOKENS.fontWeight.bold)
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-            .text("?");
+            .attr("aria-label", isCustom
+                ? "Custom (manual overrides). Click to collapse and clear overrides"
+                : `${levelLabel} (click to collapse)`)
+            .attr("aria-pressed", isCollapsed.toString())
+            .attr("tabindex", "0");
 
-        helpIcon.append("title")
-            .text("Tasks with Total Float less than or equal to this value will be highlighted as near-critical path tasks");
+        const buttonY = this.UI_TOKENS.spacing.sm;
 
-        helpIcon
-            .on("mouseover", function() {
-                d3.select(this)
-                    .style("background-color", this.UI_TOKENS.color.warning.light)
-                    .style("border-color", this.UI_TOKENS.color.warning.default)
-                    .style("color", this.UI_TOKENS.color.warning.default);
-            }.bind(this))
-            .on("mouseout", function() {
-                d3.select(this)
-                    .style("background-color", this.UI_TOKENS.color.neutral.grey10)
-                    .style("border-color", this.UI_TOKENS.color.neutral.grey60)
-                    .style("color", this.UI_TOKENS.color.neutral.grey130);
-            }.bind(this));
-    }
+        wbsCollapseGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
 
-    const self = this;
-    this.floatThresholdInput
-        .on("focus", function() {
-            d3.select(this)
-                .style("border-color", self.UI_TOKENS.color.warning.default)
-                .style("box-shadow", `0 0 0 3px ${self.UI_TOKENS.color.warning.lighter}`);
-        })
-        .on("blur", function() {
-            d3.select(this)
-                .style("border-color", self.UI_TOKENS.color.neutral.grey60)
-                .style("box-shadow", "none");
+        wbsCollapseGroup.append("rect")
+            .attr("width", buttonSize)
+            .attr("height", buttonSize)
+            .attr("rx", this.UI_TOKENS.radius.medium)
+            .attr("ry", this.UI_TOKENS.radius.medium)
+            .style("fill", isCollapsed
+                ? this.UI_TOKENS.color.primary.light
+                : this.UI_TOKENS.color.neutral.white)
+            .style("stroke", isCollapsed
+                ? this.UI_TOKENS.color.primary.default
+                : this.UI_TOKENS.color.neutral.grey60)
+            .style("stroke-width", isCollapsed ? 2 : 1.5)
+            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        const iconCenterX = buttonSize / 2;
+        const iconCenterY = (buttonSize / 2) - 4;
+        const iconG = wbsCollapseGroup.append("g")
+            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
+
+        const iconColor = isCollapsed
+            ? this.UI_TOKENS.color.primary.default
+            : this.UI_TOKENS.color.neutral.grey130;
+
+        iconG.append("circle")
+            .attr("r", 11)
+            .attr("fill", isCollapsed ? this.UI_TOKENS.color.primary.subtle : this.UI_TOKENS.color.neutral.grey10)
+            .attr("opacity", 0.7);
+
+        iconG.append("path")
+            .attr("d", "M-5,0 L5,0")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 2.2)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round");
+
+        iconG.append("path")
+            .attr("d", "M-4,-3 L0,-7 L4,-3")
+            .attr("stroke", iconColor)
+            .attr("stroke-width", 1.8)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round");
+
+        const badgeText = isCustom
+            ? "C"
+            : currentLevel === 0
+                ? "0"
+                : `L${currentLevel}`;
+        wbsCollapseGroup.append("text")
+            .attr("x", buttonSize / 2)
+            .attr("y", buttonSize - 10)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
+            .style("fill", iconColor)
+            .text(badgeText);
+
+        const levelsDesc = this.wbsAvailableLevels.length > 0
+            ? [...this.wbsAvailableLevels].sort((a, b) => b - a).map(l => `L${l}`).join(" -> ")
+            : "no levels";
+        const collapseSteps = this.wbsAvailableLevels.length > 0
+            ? `Collapse steps: ${levelsDesc} -> 0 (stops at 0).`
+            : "Collapse steps: 0 (stops at 0).";
+        wbsCollapseGroup.append("title")
+            .text(`${levelLabel}. Previous: ${previousLevelLabel}. ${isCustom ? "Manual overrides will be cleared." : collapseSteps}`);
+
+        const self = this;
+        wbsCollapseGroup
+            .on("mouseover", function () {
+                d3.select(this).select("rect")
+                    .style("fill", isCollapsed
+                        ? self.UI_TOKENS.color.primary.default
+                        : self.UI_TOKENS.color.neutral.grey20)
+                    .style("transform", "translateY(-2px)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+
+                if (isCollapsed) {
+                    d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+                }
+            })
+            .on("mouseout", function () {
+                d3.select(this).select("rect")
+                    .style("fill", isCollapsed
+                        ? self.UI_TOKENS.color.primary.light
+                        : self.UI_TOKENS.color.neutral.white)
+                    .style("transform", "translateY(0)")
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+                if (isCollapsed) {
+                    d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
+                }
+            })
+            .on("mousedown", function () {
+                d3.select(this).select("rect")
+                    .style("transform", "translateY(0) scale(0.95)");
+            })
+            .on("mouseup", function () {
+                d3.select(this).select("rect")
+                    .style("transform", "translateY(-2px) scale(1)");
+            });
+
+        wbsCollapseGroup.on("click", function (event) {
+            if (event) event.stopPropagation();
+            self.toggleWbsCollapseCycleDisplay();
         });
 
-    let floatThresholdTimeout: any = null;
-    this.floatThresholdInput.on("input", function() {
-        const value = parseFloat((this as HTMLInputElement).value);
-        const newThreshold = isNaN(value) ? 0 : Math.max(0, value);
+        wbsCollapseGroup.on("keydown", function (event) {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                self.toggleWbsCollapseCycleDisplay();
+            }
+        });
+    }
 
-        self.floatThreshold = newThreshold;
+    /**
+     * Cycles the WBS expand depth (collapse -> Level 1/2/3/.../N -> expand all)
+     * Levels are dynamic based on the number of WBS columns added by the user
+     */
+    private toggleWbsExpandCollapseDisplay(): void {
+        this.cycleWbsExpandLevel("next");
+    }
 
-        d3.select(this)
-            .transition()
-            .duration(self.UI_TOKENS.motion.duration.fast)
-            .style("background-color", self.UI_TOKENS.color.warning.lighter)
-            .transition()
-            .duration(self.UI_TOKENS.motion.duration.normal)
-            .style("background-color", self.UI_TOKENS.color.neutral.white);
+    /**
+     * Cycles the WBS expand depth in reverse order (expand all -> ... -> collapse)
+     */
+    private toggleWbsCollapseCycleDisplay(): void {
+        this.cycleWbsExpandLevel("previous");
+    }
 
-        if (floatThresholdTimeout) {
-            clearTimeout(floatThresholdTimeout);
-        }
-
-        floatThresholdTimeout = setTimeout(() => {
-
-            if (self.scrollThrottleTimeout) {
-                clearTimeout(self.scrollThrottleTimeout);
-                self.scrollThrottleTimeout = null;
+    private cycleWbsExpandLevel(direction: "next" | "previous"): void {
+        try {
+            if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+                return;
             }
 
-            self.host.persistProperties({
+            this.hideTooltip();
+            this.lastWbsToggleTimestamp = Date.now();
+            this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
+
+            if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
+                this.refreshWbsAvailableLevels();
+            }
+
+            const levelGetter = direction === "previous"
+                ? this.getPreviousWbsExpandLevel.bind(this)
+                : this.getNextWbsExpandLevel.bind(this);
+
+            const currentLevel = this.getCurrentWbsExpandLevel();
+            const nextLevel = levelGetter();
+            if (nextLevel === null && this.wbsAvailableLevels.length === 0) {
+                return;
+            }
+            const effectiveNext = nextLevel;
+            const hasManualOverrides = this.wbsManualExpansionOverride || this.wbsManuallyToggledGroups.size > 0;
+
+            if (!hasManualOverrides && effectiveNext === currentLevel) {
+                return;
+            }
+
+            this.debugLog("WBS expand depth cycle", {
+                current: currentLevel,
+                next: effectiveNext,
+                direction,
+                availableLevels: this.wbsAvailableLevels
+            });
+
+            this.wbsManualExpansionOverride = false;
+
+            if (hasManualOverrides) {
+                this.wbsManuallyToggledGroups.clear();
+                this.wbsExpandedState.clear();
+                this.debugLog("Cleared manual WBS overrides for global toggle");
+            }
+
+            this.captureWbsAnchorForGlobalToggle();
+
+            this.applyWbsExpandLevel(effectiveNext);
+
+            this.taskLabelLayer?.selectAll("*").remove();
+            this.labelGridLayer?.selectAll("*").remove();
+            this.wbsGroupLayer?.selectAll("*").remove();
+
+            const persistedLevel = effectiveNext === null ? -1 : effectiveNext;
+            const expandedStatePayload = this.getWbsExpandedStatePayload();
+            const manualGroupsPayload = Array.from(this.wbsManuallyToggledGroups);
+
+            this.host.persistProperties({
                 merge: [{
+                    objectName: "wbsGrouping",
+                    properties: { expandCollapseAll: this.wbsExpandedInternal },
+                    selector: null
+                }, {
                     objectName: "persistedState",
-                    properties: { floatThreshold: self.floatThreshold },
+                    properties: {
+                        wbsExpandLevel: persistedLevel,
+                        wbsExpandedState: JSON.stringify(expandedStatePayload),
+                        wbsManualToggledGroups: JSON.stringify(manualGroupsPayload)
+                    },
                     selector: null
                 }]
             });
 
-            self.requestUpdate(true);
-        }, 500);
-    });
+            const viewportWidth = this.lastUpdateOptions?.viewport?.width
+                || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
+                || 800;
+            this.renderWbsCycleButtons(viewportWidth);
 
-    controlContainer
-        .on("mouseover", function() {
+            this.forceFullUpdate = true;
+
+            this.preserveScrollOnUpdate = true;
+
+            if (this.scrollThrottleTimeout) {
+                clearTimeout(this.scrollThrottleTimeout);
+                this.scrollThrottleTimeout = null;
+            }
+
+            if (this.lastUpdateOptions) {
+                this.update(this.lastUpdateOptions);
+            }
+
+            this.debugLog("WBS expand depth updated", { level: effectiveNext, direction });
+        } catch (error) {
+            console.error(`Error in WBS toggle method (${direction}):`, error);
+        }
+    }
+
+    /**
+     * Creates the Mode Toggle (Longest Path ↔ Float-Based) with premium Fluent design
+     * Professional pill-style toggle with smooth animations and refined visuals
+     * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
+     */
+    private createModeToggleButton(viewportWidth: number): void {
+        if (!this.headerSvg) return;
+
+        this.headerSvg.selectAll(".mode-toggle-group").remove();
+
+        const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+        const isFloatBased = currentMode === 'floatBased';
+        const dataView = this.lastUpdateOptions?.dataViews?.[0];
+        const hasTotalFloat = dataView ? this.hasDataRole(dataView, 'taskTotalFloat') : false;
+
+        const layout = this.getHeaderButtonLayout(viewportWidth);
+        const buttonWidth = layout.modeToggle.width;
+        const buttonHeight = this.UI_TOKENS.height.standard;
+        const buttonX = layout.modeToggle.x;
+        const buttonY = this.UI_TOKENS.spacing.sm;
+
+        const modeToggleGroup = this.headerSvg.append("g")
+            .attr("class", "mode-toggle-group")
+            .style("cursor", hasTotalFloat ? "pointer" : "not-allowed")
+            .attr("role", "button")
+            .attr("aria-label", `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`)
+            .attr("aria-pressed", isFloatBased.toString())
+            .attr("aria-disabled", (!hasTotalFloat).toString())
+            .attr("tabindex", hasTotalFloat ? "0" : "-1");
+
+        modeToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+        const buttonG = modeToggleGroup.append("g")
+            .attr("class", "mode-button-container");
+
+        const bgColor = isFloatBased ? this.UI_TOKENS.color.warning.subtle : this.UI_TOKENS.color.primary.subtle;
+        const borderColor = isFloatBased ? this.UI_TOKENS.color.warning.default : this.UI_TOKENS.color.primary.default;
+        const hoverBgColor = isFloatBased ? this.UI_TOKENS.color.warning.lighter : this.UI_TOKENS.color.primary.lighter;
+
+        const buttonRect = buttonG.append("rect")
+            .attr("width", buttonWidth)
+            .attr("height", buttonHeight)
+            .attr("rx", this.UI_TOKENS.radius.pill)
+            .attr("ry", this.UI_TOKENS.radius.pill)
+            .style("fill", bgColor)
+            .style("stroke", borderColor)
+            .style("stroke-width", 2)
+            .style("filter", hasTotalFloat ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
+            .style("opacity", hasTotalFloat ? 1 : 0.4)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        const pillWidth = Math.min(106, buttonWidth - 20);
+        const pillHeight = 22;
+        const pillG = buttonG.append("g")
+            .attr("transform", `translate(${(buttonWidth - pillWidth) / 2}, ${buttonHeight / 2})`);
+
+        const pillX = isFloatBased ? pillWidth / 2 : 0;
+
+        pillG.append("rect")
+            .attr("class", "mode-pill-bg")
+            .attr("x", 0)
+            .attr("y", -pillHeight / 2)
+            .attr("width", pillWidth)
+            .attr("height", pillHeight)
+            .attr("rx", this.UI_TOKENS.radius.large)
+            .attr("ry", this.UI_TOKENS.radius.large)
+            .style("fill", this.UI_TOKENS.color.neutral.grey20)
+            .style("opacity", 0.8);
+
+        const slidingPill = pillG.append("rect")
+            .attr("class", "mode-pill")
+            .attr("x", pillX)
+            .attr("y", -pillHeight / 2)
+            .attr("width", pillWidth / 2)
+            .attr("height", pillHeight)
+            .attr("rx", this.UI_TOKENS.radius.large)
+            .attr("ry", this.UI_TOKENS.radius.large)
+            .style("fill", borderColor)
+            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[4]})`)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.slow}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        const labelY = 0;
+
+        pillG.append("text")
+            .attr("x", pillWidth / 4)
+            .attr("y", labelY)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+            .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.medium : this.UI_TOKENS.fontWeight.bold)
+            .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.grey130 : this.UI_TOKENS.color.neutral.white)
+            .style("pointer-events", "none")
+            .style("letter-spacing", "0.5px")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+            .text("LP");
+
+        pillG.append("text")
+            .attr("x", 3 * pillWidth / 4)
+            .attr("y", labelY)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+            .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.bold : this.UI_TOKENS.fontWeight.medium)
+            .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
+            .style("pointer-events", "none")
+            .style("letter-spacing", "0.5px")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+            .text("Float");
+
+        modeToggleGroup.append("title")
+            .text(hasTotalFloat
+                ? `Current mode: ${isFloatBased ? 'Float-Based Criticality' : 'Longest Path (CPM)'}\nClick to switch calculation method`
+                : "Float-Based mode requires Task Total Float field to be mapped");
+
+        if (hasTotalFloat) {
+            const self = this;
+
+            modeToggleGroup
+                .on("mouseover", function () {
+                    d3.select(this).select(".mode-button-container rect")
+                        .style("fill", hoverBgColor)
+                        .style("stroke-width", 2.5)
+                        .style("transform", "translateY(-2px)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+                })
+                .on("mouseout", function () {
+                    d3.select(this).select(".mode-button-container rect")
+                        .style("fill", bgColor)
+                        .style("stroke-width", 2)
+                        .style("transform", "translateY(0)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+                })
+                .on("mousedown", function () {
+                    d3.select(this).select(".mode-button-container rect")
+                        .style("transform", "translateY(0) scale(0.96)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
+                })
+                .on("mouseup", function () {
+                    d3.select(this).select(".mode-button-container rect")
+                        .style("transform", "translateY(-2px) scale(1)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+                });
+
+            modeToggleGroup.on("click", function (event) {
+                if (event) event.stopPropagation();
+                self.toggleCriticalityMode();
+            });
+
+            modeToggleGroup.on("keydown", function (event) {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    self.toggleCriticalityMode();
+                }
+            });
+        }
+    }
+
+    private toggleCriticalityMode(): void {
+        try {
+            const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+            const newMode = currentMode === 'longestPath' ? 'floatBased' : 'longestPath';
+
+            this.debugLog(`Toggling criticality mode from ${currentMode} to ${newMode}`);
+
+            if (newMode === 'longestPath' && this.floatThreshold > 0) {
+                this.debugLog(`Resetting float threshold from ${this.floatThreshold} to 0`);
+                this.floatThreshold = 0;
+
+                if (this.floatThresholdInput) {
+                    this.floatThresholdInput.property("value", "0");
+                }
+            }
+
+            this.allTasksData.forEach(task => {
+                task.isNearCritical = false;
+
+                if (newMode === 'longestPath') {
+                    task.isCriticalByFloat = false;
+                }
+            });
+
+            if (this.settings?.criticalityMode?.calculationMode) {
+                this.settings.criticalityMode.calculationMode.value = {
+                    value: newMode,
+                    displayName: newMode === 'longestPath' ? 'Longest Path' : 'Float-Based'
+                };
+            }
+
+            const properties: any[] = [{
+                objectName: "criticalityMode",
+                properties: { calculationMode: newMode },
+                selector: null
+            }];
+
+            if (newMode === 'longestPath') {
+                properties.push({
+                    objectName: "persistedState",
+                    properties: { floatThreshold: 0 },
+                    selector: null
+                });
+            }
+
+            this.host.persistProperties({ merge: properties });
+
+            this.createModeToggleButton(this.lastUpdateOptions?.viewport.width || 800);
+            this.createFloatThresholdControl();
+
+            this.forceCanvasRefresh();
+
+            this.captureScrollPosition();
+
+            this.forceFullUpdate = true;
+
+            if (this.scrollThrottleTimeout) {
+                clearTimeout(this.scrollThrottleTimeout);
+                this.scrollThrottleTimeout = null;
+            }
+
+            if (this.lastUpdateOptions) {
+                this.update(this.lastUpdateOptions);
+            }
+
+            this.debugLog("Visual update triggered by mode toggle");
+
+        } catch (error) {
+            console.error("Error toggling criticality mode:", error);
+        }
+    }
+
+    /**
+     * Creates the Float Threshold control with premium input design and enhanced UX
+     */
+    private createFloatThresholdControl(): void {
+        this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
+
+        const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+        const isFloatBased = currentMode === 'floatBased';
+
+        if (!this.showNearCritical || !isFloatBased) {
+            this.floatThresholdInput = null as any;
+            return;
+        }
+
+        const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
+        const layoutMode = this.getLayoutMode(viewportWidth);
+        const isCompact = layoutMode === 'narrow';
+        const isMedium = layoutMode === 'medium';
+        const maxWidth = isCompact ? 180 : (isMedium ? 210 : 240);
+        const horizontalPadding = isCompact
+            ? this.UI_TOKENS.spacing.sm
+            : (isMedium ? this.UI_TOKENS.spacing.md : this.UI_TOKENS.spacing.lg);
+
+        const controlContainer = this.stickyHeaderContainer.append("div")
+            .attr("class", "float-threshold-wrapper")
+            .attr("role", "group")
+            .attr("aria-label", "Near-critical threshold setting")
+            .style("position", "absolute")
+            .style("right", "10px")
+            .style("top", `${this.UI_TOKENS.spacing.sm}px`)
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`)
+            .style("height", `${isCompact ? this.UI_TOKENS.height.standard : this.UI_TOKENS.height.comfortable}px`)
+            .style("padding", `0 ${horizontalPadding}px`)
+            .style("max-width", `${maxWidth}px`)
+            .style("background-color", this.UI_TOKENS.color.neutral.white)
+            .style("border", `1.5px solid ${this.UI_TOKENS.color.warning.default}`)
+            .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
+            .style("box-shadow", this.UI_TOKENS.shadow[2])
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        const labelContainer = controlContainer.append("div")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", `${this.UI_TOKENS.spacing.xs}px`);
+
+        const iconSize = 12;
+        const iconSvg = labelContainer.append("svg")
+            .attr("width", iconSize)
+            .attr("height", iconSize)
+            .attr("viewBox", `0 0 ${iconSize} ${iconSize}`)
+            .style("flex-shrink", "0");
+
+        iconSvg.append("circle")
+            .attr("cx", iconSize / 2)
+            .attr("cy", iconSize / 2)
+            .attr("r", iconSize / 2)
+            .attr("fill", this.UI_TOKENS.color.warning.default);
+
+        const labelText = isCompact ? "NC ≤" : (isMedium ? "Near-Crit ≤" : "Near-Critical ≤");
+        labelContainer.append("span")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .style("letter-spacing", "0.1px")
+            .style("color", this.UI_TOKENS.color.neutral.grey160)
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-weight", this.UI_TOKENS.fontWeight.medium)
+            .style("white-space", "nowrap")
+            .text(labelText);
+
+        const inputWidth = isCompact ? 42 : (isMedium ? 50 : 54);
+        this.floatThresholdInput = controlContainer.append("input")
+            .attr("type", "number")
+            .attr("min", "0")
+            .attr("step", "1")
+            .attr("value", this.floatThreshold)
+            .attr("aria-label", "Near-critical threshold in days")
+            .style("width", `${inputWidth}px`)
+            .style("height", "24px")
+            .style("padding", `${this.UI_TOKENS.spacing.xs}px ${this.UI_TOKENS.spacing.sm}px`)
+            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+            .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
+            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
+            .style("text-align", "center")
+            .style("outline", "none")
+            .style("background-color", this.UI_TOKENS.color.neutral.white)
+            .style("color", this.UI_TOKENS.color.neutral.grey160)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        if (!isCompact) {
+            controlContainer.append("span")
+                .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+                .style("letter-spacing", "0.1px")
+                .style("color", this.UI_TOKENS.color.neutral.grey130)
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-weight", this.UI_TOKENS.fontWeight.medium)
+                .style("white-space", "nowrap")
+                .text("days");
+        }
+
+        if (!isCompact) {
+            const helpIcon = controlContainer.append("div")
+                .attr("role", "button")
+                .attr("aria-label", "Information about near-critical threshold")
+                .attr("tabindex", "0")
+                .style("width", "16px")
+                .style("height", "16px")
+                .style("border-radius", "50%")
+                .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+                .style("background-color", this.UI_TOKENS.color.neutral.grey10)
+                .style("display", "flex")
+                .style("align-items", "center")
+                .style("justify-content", "center")
+                .style("cursor", "help")
+                .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
+                .style("color", this.UI_TOKENS.color.neutral.grey130)
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-weight", this.UI_TOKENS.fontWeight.bold)
+                .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+                .text("?");
+
+            helpIcon.append("title")
+                .text("Tasks with Total Float less than or equal to this value will be highlighted as near-critical path tasks");
+
+            helpIcon
+                .on("mouseover", function () {
+                    d3.select(this)
+                        .style("background-color", this.UI_TOKENS.color.warning.light)
+                        .style("border-color", this.UI_TOKENS.color.warning.default)
+                        .style("color", this.UI_TOKENS.color.warning.default);
+                }.bind(this))
+                .on("mouseout", function () {
+                    d3.select(this)
+                        .style("background-color", this.UI_TOKENS.color.neutral.grey10)
+                        .style("border-color", this.UI_TOKENS.color.neutral.grey60)
+                        .style("color", this.UI_TOKENS.color.neutral.grey130);
+                }.bind(this));
+        }
+
+        const self = this;
+        this.floatThresholdInput
+            .on("focus", function () {
+                d3.select(this)
+                    .style("border-color", self.UI_TOKENS.color.warning.default)
+                    .style("box-shadow", `0 0 0 3px ${self.UI_TOKENS.color.warning.lighter}`);
+            })
+            .on("blur", function () {
+                d3.select(this)
+                    .style("border-color", self.UI_TOKENS.color.neutral.grey60)
+                    .style("box-shadow", "none");
+            });
+
+        let floatThresholdTimeout: any = null;
+        this.floatThresholdInput.on("input", function () {
+            const value = parseFloat((this as HTMLInputElement).value);
+            const newThreshold = isNaN(value) ? 0 : Math.max(0, value);
+
+            self.floatThreshold = newThreshold;
+
             d3.select(this)
-                .style("box-shadow", self.UI_TOKENS.shadow[8])
-                .style("transform", "translateY(-1px)");
-        })
-        .on("mouseout", function() {
-            d3.select(this)
-                .style("box-shadow", self.UI_TOKENS.shadow[4])
-                .style("transform", "translateY(0)");
-        });
-}
+                .transition()
+                .duration(self.UI_TOKENS.motion.duration.fast)
+                .style("background-color", self.UI_TOKENS.color.warning.lighter)
+                .transition()
+                .duration(self.UI_TOKENS.motion.duration.normal)
+                .style("background-color", self.UI_TOKENS.color.neutral.white);
 
-/**
- * Creates the zoom slider UI component matching Microsoft Power BI standard style
- * Design: Thin track line with circular handles at each end
- */
-private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, null, undefined>): void {
-    const sliderHeight = 32;
-
-    this.zoomSliderContainer = visualWrapper.append("div")
-        .attr("class", "timeline-zoom-slider-container")
-        .style("position", "relative")
-        .style("width", "100%")
-        .style("height", `${sliderHeight}px`)
-        .style("background-color", "#FFFFFF")
-        .style("border-top", "1px solid #EDEBE9")
-        .style("display", "none")
-        .style("z-index", "50")
-        .style("flex-shrink", "0")
-        .style("user-select", "none");
-
-    this.zoomSliderTrack = this.zoomSliderContainer.append("div")
-        .attr("class", "zoom-slider-track")
-        .style("position", "absolute")
-        .style("left", "280px")
-        .style("right", "100px")
-        .style("top", "50%")
-        .style("transform", "translateY(-50%)")
-        .style("height", "4px")
-        .style("background-color", "#E1DFDD")
-        .style("border-radius", "2px");
-
-    const miniChartCanvas = document.createElement('canvas');
-    miniChartCanvas.className = 'zoom-slider-mini-chart';
-    miniChartCanvas.style.position = 'absolute';
-    miniChartCanvas.style.left = '0';
-    miniChartCanvas.style.top = '0';
-    miniChartCanvas.style.width = '100%';
-    miniChartCanvas.style.height = '100%';
-    miniChartCanvas.style.pointerEvents = 'none';
-    miniChartCanvas.style.display = 'none';
-    this.zoomSliderTrack.node()?.appendChild(miniChartCanvas);
-    this.zoomSliderMiniChart = d3.select(miniChartCanvas);
-
-    this.zoomSliderSelection = this.zoomSliderTrack.append("div")
-        .attr("class", "zoom-slider-selection")
-        .style("position", "absolute")
-        .style("left", "0%")
-        .style("width", "100%")
-        .style("top", "0")
-        .style("bottom", "0")
-        .style("background-color", "#C8C6C4")
-        .style("border-radius", "2px")
-        .style("cursor", "grab");
-
-    this.zoomSliderLeftHandle = this.zoomSliderSelection.append("div")
-        .attr("class", "zoom-slider-handle zoom-slider-handle-left")
-        .style("position", "absolute")
-        .style("left", "0")
-        .style("top", "50%")
-        .style("transform", "translate(-50%, -50%)")
-        .style("width", "12px")
-        .style("height", "12px")
-        .style("background-color", "#605E5C")
-        .style("border", "2px solid #FFFFFF")
-        .style("border-radius", "50%")
-        .style("cursor", "ew-resize")
-        .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
-        .style("z-index", "10");
-
-    this.zoomSliderRightHandle = this.zoomSliderSelection.append("div")
-        .attr("class", "zoom-slider-handle zoom-slider-handle-right")
-        .style("position", "absolute")
-        .style("right", "0")
-        .style("top", "50%")
-        .style("transform", "translate(50%, -50%)")
-        .style("width", "12px")
-        .style("height", "12px")
-        .style("background-color", "#605E5C")
-        .style("border", "2px solid #FFFFFF")
-        .style("border-radius", "50%")
-        .style("cursor", "ew-resize")
-        .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
-        .style("z-index", "10");
-
-    this.setupZoomSliderEvents();
-}
-
-/**
- * Sets up mouse and touch event handlers for the zoom slider
- */
-private setupZoomSliderEvents(): void {
-    const self = this;
-
-    this.zoomSliderLeftHandle
-        .on("mousedown", function(event: MouseEvent) {
-            event.stopPropagation();
-            event.preventDefault();
-            self.startZoomDrag(event, 'left');
-        })
-        .on("touchstart", function(event: TouchEvent) {
-            event.stopPropagation();
-            event.preventDefault();
-            const touch = event.touches[0];
-            self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'left');
-        });
-
-    this.zoomSliderRightHandle
-        .on("mousedown", function(event: MouseEvent) {
-            event.stopPropagation();
-            event.preventDefault();
-            self.startZoomDrag(event, 'right');
-        })
-        .on("touchstart", function(event: TouchEvent) {
-            event.stopPropagation();
-            event.preventDefault();
-            const touch = event.touches[0];
-            self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'right');
-        });
-
-    this.zoomSliderSelection
-        .on("mousedown", function(event: MouseEvent) {
-
-            const target = event.target as HTMLElement;
-            if (target.classList.contains('zoom-slider-handle') ||
-                target.classList.contains('handle-grip')) {
-                return;
-            }
-            event.preventDefault();
-            self.startZoomDrag(event, 'middle');
-        })
-        .on("touchstart", function(event: TouchEvent) {
-            const target = event.target as HTMLElement;
-            if (target.classList.contains('zoom-slider-handle') ||
-                target.classList.contains('handle-grip')) {
-                return;
-            }
-            event.preventDefault();
-            const touch = event.touches[0];
-            self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'middle');
-        });
-
-    this.zoomSliderTrack
-        .on("dblclick", function() {
-            self.resetZoom();
-        });
-
-    this.zoomSliderTrack
-        .on("mousedown", function(event: MouseEvent) {
-            const target = event.target as HTMLElement;
-
-            if (!target.classList.contains('zoom-slider-track')) {
-                return;
-            }
-            const trackRect = (self.zoomSliderTrack.node() as HTMLElement).getBoundingClientRect();
-            const clickPercent = (event.clientX - trackRect.left) / trackRect.width;
-            self.jumpZoomTo(clickPercent);
-        });
-
-    this.attachZoomDragListeners();
-}
-
-private attachZoomDragListeners(): void {
-    if (this.zoomDragListenersAttached ||
-        !this.zoomMouseMoveHandler ||
-        !this.zoomMouseUpHandler ||
-        !this.zoomTouchMoveHandler ||
-        !this.zoomTouchEndHandler) {
-        return;
-    }
-
-    document.addEventListener("mousemove", this.zoomMouseMoveHandler);
-    document.addEventListener("mouseup", this.zoomMouseUpHandler);
-    document.addEventListener("touchmove", this.zoomTouchMoveHandler, this.zoomTouchListenerOptions);
-    document.addEventListener("touchend", this.zoomTouchEndHandler);
-    this.zoomDragListenersAttached = true;
-}
-
-private detachZoomDragListeners(): void {
-    if (!this.zoomDragListenersAttached ||
-        !this.zoomMouseMoveHandler ||
-        !this.zoomMouseUpHandler ||
-        !this.zoomTouchMoveHandler ||
-        !this.zoomTouchEndHandler) {
-        return;
-    }
-
-    document.removeEventListener("mousemove", this.zoomMouseMoveHandler);
-    document.removeEventListener("mouseup", this.zoomMouseUpHandler);
-    document.removeEventListener("touchmove", this.zoomTouchMoveHandler, this.zoomTouchListenerOptions);
-    document.removeEventListener("touchend", this.zoomTouchEndHandler);
-    this.zoomDragListenersAttached = false;
-}
-
-/**
- * Starts a zoom slider drag operation
- */
-private startZoomDrag(event: MouseEvent, type: 'left' | 'right' | 'middle'): void {
-    this.isZoomSliderDragging = true;
-    this.zoomDragType = type;
-    this.zoomDragStartX = event.clientX;
-    this.zoomDragStartLeft = this.zoomRangeStart;
-    this.zoomDragStartRight = this.zoomRangeEnd;
-
-    if (type === 'middle') {
-        this.zoomSliderSelection.style("cursor", "grabbing");
-    }
-
-    this.zoomSliderContainer.classed("dragging", true);
-}
-
-/**
- * Handles zoom slider drag movement
- */
-private handleZoomDrag(event: MouseEvent): void {
-    if (!this.isZoomSliderDragging || !this.zoomDragType) return;
-
-    const trackRect = (this.zoomSliderTrack.node() as HTMLElement)?.getBoundingClientRect();
-    if (!trackRect) return;
-
-    const deltaX = event.clientX - this.zoomDragStartX;
-    const deltaPercent = deltaX / trackRect.width;
-
-    switch (this.zoomDragType) {
-        case 'left':
-
-            let newStart = Math.max(0, Math.min(this.zoomDragStartLeft + deltaPercent,
-                this.zoomRangeEnd - this.ZOOM_SLIDER_MIN_RANGE));
-            this.zoomRangeStart = newStart;
-            break;
-
-        case 'right':
-
-            let newEnd = Math.min(1, Math.max(this.zoomDragStartRight + deltaPercent,
-                this.zoomRangeStart + this.ZOOM_SLIDER_MIN_RANGE));
-            this.zoomRangeEnd = newEnd;
-            break;
-
-        case 'middle':
-
-            const rangeSize = this.zoomDragStartRight - this.zoomDragStartLeft;
-            let newRangeStart = this.zoomDragStartLeft + deltaPercent;
-            let newRangeEnd = this.zoomDragStartRight + deltaPercent;
-
-            if (newRangeStart < 0) {
-                newRangeStart = 0;
-                newRangeEnd = rangeSize;
-            }
-            if (newRangeEnd > 1) {
-                newRangeEnd = 1;
-                newRangeStart = 1 - rangeSize;
+            if (floatThresholdTimeout) {
+                clearTimeout(floatThresholdTimeout);
             }
 
-            this.zoomRangeStart = newRangeStart;
-            this.zoomRangeEnd = newRangeEnd;
-            break;
+            floatThresholdTimeout = setTimeout(() => {
+
+                if (self.scrollThrottleTimeout) {
+                    clearTimeout(self.scrollThrottleTimeout);
+                    self.scrollThrottleTimeout = null;
+                }
+
+                self.host.persistProperties({
+                    merge: [{
+                        objectName: "persistedState",
+                        properties: { floatThreshold: self.floatThreshold },
+                        selector: null
+                    }]
+                });
+
+                self.requestUpdate(true);
+            }, 500);
+        });
+
+        controlContainer
+            .on("mouseover", function () {
+                d3.select(this)
+                    .style("box-shadow", self.UI_TOKENS.shadow[8])
+                    .style("transform", "translateY(-1px)");
+            })
+            .on("mouseout", function () {
+                d3.select(this)
+                    .style("box-shadow", self.UI_TOKENS.shadow[4])
+                    .style("transform", "translateY(0)");
+            });
     }
 
-    this.updateZoomSliderUI();
+    /**
+     * Creates the zoom slider UI component matching Microsoft Power BI standard style
+     * Design: Thin track line with circular handles at each end
+     */
+    private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, null, undefined>): void {
+        const sliderHeight = 32;
 
-    this.onZoomChange();
-}
+        this.zoomSliderContainer = visualWrapper.append("div")
+            .attr("class", "timeline-zoom-slider-container")
+            .style("position", "relative")
+            .style("width", "100%")
+            .style("height", `${sliderHeight}px`)
+            .style("background-color", "#FFFFFF")
+            .style("border-top", "1px solid #EDEBE9")
+            .style("display", "none")
+            .style("z-index", "50")
+            .style("flex-shrink", "0")
+            .style("user-select", "none");
 
-/**
- * Ends a zoom slider drag operation
- */
-private endZoomDrag(): void {
-    if (!this.isZoomSliderDragging) return;
+        this.zoomSliderTrack = this.zoomSliderContainer.append("div")
+            .attr("class", "zoom-slider-track")
+            .style("position", "absolute")
+            .style("left", "280px")
+            .style("right", "100px")
+            .style("top", "50%")
+            .style("transform", "translateY(-50%)")
+            .style("height", "4px")
+            .style("background-color", "#E1DFDD")
+            .style("border-radius", "2px");
 
-    this.isZoomSliderDragging = false;
-    this.zoomDragType = null;
-    this.zoomSliderSelection.style("cursor", "grab");
-    this.zoomSliderContainer.classed("dragging", false);
-}
+        const miniChartCanvas = document.createElement('canvas');
+        miniChartCanvas.className = 'zoom-slider-mini-chart';
+        miniChartCanvas.style.position = 'absolute';
+        miniChartCanvas.style.left = '0';
+        miniChartCanvas.style.top = '0';
+        miniChartCanvas.style.width = '100%';
+        miniChartCanvas.style.height = '100%';
+        miniChartCanvas.style.pointerEvents = 'none';
+        miniChartCanvas.style.display = 'none';
+        this.zoomSliderTrack.node()?.appendChild(miniChartCanvas);
+        this.zoomSliderMiniChart = d3.select(miniChartCanvas);
 
-/**
- * Resets zoom to show full timeline
- */
-private resetZoom(): void {
-    this.zoomRangeStart = 0;
-    this.zoomRangeEnd = 1;
-    this.updateZoomSliderUI();
-    this.onZoomChange();
-}
+        this.zoomSliderSelection = this.zoomSliderTrack.append("div")
+            .attr("class", "zoom-slider-selection")
+            .style("position", "absolute")
+            .style("left", "0%")
+            .style("width", "100%")
+            .style("top", "0")
+            .style("bottom", "0")
+            .style("background-color", "#C8C6C4")
+            .style("border-radius", "2px")
+            .style("cursor", "grab");
 
-/**
- * Jumps the zoom selection to center on a clicked position
- */
-private jumpZoomTo(clickPercent: number): void {
-    const rangeSize = this.zoomRangeEnd - this.zoomRangeStart;
-    let newStart = clickPercent - rangeSize / 2;
-    let newEnd = clickPercent + rangeSize / 2;
+        this.zoomSliderLeftHandle = this.zoomSliderSelection.append("div")
+            .attr("class", "zoom-slider-handle zoom-slider-handle-left")
+            .style("position", "absolute")
+            .style("left", "0")
+            .style("top", "50%")
+            .style("transform", "translate(-50%, -50%)")
+            .style("width", "12px")
+            .style("height", "12px")
+            .style("background-color", "#605E5C")
+            .style("border", "2px solid #FFFFFF")
+            .style("border-radius", "50%")
+            .style("cursor", "ew-resize")
+            .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
+            .style("z-index", "10");
 
-    if (newStart < 0) {
-        newStart = 0;
-        newEnd = rangeSize;
+        this.zoomSliderRightHandle = this.zoomSliderSelection.append("div")
+            .attr("class", "zoom-slider-handle zoom-slider-handle-right")
+            .style("position", "absolute")
+            .style("right", "0")
+            .style("top", "50%")
+            .style("transform", "translate(50%, -50%)")
+            .style("width", "12px")
+            .style("height", "12px")
+            .style("background-color", "#605E5C")
+            .style("border", "2px solid #FFFFFF")
+            .style("border-radius", "50%")
+            .style("cursor", "ew-resize")
+            .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
+            .style("z-index", "10");
+
+        this.setupZoomSliderEvents();
     }
-    if (newEnd > 1) {
-        newEnd = 1;
-        newStart = 1 - rangeSize;
+
+    /**
+     * Sets up mouse and touch event handlers for the zoom slider
+     */
+    private setupZoomSliderEvents(): void {
+        const self = this;
+
+        this.zoomSliderLeftHandle
+            .on("mousedown", function (event: MouseEvent) {
+                event.stopPropagation();
+                event.preventDefault();
+                self.startZoomDrag(event, 'left');
+            })
+            .on("touchstart", function (event: TouchEvent) {
+                event.stopPropagation();
+                event.preventDefault();
+                const touch = event.touches[0];
+                self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'left');
+            });
+
+        this.zoomSliderRightHandle
+            .on("mousedown", function (event: MouseEvent) {
+                event.stopPropagation();
+                event.preventDefault();
+                self.startZoomDrag(event, 'right');
+            })
+            .on("touchstart", function (event: TouchEvent) {
+                event.stopPropagation();
+                event.preventDefault();
+                const touch = event.touches[0];
+                self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'right');
+            });
+
+        this.zoomSliderSelection
+            .on("mousedown", function (event: MouseEvent) {
+
+                const target = event.target as HTMLElement;
+                if (target.classList.contains('zoom-slider-handle') ||
+                    target.classList.contains('handle-grip')) {
+                    return;
+                }
+                event.preventDefault();
+                self.startZoomDrag(event, 'middle');
+            })
+            .on("touchstart", function (event: TouchEvent) {
+                const target = event.target as HTMLElement;
+                if (target.classList.contains('zoom-slider-handle') ||
+                    target.classList.contains('handle-grip')) {
+                    return;
+                }
+                event.preventDefault();
+                const touch = event.touches[0];
+                self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'middle');
+            });
+
+        this.zoomSliderTrack
+            .on("dblclick", function () {
+                self.resetZoom();
+            });
+
+        this.zoomSliderTrack
+            .on("mousedown", function (event: MouseEvent) {
+                const target = event.target as HTMLElement;
+
+                if (!target.classList.contains('zoom-slider-track')) {
+                    return;
+                }
+                const trackRect = (self.zoomSliderTrack.node() as HTMLElement).getBoundingClientRect();
+                const clickPercent = (event.clientX - trackRect.left) / trackRect.width;
+                self.jumpZoomTo(clickPercent);
+            });
+
+        this.attachZoomDragListeners();
     }
 
-    this.zoomRangeStart = newStart;
-    this.zoomRangeEnd = newEnd;
-    this.updateZoomSliderUI();
-    this.onZoomChange();
-}
+    private attachZoomDragListeners(): void {
+        if (this.zoomDragListenersAttached ||
+            !this.zoomMouseMoveHandler ||
+            !this.zoomMouseUpHandler ||
+            !this.zoomTouchMoveHandler ||
+            !this.zoomTouchEndHandler) {
+            return;
+        }
 
-/**
- * Updates the zoom slider UI to reflect current zoom state
- */
-private updateZoomSliderUI(): void {
-    if (!this.zoomSliderSelection) return;
+        document.addEventListener("mousemove", this.zoomMouseMoveHandler);
+        document.addEventListener("mouseup", this.zoomMouseUpHandler);
+        document.addEventListener("touchmove", this.zoomTouchMoveHandler, this.zoomTouchListenerOptions);
+        document.addEventListener("touchend", this.zoomTouchEndHandler);
+        this.zoomDragListenersAttached = true;
+    }
 
-    const leftPercent = this.zoomRangeStart * 100;
-    const widthPercent = (this.zoomRangeEnd - this.zoomRangeStart) * 100;
+    private detachZoomDragListeners(): void {
+        if (!this.zoomDragListenersAttached ||
+            !this.zoomMouseMoveHandler ||
+            !this.zoomMouseUpHandler ||
+            !this.zoomTouchMoveHandler ||
+            !this.zoomTouchEndHandler) {
+            return;
+        }
 
-    this.zoomSliderSelection
-        .style("left", `${leftPercent}%`)
-        .style("width", `${widthPercent}%`);
-}
+        document.removeEventListener("mousemove", this.zoomMouseMoveHandler);
+        document.removeEventListener("mouseup", this.zoomMouseUpHandler);
+        document.removeEventListener("touchmove", this.zoomTouchMoveHandler, this.zoomTouchListenerOptions);
+        document.removeEventListener("touchend", this.zoomTouchEndHandler);
+        this.zoomDragListenersAttached = false;
+    }
 
-/**
- * Called when zoom changes - triggers visual update with throttling
- */
-private zoomChangeTimeout: any = null;
+    /**
+     * Starts a zoom slider drag operation
+     */
+    private startZoomDrag(event: MouseEvent, type: 'left' | 'right' | 'middle'): void {
+        this.isZoomSliderDragging = true;
+        this.zoomDragType = type;
+        this.zoomDragStartX = event.clientX;
+        this.zoomDragStartLeft = this.zoomRangeStart;
+        this.zoomDragStartRight = this.zoomRangeEnd;
+
+        if (type === 'middle') {
+            this.zoomSliderSelection.style("cursor", "grabbing");
+        }
+
+        this.zoomSliderContainer.classed("dragging", true);
+    }
+
+    /**
+     * Handles zoom slider drag movement
+     */
+    private handleZoomDrag(event: MouseEvent): void {
+        if (!this.isZoomSliderDragging || !this.zoomDragType) return;
+
+        const trackRect = (this.zoomSliderTrack.node() as HTMLElement)?.getBoundingClientRect();
+        if (!trackRect) return;
+
+        const deltaX = event.clientX - this.zoomDragStartX;
+        const deltaPercent = deltaX / trackRect.width;
+
+        switch (this.zoomDragType) {
+            case 'left':
+
+                let newStart = Math.max(0, Math.min(this.zoomDragStartLeft + deltaPercent,
+                    this.zoomRangeEnd - this.ZOOM_SLIDER_MIN_RANGE));
+                this.zoomRangeStart = newStart;
+                break;
+
+            case 'right':
+
+                let newEnd = Math.min(1, Math.max(this.zoomDragStartRight + deltaPercent,
+                    this.zoomRangeStart + this.ZOOM_SLIDER_MIN_RANGE));
+                this.zoomRangeEnd = newEnd;
+                break;
+
+            case 'middle':
+
+                const rangeSize = this.zoomDragStartRight - this.zoomDragStartLeft;
+                let newRangeStart = this.zoomDragStartLeft + deltaPercent;
+                let newRangeEnd = this.zoomDragStartRight + deltaPercent;
+
+                if (newRangeStart < 0) {
+                    newRangeStart = 0;
+                    newRangeEnd = rangeSize;
+                }
+                if (newRangeEnd > 1) {
+                    newRangeEnd = 1;
+                    newRangeStart = 1 - rangeSize;
+                }
+
+                this.zoomRangeStart = newRangeStart;
+                this.zoomRangeEnd = newRangeEnd;
+                break;
+        }
+
+        this.updateZoomSliderUI();
+
+        this.onZoomChange();
+    }
+
+    /**
+     * Ends a zoom slider drag operation
+     */
+    private endZoomDrag(): void {
+        if (!this.isZoomSliderDragging) return;
+
+        this.isZoomSliderDragging = false;
+        this.zoomDragType = null;
+        this.zoomSliderSelection.style("cursor", "grab");
+        this.zoomSliderContainer.classed("dragging", false);
+    }
+
+    /**
+     * Resets zoom to show full timeline
+     */
+    private resetZoom(): void {
+        this.zoomRangeStart = 0;
+        this.zoomRangeEnd = 1;
+        this.updateZoomSliderUI();
+        this.onZoomChange();
+    }
+
+    /**
+     * Jumps the zoom selection to center on a clicked position
+     */
+    private jumpZoomTo(clickPercent: number): void {
+        const rangeSize = this.zoomRangeEnd - this.zoomRangeStart;
+        let newStart = clickPercent - rangeSize / 2;
+        let newEnd = clickPercent + rangeSize / 2;
+
+        if (newStart < 0) {
+            newStart = 0;
+            newEnd = rangeSize;
+        }
+        if (newEnd > 1) {
+            newEnd = 1;
+            newStart = 1 - rangeSize;
+        }
+
+        this.zoomRangeStart = newStart;
+        this.zoomRangeEnd = newEnd;
+        this.updateZoomSliderUI();
+        this.onZoomChange();
+    }
+
+    /**
+     * Updates the zoom slider UI to reflect current zoom state
+     */
+    private updateZoomSliderUI(): void {
+        if (!this.zoomSliderSelection) return;
+
+        const leftPercent = this.zoomRangeStart * 100;
+        const widthPercent = (this.zoomRangeEnd - this.zoomRangeStart) * 100;
+
+        this.zoomSliderSelection
+            .style("left", `${leftPercent}%`)
+            .style("width", `${widthPercent}%`);
+    }
+
+    /**
+     * Called when zoom changes - triggers visual update with throttling
+     */
+    private zoomChangeTimeout: any = null;
 
     private onZoomChange(): void {
 
@@ -3335,255 +3335,255 @@ private zoomChangeTimeout: any = null;
         }, 16);
     }
 
-/**
- * Updates the zoom slider visibility and styling based on settings
- */
-private updateZoomSliderVisibility(): void {
-    if (!this.zoomSliderContainer) return;
+    /**
+     * Updates the zoom slider visibility and styling based on settings
+     */
+    private updateZoomSliderVisibility(): void {
+        if (!this.zoomSliderContainer) return;
 
-    const isEnabled = this.settings?.timelineZoom?.enableZoomSlider?.value ?? true;
-    const sliderHeight = this.settings?.timelineZoom?.sliderHeight?.value ?? 32;
-    const trackColor = this.settings?.timelineZoom?.sliderTrackColor?.value?.value ?? "#E1DFDD";
-    const selectedColor = this.settings?.timelineZoom?.sliderSelectedColor?.value?.value ?? "#C8C6C4";
-    const handleColor = this.settings?.timelineZoom?.sliderHandleColor?.value?.value ?? "#605E5C";
+        const isEnabled = this.settings?.timelineZoom?.enableZoomSlider?.value ?? true;
+        const sliderHeight = this.settings?.timelineZoom?.sliderHeight?.value ?? 32;
+        const trackColor = this.settings?.timelineZoom?.sliderTrackColor?.value?.value ?? "#E1DFDD";
+        const selectedColor = this.settings?.timelineZoom?.sliderSelectedColor?.value?.value ?? "#C8C6C4";
+        const handleColor = this.settings?.timelineZoom?.sliderHandleColor?.value?.value ?? "#605E5C";
 
-    this.zoomSliderEnabled = isEnabled;
+        this.zoomSliderEnabled = isEnabled;
 
-    this.zoomSliderContainer
-        .style("display", isEnabled ? "block" : "none")
-        .style("height", `${sliderHeight}px`);
+        this.zoomSliderContainer
+            .style("display", isEnabled ? "block" : "none")
+            .style("height", `${sliderHeight}px`);
 
-    if (this.zoomSliderTrack) {
-        this.zoomSliderTrack.style("background-color", trackColor);
-    }
-
-    if (this.zoomSliderSelection) {
-        this.zoomSliderSelection.style("background-color", selectedColor);
-    }
-
-    if (this.zoomSliderLeftHandle) {
-        this.zoomSliderLeftHandle.style("background-color", handleColor);
-    }
-
-    if (this.zoomSliderRightHandle) {
-        this.zoomSliderRightHandle.style("background-color", handleColor);
-    }
-
-    this.updateScrollableContainerHeight();
-}
-
-/**
- * Updates the scrollable container height based on visible components
- * Note: With flexbox layout, height is automatically managed.
- * This method is kept for backwards compatibility but flexbox handles the layout.
- */
-private updateScrollableContainerHeight(): void {
-
-}
-
-/**
- * Draws the mini chart preview in the zoom slider showing task distribution
- */
-private drawZoomSliderMiniChart(): void {
-    if (!this.zoomSliderMiniChart || !this.fullTimelineDomain || !this.settings?.timelineZoom?.showMiniChart?.value) {
-        return;
-    }
-
-    const canvas = this.zoomSliderMiniChart.node() as HTMLCanvasElement;
-    if (!canvas) return;
-
-    const rect = canvas.parentElement?.getBoundingClientRect();
-    if (!rect) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, rect.width, rect.height);
-
-    const tasksToShow = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
-    if (tasksToShow.length === 0 || !this.fullTimelineDomain) return;
-
-    const [minDate, maxDate] = this.fullTimelineDomain;
-    const timeRange = maxDate.getTime() - minDate.getTime();
-    if (timeRange <= 0) return;
-
-    const barHeight = Math.max(1, rect.height / Math.max(tasksToShow.length, 50));
-    const criticalColor = this.settings?.taskAppearance?.criticalPathColor?.value?.value ?? "#E81123";
-    const taskColor = this.settings?.taskAppearance?.taskColor?.value?.value ?? "#0078D4";
-
-    ctx.globalAlpha = 0.5;
-
-    tasksToShow.forEach((task, index) => {
-        if (!task.startDate || !task.finishDate) return;
-
-        const startPercent = (task.startDate.getTime() - minDate.getTime()) / timeRange;
-        const endPercent = (task.finishDate.getTime() - minDate.getTime()) / timeRange;
-
-        const x = startPercent * rect.width;
-        const width = Math.max(1, (endPercent - startPercent) * rect.width);
-        const y = (index / tasksToShow.length) * rect.height;
-
-        ctx.fillStyle = task.isCritical ? criticalColor : taskColor;
-        ctx.fillRect(x, y, width, barHeight);
-    });
-
-    ctx.globalAlpha = 1;
-}
-
-/**
- * Updates the zoom slider track margins to align with the chart area
- */
-private updateZoomSliderTrackMargins(): void {
-    if (!this.zoomSliderTrack || !this.settings) return;
-
-    const leftMargin = this.settings.layoutSettings?.leftMargin?.value ?? 280;
-    const rightMargin = this.margin.right ?? 100;
-
-    this.zoomSliderTrack
-        .style("left", `${leftMargin}px`)
-        .style("right", `${rightMargin}px`);
-}
-
-/**
- * Ensures the chart clip path/rect exist. Recreates them if a previous clear removed <defs>.
- */
-private ensureChartClipPath(): void {
-    if (!this.mainSvg) return;
-
-    let defs = this.mainSvg.select("defs");
-    if (defs.empty()) {
-        defs = this.mainSvg.append("defs");
-    }
-
-    let clipPath = defs.select<SVGClipPathElement>("clipPath#chart-area-clip");
-    if (clipPath.empty()) {
-        clipPath = defs.append("clipPath").attr("id", "chart-area-clip");
-    }
-    this.chartClipPath = clipPath;
-
-    let clipRect = clipPath.select<SVGRectElement>("rect");
-    if (clipRect.empty()) {
-        clipRect = clipPath.append("rect").attr("x", 0).attr("y", 0).attr("width", 0).attr("height", 0);
-    }
-    this.chartClipRect = clipRect;
-}
-
-/**
- * Updates the SVG clip rect to match the current chart dimensions.
- * This prevents bars from rendering past the left margin when zoomed.
- */
-private updateChartClipRect(chartWidth: number, chartHeight: number): void {
-    this.ensureChartClipPath();
-    if (!this.chartClipRect) return;
-
-    this.chartClipRect
-        .attr("x", 0)
-        .attr("y", 0)
-        .attr("width", chartWidth)
-        .attr("height", chartHeight + 1000);
-}
-
-private toggleConnectorLinesDisplay(): void {
-    try {
-        this.debugLog("Connector Lines Toggle method called!");
-        this.showConnectorLinesInternal = !this.showConnectorLinesInternal;
-        this.debugLog("New showConnectorLinesInternal value:", this.showConnectorLinesInternal);
-
-        if (this.scrollableContainer?.node()) {
-            const currentScrollTop = this.scrollableContainer.node().scrollTop;
-            this.preservedScrollTop = currentScrollTop;
-            this.preserveScrollOnUpdate = true;
-
-            this.scrollPreservationUntil = Date.now() + 500;
-            this.debugLog(`Connector toggle: Captured scrollTop=${currentScrollTop}`);
+        if (this.zoomSliderTrack) {
+            this.zoomSliderTrack.style("background-color", trackColor);
         }
 
-        this.host.persistProperties({
-            merge: [{
-                objectName: "connectorLines",
-                properties: { showConnectorLines: this.showConnectorLinesInternal },
-                selector: null
-            }]
+        if (this.zoomSliderSelection) {
+            this.zoomSliderSelection.style("background-color", selectedColor);
+        }
+
+        if (this.zoomSliderLeftHandle) {
+            this.zoomSliderLeftHandle.style("background-color", handleColor);
+        }
+
+        if (this.zoomSliderRightHandle) {
+            this.zoomSliderRightHandle.style("background-color", handleColor);
+        }
+
+        this.updateScrollableContainerHeight();
+    }
+
+    /**
+     * Updates the scrollable container height based on visible components
+     * Note: With flexbox layout, height is automatically managed.
+     * This method is kept for backwards compatibility but flexbox handles the layout.
+     */
+    private updateScrollableContainerHeight(): void {
+
+    }
+
+    /**
+     * Draws the mini chart preview in the zoom slider showing task distribution
+     */
+    private drawZoomSliderMiniChart(): void {
+        if (!this.zoomSliderMiniChart || !this.fullTimelineDomain || !this.settings?.timelineZoom?.showMiniChart?.value) {
+            return;
+        }
+
+        const canvas = this.zoomSliderMiniChart.node() as HTMLCanvasElement;
+        if (!canvas) return;
+
+        const rect = canvas.parentElement?.getBoundingClientRect();
+        if (!rect) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, rect.width, rect.height);
+
+        const tasksToShow = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
+        if (tasksToShow.length === 0 || !this.fullTimelineDomain) return;
+
+        const [minDate, maxDate] = this.fullTimelineDomain;
+        const timeRange = maxDate.getTime() - minDate.getTime();
+        if (timeRange <= 0) return;
+
+        const barHeight = Math.max(1, rect.height / Math.max(tasksToShow.length, 50));
+        const criticalColor = this.settings?.taskAppearance?.criticalPathColor?.value?.value ?? "#E81123";
+        const taskColor = this.settings?.taskAppearance?.taskColor?.value?.value ?? "#0078D4";
+
+        ctx.globalAlpha = 0.5;
+
+        tasksToShow.forEach((task, index) => {
+            if (!task.startDate || !task.finishDate) return;
+
+            const startPercent = (task.startDate.getTime() - minDate.getTime()) / timeRange;
+            const endPercent = (task.finishDate.getTime() - minDate.getTime()) / timeRange;
+
+            const x = startPercent * rect.width;
+            const width = Math.max(1, (endPercent - startPercent) * rect.width);
+            const y = (index / tasksToShow.length) * rect.height;
+
+            ctx.fillStyle = task.isCritical ? criticalColor : taskColor;
+            ctx.fillRect(x, y, width, barHeight);
         });
 
-        this.redrawVisibleTasks();
-
-        const viewportWidth = this.lastUpdateOptions?.viewport?.width
-            || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
-            || 800;
-        this.createConnectorLinesToggleButton(viewportWidth);
-
-        this.debugLog("Connector lines toggled and persisted");
-    } catch (error) {
-        console.error("Error in connector toggle method:", error);
+        ctx.globalAlpha = 1;
     }
-}
 
-/**
- * Log data loading info. With 'top' algorithm, data arrives in one batch.
- */
-private logDataLoadInfo(dataView: DataView): void {
-    const rowCount = dataView.table?.rows?.length || 0;
-    const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
+    /**
+     * Updates the zoom slider track margins to align with the chart area
+     */
+    private updateZoomSliderTrackMargins(): void {
+        if (!this.zoomSliderTrack || !this.settings) return;
 
-    this.debugLog(
-        `[WBS] Data loaded: ${rowCount.toLocaleString()} rows`,
-        `| Sorted by: ${hasTotalFloat ? 'Total Float (critical first)' : 'Start Date'}`
-    );
+        const leftMargin = this.settings.layoutSettings?.leftMargin?.value ?? 280;
+        const rightMargin = this.margin.right ?? 100;
 
-    if (rowCount >= 30000) {
-        console.warn(
-            `[WBS] Dataset at 30,000 row limit. ` +
-            `Critical tasks prioritized via ${hasTotalFloat ? 'Total Float' : 'Start Date'} sort.`
+        this.zoomSliderTrack
+            .style("left", `${leftMargin}px`)
+            .style("right", `${rightMargin}px`);
+    }
+
+    /**
+     * Ensures the chart clip path/rect exist. Recreates them if a previous clear removed <defs>.
+     */
+    private ensureChartClipPath(): void {
+        if (!this.mainSvg) return;
+
+        let defs = this.mainSvg.select("defs");
+        if (defs.empty()) {
+            defs = this.mainSvg.append("defs");
+        }
+
+        let clipPath = defs.select<SVGClipPathElement>("clipPath#chart-area-clip");
+        if (clipPath.empty()) {
+            clipPath = defs.append("clipPath").attr("id", "chart-area-clip");
+        }
+        this.chartClipPath = clipPath;
+
+        let clipRect = clipPath.select<SVGRectElement>("rect");
+        if (clipRect.empty()) {
+            clipRect = clipPath.append("rect").attr("x", 0).attr("y", 0).attr("width", 0).attr("height", 0);
+        }
+        this.chartClipRect = clipRect;
+    }
+
+    /**
+     * Updates the SVG clip rect to match the current chart dimensions.
+     * This prevents bars from rendering past the left margin when zoomed.
+     */
+    private updateChartClipRect(chartWidth: number, chartHeight: number): void {
+        this.ensureChartClipPath();
+        if (!this.chartClipRect) return;
+
+        this.chartClipRect
+            .attr("x", 0)
+            .attr("y", 0)
+            .attr("width", chartWidth)
+            .attr("height", chartHeight + 1000);
+    }
+
+    private toggleConnectorLinesDisplay(): void {
+        try {
+            this.debugLog("Connector Lines Toggle method called!");
+            this.showConnectorLinesInternal = !this.showConnectorLinesInternal;
+            this.debugLog("New showConnectorLinesInternal value:", this.showConnectorLinesInternal);
+
+            if (this.scrollableContainer?.node()) {
+                const currentScrollTop = this.scrollableContainer.node().scrollTop;
+                this.preservedScrollTop = currentScrollTop;
+                this.preserveScrollOnUpdate = true;
+
+                this.scrollPreservationUntil = Date.now() + 500;
+                this.debugLog(`Connector toggle: Captured scrollTop=${currentScrollTop}`);
+            }
+
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "connectorLines",
+                    properties: { showConnectorLines: this.showConnectorLinesInternal },
+                    selector: null
+                }]
+            });
+
+            this.redrawVisibleTasks();
+
+            const viewportWidth = this.lastUpdateOptions?.viewport?.width
+                || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
+                || 800;
+            this.createConnectorLinesToggleButton(viewportWidth);
+
+            this.debugLog("Connector lines toggled and persisted");
+        } catch (error) {
+            console.error("Error in connector toggle method:", error);
+        }
+    }
+
+    /**
+     * Log data loading info. With 'top' algorithm, data arrives in one batch.
+     */
+    private logDataLoadInfo(dataView: DataView): void {
+        const rowCount = dataView.table?.rows?.length || 0;
+        const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
+
+        this.debugLog(
+            `[WBS] Data loaded: ${rowCount.toLocaleString()} rows`,
+            `| Sorted by: ${hasTotalFloat ? 'Total Float (critical first)' : 'Start Date'}`
         );
+
+        if (rowCount >= 30000) {
+            console.warn(
+                `[WBS] Dataset at 30,000 row limit. ` +
+                `Critical tasks prioritized via ${hasTotalFloat ? 'Total Float' : 'Start Date'} sort.`
+            );
+        }
     }
-}
 
-/**
- * Format a number with thousands separators for display.
- */
-private formatNumber(num: number): string {
-    return num.toLocaleString();
-}
-
-/**
- * Show/hide loading overlay (simplified - no segment tracking).
- */
-private setLoadingOverlayVisible(show: boolean, options?: { message?: string; rowCount?: number }): void {
-    if (!this.loadingOverlay) return;
-
-    if (show) {
-        if (!this.loadingStartTime) {
-            this.loadingStartTime = performance.now();
-        }
-        if (options?.message && this.loadingText) {
-            this.loadingText.text(options.message);
-        }
-        if (this.loadingRowsText && options?.rowCount !== undefined) {
-            this.loadingRowsText.text(options.rowCount > 0 ? `${this.formatNumber(options.rowCount)} rows` : "Initializing…");
-        }
-        if (this.loadingProgressText) {
-            this.loadingProgressText.text("");
-        }
-        this.loadingOverlay.style("display", "flex");
-        this.mainSvg?.style("visibility", "hidden");
-        this.canvasLayer?.style("visibility", "hidden");
-        this.isLoadingVisible = true;
-    } else {
-        this.loadingStartTime = null;
-        this.loadingOverlay.style("display", "none");
-        this.mainSvg?.style("visibility", "visible");
-        this.canvasLayer?.style("visibility", "visible");
-        this.isLoadingVisible = false;
+    /**
+     * Format a number with thousands separators for display.
+     */
+    private formatNumber(num: number): string {
+        return num.toLocaleString();
     }
-}
+
+    /**
+     * Show/hide loading overlay (simplified - no segment tracking).
+     */
+    private setLoadingOverlayVisible(show: boolean, options?: { message?: string; rowCount?: number }): void {
+        if (!this.loadingOverlay) return;
+
+        if (show) {
+            if (!this.loadingStartTime) {
+                this.loadingStartTime = performance.now();
+            }
+            if (options?.message && this.loadingText) {
+                this.loadingText.text(options.message);
+            }
+            if (this.loadingRowsText && options?.rowCount !== undefined) {
+                this.loadingRowsText.text(options.rowCount > 0 ? `${this.formatNumber(options.rowCount)} rows` : "Initializing…");
+            }
+            if (this.loadingProgressText) {
+                this.loadingProgressText.text("");
+            }
+            this.loadingOverlay.style("display", "flex");
+            this.mainSvg?.style("visibility", "hidden");
+            this.canvasLayer?.style("visibility", "hidden");
+            this.isLoadingVisible = true;
+        } else {
+            this.loadingStartTime = null;
+            this.loadingOverlay.style("display", "none");
+            this.mainSvg?.style("visibility", "visible");
+            this.canvasLayer?.style("visibility", "visible");
+            this.isLoadingVisible = false;
+        }
+    }
 
     public update(options: VisualUpdateOptions) {
         this.debugLog("===== UPDATE() CALLED =====");
@@ -3592,582 +3592,582 @@ private setLoadingOverlayVisible(show: boolean, options?: { message?: string; ro
         void this.updateInternal(options);
     }
 
-private async updateInternal(options: VisualUpdateOptions) {
-    this.debugLog("--- Visual Update Start ---");
-    this.renderStartTime = performance.now();
-    this.hideTooltip();
+    private async updateInternal(options: VisualUpdateOptions) {
+        this.debugLog("--- Visual Update Start ---");
+        this.renderStartTime = performance.now();
+        this.hideTooltip();
 
-    if (this.isUpdating) {
-        this.debugLog("Update already in progress, skipping");
-        return;
-    }
-
-    if (this.scrollThrottleTimeout) {
-        clearTimeout(this.scrollThrottleTimeout);
-        this.scrollThrottleTimeout = null;
-    }
-
-    if (this.isMarginDragging) {
-        this.debugLog("Margin drag in progress, skipping Power BI update");
-        return;
-    }
-
-    this.isUpdating = true;
-
-    const allowInteractions = (options as VisualUpdateOptions & { allowInteractions?: boolean }).allowInteractions;
-    const hostAllowsInteractions = this.host?.hostCapabilities?.allowInteractions;
-    this.allowInteractions = allowInteractions !== false && hostAllowsInteractions !== false;
-    this.updateHighContrastState();
-    this.refreshDateFormatters();
-    this.applyHighContrastStyling();
-    const eventService = this.eventService;
-    let renderingFailed = false;
-    eventService?.renderingStarted(options);
-
-    try {
-        const updateType = this.determineUpdateType(options);
-        this.debugLog(`Update type detected: ${updateType}`);
-
-        if (updateType === UpdateType.Full && this.scrollableContainer?.node()) {
-            const node = this.scrollableContainer.node();
-
-            const now = Date.now();
-            const inCooldownPeriod = now < this.scrollPreservationUntil;
-            const wbsToggleRecent = this.lastWbsToggleTimestamp > 0 && (now - this.lastWbsToggleTimestamp) < 2000;
-            const shouldPreserveScroll = this.preserveScrollOnUpdate || inCooldownPeriod || wbsToggleRecent;
-
-            this.debugLog(`Scroll preservation check: flag=${this.preserveScrollOnUpdate}, inCooldown=${inCooldownPeriod}, wbsRecent=${wbsToggleRecent}, shouldPreserve=${shouldPreserveScroll}, scrollTop=${node.scrollTop}`);
-
-            this.preserveScrollOnUpdate = false;
-
-            if (!shouldPreserveScroll && !this.scrollThrottleTimeout && node.scrollTop > 0 && this.preservedScrollTop === null && this.wbsToggleScrollAnchor === null) {
-                if (this.scrollListener) {
-                    this.scrollableContainer.on("scroll", null);
-                    this.scrollHandlerBackup = this.scrollListener;
-                }
-
-                this.debugLog("Resetting scroll position for full update");
-                node.scrollTop = 0;
-
-                requestAnimationFrame(() => {
-                    if (this.scrollHandlerBackup && this.scrollableContainer) {
-                        this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
-                        this.scrollHandlerBackup = null;
-                    }
-                });
-            } else if (shouldPreserveScroll) {
-                this.debugLog("Preserving scroll position for individual WBS group toggle");
-            }
-        }
-
-        this.lastViewport = options.viewport;
-
-        if (updateType === UpdateType.ViewportOnly && this.allTasksData.length > 0) {
-            this.handleViewportOnlyUpdate(options);
+        if (this.isUpdating) {
+            this.debugLog("Update already in progress, skipping");
             return;
         }
 
-        if (updateType === UpdateType.SettingsOnly && this.allTasksData.length > 0) {
-            this.handleSettingsOnlyUpdate(options);
+        if (this.scrollThrottleTimeout) {
+            clearTimeout(this.scrollThrottleTimeout);
+            this.scrollThrottleTimeout = null;
+        }
+
+        if (this.isMarginDragging) {
+            this.debugLog("Margin drag in progress, skipping Power BI update");
             return;
         }
 
-        this.lastUpdateOptions = options;
-        this.clearLandingPage();
+        this.isUpdating = true;
 
-        if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
-            this.applyTaskFilter([]);
-            this.displayLandingPage();
-            return;
-        }
-
-        const dataView = options.dataViews[0];
-        const viewport = options.viewport;
-        const viewportHeight = viewport.height;
-        const viewportWidth = viewport.width;
-        const dataSignature = this.getDataSignature(dataView);
-        const dataChanged = (options.type & VisualUpdateType.Data) !== 0 ||
-            this.lastDataSignature !== dataSignature;
-
-        if (dataChanged) {
-            this.logDataLoadInfo(dataView);
-        }
-
-        this.setLoadingOverlayVisible(false);
-
-        this.wbsLevelColumnIndices = [];
-        this.wbsLevelColumnNames = [];
-        this.wbsDataExistsInMetadata = this.hasDataRole(dataView, 'wbsLevels');
-
-        if (this.wbsDataExistsInMetadata && dataView.table?.columns) {
-
-            for (let i = 0; i < dataView.table.columns.length; i++) {
-                const column = dataView.table.columns[i];
-                if (column.roles && column.roles['wbsLevels']) {
-                    this.wbsLevelColumnIndices.push(i);
-                    this.wbsLevelColumnNames.push(column.displayName || `Level ${this.wbsLevelColumnIndices.length}`);
-                }
-            }
-        }
-
-        this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
-
-        if (this.settings?.taskAppearance?.showBaseline !== undefined) {
-            this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
-        }
-
-        if (this.settings?.taskAppearance?.showPreviousUpdate !== undefined) {
-            this.showPreviousUpdateInternal = this.settings.taskAppearance.showPreviousUpdate.value;
-        }
-
-        if (this.settings?.connectorLines?.showConnectorLines !== undefined) {
-            this.showConnectorLinesInternal = this.settings.connectorLines.showConnectorLines.value;
-        }
-
-        if (this.settings?.wbsGrouping?.expandCollapseAll !== undefined) {
-            this.wbsExpandedInternal = this.settings.wbsGrouping.expandCollapseAll.value;
-
-            if (!this.wbsManualExpansionOverride && this.wbsExpandToLevel === undefined) {
-                this.wbsExpandToLevel = this.wbsExpandedInternal ? undefined : 0;
-            }
-        }
-
-        this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
-
-        this.applyPublishModeOptimizations();
-
-        this.updateZoomSliderVisibility();
-
-        if (this.isInitialLoad) {
-            if (this.settings?.displayOptions?.showAllTasks !== undefined) {
-                this.showAllTasksInternal = this.settings.displayOptions.showAllTasks.value;
-            }
-
-            if (this.settings?.persistedState?.selectedTaskId !== undefined) {
-                this.selectedTaskId = this.settings.persistedState.selectedTaskId.value || null;
-            }
-            if (this.settings?.persistedState?.floatThreshold !== undefined) {
-                this.floatThreshold = this.settings.persistedState.floatThreshold.value;
-            }
-            if (this.settings?.persistedState?.traceMode !== undefined) {
-                const persistedMode = this.settings.persistedState.traceMode.value;
-                this.traceMode = persistedMode ? persistedMode : "backward";
-            }
-
-            if (this.settings?.persistedState?.selectedLegendCategories !== undefined) {
-                const savedCategories = this.settings.persistedState.selectedLegendCategories.value;
-                if (savedCategories && savedCategories.trim().length > 0) {
-                    this.selectedLegendCategories = new Set(savedCategories.split(',').filter(c => c.trim()));
-                    this.debugLog(`Restored legend selection: ${savedCategories}`);
-                } else {
-                    this.selectedLegendCategories.clear();
-                }
-            }
-            if (this.settings?.persistedState?.wbsExpandedState !== undefined) {
-                const savedState = this.settings.persistedState.wbsExpandedState.value;
-                this.wbsExpandedState.clear();
-                if (savedState && savedState.trim().length > 0) {
-                    try {
-                        const parsed = JSON.parse(savedState) as Record<string, unknown>;
-                        if (parsed && typeof parsed === "object") {
-                            for (const [groupId, expanded] of Object.entries(parsed)) {
-                                if (typeof expanded === "boolean") {
-                                    this.wbsExpandedState.set(groupId, expanded);
-                                }
-                            }
-                        }
-                    } catch (error) {
-                        console.warn("Failed to parse persisted WBS expanded state.", error);
-                    }
-                }
-            } else {
-                this.wbsExpandedState.clear();
-            }
-            if (this.settings?.persistedState?.wbsManualToggledGroups !== undefined) {
-                const savedGroups = this.settings.persistedState.wbsManualToggledGroups.value;
-                this.wbsManuallyToggledGroups.clear();
-                if (savedGroups && savedGroups.trim().length > 0) {
-                    try {
-                        const parsed = JSON.parse(savedGroups) as unknown;
-                        if (Array.isArray(parsed)) {
-                            for (const groupId of parsed) {
-                                if (typeof groupId === "string" && groupId.length > 0) {
-                                    this.wbsManuallyToggledGroups.add(groupId);
-                                }
-                            }
-                        }
-                    } catch (error) {
-                        console.warn("Failed to parse persisted WBS manual group list.", error);
-                    }
-                }
-            } else {
-                this.wbsManuallyToggledGroups.clear();
-            }
-            if (this.settings?.persistedState?.wbsExpandLevel !== undefined) {
-                const persistedLevel = this.settings.persistedState.wbsExpandLevel.value;
-                if (persistedLevel !== undefined && persistedLevel !== null) {
-                    if (persistedLevel === -2) {
-                        this.wbsManualExpansionOverride = true;
-                        this.wbsExpandToLevel = undefined;
-                        if (this.wbsExpandedState.size > 0) {
-                            this.wbsExpandedInternal = Array.from(this.wbsExpandedState.values()).some(v => v);
-                        }
-                    } else {
-                        const resolvedLevel = persistedLevel === -1 ? null : persistedLevel;
-                        this.wbsManualExpansionOverride = false;
-                        this.wbsExpandToLevel = resolvedLevel;
-                        this.wbsExpandedInternal = resolvedLevel !== 0;
-                    }
-                }
-            }
-            this.isInitialLoad = false;
-        }
-
-        const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
-        const connectorColor = this.settings.connectorLines.connectorColor.value.value;
-
-        this.margin.left = this.settings.layoutSettings.leftMargin.value;
-        this.updateMarginResizerPosition();
-
-        this.clearVisual();
-        this.updateHeaderElements(viewportWidth);
-        this.createFloatThresholdControl();
-        this.createTaskSelectionDropdown();
-        this.createTraceModeToggle();
-
-        if (!this.validateDataView(dataView)) {
-            this.applyTaskFilter([]);
-            const missingRoles = this.getMissingRequiredRoles(dataView);
-            this.displayLandingPage(missingRoles);
-            return;
-        }
-        this.debugLog("Data roles validated.");
-
-        const shouldTransform = dataChanged || this.allTasksData.length === 0;
-        if (shouldTransform) {
-            this.transformDataOptimized(dataView);
-            this.lastDataSignature = dataSignature;
-            this.cachedSortedTasksSignature = null;
-            this.dropdownNeedsRefresh = true;
-        } else {
-            this.debugLog("Skipping data transform; using cached task data");
-        }
-
-        this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
-
-        if (this.wbsEnableOverride !== null && this.settings?.wbsGrouping?.enableWbsGrouping) {
-            this.settings.wbsGrouping.enableWbsGrouping.value = this.wbsEnableOverride;
-            this.wbsEnableOverride = null;
-        }
-
-        if (this.selectedTaskId && !this.taskIdToTask.has(this.selectedTaskId)) {
-            this.debugLog(`Selected task ${this.selectedTaskId} no longer exists in data`);
-            this.selectTask(null, null);
-        }
-
-        if (this.allTasksData.length === 0) {
-            this.applyTaskFilter([]);
-            this.displayMessage("No valid task data found to display.");
-            return;
-        }
-        this.debugLog(`Transformed ${this.allTasksData.length} tasks.`);
-
-        if (this.selectedTaskId) {
-            const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
-            this.selectedTaskName = (selectedTask && selectedTask.name) || null;
-        }
-
-        this.createTaskSelectionDropdown();
-        if (this.dropdownInput) {
-            if (this.selectedTaskId) {
-                this.dropdownInput.property("value", this.selectedTaskName || "");
-            } else {
-                this.dropdownInput.property("value", "");
-            }
-        }
-
-        if (this.selectedTaskLabel) {
-            if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
-                this.selectedTaskLabel
-                    .style("display", "block")
-                    .text(`${this.getLocalizedString("ui.selectedLabel", "Selected")}: ${this.selectedTaskName}`);
-            } else {
-                this.selectedTaskLabel.style("display", "none");
-            }
-        }
-
-        if (this.dropdownList && this.dropdownList.style("display") !== "none") {
-            this.populateTaskDropdown();
-        }
-        this.createTraceModeToggle();
+        const allowInteractions = (options as VisualUpdateOptions & { allowInteractions?: boolean }).allowInteractions;
+        const hostAllowsInteractions = this.host?.hostCapabilities?.allowInteractions;
+        this.allowInteractions = allowInteractions !== false && hostAllowsInteractions !== false;
+        this.updateHighContrastState();
+        this.refreshDateFormatters();
         this.applyHighContrastStyling();
+        const eventService = this.eventService;
+        let renderingFailed = false;
+        eventService?.renderingStarted(options);
 
-        const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
-        const mode = this.settings.criticalityMode.calculationMode.value.value;
+        try {
+            const updateType = this.determineUpdateType(options);
+            this.debugLog(`Update type detected: ${updateType}`);
 
-        let predecessorTaskSet = new Set<string>();
-        let successorTaskSet = new Set<string>();
+            if (updateType === UpdateType.Full && this.scrollableContainer?.node()) {
+                const node = this.scrollableContainer.node();
 
-        if (enableTaskSelection && this.selectedTaskId) {
-            const traceModeSetting = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
-            const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
+                const now = Date.now();
+                const inCooldownPeriod = now < this.scrollPreservationUntil;
+                const wbsToggleRecent = this.lastWbsToggleTimestamp > 0 && (now - this.lastWbsToggleTimestamp) < 2000;
+                const shouldPreserveScroll = this.preserveScrollOnUpdate || inCooldownPeriod || wbsToggleRecent;
 
-            if (mode === 'floatBased') {
-                this.applyFloatBasedCriticality();
+                this.debugLog(`Scroll preservation check: flag=${this.preserveScrollOnUpdate}, inCooldown=${inCooldownPeriod}, wbsRecent=${wbsToggleRecent}, shouldPreserve=${shouldPreserveScroll}, scrollTop=${node.scrollTop}`);
 
-                if (effectiveTraceMode === 'forward') {
-                    successorTaskSet = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
-                } else {
-                    predecessorTaskSet = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
+                this.preserveScrollOnUpdate = false;
+
+                if (!shouldPreserveScroll && !this.scrollThrottleTimeout && node.scrollTop > 0 && this.preservedScrollTop === null && this.wbsToggleScrollAnchor === null) {
+                    if (this.scrollListener) {
+                        this.scrollableContainer.on("scroll", null);
+                        this.scrollHandlerBackup = this.scrollListener;
+                    }
+
+                    this.debugLog("Resetting scroll position for full update");
+                    node.scrollTop = 0;
+
+                    requestAnimationFrame(() => {
+                        if (this.scrollHandlerBackup && this.scrollableContainer) {
+                            this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
+                            this.scrollHandlerBackup = null;
+                        }
+                    });
+                } else if (shouldPreserveScroll) {
+                    this.debugLog("Preserving scroll position for individual WBS group toggle");
                 }
+            }
+
+            this.lastViewport = options.viewport;
+
+            if (updateType === UpdateType.ViewportOnly && this.allTasksData.length > 0) {
+                this.handleViewportOnlyUpdate(options);
+                return;
+            }
+
+            if (updateType === UpdateType.SettingsOnly && this.allTasksData.length > 0) {
+                this.handleSettingsOnlyUpdate(options);
+                return;
+            }
+
+            this.lastUpdateOptions = options;
+            this.clearLandingPage();
+
+            if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
+                this.applyTaskFilter([]);
+                this.displayLandingPage();
+                return;
+            }
+
+            const dataView = options.dataViews[0];
+            const viewport = options.viewport;
+            const viewportHeight = viewport.height;
+            const viewportWidth = viewport.width;
+            const dataSignature = this.getDataSignature(dataView);
+            const dataChanged = (options.type & VisualUpdateType.Data) !== 0 ||
+                this.lastDataSignature !== dataSignature;
+
+            if (dataChanged) {
+                this.logDataLoadInfo(dataView);
+            }
+
+            this.setLoadingOverlayVisible(false);
+
+            this.wbsLevelColumnIndices = [];
+            this.wbsLevelColumnNames = [];
+            this.wbsDataExistsInMetadata = this.hasDataRole(dataView, 'wbsLevels');
+
+            if (this.wbsDataExistsInMetadata && dataView.table?.columns) {
+
+                for (let i = 0; i < dataView.table.columns.length; i++) {
+                    const column = dataView.table.columns[i];
+                    if (column.roles && column.roles['wbsLevels']) {
+                        this.wbsLevelColumnIndices.push(i);
+                        this.wbsLevelColumnNames.push(column.displayName || `Level ${this.wbsLevelColumnIndices.length}`);
+                    }
+                }
+            }
+
+            this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+
+            if (this.settings?.taskAppearance?.showBaseline !== undefined) {
+                this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
+            }
+
+            if (this.settings?.taskAppearance?.showPreviousUpdate !== undefined) {
+                this.showPreviousUpdateInternal = this.settings.taskAppearance.showPreviousUpdate.value;
+            }
+
+            if (this.settings?.connectorLines?.showConnectorLines !== undefined) {
+                this.showConnectorLinesInternal = this.settings.connectorLines.showConnectorLines.value;
+            }
+
+            if (this.settings?.wbsGrouping?.expandCollapseAll !== undefined) {
+                this.wbsExpandedInternal = this.settings.wbsGrouping.expandCollapseAll.value;
+
+                if (!this.wbsManualExpansionOverride && this.wbsExpandToLevel === undefined) {
+                    this.wbsExpandToLevel = this.wbsExpandedInternal ? undefined : 0;
+                }
+            }
+
+            this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
+
+            this.applyPublishModeOptimizations();
+
+            this.updateZoomSliderVisibility();
+
+            if (this.isInitialLoad) {
+                if (this.settings?.displayOptions?.showAllTasks !== undefined) {
+                    this.showAllTasksInternal = this.settings.displayOptions.showAllTasks.value;
+                }
+
+                if (this.settings?.persistedState?.selectedTaskId !== undefined) {
+                    this.selectedTaskId = this.settings.persistedState.selectedTaskId.value || null;
+                }
+                if (this.settings?.persistedState?.floatThreshold !== undefined) {
+                    this.floatThreshold = this.settings.persistedState.floatThreshold.value;
+                }
+                if (this.settings?.persistedState?.traceMode !== undefined) {
+                    const persistedMode = this.settings.persistedState.traceMode.value;
+                    this.traceMode = persistedMode ? persistedMode : "backward";
+                }
+
+                if (this.settings?.persistedState?.selectedLegendCategories !== undefined) {
+                    const savedCategories = this.settings.persistedState.selectedLegendCategories.value;
+                    if (savedCategories && savedCategories.trim().length > 0) {
+                        this.selectedLegendCategories = new Set(savedCategories.split(',').filter(c => c.trim()));
+                        this.debugLog(`Restored legend selection: ${savedCategories}`);
+                    } else {
+                        this.selectedLegendCategories.clear();
+                    }
+                }
+                if (this.settings?.persistedState?.wbsExpandedState !== undefined) {
+                    const savedState = this.settings.persistedState.wbsExpandedState.value;
+                    this.wbsExpandedState.clear();
+                    if (savedState && savedState.trim().length > 0) {
+                        try {
+                            const parsed = JSON.parse(savedState) as Record<string, unknown>;
+                            if (parsed && typeof parsed === "object") {
+                                for (const [groupId, expanded] of Object.entries(parsed)) {
+                                    if (typeof expanded === "boolean") {
+                                        this.wbsExpandedState.set(groupId, expanded);
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.warn("Failed to parse persisted WBS expanded state.", error);
+                        }
+                    }
+                } else {
+                    this.wbsExpandedState.clear();
+                }
+                if (this.settings?.persistedState?.wbsManualToggledGroups !== undefined) {
+                    const savedGroups = this.settings.persistedState.wbsManualToggledGroups.value;
+                    this.wbsManuallyToggledGroups.clear();
+                    if (savedGroups && savedGroups.trim().length > 0) {
+                        try {
+                            const parsed = JSON.parse(savedGroups) as unknown;
+                            if (Array.isArray(parsed)) {
+                                for (const groupId of parsed) {
+                                    if (typeof groupId === "string" && groupId.length > 0) {
+                                        this.wbsManuallyToggledGroups.add(groupId);
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.warn("Failed to parse persisted WBS manual group list.", error);
+                        }
+                    }
+                } else {
+                    this.wbsManuallyToggledGroups.clear();
+                }
+                if (this.settings?.persistedState?.wbsExpandLevel !== undefined) {
+                    const persistedLevel = this.settings.persistedState.wbsExpandLevel.value;
+                    if (persistedLevel !== undefined && persistedLevel !== null) {
+                        if (persistedLevel === -2) {
+                            this.wbsManualExpansionOverride = true;
+                            this.wbsExpandToLevel = undefined;
+                            if (this.wbsExpandedState.size > 0) {
+                                this.wbsExpandedInternal = Array.from(this.wbsExpandedState.values()).some(v => v);
+                            }
+                        } else {
+                            const resolvedLevel = persistedLevel === -1 ? null : persistedLevel;
+                            this.wbsManualExpansionOverride = false;
+                            this.wbsExpandToLevel = resolvedLevel;
+                            this.wbsExpandedInternal = resolvedLevel !== 0;
+                        }
+                    }
+                }
+                this.isInitialLoad = false;
+            }
+
+            const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
+            const connectorColor = this.settings.connectorLines.connectorColor.value.value;
+
+            this.margin.left = this.settings.layoutSettings.leftMargin.value;
+            this.updateMarginResizerPosition();
+
+            this.clearVisual();
+            this.updateHeaderElements(viewportWidth);
+            this.createFloatThresholdControl();
+            this.createTaskSelectionDropdown();
+            this.createTraceModeToggle();
+
+            if (!this.validateDataView(dataView)) {
+                this.applyTaskFilter([]);
+                const missingRoles = this.getMissingRequiredRoles(dataView);
+                this.displayLandingPage(missingRoles);
+                return;
+            }
+            this.debugLog("Data roles validated.");
+
+            const shouldTransform = dataChanged || this.allTasksData.length === 0;
+            if (shouldTransform) {
+                this.transformDataOptimized(dataView);
+                this.lastDataSignature = dataSignature;
+                this.cachedSortedTasksSignature = null;
+                this.dropdownNeedsRefresh = true;
             } else {
-                if (this.showAllTasksInternal) {
-                    this.debugLog("Longest Path 'Show All' is active: Performing full structural trace.");
+                this.debugLog("Skipping data transform; using cached task data");
+            }
+
+            this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+
+            if (this.wbsEnableOverride !== null && this.settings?.wbsGrouping?.enableWbsGrouping) {
+                this.settings.wbsGrouping.enableWbsGrouping.value = this.wbsEnableOverride;
+                this.wbsEnableOverride = null;
+            }
+
+            if (this.selectedTaskId && !this.taskIdToTask.has(this.selectedTaskId)) {
+                this.debugLog(`Selected task ${this.selectedTaskId} no longer exists in data`);
+                this.selectTask(null, null);
+            }
+
+            if (this.allTasksData.length === 0) {
+                this.applyTaskFilter([]);
+                this.displayMessage("No valid task data found to display.");
+                return;
+            }
+            this.debugLog(`Transformed ${this.allTasksData.length} tasks.`);
+
+            if (this.selectedTaskId) {
+                const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
+                this.selectedTaskName = (selectedTask && selectedTask.name) || null;
+            }
+
+            this.createTaskSelectionDropdown();
+            if (this.dropdownInput) {
+                if (this.selectedTaskId) {
+                    this.dropdownInput.property("value", this.selectedTaskName || "");
+                } else {
+                    this.dropdownInput.property("value", "");
+                }
+            }
+
+            if (this.selectedTaskLabel) {
+                if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
+                    this.selectedTaskLabel
+                        .style("display", "block")
+                        .text(`${this.getLocalizedString("ui.selectedLabel", "Selected")}: ${this.selectedTaskName}`);
+                } else {
+                    this.selectedTaskLabel.style("display", "none");
+                }
+            }
+
+            if (this.dropdownList && this.dropdownList.style("display") !== "none") {
+                this.populateTaskDropdown();
+            }
+            this.createTraceModeToggle();
+            this.applyHighContrastStyling();
+
+            const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
+            const mode = this.settings.criticalityMode.calculationMode.value.value;
+
+            let predecessorTaskSet = new Set<string>();
+            let successorTaskSet = new Set<string>();
+
+            if (enableTaskSelection && this.selectedTaskId) {
+                const traceModeSetting = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
+                const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
+
+                if (mode === 'floatBased') {
+                    this.applyFloatBasedCriticality();
+
                     if (effectiveTraceMode === 'forward') {
                         successorTaskSet = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
                     } else {
                         predecessorTaskSet = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
                     }
-
-                    if (effectiveTraceMode === 'forward') {
-                        this.calculateCPMFromTask(this.selectedTaskId);
-                    } else {
-                        this.calculateCPMToTask(this.selectedTaskId);
-                    }
                 } else {
-                    this.debugLog("Longest Path 'Show Critical' is active: Tracing driving path.");
-                    if (effectiveTraceMode === 'forward') {
-                        this.calculateCPMFromTask(this.selectedTaskId);
+                    if (this.showAllTasksInternal) {
+                        this.debugLog("Longest Path 'Show All' is active: Performing full structural trace.");
+                        if (effectiveTraceMode === 'forward') {
+                            successorTaskSet = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
+                        } else {
+                            predecessorTaskSet = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
+                        }
+
+                        if (effectiveTraceMode === 'forward') {
+                            this.calculateCPMFromTask(this.selectedTaskId);
+                        } else {
+                            this.calculateCPMToTask(this.selectedTaskId);
+                        }
                     } else {
-                        this.calculateCPMToTask(this.selectedTaskId);
+                        this.debugLog("Longest Path 'Show Critical' is active: Tracing driving path.");
+                        if (effectiveTraceMode === 'forward') {
+                            this.calculateCPMFromTask(this.selectedTaskId);
+                        } else {
+                            this.calculateCPMToTask(this.selectedTaskId);
+                        }
                     }
                 }
-            }
-        } else {
-            if (mode === 'floatBased') {
-                this.applyFloatBasedCriticality();
-            } else {
-                this.identifyLongestPathFromP6();
-            }
-        }
-
-        this.ensureTaskSortCache(this.lastDataSignature ?? dataSignature);
-
-        const plottableTasksSorted = this.cachedPlottableTasksSorted;
-
-        const criticalAndNearCriticalTasks = plottableTasksSorted.filter(task =>
-            task.isCritical || task.isNearCritical
-        );
-
-        let tasksToConsider: Task[] = [];
-
-        if (enableTaskSelection && this.selectedTaskId) {
-            const traceModeSetting = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
-            const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
-            const relevantTaskSet = effectiveTraceMode === 'forward' ? successorTaskSet : predecessorTaskSet;
-            const relevantPlottableTasks = plottableTasksSorted.filter(task => relevantTaskSet.has(task.internalId));
-
-            if (this.showAllTasksInternal) {
-                tasksToConsider = relevantPlottableTasks.length > 0 ? relevantPlottableTasks : plottableTasksSorted;
             } else {
                 if (mode === 'floatBased') {
-                    const criticalTraceTasks = relevantPlottableTasks.filter(task => task.isCritical || task.isNearCritical);
-                    if (criticalTraceTasks.length > 0) {
-                        tasksToConsider = criticalTraceTasks;
-                    } else if (criticalAndNearCriticalTasks.length > 0) {
-                        tasksToConsider = criticalAndNearCriticalTasks;
-                    } else if (relevantPlottableTasks.length > 0) {
-                        tasksToConsider = relevantPlottableTasks;
-                    } else {
-                        tasksToConsider = plottableTasksSorted;
-                    }
+                    this.applyFloatBasedCriticality();
                 } else {
-                    if (criticalAndNearCriticalTasks.length > 0) {
-                        tasksToConsider = criticalAndNearCriticalTasks;
-                    } else if (relevantPlottableTasks.length > 0) {
-                        tasksToConsider = relevantPlottableTasks;
+                    this.identifyLongestPathFromP6();
+                }
+            }
+
+            this.ensureTaskSortCache(this.lastDataSignature ?? dataSignature);
+
+            const plottableTasksSorted = this.cachedPlottableTasksSorted;
+
+            const criticalAndNearCriticalTasks = plottableTasksSorted.filter(task =>
+                task.isCritical || task.isNearCritical
+            );
+
+            let tasksToConsider: Task[] = [];
+
+            if (enableTaskSelection && this.selectedTaskId) {
+                const traceModeSetting = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
+                const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
+                const relevantTaskSet = effectiveTraceMode === 'forward' ? successorTaskSet : predecessorTaskSet;
+                const relevantPlottableTasks = plottableTasksSorted.filter(task => relevantTaskSet.has(task.internalId));
+
+                if (this.showAllTasksInternal) {
+                    tasksToConsider = relevantPlottableTasks.length > 0 ? relevantPlottableTasks : plottableTasksSorted;
+                } else {
+                    if (mode === 'floatBased') {
+                        const criticalTraceTasks = relevantPlottableTasks.filter(task => task.isCritical || task.isNearCritical);
+                        if (criticalTraceTasks.length > 0) {
+                            tasksToConsider = criticalTraceTasks;
+                        } else if (criticalAndNearCriticalTasks.length > 0) {
+                            tasksToConsider = criticalAndNearCriticalTasks;
+                        } else if (relevantPlottableTasks.length > 0) {
+                            tasksToConsider = relevantPlottableTasks;
+                        } else {
+                            tasksToConsider = plottableTasksSorted;
+                        }
                     } else {
-                        tasksToConsider = plottableTasksSorted;
+                        if (criticalAndNearCriticalTasks.length > 0) {
+                            tasksToConsider = criticalAndNearCriticalTasks;
+                        } else if (relevantPlottableTasks.length > 0) {
+                            tasksToConsider = relevantPlottableTasks;
+                        } else {
+                            tasksToConsider = plottableTasksSorted;
+                        }
                     }
                 }
-            }
 
-            const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
-            if (selectedTask && this.hasValidPlotDates(selectedTask) && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
-                tasksToConsider.push(selectedTask);
-            }
-        } else {
-            tasksToConsider = this.showAllTasksInternal
-                ? plottableTasksSorted
-                : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : plottableTasksSorted;
-        }
-
-        if (tasksToConsider === plottableTasksSorted) {
-            tasksToConsider = [...plottableTasksSorted];
-        }
-
-        const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
-        const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
-
-        if (limitedTasks.length === 0) {
-            this.applyTaskFilter([]);
-            this.displayMessage("No tasks to display after filtering/limiting.");
-            return;
-        }
-
-        const tasksToPlot = limitedTasks.filter(task => this.hasValidPlotDates(task));
-
-        if (tasksToPlot.length === 0) {
-            this.applyTaskFilter([]);
-            this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
-            return;
-        }
-
-        const wbsGroupingEnabled = this.wbsDataExists &&
-            this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-
-        let tasksAfterLegendFilter = tasksToPlot;
-        if (this.legendDataExists && this.selectedLegendCategories.size > 0) {
-            tasksAfterLegendFilter = tasksToPlot.filter(task => {
-                if (task.legendValue) {
-                    return this.selectedLegendCategories.has(task.legendValue);
+                const selectedTask = this.taskIdToTask.get(this.selectedTaskId);
+                if (selectedTask && this.hasValidPlotDates(selectedTask) && !tasksToConsider.find(t => t.internalId === this.selectedTaskId)) {
+                    tasksToConsider.push(selectedTask);
                 }
-                return true;
-            });
-        }
-
-        this.allFilteredTasks = [...tasksAfterLegendFilter];
-
-        if (wbsGroupingEnabled) {
-            this.updateWbsFilteredCounts(tasksAfterLegendFilter);
-        }
-
-        let orderedTasks: Task[];
-        if (wbsGroupingEnabled) {
-
-            orderedTasks = this.applyWbsOrdering(tasksAfterLegendFilter);
-        } else {
-
-            orderedTasks = [...tasksAfterLegendFilter].sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-        }
-
-        let tasksToShow = orderedTasks;
-
-        if (wbsGroupingEnabled) {
-            this.assignWbsYOrder(tasksToShow);
-        } else {
-
-            tasksToShow.forEach((task, index) => { task.yOrder = index; });
-        }
-
-        const tasksWithYOrder = tasksToShow.filter(t => t.yOrder !== undefined);
-        const visibleGroupCount = wbsGroupingEnabled ? this.wbsGroups.filter(g => g.yOrder !== undefined).length : 0;
-
-        if (tasksWithYOrder.length === 0 && visibleGroupCount === 0) {
-            this.applyTaskFilter([]);
-            if (wbsGroupingEnabled) {
-                this.displayMessage("All WBS groups are collapsed or filtered. Expand a group to view tasks.");
             } else {
-                this.displayMessage("No tasks to display after filtering.");
+                tasksToConsider = this.showAllTasksInternal
+                    ? plottableTasksSorted
+                    : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : plottableTasksSorted;
             }
-            return;
-        }
 
-        this.applyTaskFilter(tasksToShow.map(t => t.id));
+            if (tasksToConsider === plottableTasksSorted) {
+                tasksToConsider = [...plottableTasksSorted];
+            }
 
-        const taskHeight = this.settings.taskAppearance.taskHeight.value;
-        const taskPadding = this.settings.layoutSettings.taskPadding.value;
+            const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
+            const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
 
-        let totalRows = tasksWithYOrder.length;
-        if (wbsGroupingEnabled) {
+            if (limitedTasks.length === 0) {
+                this.applyTaskFilter([]);
+                this.displayMessage("No tasks to display after filtering/limiting.");
+                return;
+            }
 
-            let maxYOrder = -1;
-            for (const task of tasksWithYOrder) {
-                if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
-                    maxYOrder = task.yOrder;
+            const tasksToPlot = limitedTasks.filter(task => this.hasValidPlotDates(task));
+
+            if (tasksToPlot.length === 0) {
+                this.applyTaskFilter([]);
+                this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
+                return;
+            }
+
+            const wbsGroupingEnabled = this.wbsDataExists &&
+                this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+            let tasksAfterLegendFilter = tasksToPlot;
+            if (this.legendDataExists && this.selectedLegendCategories.size > 0) {
+                tasksAfterLegendFilter = tasksToPlot.filter(task => {
+                    if (task.legendValue) {
+                        return this.selectedLegendCategories.has(task.legendValue);
+                    }
+                    return true;
+                });
+            }
+
+            this.allFilteredTasks = [...tasksAfterLegendFilter];
+
+            if (wbsGroupingEnabled) {
+                this.updateWbsFilteredCounts(tasksAfterLegendFilter);
+            }
+
+            let orderedTasks: Task[];
+            if (wbsGroupingEnabled) {
+
+                orderedTasks = this.applyWbsOrdering(tasksAfterLegendFilter);
+            } else {
+
+                orderedTasks = [...tasksAfterLegendFilter].sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+            }
+
+            let tasksToShow = orderedTasks;
+
+            if (wbsGroupingEnabled) {
+                this.assignWbsYOrder(tasksToShow);
+            } else {
+
+                tasksToShow.forEach((task, index) => { task.yOrder = index; });
+            }
+
+            const tasksWithYOrder = tasksToShow.filter(t => t.yOrder !== undefined);
+            const visibleGroupCount = wbsGroupingEnabled ? this.wbsGroups.filter(g => g.yOrder !== undefined).length : 0;
+
+            if (tasksWithYOrder.length === 0 && visibleGroupCount === 0) {
+                this.applyTaskFilter([]);
+                if (wbsGroupingEnabled) {
+                    this.displayMessage("All WBS groups are collapsed or filtered. Expand a group to view tasks.");
+                } else {
+                    this.displayMessage("No tasks to display after filtering.");
                 }
+                return;
             }
-            for (const group of this.wbsGroups) {
-                if (group.yOrder !== undefined && group.yOrder > maxYOrder) {
-                    maxYOrder = group.yOrder;
+
+            this.applyTaskFilter(tasksToShow.map(t => t.id));
+
+            const taskHeight = this.settings.taskAppearance.taskHeight.value;
+            const taskPadding = this.settings.layoutSettings.taskPadding.value;
+
+            let totalRows = tasksWithYOrder.length;
+            if (wbsGroupingEnabled) {
+
+                let maxYOrder = -1;
+                for (const task of tasksWithYOrder) {
+                    if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
+                        maxYOrder = task.yOrder;
+                    }
                 }
+                for (const group of this.wbsGroups) {
+                    if (group.yOrder !== undefined && group.yOrder > maxYOrder) {
+                        maxYOrder = group.yOrder;
+                    }
+                }
+
+                totalRows = maxYOrder + 1;
             }
 
-            totalRows = maxYOrder + 1;
-        }
+            const totalSvgHeight = Math.max(50, totalRows * (taskHeight + taskPadding)) + this.margin.top + this.margin.bottom;
 
-        const totalSvgHeight = Math.max(50, totalRows * (taskHeight + taskPadding)) + this.margin.top + this.margin.bottom;
+            const scaleSetupResult = this.setupTimeBasedSVGAndScales({ width: viewportWidth, height: totalSvgHeight }, tasksToShow);
+            this.xScale = scaleSetupResult.xScale;
+            this.yScale = scaleSetupResult.yScale;
+            const chartWidth = scaleSetupResult.chartWidth;
+            const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
 
-        const scaleSetupResult = this.setupTimeBasedSVGAndScales({ width: viewportWidth, height: totalSvgHeight }, tasksToShow);
-        this.xScale = scaleSetupResult.xScale;
-        this.yScale = scaleSetupResult.yScale;
-        const chartWidth = scaleSetupResult.chartWidth;
-        const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
+            if (!this.xScale || !this.yScale) {
+                this.applyTaskFilter([]);
+                this.displayMessage("Could not create time/band scale. Check Start/Finish dates.");
+                return;
+            }
 
-        if (!this.xScale || !this.yScale) {
+            this.mainSvg.attr("width", viewportWidth).attr("height", totalSvgHeight);
+            this.headerSvg.attr("width", viewportWidth);
+
+            this.mainGroup.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
+            this.headerGridLayer.attr("transform", `translate(${this.margin.left}, 0)`);
+
+            this.createMarginResizer();
+
+            const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
+            const legendOffset = legendVisible ? this.legendFooterHeight : 0;
+            const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
+
+            this.scrollableContainer
+                .style("height", `${availableContentHeight}px`)
+                .style("overflow-y", totalSvgHeight > availableContentHeight ? "scroll" : "hidden");
+
+            this.taskElementHeight = taskHeight + taskPadding;
+
+            this.restoreScrollPosition(totalSvgHeight);
+
+            this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding, totalRows, true);
+
+            const visibleTasks = this.getVisibleTasks();
+
+            this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
+
+            this.renderLegend(viewportWidth, viewportHeight);
+
+            this.renderWbsCycleButtons(viewportWidth);
+
+            this.updateZoomSliderUI();
+            this.drawZoomSliderMiniChart();
+            this.updateZoomSliderTrackMargins();
+
+            const renderEndTime = performance.now();
+            this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
+
+        } catch (error) {
+            console.error("--- ERROR during visual update ---", error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            renderingFailed = true;
+            eventService?.renderingFailed(options, errorMessage);
+
             this.applyTaskFilter([]);
-            this.displayMessage("Could not create time/band scale. Check Start/Finish dates.");
-            return;
-        }
+            this.displayMessage(`Error updating visual: ${errorMessage}`);
+        } finally {
+            if (!renderingFailed) {
+                eventService?.renderingFinished(options);
+            }
+            this.isUpdating = false;
 
-        this.mainSvg.attr("width", viewportWidth).attr("height", totalSvgHeight);
-        this.headerSvg.attr("width", viewportWidth);
-
-        this.mainGroup.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
-        this.headerGridLayer.attr("transform", `translate(${this.margin.left}, 0)`);
-
-        this.createMarginResizer();
-
-        const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
-        const legendOffset = legendVisible ? this.legendFooterHeight : 0;
-        const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
-
-        this.scrollableContainer
-            .style("height", `${availableContentHeight}px`)
-            .style("overflow-y", totalSvgHeight > availableContentHeight ? "scroll" : "hidden");
-
-        this.taskElementHeight = taskHeight + taskPadding;
-
-        this.restoreScrollPosition(totalSvgHeight);
-
-        this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding, totalRows, true);
-
-        const visibleTasks = this.getVisibleTasks();
-
-        this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
-
-        this.renderLegend(viewportWidth, viewportHeight);
-
-        this.renderWbsCycleButtons(viewportWidth);
-
-        this.updateZoomSliderUI();
-        this.drawZoomSliderMiniChart();
-        this.updateZoomSliderTrackMargins();
-
-        const renderEndTime = performance.now();
-        this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
-
-    } catch (error) {
-        console.error("--- ERROR during visual update ---", error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        renderingFailed = true;
-        eventService?.renderingFailed(options, errorMessage);
-
-        this.applyTaskFilter([]);
-        this.displayMessage(`Error updating visual: ${errorMessage}`);
-    } finally {
-        if (!renderingFailed) {
-            eventService?.renderingFinished(options);
-        }
-        this.isUpdating = false;
-
-        if (this.scrollHandlerBackup && this.scrollableContainer) {
-            this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
-            this.scrollHandlerBackup = null;
-            this.debugLog("Scroll handler restored in finally block");
+            if (this.scrollHandlerBackup && this.scrollableContainer) {
+                this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
+                this.scrollHandlerBackup = null;
+                this.debugLog("Scroll handler restored in finally block");
+            }
         }
     }
-}
 
     private updateRenderOnly(): void {
 
@@ -4194,7 +4194,7 @@ private async updateInternal(options: VisualUpdateOptions) {
         }
     }
 
-private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
+    private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing viewport-only update");
         const viewportWidth = options.viewport.width;
         const viewportHeight = options.viewport.height;
@@ -4206,10 +4206,10 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         const legendOffset = legendVisible ? this.legendFooterHeight : 0;
         const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
         const totalSvgHeight = this.taskTotalCount * this.taskElementHeight +
-                             this.margin.top + this.margin.bottom;
+            this.margin.top + this.margin.bottom;
 
         this.scrollableContainer.style("height", `${availableContentHeight}px`)
-                              .style("overflow-y", totalSvgHeight > availableContentHeight ? "scroll" : "hidden");
+            .style("overflow-y", totalSvgHeight > availableContentHeight ? "scroll" : "hidden");
 
         this.mainSvg.attr("width", viewportWidth);
         this.headerSvg.attr("width", viewportWidth);
@@ -4232,12 +4232,12 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         if (showHorzGridLines && this.yScale) {
             const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
             this.drawHorizontalGridLines(renderableTasks, this.yScale, chartWidth, currentLeftMargin,
-                                        this.yScale.range()[1]);
+                this.yScale.range()[1]);
         }
 
         if (showVertGridLines && this.xScale && this.yScale) {
             this.drawVerticalGridLines(this.xScale, this.yScale.range()[1],
-                                      this.gridLayer, this.headerGridLayer);
+                this.gridLayer, this.headerGridLayer);
         }
 
         if (this.xScale && this.yScale) {
@@ -4261,7 +4261,7 @@ private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("--- Visual Update End (Viewport Only) ---");
     }
 
-private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
+    private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing settings-only update");
 
         const oldSelectedPathIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value;
@@ -4284,8 +4284,8 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog(`[Settings Update] Old show info: ${oldShowPathInfo}, New: ${newShowPathInfo}`);
 
         const drivingPathChanged = oldSelectedPathIndex !== newSelectedPathIndex ||
-                                   oldMultiPathEnabled !== newMultiPathEnabled ||
-                                   oldShowPathInfo !== newShowPathInfo;
+            oldMultiPathEnabled !== newMultiPathEnabled ||
+            oldShowPathInfo !== newShowPathInfo;
 
         if (this.settings?.taskAppearance?.showBaseline !== undefined) {
             this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
@@ -4333,30 +4333,30 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
 
         if (this.xScale && this.yScale) {
 
-             const taskHeight = this.settings.taskAppearance.taskHeight.value;
-             const taskPadding = this.settings.layoutSettings.taskPadding.value;
-             const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+            const taskHeight = this.settings.taskAppearance.taskHeight.value;
+            const taskPadding = this.settings.layoutSettings.taskPadding.value;
+            const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
-             let totalRows = this.allTasksToShow.length;
-             if (wbsGroupingEnabled) {
+            let totalRows = this.allTasksToShow.length;
+            if (wbsGroupingEnabled) {
 
-                 let maxYOrder = -1;
-                 for (const task of this.allTasksToShow) {
-                     if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
-                         maxYOrder = task.yOrder;
-                     }
-                 }
-                 for (const group of this.wbsGroups) {
-                     if (group.yOrder !== undefined && group.yOrder > maxYOrder) {
-                         maxYOrder = group.yOrder;
-                     }
-                 }
-                 if (maxYOrder >= 0) {
-                     totalRows = maxYOrder + 1;
-                 }
-             }
+                let maxYOrder = -1;
+                for (const task of this.allTasksToShow) {
+                    if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
+                        maxYOrder = task.yOrder;
+                    }
+                }
+                for (const group of this.wbsGroups) {
+                    if (group.yOrder !== undefined && group.yOrder > maxYOrder) {
+                        maxYOrder = group.yOrder;
+                    }
+                }
+                if (maxYOrder >= 0) {
+                    totalRows = maxYOrder + 1;
+                }
+            }
 
-             const scaleSetupResult = this.setupTimeBasedSVGAndScales(
+            const scaleSetupResult = this.setupTimeBasedSVGAndScales(
                 options.viewport,
                 this.allTasksToShow
             );
@@ -4397,157 +4397,93 @@ private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("--- Visual Update End (Settings Only) ---");
     }
 
-/**
- * Creates the left margin resizer used to resize the label column.
- */
-private createMarginResizer(): void {
-    if (!this.scrollableContainer) return;
+    /**
+     * Creates the left margin resizer used to resize the label column.
+     */
+    private createMarginResizer(): void {
+        if (!this.scrollableContainer) return;
 
-    const wrapper = d3.select(this.target).select<HTMLDivElement>(".visual-wrapper");
-    if (wrapper.empty()) return;
+        const wrapper = d3.select(this.target).select<HTMLDivElement>(".visual-wrapper");
+        if (wrapper.empty()) return;
 
-    wrapper.selectAll(".margin-resizer").remove();
+        wrapper.selectAll(".margin-resizer").remove();
 
-    const resizerWidth = 8;
-    const lineColor = this.UI_TOKENS.color.neutral.grey60;
+        const resizerWidth = 8;
+        const lineColor = this.UI_TOKENS.color.neutral.grey60;
 
-    this.marginResizer = wrapper.append("div")
-        .attr("class", "margin-resizer")
-        .attr("role", "separator")
-        .attr("aria-orientation", "vertical")
-        .attr("aria-label", "Resize task label margin")
-        .style("position", "absolute")
-        .style("top", "0")
-        .style("width", `${resizerWidth}px`)
-        .style("cursor", "col-resize")
-        .style("z-index", "60")
-        .style("user-select", "none")
-        .style("touch-action", "none");
+        this.marginResizer = wrapper.append("div")
+            .attr("class", "margin-resizer")
+            .attr("role", "separator")
+            .attr("aria-orientation", "vertical")
+            .attr("aria-label", "Resize task label margin")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("width", `${resizerWidth}px`)
+            .style("cursor", "col-resize")
+            .style("z-index", "60")
+            .style("user-select", "none")
+            .style("touch-action", "none");
 
-    this.marginResizer.append("div")
-        .attr("class", "margin-resizer-line")
-        .style("position", "absolute")
-        .style("top", "0")
-        .style("bottom", "0")
-        .style("left", "50%")
-        .style("width", "1px")
-        .style("transform", "translateX(-0.5px)")
-        .style("background-color", lineColor)
-        .style("opacity", "0.7")
-        .style("pointer-events", "none");
+        this.marginResizer.append("div")
+            .attr("class", "margin-resizer-line")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("bottom", "0")
+            .style("left", "50%")
+            .style("width", "1px")
+            .style("transform", "translateX(-0.5px)")
+            .style("background-color", lineColor)
+            .style("opacity", "0.7")
+            .style("pointer-events", "none");
 
-    const self = this;
-    let startX = 0;
-    let startMargin = 0;
-    let previousCursor = "";
-    let previousUserSelect = "";
+        const self = this;
+        let startX = 0;
+        let startMargin = 0;
+        let previousCursor = "";
+        let previousUserSelect = "";
 
-    const getMarginBounds = (): { min: number; max: number } => {
-        const minValue = this.settings?.layoutSettings?.leftMargin?.options?.minValue?.value ?? 50;
-        const maxValue = this.settings?.layoutSettings?.leftMargin?.options?.maxValue?.value ?? 600;
-        const viewportWidth = this.lastViewport?.width
-            || this.lastUpdateOptions?.viewport?.width
-            || (this.target instanceof HTMLElement ? this.target.clientWidth : 0);
-        const maxByViewport = Math.max(minValue, viewportWidth - this.margin.right - 10);
-        return {
-            min: minValue,
-            max: Math.min(maxValue, maxByViewport)
+        const getMarginBounds = (): { min: number; max: number } => {
+            const minValue = this.settings?.layoutSettings?.leftMargin?.options?.minValue?.value ?? 50;
+            const maxValue = this.settings?.layoutSettings?.leftMargin?.options?.maxValue?.value ?? 600;
+            const viewportWidth = this.lastViewport?.width
+                || this.lastUpdateOptions?.viewport?.width
+                || (this.target instanceof HTMLElement ? this.target.clientWidth : 0);
+            const maxByViewport = Math.max(minValue, viewportWidth - this.margin.right - 10);
+            return {
+                min: minValue,
+                max: Math.min(maxValue, maxByViewport)
+            };
         };
-    };
 
-    const clampMargin = (value: number): number => {
-        const bounds = getMarginBounds();
-        return Math.min(Math.max(value, bounds.min), bounds.max);
-    };
+        const clampMargin = (value: number): number => {
+            const bounds = getMarginBounds();
+            return Math.min(Math.max(value, bounds.min), bounds.max);
+        };
 
-    const updateMargin = (clientX: number): void => {
-        const delta = clientX - startX;
-        const nextMargin = clampMargin(startMargin + delta);
-        if (nextMargin === this.margin.left) return;
-        this.handleMarginDragUpdate(nextMargin);
-        this.updateZoomSliderTrackMargins();
-    };
+        const updateMargin = (clientX: number): void => {
+            const delta = clientX - startX;
+            const nextMargin = clampMargin(startMargin + delta);
+            if (nextMargin === this.margin.left) return;
+            this.handleMarginDragUpdate(nextMargin);
+            this.updateZoomSliderTrackMargins();
+        };
 
-    const endDrag = (): void => {
-        if (!self.isMarginDragging) return;
-        self.isMarginDragging = false;
+        const endDrag = (): void => {
+            if (!self.isMarginDragging) return;
+            self.isMarginDragging = false;
 
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", endDrag);
-        document.removeEventListener("touchmove", onTouchMove);
-        document.removeEventListener("touchend", endDrag);
+            document.removeEventListener("mousemove", onMouseMove);
+            document.removeEventListener("mouseup", endDrag);
+            document.removeEventListener("touchmove", onTouchMove);
+            document.removeEventListener("touchend", endDrag);
 
-        document.body.style.cursor = previousCursor;
-        document.body.style.userSelect = previousUserSelect;
+            document.body.style.cursor = previousCursor;
+            document.body.style.userSelect = previousUserSelect;
 
-        if (self.settings?.layoutSettings?.leftMargin) {
-            self.settings.layoutSettings.leftMargin.value = self.margin.left;
-        }
-
-        self.host.persistProperties({
-            merge: [{
-                objectName: "layoutSettings",
-                properties: { leftMargin: self.margin.left },
-                selector: null
-            }]
-        });
-
-        self.requestUpdate(true);
-    };
-
-    const onMouseMove = (event: MouseEvent): void => {
-        if (!self.isMarginDragging) return;
-        event.preventDefault();
-        updateMargin(event.clientX);
-    };
-
-    const onTouchMove = (event: TouchEvent): void => {
-        if (!self.isMarginDragging || event.touches.length === 0) return;
-        event.preventDefault();
-        updateMargin(event.touches[0].clientX);
-    };
-
-    const startDrag = (clientX: number): void => {
-        if (self.isMarginDragging) return;
-        self.isMarginDragging = true;
-        startX = clientX;
-        startMargin = self.margin.left;
-        previousCursor = document.body.style.cursor;
-        previousUserSelect = document.body.style.userSelect;
-        document.body.style.cursor = "col-resize";
-        document.body.style.userSelect = "none";
-        document.addEventListener("mousemove", onMouseMove);
-        document.addEventListener("mouseup", endDrag);
-        document.addEventListener("touchmove", onTouchMove, { passive: false });
-        document.addEventListener("touchend", endDrag);
-    };
-
-    this.marginResizer
-        .attr("tabindex", "0")
-        .attr("aria-valuemin", getMarginBounds().min.toString())
-        .attr("aria-valuemax", getMarginBounds().max.toString())
-        .on("mousedown", function(event: MouseEvent) {
-            event.preventDefault();
-            event.stopPropagation();
-            startDrag(event.clientX);
-        })
-        .on("touchstart", function(event: TouchEvent) {
-            if (event.touches.length === 0) return;
-            event.preventDefault();
-            event.stopPropagation();
-            startDrag(event.touches[0].clientX);
-        })
-        .on("keydown", function(event: KeyboardEvent) {
-            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-            event.preventDefault();
-            const step = event.shiftKey ? 25 : 10;
-            const delta = event.key === "ArrowLeft" ? -step : step;
-            const nextMargin = clampMargin(self.margin.left + delta);
-            self.handleMarginDragUpdate(nextMargin);
-            self.updateZoomSliderTrackMargins();
             if (self.settings?.layoutSettings?.leftMargin) {
                 self.settings.layoutSettings.leftMargin.value = self.margin.left;
             }
+
             self.host.persistProperties({
                 merge: [{
                     objectName: "layoutSettings",
@@ -4555,105 +4491,169 @@ private createMarginResizer(): void {
                     selector: null
                 }]
             });
+
             self.requestUpdate(true);
-        });
+        };
 
-    this.updateMarginResizerPosition();
-}
+        const onMouseMove = (event: MouseEvent): void => {
+            if (!self.isMarginDragging) return;
+            event.preventDefault();
+            updateMargin(event.clientX);
+        };
 
-/**
- * Updates the margin resizer's position to align with the current left margin.
- */
-private updateMarginResizerPosition(): void {
-    if (!this.marginResizer || !this.scrollableContainer) return;
+        const onTouchMove = (event: TouchEvent): void => {
+            if (!self.isMarginDragging || event.touches.length === 0) return;
+            event.preventDefault();
+            updateMargin(event.touches[0].clientX);
+        };
 
-    const containerNode = this.scrollableContainer.node();
-    if (!containerNode) return;
+        const startDrag = (clientX: number): void => {
+            if (self.isMarginDragging) return;
+            self.isMarginDragging = true;
+            startX = clientX;
+            startMargin = self.margin.left;
+            previousCursor = document.body.style.cursor;
+            previousUserSelect = document.body.style.userSelect;
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+            document.addEventListener("mousemove", onMouseMove);
+            document.addEventListener("mouseup", endDrag);
+            document.addEventListener("touchmove", onTouchMove, { passive: false });
+            document.addEventListener("touchend", endDrag);
+        };
 
-    const wrapperNode = containerNode.parentElement;
-    if (!wrapperNode) return;
+        this.marginResizer
+            .attr("tabindex", "0")
+            .attr("aria-valuemin", getMarginBounds().min.toString())
+            .attr("aria-valuemax", getMarginBounds().max.toString())
+            .on("mousedown", function (event: MouseEvent) {
+                event.preventDefault();
+                event.stopPropagation();
+                startDrag(event.clientX);
+            })
+            .on("touchstart", function (event: TouchEvent) {
+                if (event.touches.length === 0) return;
+                event.preventDefault();
+                event.stopPropagation();
+                startDrag(event.touches[0].clientX);
+            })
+            .on("keydown", function (event: KeyboardEvent) {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                event.preventDefault();
+                const step = event.shiftKey ? 25 : 10;
+                const delta = event.key === "ArrowLeft" ? -step : step;
+                const nextMargin = clampMargin(self.margin.left + delta);
+                self.handleMarginDragUpdate(nextMargin);
+                self.updateZoomSliderTrackMargins();
+                if (self.settings?.layoutSettings?.leftMargin) {
+                    self.settings.layoutSettings.leftMargin.value = self.margin.left;
+                }
+                self.host.persistProperties({
+                    merge: [{
+                        objectName: "layoutSettings",
+                        properties: { leftMargin: self.margin.left },
+                        selector: null
+                    }]
+                });
+                self.requestUpdate(true);
+            });
 
-    const wrapperRect = wrapperNode.getBoundingClientRect();
-    const containerRect = containerNode.getBoundingClientRect();
-    const resizerWidth = parseFloat(this.marginResizer.style("width")) || 8;
-    const left = containerNode.offsetLeft + this.margin.left - (resizerWidth / 2);
-    const top = containerRect.top - wrapperRect.top;
-    const height = containerRect.height;
-
-    this.marginResizer
-        .style("left", `${Math.max(0, Math.round(left))}px`)
-        .style("top", `${Math.max(0, Math.round(top))}px`)
-        .style("height", `${Math.max(0, Math.round(height))}px`)
-        .attr("aria-valuenow", Math.round(this.margin.left).toString());
-}
-
-/**
- * Handles margin-only updates during drag for real-time visual feedback
- * Does NOT recreate the resizer or call clearVisual() to preserve drag state
- */
-private handleMarginDragUpdate(newLeftMargin: number): void {
-    if (!this.xScale || !this.yScale || !this.allTasksToShow) return;
-
-    this.margin.left = newLeftMargin;
-    if (this.settings?.layoutSettings?.leftMargin) {
-        this.settings.layoutSettings.leftMargin.value = newLeftMargin;
+        this.updateMarginResizerPosition();
     }
 
-    const viewportWidth = this.lastViewport?.width || 0;
-    const chartWidth = Math.max(10, viewportWidth - newLeftMargin - this.margin.right);
+    /**
+     * Updates the margin resizer's position to align with the current left margin.
+     */
+    private updateMarginResizerPosition(): void {
+        if (!this.marginResizer || !this.scrollableContainer) return;
 
-    this.xScale.range([0, chartWidth]);
+        const containerNode = this.scrollableContainer.node();
+        if (!containerNode) return;
 
-    this.mainGroup?.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
-    this.headerGridLayer?.attr("transform", `translate(${this.margin.left}, 0)`);
+        const wrapperNode = containerNode.parentElement;
+        if (!wrapperNode) return;
 
-    const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+        const wrapperRect = wrapperNode.getBoundingClientRect();
+        const containerRect = containerNode.getBoundingClientRect();
+        const resizerWidth = parseFloat(this.marginResizer.style("width")) || 8;
+        const left = containerNode.offsetLeft + this.margin.left - (resizerWidth / 2);
+        const top = containerRect.top - wrapperRect.top;
+        const height = containerRect.height;
 
-    this.gridLayer?.selectAll("*").remove();
-    this.labelGridLayer?.selectAll("*").remove();
-    this.arrowLayer?.selectAll("*").remove();
-    this.taskLayer?.selectAll("*").remove();
-    this.taskLabelLayer?.selectAll("*").remove();
-    this.headerGridLayer?.selectAll("*").remove();
-
-    this.drawVisualElements(
-        visibleTasks,
-        this.xScale,
-        this.yScale,
-        chartWidth,
-        0
-    );
-
-    this.updateMarginResizerPosition();
-    this.updateZoomSliderTrackMargins();
-}
-
-private clearVisual(): void {
-    this.gridLayer?.selectAll("*").remove();
-    this.arrowLayer?.selectAll("*").remove();
-    this.taskLayer?.selectAll("*").remove();
-    this.taskLabelLayer?.selectAll("*").remove();
-    this.labelGridLayer?.selectAll("*").remove();
-    this.wbsGroupLayer?.selectAll("*").remove();
-
-    this.headerGridLayer?.selectAll("*").remove();
-
-    /* Stop removing persistent header elements. They will be updated in place.
-    this.headerSvg?.selectAll(".divider-line").remove();
-    this.headerSvg?.selectAll(".connector-toggle-group").remove();
-    this.stickyHeaderContainer?.selectAll(".visual-title").remove();
-    */
-
-    this.mainSvg?.selectAll(".message-text").remove();
-    this.headerSvg?.selectAll(".message-text").remove();
-
-    if (this.canvasElement && this.canvasContext) {
-        this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
-        this.canvasElement.style.display = 'none';
+        this.marginResizer
+            .style("left", `${Math.max(0, Math.round(left))}px`)
+            .style("top", `${Math.max(0, Math.round(top))}px`)
+            .style("height", `${Math.max(0, Math.round(height))}px`)
+            .attr("aria-valuenow", Math.round(this.margin.left).toString());
     }
-}
 
-private drawHeaderDivider(viewportWidth: number): void {
+    /**
+     * Handles margin-only updates during drag for real-time visual feedback
+     * Does NOT recreate the resizer or call clearVisual() to preserve drag state
+     */
+    private handleMarginDragUpdate(newLeftMargin: number): void {
+        if (!this.xScale || !this.yScale || !this.allTasksToShow) return;
+
+        this.margin.left = newLeftMargin;
+        if (this.settings?.layoutSettings?.leftMargin) {
+            this.settings.layoutSettings.leftMargin.value = newLeftMargin;
+        }
+
+        const viewportWidth = this.lastViewport?.width || 0;
+        const chartWidth = Math.max(10, viewportWidth - newLeftMargin - this.margin.right);
+
+        this.xScale.range([0, chartWidth]);
+
+        this.mainGroup?.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
+        this.headerGridLayer?.attr("transform", `translate(${this.margin.left}, 0)`);
+
+        const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+
+        this.gridLayer?.selectAll("*").remove();
+        this.labelGridLayer?.selectAll("*").remove();
+        this.arrowLayer?.selectAll("*").remove();
+        this.taskLayer?.selectAll("*").remove();
+        this.taskLabelLayer?.selectAll("*").remove();
+        this.headerGridLayer?.selectAll("*").remove();
+
+        this.drawVisualElements(
+            visibleTasks,
+            this.xScale,
+            this.yScale,
+            chartWidth,
+            0
+        );
+
+        this.updateMarginResizerPosition();
+        this.updateZoomSliderTrackMargins();
+    }
+
+    private clearVisual(): void {
+        this.gridLayer?.selectAll("*").remove();
+        this.arrowLayer?.selectAll("*").remove();
+        this.taskLayer?.selectAll("*").remove();
+        this.taskLabelLayer?.selectAll("*").remove();
+        this.labelGridLayer?.selectAll("*").remove();
+        this.wbsGroupLayer?.selectAll("*").remove();
+
+        this.headerGridLayer?.selectAll("*").remove();
+
+        /* Stop removing persistent header elements. They will be updated in place.
+        this.headerSvg?.selectAll(".divider-line").remove();
+        this.headerSvg?.selectAll(".connector-toggle-group").remove();
+        this.stickyHeaderContainer?.selectAll(".visual-title").remove();
+        */
+
+        this.mainSvg?.selectAll(".message-text").remove();
+        this.headerSvg?.selectAll(".message-text").remove();
+
+        if (this.canvasElement && this.canvasContext) {
+            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+            this.canvasElement.style.display = 'none';
+        }
+    }
+
+    private drawHeaderDivider(viewportWidth: number): void {
         if (!this.headerSvg) return;
 
         /* Use D3 update pattern instead of always appending */
@@ -4675,120 +4675,63 @@ private drawHeaderDivider(viewportWidth: number): void {
             .attr("x2", d => d);
     }
 
-private setupTimeBasedSVGAndScales(
-    effectiveViewport: IViewport,
-    tasksToShow: Task[]
-): {
-    xScale: ScaleTime<number, number> | null,
-    yScale: ScaleBand<string> | null,
-    chartWidth: number,
-    calculatedChartHeight: number
-} {
-    const taskHeight = this.settings.taskAppearance.taskHeight.value;
-    const taskPadding = this.settings.layoutSettings.taskPadding.value;
-    const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-    const svgWidth = effectiveViewport.width;
+    private setupTimeBasedSVGAndScales(
+        effectiveViewport: IViewport,
+        tasksToShow: Task[]
+    ): {
+        xScale: ScaleTime<number, number> | null,
+        yScale: ScaleBand<string> | null,
+        chartWidth: number,
+        calculatedChartHeight: number
+    } {
+        const taskHeight = this.settings.taskAppearance.taskHeight.value;
+        const taskPadding = this.settings.layoutSettings.taskPadding.value;
+        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        const svgWidth = effectiveViewport.width;
 
-    let rowCount = tasksToShow.length;
-    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+        let rowCount = tasksToShow.length;
+        const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
-    if (wbsGroupingEnabled) {
+        if (wbsGroupingEnabled) {
 
-        let maxYOrder = -1;
-        for (const task of tasksToShow) {
-            if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
-                maxYOrder = task.yOrder;
-            }
-        }
-        for (const group of this.wbsGroups) {
-            if (group.yOrder !== undefined && group.yOrder > maxYOrder) {
-                maxYOrder = group.yOrder;
-            }
-        }
-
-        if (maxYOrder >= 0) {
-            rowCount = maxYOrder + 1;
-        }
-    }
-
-    const calculatedChartHeight = Math.max(50, rowCount * (taskHeight + taskPadding));
-    const chartWidth = Math.max(10, svgWidth - currentLeftMargin - this.margin.right);
-
-    const allTimestamps: number[] = [];
-
-    if (this.dataDate instanceof Date && !isNaN(this.dataDate.getTime())) {
-        allTimestamps.push(this.dataDate.getTime());
-    }
-
-    const includeBaselineInScale = this.showBaselineInternal;
-    const includePreviousUpdateInScale = this.showPreviousUpdateInternal;
-
-    if (wbsGroupingEnabled && this.wbsGroups.length > 0) {
-        for (const group of this.wbsGroups) {
-            if (group.summaryStartDate && !isNaN(group.summaryStartDate.getTime())) {
-                allTimestamps.push(group.summaryStartDate.getTime());
-            }
-            if (group.summaryFinishDate && !isNaN(group.summaryFinishDate.getTime())) {
-                allTimestamps.push(group.summaryFinishDate.getTime());
-            }
-
-            if (this.showPreviousUpdateInternal) {
-                if (group.summaryPreviousUpdateStartDate && !isNaN(group.summaryPreviousUpdateStartDate.getTime())) {
-                    allTimestamps.push(group.summaryPreviousUpdateStartDate.getTime());
+            let maxYOrder = -1;
+            for (const task of tasksToShow) {
+                if (task.yOrder !== undefined && task.yOrder > maxYOrder) {
+                    maxYOrder = task.yOrder;
                 }
-                if (group.summaryPreviousUpdateFinishDate && !isNaN(group.summaryPreviousUpdateFinishDate.getTime())) {
-                    allTimestamps.push(group.summaryPreviousUpdateFinishDate.getTime());
+            }
+            for (const group of this.wbsGroups) {
+                if (group.yOrder !== undefined && group.yOrder > maxYOrder) {
+                    maxYOrder = group.yOrder;
                 }
             }
 
-            if (this.showBaselineInternal) {
-                if (group.summaryBaselineStartDate && !isNaN(group.summaryBaselineStartDate.getTime())) {
-                    allTimestamps.push(group.summaryBaselineStartDate.getTime());
-                }
-                if (group.summaryBaselineFinishDate && !isNaN(group.summaryBaselineFinishDate.getTime())) {
-                    allTimestamps.push(group.summaryBaselineFinishDate.getTime());
-                }
-            }
-        }
-    }
-
-    tasksToShow.forEach(task => {
-
-        if (task.startDate && !isNaN(task.startDate.getTime())) {
-            allTimestamps.push(task.startDate.getTime());
-        }
-        if (task.finishDate && !isNaN(task.finishDate.getTime())) {
-            allTimestamps.push(task.finishDate.getTime());
-        }
-
-        if (includeBaselineInScale) {
-            if (task.baselineStartDate && !isNaN(task.baselineStartDate.getTime())) {
-                allTimestamps.push(task.baselineStartDate.getTime());
-            }
-            if (task.baselineFinishDate && !isNaN(task.baselineFinishDate.getTime())) {
-                allTimestamps.push(task.baselineFinishDate.getTime());
+            if (maxYOrder >= 0) {
+                rowCount = maxYOrder + 1;
             }
         }
 
-        if (includePreviousUpdateInScale) {
-            if (task.previousUpdateStartDate && !isNaN(task.previousUpdateStartDate.getTime())) {
-                allTimestamps.push(task.previousUpdateStartDate.getTime());
-            }
-            if (task.previousUpdateFinishDate && !isNaN(task.previousUpdateFinishDate.getTime())) {
-                allTimestamps.push(task.previousUpdateFinishDate.getTime());
-            }
-        }
-    });
+        const calculatedChartHeight = Math.max(50, rowCount * (taskHeight + taskPadding));
+        const chartWidth = Math.max(10, svgWidth - currentLeftMargin - this.margin.right);
 
-    if (wbsGroupingEnabled && tasksToShow.length === 0) {
-        for (const group of this.wbsGroups) {
-            if (group.yOrder !== undefined && group.taskCount > 0) {
+        const allTimestamps: number[] = [];
+
+        if (this.dataDate instanceof Date && !isNaN(this.dataDate.getTime())) {
+            allTimestamps.push(this.dataDate.getTime());
+        }
+
+        const includeBaselineInScale = this.showBaselineInternal;
+        const includePreviousUpdateInScale = this.showPreviousUpdateInternal;
+
+        if (wbsGroupingEnabled && this.wbsGroups.length > 0) {
+            for (const group of this.wbsGroups) {
                 if (group.summaryStartDate && !isNaN(group.summaryStartDate.getTime())) {
                     allTimestamps.push(group.summaryStartDate.getTime());
                 }
                 if (group.summaryFinishDate && !isNaN(group.summaryFinishDate.getTime())) {
                     allTimestamps.push(group.summaryFinishDate.getTime());
                 }
+
                 if (this.showPreviousUpdateInternal) {
                     if (group.summaryPreviousUpdateStartDate && !isNaN(group.summaryPreviousUpdateStartDate.getTime())) {
                         allTimestamps.push(group.summaryPreviousUpdateStartDate.getTime());
@@ -4797,6 +4740,7 @@ private setupTimeBasedSVGAndScales(
                         allTimestamps.push(group.summaryPreviousUpdateFinishDate.getTime());
                     }
                 }
+
                 if (this.showBaselineInternal) {
                     if (group.summaryBaselineStartDate && !isNaN(group.summaryBaselineStartDate.getTime())) {
                         allTimestamps.push(group.summaryBaselineStartDate.getTime());
@@ -4807,49 +4751,105 @@ private setupTimeBasedSVGAndScales(
                 }
             }
         }
-    }
 
-    const validTimestamps = allTimestamps.filter(t => t != null && !isNaN(t) && isFinite(t));
+        tasksToShow.forEach(task => {
 
-    if (validTimestamps.length === 0) {
-        console.warn("No valid dates found among tasks to plot (including baseline dates if enabled). Cannot create time scale.");
-        return { xScale: null, yScale: null, chartWidth, calculatedChartHeight };
-    }
+            if (task.startDate && !isNaN(task.startDate.getTime())) {
+                allTimestamps.push(task.startDate.getTime());
+            }
+            if (task.finishDate && !isNaN(task.finishDate.getTime())) {
+                allTimestamps.push(task.finishDate.getTime());
+            }
 
-    const minTimestamp = Math.min(...validTimestamps);
-    const maxTimestamp = Math.max(...validTimestamps);
+            if (includeBaselineInScale) {
+                if (task.baselineStartDate && !isNaN(task.baselineStartDate.getTime())) {
+                    allTimestamps.push(task.baselineStartDate.getTime());
+                }
+                if (task.baselineFinishDate && !isNaN(task.baselineFinishDate.getTime())) {
+                    allTimestamps.push(task.baselineFinishDate.getTime());
+                }
+            }
 
-    let domainMinDate: Date;
-    let domainMaxDate: Date;
+            if (includePreviousUpdateInScale) {
+                if (task.previousUpdateStartDate && !isNaN(task.previousUpdateStartDate.getTime())) {
+                    allTimestamps.push(task.previousUpdateStartDate.getTime());
+                }
+                if (task.previousUpdateFinishDate && !isNaN(task.previousUpdateFinishDate.getTime())) {
+                    allTimestamps.push(task.previousUpdateFinishDate.getTime());
+                }
+            }
+        });
 
-    if (minTimestamp > maxTimestamp) {
-        const midPoint = (minTimestamp + maxTimestamp) / 2;
-        const range = Math.max(86400000 * 7, Math.abs(maxTimestamp - minTimestamp) * 1.1);
-        domainMinDate = new Date(midPoint - range / 2);
-        domainMaxDate = new Date(midPoint + range / 2);
-    } else if (minTimestamp === maxTimestamp) {
-        domainMinDate = new Date(minTimestamp);
-        domainMaxDate = new Date(minTimestamp + 86400000);
-    } else {
+        if (wbsGroupingEnabled && tasksToShow.length === 0) {
+            for (const group of this.wbsGroups) {
+                if (group.yOrder !== undefined && group.taskCount > 0) {
+                    if (group.summaryStartDate && !isNaN(group.summaryStartDate.getTime())) {
+                        allTimestamps.push(group.summaryStartDate.getTime());
+                    }
+                    if (group.summaryFinishDate && !isNaN(group.summaryFinishDate.getTime())) {
+                        allTimestamps.push(group.summaryFinishDate.getTime());
+                    }
+                    if (this.showPreviousUpdateInternal) {
+                        if (group.summaryPreviousUpdateStartDate && !isNaN(group.summaryPreviousUpdateStartDate.getTime())) {
+                            allTimestamps.push(group.summaryPreviousUpdateStartDate.getTime());
+                        }
+                        if (group.summaryPreviousUpdateFinishDate && !isNaN(group.summaryPreviousUpdateFinishDate.getTime())) {
+                            allTimestamps.push(group.summaryPreviousUpdateFinishDate.getTime());
+                        }
+                    }
+                    if (this.showBaselineInternal) {
+                        if (group.summaryBaselineStartDate && !isNaN(group.summaryBaselineStartDate.getTime())) {
+                            allTimestamps.push(group.summaryBaselineStartDate.getTime());
+                        }
+                        if (group.summaryBaselineFinishDate && !isNaN(group.summaryBaselineFinishDate.getTime())) {
+                            allTimestamps.push(group.summaryBaselineFinishDate.getTime());
+                        }
+                    }
+                }
+            }
+        }
 
-        const domainPaddingMilliseconds = Math.max((maxTimestamp - minTimestamp) * 0.05, 86400000);
-        domainMinDate = new Date(minTimestamp);
-        domainMaxDate = new Date(maxTimestamp + domainPaddingMilliseconds);
-    }
+        const validTimestamps = allTimestamps.filter(t => t != null && !isNaN(t) && isFinite(t));
 
-    this.fullTimelineDomain = [domainMinDate, domainMaxDate];
+        if (validTimestamps.length === 0) {
+            console.warn("No valid dates found among tasks to plot (including baseline dates if enabled). Cannot create time scale.");
+            return { xScale: null, yScale: null, chartWidth, calculatedChartHeight };
+        }
 
-    let visibleMinDate = domainMinDate;
-    let visibleMaxDate = domainMaxDate;
+        const minTimestamp = Math.min(...validTimestamps);
+        const maxTimestamp = Math.max(...validTimestamps);
 
-    const isZoomed = this.zoomSliderEnabled && (this.zoomRangeStart > 0 || this.zoomRangeEnd < 1);
-    if (isZoomed) {
-        const fullRange = domainMaxDate.getTime() - domainMinDate.getTime();
-        visibleMinDate = new Date(domainMinDate.getTime() + fullRange * this.zoomRangeStart);
-        visibleMaxDate = new Date(domainMinDate.getTime() + fullRange * this.zoomRangeEnd);
-    }
+        let domainMinDate: Date;
+        let domainMaxDate: Date;
 
-    this.debugLog(`X-axis domain calculation:
+        if (minTimestamp > maxTimestamp) {
+            const midPoint = (minTimestamp + maxTimestamp) / 2;
+            const range = Math.max(86400000 * 7, Math.abs(maxTimestamp - minTimestamp) * 1.1);
+            domainMinDate = new Date(midPoint - range / 2);
+            domainMaxDate = new Date(midPoint + range / 2);
+        } else if (minTimestamp === maxTimestamp) {
+            domainMinDate = new Date(minTimestamp);
+            domainMaxDate = new Date(minTimestamp + 86400000);
+        } else {
+
+            const domainPaddingMilliseconds = Math.max((maxTimestamp - minTimestamp) * 0.05, 86400000);
+            domainMinDate = new Date(minTimestamp);
+            domainMaxDate = new Date(maxTimestamp + domainPaddingMilliseconds);
+        }
+
+        this.fullTimelineDomain = [domainMinDate, domainMaxDate];
+
+        let visibleMinDate = domainMinDate;
+        let visibleMaxDate = domainMaxDate;
+
+        const isZoomed = this.zoomSliderEnabled && (this.zoomRangeStart > 0 || this.zoomRangeEnd < 1);
+        if (isZoomed) {
+            const fullRange = domainMaxDate.getTime() - domainMinDate.getTime();
+            visibleMinDate = new Date(domainMinDate.getTime() + fullRange * this.zoomRangeStart);
+            visibleMaxDate = new Date(domainMinDate.getTime() + fullRange * this.zoomRangeEnd);
+        }
+
+        this.debugLog(`X-axis domain calculation:
         - Regular dates found: ${tasksToShow.filter(t => t.startDate || t.finishDate).length} tasks
         - Baseline dates included: ${includeBaselineInScale}
         - Total timestamps considered: ${validTimestamps.length}
@@ -4857,203 +4857,203 @@ private setupTimeBasedSVGAndScales(
         - Zoomed: ${isZoomed} (${(this.zoomRangeStart * 100).toFixed(1)}% - ${(this.zoomRangeEnd * 100).toFixed(1)}%)
         - Visible Domain: ${visibleMinDate.toISOString()} to ${visibleMaxDate.toISOString()}`);
 
-    return this.createScales(
-        visibleMinDate, visibleMaxDate,
-        chartWidth, tasksToShow, calculatedChartHeight,
-        taskHeight, taskPadding
-    );
-}
-
-private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number, totalRows?: number, skipInitialRender: boolean = false): void {
-    this.allTasksToShow = [...tasks];
-
-    this.taskTotalCount = totalRows !== undefined ? totalRows : tasks.length;
-    this.taskElementHeight = taskHeight + taskPadding;
-
-    const totalContentHeight = this.taskTotalCount * this.taskElementHeight;
-
-    this.mainSvg
-        .attr("height", totalContentHeight + this.margin.top + this.margin.bottom);
-
-    if (this.scrollListener) {
-        this.scrollableContainer.on("scroll", null);
-        this.scrollListener = null;
+        return this.createScales(
+            visibleMinDate, visibleMaxDate,
+            chartWidth, tasksToShow, calculatedChartHeight,
+            taskHeight, taskPadding
+        );
     }
 
-    const self = this;
-    this.scrollListener = function() {
-        if (!self.scrollThrottleTimeout) {
-            self.scrollThrottleTimeout = setTimeout(() => {
-                self.scrollThrottleTimeout = null;
-                self.handleScroll();
-            }, 50);
-        }
-    };
+    private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number, totalRows?: number, skipInitialRender: boolean = false): void {
+        this.allTasksToShow = [...tasks];
 
-    this.scrollableContainer.on("scroll", this.scrollListener);
+        this.taskTotalCount = totalRows !== undefined ? totalRows : tasks.length;
+        this.taskElementHeight = taskHeight + taskPadding;
 
-    this.calculateVisibleTasks();
+        const totalContentHeight = this.taskTotalCount * this.taskElementHeight;
 
-    if (!skipInitialRender && this.xScale && this.yScale && this.allTasksToShow.length > 0) {
-        requestAnimationFrame(() => {
-            this.redrawVisibleTasks();
-        });
-    }
-}
+        this.mainSvg
+            .attr("height", totalContentHeight + this.margin.top + this.margin.bottom);
 
-private getCanvasMouseCoordinates(event: MouseEvent): { x: number, y: number } {
-    if (!this.canvasElement) return { x: 0, y: 0 };
-
-    const rect = this.canvasElement.getBoundingClientRect();
-
-    return {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top
-    };
-}
-
-private getTaskAtCanvasPoint(x: number, y: number): Task | null {
-    if (!this.xScale || !this.yScale) return null;
-
-    const taskHeight = this.settings.taskAppearance.taskHeight.value;
-    const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
-    const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
-
-    for (const task of visibleTasks) {
-        const domainKey = task.yOrder?.toString() ?? '';
-        const yPosition = this.yScale(domainKey);
-        if (yPosition === undefined) continue;
-
-        if (y < yPosition || y > yPosition + taskHeight) {
-            continue;
+        if (this.scrollListener) {
+            this.scrollableContainer.on("scroll", null);
+            this.scrollListener = null;
         }
 
-        if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-            const milestoneDate = task.startDate || task.finishDate;
-            if (!milestoneDate) continue;
-            const milestoneX = this.xScale(milestoneDate);
-            const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-            if (x >= milestoneX - size / 2 && x <= milestoneX + size / 2) {
-                return task;
+        const self = this;
+        this.scrollListener = function () {
+            if (!self.scrollThrottleTimeout) {
+                self.scrollThrottleTimeout = setTimeout(() => {
+                    self.scrollThrottleTimeout = null;
+                    self.handleScroll();
+                }, 50);
             }
-        } else {
-            if (!task.startDate || !task.finishDate) continue;
-            const taskX = this.xScale(task.startDate);
-            const taskWidth = this.xScale(task.finishDate) - taskX;
-            if (x >= taskX && x <= taskX + taskWidth) {
-                return task;
-            }
+        };
+
+        this.scrollableContainer.on("scroll", this.scrollListener);
+
+        this.calculateVisibleTasks();
+
+        if (!skipInitialRender && this.xScale && this.yScale && this.allTasksToShow.length > 0) {
+            requestAnimationFrame(() => {
+                this.redrawVisibleTasks();
+            });
         }
     }
 
-    return null;
-}
+    private getCanvasMouseCoordinates(event: MouseEvent): { x: number, y: number } {
+        if (!this.canvasElement) return { x: 0, y: 0 };
 
-private drawRoundedRectPath(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    radius: number
-): void {
-    const clampedRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
-    ctx.beginPath();
-    ctx.moveTo(x + clampedRadius, y);
-    ctx.lineTo(x + width - clampedRadius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + clampedRadius);
-    ctx.lineTo(x + width, y + height - clampedRadius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - clampedRadius, y + height);
-    ctx.lineTo(x + clampedRadius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - clampedRadius);
-    ctx.lineTo(x, y + clampedRadius);
-    ctx.quadraticCurveTo(x, y, x + clampedRadius, y);
-    ctx.closePath();
-}
+        const rect = this.canvasElement.getBoundingClientRect();
 
-private showTaskTooltip(task: Task, event: MouseEvent): void {
-    const showTooltips = this.settings?.displayOptions?.showTooltips?.value;
-    if (!showTooltips || !task) return;
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top
+        };
+    }
 
-    const dataItems = this.buildTooltipDataItems(task);
-    const identities = this.getTooltipIdentities(task);
+    private getTaskAtCanvasPoint(x: number, y: number): Task | null {
+        if (!this.xScale || !this.yScale) return null;
 
-    if (this.tooltipService && this.tooltipService.enabled()) {
-        this.lastTooltipItems = dataItems;
-        this.lastTooltipIdentities = identities;
-        this.tooltipService.show({
-            coordinates: [event.clientX, event.clientY],
-            isTouchEvent: false,
-            dataItems,
-            identities
-        });
+        const taskHeight = this.settings.taskAppearance.taskHeight.value;
+        const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
+        const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+
+        for (const task of visibleTasks) {
+            const domainKey = task.yOrder?.toString() ?? '';
+            const yPosition = this.yScale(domainKey);
+            if (yPosition === undefined) continue;
+
+            if (y < yPosition || y > yPosition + taskHeight) {
+                continue;
+            }
+
+            if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+                const milestoneDate = task.startDate || task.finishDate;
+                if (!milestoneDate) continue;
+                const milestoneX = this.xScale(milestoneDate);
+                const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                if (x >= milestoneX - size / 2 && x <= milestoneX + size / 2) {
+                    return task;
+                }
+            } else {
+                if (!task.startDate || !task.finishDate) continue;
+                const taskX = this.xScale(task.startDate);
+                const taskWidth = this.xScale(task.finishDate) - taskX;
+                if (x >= taskX && x <= taskX + taskWidth) {
+                    return task;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private drawRoundedRectPath(
+        ctx: CanvasRenderingContext2D,
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        radius: number
+    ): void {
+        const clampedRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+        ctx.beginPath();
+        ctx.moveTo(x + clampedRadius, y);
+        ctx.lineTo(x + width - clampedRadius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + clampedRadius);
+        ctx.lineTo(x + width, y + height - clampedRadius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - clampedRadius, y + height);
+        ctx.lineTo(x + clampedRadius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - clampedRadius);
+        ctx.lineTo(x, y + clampedRadius);
+        ctx.quadraticCurveTo(x, y, x + clampedRadius, y);
+        ctx.closePath();
+    }
+
+    private showTaskTooltip(task: Task, event: MouseEvent): void {
+        const showTooltips = this.settings?.displayOptions?.showTooltips?.value;
+        if (!showTooltips || !task) return;
+
+        const dataItems = this.buildTooltipDataItems(task);
+        const identities = this.getTooltipIdentities(task);
+
+        if (this.tooltipService && this.tooltipService.enabled()) {
+            this.lastTooltipItems = dataItems;
+            this.lastTooltipIdentities = identities;
+            this.tooltipService.show({
+                coordinates: [event.clientX, event.clientY],
+                isTouchEvent: false,
+                dataItems,
+                identities
+            });
+            if (this.tooltipDiv) {
+                this.tooltipDiv.style("visibility", "hidden");
+            }
+            return;
+        }
+
+        const tooltip = this.tooltipDiv;
+        if (!tooltip) return;
+
+        tooltip.selectAll("*").remove();
+        tooltip.style("visibility", "visible");
+
+        for (const item of dataItems) {
+            const row = tooltip.append("div");
+            row.append("strong").text(`${item.displayName}: `);
+            row.append("span").text(item.value || "");
+        }
+
+        this.positionTooltip(tooltip.node(), event);
+    }
+
+    private hideTooltip(): void {
+        if (this.tooltipService && this.tooltipService.enabled()) {
+            this.tooltipService.hide({
+                isTouchEvent: false,
+                immediately: true
+            });
+        }
+        this.lastTooltipItems = [];
+        this.lastTooltipIdentities = [];
         if (this.tooltipDiv) {
             this.tooltipDiv.style("visibility", "hidden");
         }
-        return;
     }
 
-    const tooltip = this.tooltipDiv;
-    if (!tooltip) return;
+    private updateHeaderElements(viewportWidth: number): void {
 
-    tooltip.selectAll("*").remove();
-    tooltip.style("visibility", "visible");
+        let currentToggleText = "";
+        const textSelection = this.toggleButtonGroup?.select("text");
 
-    for (const item of dataItems) {
-        const row = tooltip.append("div");
-        row.append("strong").text(`${item.displayName}: `);
-        row.append("span").text(item.value || "");
-    }
-
-    this.positionTooltip(tooltip.node(), event);
-}
-
-private hideTooltip(): void {
-    if (this.tooltipService && this.tooltipService.enabled()) {
-        this.tooltipService.hide({
-            isTouchEvent: false,
-            immediately: true
-        });
-    }
-    this.lastTooltipItems = [];
-    this.lastTooltipIdentities = [];
-    if (this.tooltipDiv) {
-        this.tooltipDiv.style("visibility", "hidden");
-    }
-}
-
-private updateHeaderElements(viewportWidth: number): void {
-
-    let currentToggleText = "";
-    const textSelection = this.toggleButtonGroup?.select("text");
-
-    if (textSelection && !textSelection.empty()) {
-        currentToggleText = textSelection.text();
-    }
-
-    const expectedToggleText = this.showAllTasksInternal ? "Show Critical" : "Show All";
-
-    if (currentToggleText !== expectedToggleText) {
-        this.createOrUpdateToggleButton(viewportWidth);
-    }
-
-    const dividerLine = this.headerSvg?.select(".divider-line");
-    if (dividerLine && !dividerLine.empty()) {
-        const currentX2 = parseFloat(dividerLine.attr("x2"));
-        if (Math.abs(currentX2 - viewportWidth) > 1) {
-            dividerLine.attr("x2", viewportWidth);
+        if (textSelection && !textSelection.empty()) {
+            currentToggleText = textSelection.text();
         }
-    } else {
-        this.drawHeaderDivider(viewportWidth);
-    }
 
-    this.createModeToggleButton(viewportWidth);
-    this.createOrUpdateBaselineToggleButton(viewportWidth);
-    this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
-    this.createConnectorLinesToggleButton(viewportWidth);
-    this.createOrUpdateWbsEnableToggleButton(viewportWidth);
-    this.renderWbsCycleButtons(viewportWidth);
-}
+        const expectedToggleText = this.showAllTasksInternal ? "Show Critical" : "Show All";
+
+        if (currentToggleText !== expectedToggleText) {
+            this.createOrUpdateToggleButton(viewportWidth);
+        }
+
+        const dividerLine = this.headerSvg?.select(".divider-line");
+        if (dividerLine && !dividerLine.empty()) {
+            const currentX2 = parseFloat(dividerLine.attr("x2"));
+            if (Math.abs(currentX2 - viewportWidth) > 1) {
+                dividerLine.attr("x2", viewportWidth);
+            }
+        } else {
+            this.drawHeaderDivider(viewportWidth);
+        }
+
+        this.createModeToggleButton(viewportWidth);
+        this.createOrUpdateBaselineToggleButton(viewportWidth);
+        this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
+        this.createConnectorLinesToggleButton(viewportWidth);
+        this.createOrUpdateWbsEnableToggleButton(viewportWidth);
+        this.renderWbsCycleButtons(viewportWidth);
+    }
 
     private calculateVisibleTasks(): void {
         if (!this.scrollableContainer || !this.scrollableContainer.node()) return;
@@ -5073,163 +5073,287 @@ private updateHeaderElements(viewportWidth: number): void {
         this.debugLog(`Viewport: ${this.viewportStartIndex} - ${this.viewportEndIndex} of ${this.taskTotalCount}`);
     }
 
-private handleScroll(): void {
-    const oldStart = this.viewportStartIndex;
-    const oldEnd = this.viewportEndIndex;
+    private handleScroll(): void {
+        const oldStart = this.viewportStartIndex;
+        const oldEnd = this.viewportEndIndex;
 
-    this.calculateVisibleTasks();
+        this.calculateVisibleTasks();
 
-    const canvasNeedsRedraw = this.canvasElement &&
-                             this.canvasContext &&
-                             this.useCanvasRendering &&
-                             !this.canvasHasContent();
+        const canvasNeedsRedraw = this.canvasElement &&
+            this.canvasContext &&
+            this.useCanvasRendering &&
+            !this.canvasHasContent();
 
-    if (oldStart !== this.viewportStartIndex ||
-        oldEnd !== this.viewportEndIndex ||
-        canvasNeedsRedraw) {
-        this.redrawVisibleTasks();
-    }
-}
-
-private canvasHasContent(): boolean {
-    if (!this.canvasElement || !this.canvasContext) return false;
-
-    try {
-        const imageData = this.canvasContext.getImageData(0, 0, 1, 1);
-        return imageData.data[3] > 0;
-    } catch {
-        return false;
-    }
-}
-
-/**
- * Get visible tasks based on current viewport indices
- * When WBS grouping is enabled, filters by yOrder (row number) instead of array index
- * because WBS group headers occupy rows but aren't in the task array
- */
-private getVisibleTasks(): Task[] {
-    if (!this.allTasksToShow) return [];
-
-    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-
-    if (wbsGroupingEnabled) {
-
-        return this.allTasksToShow.filter(t =>
-            t.yOrder !== undefined &&
-            t.yOrder >= this.viewportStartIndex &&
-            t.yOrder <= this.viewportEndIndex
-        );
-    } else {
-
-        return this.allTasksToShow
-            .slice(this.viewportStartIndex, this.viewportEndIndex + 1)
-            .filter(t => t.yOrder !== undefined);
-    }
-}
-
-private redrawVisibleTasks(): void {
-
-    const xScale = this.xScale;
-    const yScale = this.yScale;
-    const allTasksToShow = this.allTasksToShow;
-
-    if (!xScale || !yScale || !allTasksToShow) {
-        console.warn("Cannot redraw: Missing scales or task data");
-        return;
-    }
-
-    this.calculateVisibleTasks();
-
-    const visibleTasks = this.getVisibleTasks();
-    const renderableTasks = visibleTasks.filter(t => t.yOrder !== undefined);
-
-    if (renderableTasks.length === 0 && allTasksToShow.length > 0) {
-        this.debugLog(`WARNING: getVisibleTasks() returned 0 renderable tasks but allTasksToShow has ${allTasksToShow.length} tasks. Viewport indices: ${this.viewportStartIndex}-${this.viewportEndIndex}, Total count: ${this.taskTotalCount}`);
-    }
-
-    const shouldUseCanvas = renderableTasks.length > this.CANVAS_THRESHOLD;
-    const modeChanged = shouldUseCanvas !== this.useCanvasRendering;
-
-    if (modeChanged) {
-        this.useCanvasRendering = shouldUseCanvas;
-
-    }
-
-    if (this.useCanvasRendering) {
-
-        if (this.canvasContext && this.canvasElement) {
-            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+        if (oldStart !== this.viewportStartIndex ||
+            oldEnd !== this.viewportEndIndex ||
+            canvasNeedsRedraw) {
+            this.redrawVisibleTasks();
         }
+    }
+
+    private canvasHasContent(): boolean {
+        if (!this.canvasElement || !this.canvasContext) return false;
+
+        try {
+            const imageData = this.canvasContext.getImageData(0, 0, 1, 1);
+            return imageData.data[3] > 0;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Get visible tasks based on current viewport indices
+     * When WBS grouping is enabled, filters by yOrder (row number) instead of array index
+     * because WBS group headers occupy rows but aren't in the task array
+     */
+    private getVisibleTasks(): Task[] {
+        if (!this.allTasksToShow) return [];
+
+        const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+        if (wbsGroupingEnabled) {
+
+            return this.allTasksToShow.filter(t =>
+                t.yOrder !== undefined &&
+                t.yOrder >= this.viewportStartIndex &&
+                t.yOrder <= this.viewportEndIndex
+            );
+        } else {
+
+            return this.allTasksToShow
+                .slice(this.viewportStartIndex, this.viewportEndIndex + 1)
+                .filter(t => t.yOrder !== undefined);
+        }
+    }
+
+    private redrawVisibleTasks(): void {
+
+        const xScale = this.xScale;
+        const yScale = this.yScale;
+        const allTasksToShow = this.allTasksToShow;
+
+        if (!xScale || !yScale || !allTasksToShow) {
+            console.warn("Cannot redraw: Missing scales or task data");
+            return;
+        }
+
+        this.calculateVisibleTasks();
+
+        const visibleTasks = this.getVisibleTasks();
+        const renderableTasks = visibleTasks.filter(t => t.yOrder !== undefined);
+
+        if (renderableTasks.length === 0 && allTasksToShow.length > 0) {
+            this.debugLog(`WARNING: getVisibleTasks() returned 0 renderable tasks but allTasksToShow has ${allTasksToShow.length} tasks. Viewport indices: ${this.viewportStartIndex}-${this.viewportEndIndex}, Total count: ${this.taskTotalCount}`);
+        }
+
+        const shouldUseCanvas = renderableTasks.length > this.CANVAS_THRESHOLD;
+        const modeChanged = shouldUseCanvas !== this.useCanvasRendering;
 
         if (modeChanged) {
-            this.taskLayer?.selectAll("*").remove();
-            this.arrowLayer?.selectAll("*").remove();
+            this.useCanvasRendering = shouldUseCanvas;
+
         }
-    } else {
 
-        this.arrowLayer?.selectAll("*").remove();
-        this.taskLayer?.selectAll("*").remove();
+        if (this.useCanvasRendering) {
 
-        if (modeChanged && this.canvasContext && this.canvasElement) {
-            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
-        }
-    }
-
-    if (this.wbsGroupLayer) {
-        this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
-    }
-
-    if (this.labelGridLayer) {
-        this.labelGridLayer.selectAll(".label-grid-line").remove();
-    }
-
-    if (this.taskLabelLayer) {
-        this.taskLabelLayer.selectAll("*").remove();
-    }
-
-    const showHorzGridLines = this.settings.gridLines.showGridLines.value;
-    const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-    const chartWidth = xScale.range()[1];
-    const chartHeight = yScale.range()[1];
-    const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
-    const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-    const selectionHighlightColor = this.getSelectionColor();
-    const selectionLabelColor = selectionHighlightColor;
-    const selectionLabelWeight = "bold";
-    const lineHeight = this.taskLabelLineHeight;
-
-    if (showHorzGridLines) {
-        this.gridLayer?.selectAll(".grid-line.horizontal").remove();
-    }
-
-    if (this.useCanvasRendering) {
-
-        if (this.canvasElement) {
-            const leftMargin = Math.round(this.margin.left);
-            const topMargin = Math.round(this.margin.top);
+            if (this.canvasContext && this.canvasElement) {
+                this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+            }
 
             if (modeChanged) {
-                this.canvasElement.style.opacity = '0';
-                this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
+                this.taskLayer?.selectAll("*").remove();
+                this.arrowLayer?.selectAll("*").remove();
             }
+        } else {
 
-            this.canvasElement.style.display = 'block';
-            this.canvasElement.style.visibility = 'visible';
-            this.canvasElement.style.left = `${leftMargin}px`;
-            this.canvasElement.style.top = `${topMargin}px`;
-            this.canvasElement.style.imageRendering = 'auto';
-            this.canvasElement.style.transform = 'translateZ(0)';
+            this.arrowLayer?.selectAll("*").remove();
+            this.taskLayer?.selectAll("*").remove();
+
+            if (modeChanged && this.canvasContext && this.canvasElement) {
+                this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+            }
         }
 
-        if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
+        if (this.wbsGroupLayer) {
+            this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
+        }
 
-            if (showHorzGridLines) {
-                this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
+        if (this.labelGridLayer) {
+            this.labelGridLayer.selectAll(".label-grid-line").remove();
+        }
 
-                this.drawLabelMarginGridLinesCanvasFallback(renderableTasks, yScale, currentLeftMargin);
+        if (this.taskLabelLayer) {
+            this.taskLabelLayer.selectAll("*").remove();
+        }
+
+        const showHorzGridLines = this.settings.gridLines.showGridLines.value;
+        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        const chartWidth = xScale.range()[1];
+        const chartHeight = yScale.range()[1];
+        const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
+        const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+        const selectionHighlightColor = this.getSelectionColor();
+        const selectionLabelColor = selectionHighlightColor;
+        const selectionLabelWeight = "bold";
+        const lineHeight = this.taskLabelLineHeight;
+
+        if (showHorzGridLines) {
+            this.gridLayer?.selectAll(".grid-line.horizontal").remove();
+        }
+
+        if (this.useCanvasRendering) {
+
+            if (this.canvasElement) {
+                const leftMargin = Math.round(this.margin.left);
+                const topMargin = Math.round(this.margin.top);
+
+                if (modeChanged) {
+                    this.canvasElement.style.opacity = '0';
+                    this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
+                }
+
+                this.canvasElement.style.display = 'block';
+                this.canvasElement.style.visibility = 'visible';
+                this.canvasElement.style.left = `${leftMargin}px`;
+                this.canvasElement.style.top = `${topMargin}px`;
+                this.canvasElement.style.imageRendering = 'auto';
+                this.canvasElement.style.transform = 'translateZ(0)';
             }
 
-            this.drawTasksCanvas(
+            if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
+
+                if (showHorzGridLines) {
+                    this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
+
+                    this.drawLabelMarginGridLinesCanvasFallback(renderableTasks, yScale, currentLeftMargin);
+                }
+
+                this.drawTasksCanvas(
+                    renderableTasks,
+                    xScale,
+                    yScale,
+                    this.settings.taskAppearance.taskColor.value.value,
+                    this.settings.taskAppearance.milestoneColor.value.value,
+                    this.settings.taskAppearance.criticalPathColor.value.value,
+                    this.settings.textAndLabels.labelColor.value.value,
+                    this.settings.textAndLabels.showDuration.value,
+                    this.settings.taskAppearance.taskHeight.value,
+                    this.settings.textAndLabels.dateBackgroundColor.value.value,
+                    1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
+                );
+
+                this.createAccessibleCanvasFallback(renderableTasks, yScale);
+
+                if (this.showConnectorLinesInternal) {
+
+                    this.drawArrowsCanvas(
+                        renderableTasks,
+                        xScale,
+                        yScale,
+                        this.settings.taskAppearance.criticalPathColor.value.value,
+                        this.settings.connectorLines.connectorColor.value.value,
+                        this.settings.connectorLines.connectorWidth.value,
+                        this.settings.connectorLines.criticalConnectorWidth.value,
+                        this.settings.taskAppearance.taskHeight.value,
+                        this.settings.taskAppearance.milestoneSize.value,
+                    );
+                }
+
+                this.drawTaskLabelsLayer(
+                    renderableTasks,
+                    yScale,
+                    this.settings.taskAppearance.taskHeight.value,
+                    currentLeftMargin,
+                    labelAvailableWidth,
+                    taskNameFontSize,
+                    this.settings.textAndLabels.labelColor.value.value,
+                    selectionHighlightColor,
+                    selectionLabelColor,
+                    selectionLabelWeight,
+                    lineHeight
+                );
+
+                this.drawDataDateLine(
+                    chartWidth,
+                    xScale,
+                    chartHeight,
+                    this.gridLayer,
+                    this.headerGridLayer
+                );
+
+                if (modeChanged && this.canvasElement) {
+
+                    requestAnimationFrame(() => {
+                        if (this.canvasElement) {
+                            this.canvasElement.style.opacity = '1';
+                        }
+
+                        this.taskLayer
+                            .transition()
+                            .duration(this.MODE_TRANSITION_DURATION)
+                            .style("opacity", 0)
+                            .on("end", () => {
+                                this.taskLayer.style("display", "none");
+                                this.taskLayer.style("opacity", null);
+                                this.taskLayer?.selectAll("*").remove();
+                            });
+
+                        this.arrowLayer
+                            .transition()
+                            .duration(this.MODE_TRANSITION_DURATION)
+                            .style("opacity", 0)
+                            .on("end", () => {
+                                this.arrowLayer.style("display", "none");
+                                this.arrowLayer.style("opacity", null);
+                                this.arrowLayer?.selectAll("*").remove();
+                            });
+                    });
+                } else {
+
+                    this.taskLayer.style("display", "none");
+                    this.arrowLayer.style("display", "none");
+                }
+            }
+        } else {
+
+            if (modeChanged) {
+                this.taskLayer
+                    .style("opacity", 0)
+                    .style("display", "block")
+                    .style("visibility", "visible");
+                this.arrowLayer
+                    .style("opacity", 0)
+                    .style("display", "block")
+                    .style("visibility", "visible");
+            } else {
+                this.taskLayer.style("display", "block");
+                this.taskLayer.style("visibility", "visible");
+                this.arrowLayer.style("display", "block");
+                this.arrowLayer.style("visibility", "visible");
+            }
+
+            this.setupSVGRenderingHints();
+
+            if (showHorzGridLines) {
+                this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
+            }
+
+            if (this.showConnectorLinesInternal) {
+                this.drawArrows(
+                    renderableTasks,
+                    xScale,
+                    yScale,
+                    this.settings.taskAppearance.criticalPathColor.value.value,
+                    this.settings.connectorLines.connectorColor.value.value,
+                    this.settings.connectorLines.connectorWidth.value,
+                    this.settings.connectorLines.criticalConnectorWidth.value,
+                    this.settings.taskAppearance.taskHeight.value,
+                    this.settings.taskAppearance.milestoneSize.value,
+                );
+            }
+
+            this.drawTasks(
                 renderableTasks,
                 xScale,
                 yScale,
@@ -5243,214 +5367,90 @@ private redrawVisibleTasks(): void {
                 1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
             );
 
-            this.createAccessibleCanvasFallback(renderableTasks, yScale);
-
-            if (this.showConnectorLinesInternal) {
-
-                this.drawArrowsCanvas(
-                    renderableTasks,
-                    xScale,
-                    yScale,
-                    this.settings.taskAppearance.criticalPathColor.value.value,
-                    this.settings.connectorLines.connectorColor.value.value,
-                    this.settings.connectorLines.connectorWidth.value,
-                    this.settings.connectorLines.criticalConnectorWidth.value,
-                    this.settings.taskAppearance.taskHeight.value,
-                    this.settings.taskAppearance.milestoneSize.value,
-                );
-            }
-
-            this.drawTaskLabelsLayer(
-                renderableTasks,
-                yScale,
-                this.settings.taskAppearance.taskHeight.value,
-                currentLeftMargin,
-                labelAvailableWidth,
-                taskNameFontSize,
-                this.settings.textAndLabels.labelColor.value.value,
-                selectionHighlightColor,
-                selectionLabelColor,
-                selectionLabelWeight,
-                lineHeight
-            );
-
-            this.drawDataDateLine(
-                chartWidth,
+            this.drawWbsGroupHeaders(
                 xScale,
-                chartHeight,
-                this.gridLayer,
-                this.headerGridLayer
+                yScale,
+                chartWidth,
+                this.settings.taskAppearance.taskHeight.value,
+                this.viewportStartIndex,
+                this.viewportEndIndex
             );
 
             if (modeChanged && this.canvasElement) {
 
                 requestAnimationFrame(() => {
-                    if (this.canvasElement) {
-                        this.canvasElement.style.opacity = '1';
-                    }
 
                     this.taskLayer
                         .transition()
                         .duration(this.MODE_TRANSITION_DURATION)
-                        .style("opacity", 0)
-                        .on("end", () => {
-                            this.taskLayer.style("display", "none");
-                            this.taskLayer.style("opacity", null);
-                            this.taskLayer?.selectAll("*").remove();
-                        });
+                        .style("opacity", 1);
 
                     this.arrowLayer
                         .transition()
                         .duration(this.MODE_TRANSITION_DURATION)
-                        .style("opacity", 0)
-                        .on("end", () => {
-                            this.arrowLayer.style("display", "none");
-                            this.arrowLayer.style("opacity", null);
-                            this.arrowLayer?.selectAll("*").remove();
-                        });
-                });
-            } else {
+                        .style("opacity", 1);
 
-                this.taskLayer.style("display", "none");
-                this.arrowLayer.style("display", "none");
+                    if (this.canvasElement) {
+                        this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
+                        this.canvasElement.style.opacity = '0';
+
+                        setTimeout(() => {
+                            if (this.canvasElement) {
+                                this.canvasElement.style.display = 'none';
+                                this.canvasElement.style.transition = '';
+                            }
+
+                            if (this.canvasContext && this.canvasElement) {
+                                this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+                            }
+                        }, this.MODE_TRANSITION_DURATION);
+                    }
+                });
+            } else if (this.canvasElement) {
+
+                this.canvasElement.style.display = 'none';
             }
         }
-    } else {
 
-        if (modeChanged) {
-            this.taskLayer
-                .style("opacity", 0)
-                .style("display", "block")
-                .style("visibility", "visible");
-            this.arrowLayer
-                .style("opacity", 0)
-                .style("display", "block")
-                .style("visibility", "visible");
-        } else {
-            this.taskLayer.style("display", "block");
-            this.taskLayer.style("visibility", "visible");
-            this.arrowLayer.style("display", "block");
-            this.arrowLayer.style("visibility", "visible");
-        }
-
-        this.setupSVGRenderingHints();
-
-        if (showHorzGridLines) {
-            this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
-        }
-
-        if (this.showConnectorLinesInternal) {
-            this.drawArrows(
-                renderableTasks,
+        if (this.useCanvasRendering) {
+            this.drawWbsGroupHeaders(
                 xScale,
                 yScale,
-                this.settings.taskAppearance.criticalPathColor.value.value,
-                this.settings.connectorLines.connectorColor.value.value,
-                this.settings.connectorLines.connectorWidth.value,
-                this.settings.connectorLines.criticalConnectorWidth.value,
+                chartWidth,
                 this.settings.taskAppearance.taskHeight.value,
-                this.settings.taskAppearance.milestoneSize.value,
+                this.viewportStartIndex,
+                this.viewportEndIndex
             );
         }
 
-        this.drawTasks(
+        const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : allTasksToShow;
+        this.drawBaselineAndPreviousEndLines(
+            xScale,
+            tasksForProjectEnd,
+            yScale.range()[1],
+            this.gridLayer,
+            this.headerGridLayer
+        );
+        this.drawProjectEndLine(
+            xScale.range()[1],
+            xScale,
             renderableTasks,
-            xScale,
-            yScale,
-            this.settings.taskAppearance.taskColor.value.value,
-            this.settings.taskAppearance.milestoneColor.value.value,
-            this.settings.taskAppearance.criticalPathColor.value.value,
-            this.settings.textAndLabels.labelColor.value.value,
-            this.settings.textAndLabels.showDuration.value,
-            this.settings.taskAppearance.taskHeight.value,
-            this.settings.textAndLabels.dateBackgroundColor.value.value,
-            1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
+            tasksForProjectEnd,
+            yScale.range()[1],
+            this.gridLayer,
+            this.headerGridLayer
         );
 
-    this.drawWbsGroupHeaders(
-        xScale,
-        yScale,
-        chartWidth,
-        this.settings.taskAppearance.taskHeight.value,
-        this.viewportStartIndex,
-        this.viewportEndIndex
-    );
-
-        if (modeChanged && this.canvasElement) {
-
-            requestAnimationFrame(() => {
-
-                this.taskLayer
-                    .transition()
-                    .duration(this.MODE_TRANSITION_DURATION)
-                    .style("opacity", 1);
-
-                this.arrowLayer
-                    .transition()
-                    .duration(this.MODE_TRANSITION_DURATION)
-                    .style("opacity", 1);
-
-                if (this.canvasElement) {
-                    this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
-                    this.canvasElement.style.opacity = '0';
-
-                    setTimeout(() => {
-                        if (this.canvasElement) {
-                            this.canvasElement.style.display = 'none';
-                            this.canvasElement.style.transition = '';
-                        }
-
-                        if (this.canvasContext && this.canvasElement) {
-                            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
-                        }
-                    }, this.MODE_TRANSITION_DURATION);
-                }
-            });
-        } else if (this.canvasElement) {
-
-            this.canvasElement.style.display = 'none';
-        }
-    }
-
-    if (this.useCanvasRendering) {
-        this.drawWbsGroupHeaders(
+        this.drawDataDateLine(
+            xScale.range()[1],
             xScale,
-            yScale,
-            chartWidth,
-            this.settings.taskAppearance.taskHeight.value,
-            this.viewportStartIndex,
-            this.viewportEndIndex
+            yScale.range()[1],
+            this.gridLayer,
+            this.headerGridLayer
         );
     }
 
-    const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : allTasksToShow;
-    this.drawBaselineAndPreviousEndLines(
-        xScale,
-        tasksForProjectEnd,
-        yScale.range()[1],
-        this.gridLayer,
-        this.headerGridLayer
-    );
-    this.drawProjectEndLine(
-        xScale.range()[1],
-        xScale,
-        renderableTasks,
-        tasksForProjectEnd,
-        yScale.range()[1],
-        this.gridLayer,
-        this.headerGridLayer
-    );
-
-    this.drawDataDateLine(
-        xScale.range()[1],
-        xScale,
-        yScale.range()[1],
-        this.gridLayer,
-        this.headerGridLayer
-    );
-}
-
-private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number): void {
+    private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number): void {
         if (!this.canvasContext) return;
         const ctx = this.canvasContext;
         ctx.save();
@@ -5553,10 +5553,10 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         yScale: ScaleBand<string> | null,
         chartWidth: number,
         calculatedChartHeight: number
-     } {
+    } {
         if (domainMin.getTime() >= domainMax.getTime()) {
-             console.warn("Invalid date domain for time scale (Min >= Max).");
-             return { xScale: null, yScale: null, chartWidth, calculatedChartHeight };
+            console.warn("Invalid date domain for time scale (Min >= Max).");
+            return { xScale: null, yScale: null, chartWidth, calculatedChartHeight };
         }
 
         const xScale = d3.scaleTime()
@@ -5585,9 +5585,9 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         const yDomain = Array.from(yDomainSet).sort((a, b) => parseInt(a) - parseInt(b));
 
         if (yDomain.length === 0) {
-             this.debugLog("Y-scale domain is empty because no tasks are being plotted.");
+            this.debugLog("Y-scale domain is empty because no tasks are being plotted.");
 
-             return { xScale: (isNaN(xScale.range()[0]) ? null : xScale), yScale: null, chartWidth, calculatedChartHeight };
+            return { xScale: (isNaN(xScale.range()[0]) ? null : xScale), yScale: null, chartWidth, calculatedChartHeight };
         }
 
         const yScale = d3.scaleBand<string>()
@@ -5600,162 +5600,162 @@ private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, 
         return { xScale, yScale, chartWidth, calculatedChartHeight };
     }
 
-private drawVisualElements(
-    tasksToShow: Task[],
-    xScale: ScaleTime<number, number>,
-    yScale: ScaleBand<string>,
-    chartWidth: number,
-    chartHeight: number
-): void {
-    if (this.scrollThrottleTimeout !== null) {
-        this.debugLog("Skipping full redraw during active scroll");
-        return;
-    }
-
-    if (!(this.gridLayer?.node() && this.taskLayer?.node() && this.arrowLayer?.node() &&
-            xScale && yScale && yScale.bandwidth())) {
-        console.error("Cannot draw elements: Missing main layers or invalid scales/bandwidth.");
-        this.displayMessage("Error during drawing setup.");
-        return;
-    }
-
-    if (!this.headerGridLayer?.node()) {
-        console.error("Cannot draw header elements: Missing header layer.");
-        this.displayMessage("Error during drawing setup.");
-        return;
-    }
-
-    this.taskLabelLayer?.selectAll("*").remove();
-    this.labelGridLayer?.selectAll("*").remove();
-    this.wbsGroupLayer?.selectAll("*").remove();
-
-    this.updateChartClipRect(chartWidth, chartHeight);
-
-    const taskColor = this.resolveColor(this.settings.taskAppearance.taskColor.value.value, "foreground");
-    const criticalColor = this.resolveColor(this.settings.taskAppearance.criticalPathColor.value.value, "foreground");
-    const milestoneColor = this.resolveColor(this.settings.taskAppearance.milestoneColor.value.value, "foreground");
-    const labelColor = this.resolveColor(this.settings.textAndLabels.labelColor.value.value, "foreground");
-    const taskHeight = this.settings.taskAppearance.taskHeight.value;
-    const connectorColor = this.resolveColor(this.settings.connectorLines.connectorColor.value.value, "foreground");
-    const connectorWidth = this.settings.connectorLines.connectorWidth.value;
-    const criticalConnectorWidth = this.settings.connectorLines.criticalConnectorWidth.value;
-    const dateBgColor = this.resolveColor(this.settings.textAndLabels.dateBackgroundColor.value.value, "background");
-    const dateBgTransparency = this.settings.textAndLabels.dateBackgroundTransparency.value;
-    const dateBgOpacity = 1 - (dateBgTransparency / 100);
-    const showHorzGridLines = this.settings.gridLines.showGridLines.value;
-    const showVertGridLines = this.settings.verticalGridLines.show.value;
-    const showDuration = this.settings.textAndLabels.showDuration.value;
-
-    const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-    const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
-    const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-    const selectionHighlightColor = this.getSelectionColor();
-    const selectionLabelColor = selectionHighlightColor;
-    const selectionLabelWeight = "bold";
-    const lineHeight = this.taskLabelLineHeight;
-    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-    const renderableTasks = tasksToShow.filter(t => t.yOrder !== undefined);
-    if (!wbsGroupingEnabled) {
-        this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
-    }
-
-    this.useCanvasRendering = renderableTasks.length > this.CANVAS_THRESHOLD;
-    this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${renderableTasks.length} tasks`);
-
-    /* Remove the unconditional SVG draw. It is handled conditionally below.
-    if (showHorzGridLines) {
-        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-        this.drawHorizontalGridLines(tasksToShow, yScale, chartWidth, currentLeftMargin, chartHeight);
-    }
-    */
-
-    if (showVertGridLines) {
-
-        this.drawVerticalGridLines(xScale, chartHeight, this.gridLayer, this.headerGridLayer);
-    }
-
-    if (this.useCanvasRendering) {
-
-        this.taskLayer.style("display", "none");
-        this.arrowLayer.style("display", "none");
-
-        if (this.canvasElement) {
-            this.canvasElement.style.display = 'block';
-            this.canvasElement.style.visibility = 'visible';
-            this.canvasElement.style.left = `${this.margin.left}px`;
-            this.canvasElement.style.top = `${this.margin.top}px`;
-            this.canvasElement.style.pointerEvents = 'auto';
-            this.canvasElement.style.zIndex = '1';
+    private drawVisualElements(
+        tasksToShow: Task[],
+        xScale: ScaleTime<number, number>,
+        yScale: ScaleBand<string>,
+        chartWidth: number,
+        chartHeight: number
+    ): void {
+        if (this.scrollThrottleTimeout !== null) {
+            this.debugLog("Skipping full redraw during active scroll");
+            return;
         }
 
-        if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
+        if (!(this.gridLayer?.node() && this.taskLayer?.node() && this.arrowLayer?.node() &&
+            xScale && yScale && yScale.bandwidth())) {
+            console.error("Cannot draw elements: Missing main layers or invalid scales/bandwidth.");
+            this.displayMessage("Error during drawing setup.");
+            return;
+        }
 
-            if (showHorzGridLines) {
-                this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
+        if (!this.headerGridLayer?.node()) {
+            console.error("Cannot draw header elements: Missing header layer.");
+            this.displayMessage("Error during drawing setup.");
+            return;
+        }
+
+        this.taskLabelLayer?.selectAll("*").remove();
+        this.labelGridLayer?.selectAll("*").remove();
+        this.wbsGroupLayer?.selectAll("*").remove();
+
+        this.updateChartClipRect(chartWidth, chartHeight);
+
+        const taskColor = this.resolveColor(this.settings.taskAppearance.taskColor.value.value, "foreground");
+        const criticalColor = this.resolveColor(this.settings.taskAppearance.criticalPathColor.value.value, "foreground");
+        const milestoneColor = this.resolveColor(this.settings.taskAppearance.milestoneColor.value.value, "foreground");
+        const labelColor = this.resolveColor(this.settings.textAndLabels.labelColor.value.value, "foreground");
+        const taskHeight = this.settings.taskAppearance.taskHeight.value;
+        const connectorColor = this.resolveColor(this.settings.connectorLines.connectorColor.value.value, "foreground");
+        const connectorWidth = this.settings.connectorLines.connectorWidth.value;
+        const criticalConnectorWidth = this.settings.connectorLines.criticalConnectorWidth.value;
+        const dateBgColor = this.resolveColor(this.settings.textAndLabels.dateBackgroundColor.value.value, "background");
+        const dateBgTransparency = this.settings.textAndLabels.dateBackgroundTransparency.value;
+        const dateBgOpacity = 1 - (dateBgTransparency / 100);
+        const showHorzGridLines = this.settings.gridLines.showGridLines.value;
+        const showVertGridLines = this.settings.verticalGridLines.show.value;
+        const showDuration = this.settings.textAndLabels.showDuration.value;
+
+        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
+        const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+        const selectionHighlightColor = this.getSelectionColor();
+        const selectionLabelColor = selectionHighlightColor;
+        const selectionLabelWeight = "bold";
+        const lineHeight = this.taskLabelLineHeight;
+        const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+        const renderableTasks = tasksToShow.filter(t => t.yOrder !== undefined);
+        if (!wbsGroupingEnabled) {
+            this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
+        }
+
+        this.useCanvasRendering = renderableTasks.length > this.CANVAS_THRESHOLD;
+        this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${renderableTasks.length} tasks`);
+
+        /* Remove the unconditional SVG draw. It is handled conditionally below.
+        if (showHorzGridLines) {
+            const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+            this.drawHorizontalGridLines(tasksToShow, yScale, chartWidth, currentLeftMargin, chartHeight);
+        }
+        */
+
+        if (showVertGridLines) {
+
+            this.drawVerticalGridLines(xScale, chartHeight, this.gridLayer, this.headerGridLayer);
+        }
+
+        if (this.useCanvasRendering) {
+
+            this.taskLayer.style("display", "none");
+            this.arrowLayer.style("display", "none");
+
+            if (this.canvasElement) {
+                this.canvasElement.style.display = 'block';
+                this.canvasElement.style.visibility = 'visible';
+                this.canvasElement.style.left = `${this.margin.left}px`;
+                this.canvasElement.style.top = `${this.margin.top}px`;
+                this.canvasElement.style.pointerEvents = 'auto';
+                this.canvasElement.style.zIndex = '1';
             }
 
-            this.drawTasksCanvas(
-                renderableTasks, xScale, yScale,
-                taskColor, milestoneColor, criticalColor,
-                labelColor, showDuration, taskHeight,
-                dateBgColor, dateBgOpacity
-            );
+            if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
+
+                if (showHorzGridLines) {
+                    this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
+                }
+
+                this.drawTasksCanvas(
+                    renderableTasks, xScale, yScale,
+                    taskColor, milestoneColor, criticalColor,
+                    labelColor, showDuration, taskHeight,
+                    dateBgColor, dateBgOpacity
+                );
+
+                if (this.showConnectorLinesInternal) {
+                    this.drawArrowsCanvas(
+                        renderableTasks, xScale, yScale,
+                        criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
+                        taskHeight, this.settings.taskAppearance.milestoneSize.value
+                    );
+                }
+
+                this.drawTaskLabelsLayer(
+                    renderableTasks,
+                    yScale,
+                    taskHeight,
+                    currentLeftMargin,
+                    labelAvailableWidth,
+                    taskNameFontSize,
+                    labelColor,
+                    selectionHighlightColor,
+                    selectionLabelColor,
+                    selectionLabelWeight,
+                    lineHeight
+                );
+            }
+        } else {
+
+            if (this.canvasElement) {
+                this.canvasElement.style.display = 'none';
+                this.canvasElement.style.visibility = 'hidden';
+            }
+            this.taskLayer.style("display", "block");
+            this.taskLayer.style("visibility", "visible");
+            this.arrowLayer.style("display", "block");
+            this.arrowLayer.style("visibility", "visible");
+
+            this.setupSVGRenderingHints();
+
+            if (showHorzGridLines) {
+                this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
+            }
 
             if (this.showConnectorLinesInternal) {
-                this.drawArrowsCanvas(
+                this.drawArrows(
                     renderableTasks, xScale, yScale,
                     criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
                     taskHeight, this.settings.taskAppearance.milestoneSize.value
                 );
             }
 
-            this.drawTaskLabelsLayer(
-                renderableTasks,
-                yScale,
-                taskHeight,
-                currentLeftMargin,
-                labelAvailableWidth,
-                taskNameFontSize,
-                labelColor,
-                selectionHighlightColor,
-                selectionLabelColor,
-                selectionLabelWeight,
-                lineHeight
+            this.drawTasks(
+                renderableTasks, xScale, yScale,
+                taskColor, milestoneColor, criticalColor,
+                labelColor, showDuration, taskHeight,
+                dateBgColor, dateBgOpacity
             );
-        }
-    } else {
 
-        if (this.canvasElement) {
-            this.canvasElement.style.display = 'none';
-            this.canvasElement.style.visibility = 'hidden';
-        }
-        this.taskLayer.style("display", "block");
-        this.taskLayer.style("visibility", "visible");
-        this.arrowLayer.style("display", "block");
-        this.arrowLayer.style("visibility", "visible");
-
-        this.setupSVGRenderingHints();
-
-        if (showHorzGridLines) {
-            this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
-        }
-
-    if (this.showConnectorLinesInternal) {
-        this.drawArrows(
-            renderableTasks, xScale, yScale,
-            criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
-            taskHeight, this.settings.taskAppearance.milestoneSize.value
-        );
-    }
-
-    this.drawTasks(
-        renderableTasks, xScale, yScale,
-        taskColor, milestoneColor, criticalColor,
-        labelColor, showDuration, taskHeight,
-            dateBgColor, dateBgOpacity
-        );
-
-        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
+            this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
 
             this.drawDataDateLine(
                 chartWidth,
@@ -5775,8 +5775,8 @@ private drawVisualElements(
             this.headerGridLayer
         );
         this.drawProjectEndLine(chartWidth, xScale, renderableTasks, tasksForProjectEnd, chartHeight,
-                                this.gridLayer, this.headerGridLayer);
-}
+            this.gridLayer, this.headerGridLayer);
+    }
 
     private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
         if (!this.gridLayer?.node() || !yScale) { console.warn("Skipping horizontal grid lines: Missing layer or Y scale."); return; }
@@ -5788,7 +5788,7 @@ private drawVisualElements(
         const lineWidth = settings.gridLineWidth.value;
         const style = settings.gridLineStyle.value.value;
         let lineDashArray = "none";
-         switch (style) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; break; }
+        switch (style) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; break; }
 
         const taskYOrders = tasks
             .filter(t => t.yOrder !== undefined && t.yOrder > 0)
@@ -5869,25 +5869,25 @@ private drawVisualElements(
         let tickInterval = 1;
         let monthTicks: Date[] = [];
         const maxInterval = 12;
-         while (tickInterval <= maxInterval) {
-             try { monthTicks = xScale.ticks(timeMonth.every(tickInterval)); }
-             catch (e) { console.error("Error generating ticks:", e); monthTicks = []; break; }
-             if (monthTicks.length < 2) break;
-             let minSpacingPx = Infinity;
-             for (let i = 1; i < monthTicks.length; i++) {
-                 const spacing = xScale(monthTicks[i]) - xScale(monthTicks[i - 1]);
-                 if (!isNaN(spacing)) minSpacingPx = Math.min(minSpacingPx, spacing);
-             }
-             if (minSpacingPx === Infinity) { console.warn("Could not determine valid spacing for interval:", tickInterval); break; }
-             if (minSpacingPx >= estimatedLabelWidthPx) break;
-             tickInterval++;
-             if (tickInterval > maxInterval) {
-                 console.warn(`Month label spacing tight even at max interval ${maxInterval}.`);
-                 try { monthTicks = xScale.ticks(timeMonth.every(maxInterval)); }
-                 catch(e) { console.error("Error generating final ticks:", e); monthTicks = []; }
-                 break;
-             }
-         }
+        while (tickInterval <= maxInterval) {
+            try { monthTicks = xScale.ticks(timeMonth.every(tickInterval)); }
+            catch (e) { console.error("Error generating ticks:", e); monthTicks = []; break; }
+            if (monthTicks.length < 2) break;
+            let minSpacingPx = Infinity;
+            for (let i = 1; i < monthTicks.length; i++) {
+                const spacing = xScale(monthTicks[i]) - xScale(monthTicks[i - 1]);
+                if (!isNaN(spacing)) minSpacingPx = Math.min(minSpacingPx, spacing);
+            }
+            if (minSpacingPx === Infinity) { console.warn("Could not determine valid spacing for interval:", tickInterval); break; }
+            if (minSpacingPx >= estimatedLabelWidthPx) break;
+            tickInterval++;
+            if (tickInterval > maxInterval) {
+                console.warn(`Month label spacing tight even at max interval ${maxInterval}.`);
+                try { monthTicks = xScale.ticks(timeMonth.every(maxInterval)); }
+                catch (e) { console.error("Error generating final ticks:", e); monthTicks = []; }
+                break;
+            }
+        }
 
         mainGridLayer.selectAll(".vertical-grid-line")
             .data(monthTicks)
@@ -5921,85 +5921,98 @@ private drawVisualElements(
         }
     }
 
-/** Draws task bars, milestones, and associated labels */
-private drawTasks(
-    tasks: Task[],
-    xScale: ScaleTime<number, number>,
-    yScale: ScaleBand<string>,
-    taskColor: string,
-    milestoneColor: string,
-    criticalColor: string,
-    labelColor: string,
-    showDuration: boolean,
-    taskHeight: number,
-    dateBackgroundColor: string,
-    dateBackgroundOpacity: number
-): void {
-    if (!this.taskLayer?.node() || !xScale || !yScale || !yScale.bandwidth()) {
-        console.error("Cannot draw tasks: Missing task layer or invalid scales/bandwidth.");
-        return;
-    }
-
-    const showTooltips = this.settings.displayOptions.showTooltips.value;
-    const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-    const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
-    const generalFontSize = this.settings.textAndLabels.fontSize.value;
-    const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-    const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
-    const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
-    const viewportWidth = this.lastUpdateOptions?.viewport?.width ?? 0;
-    const reduceLabelDensity = this.getLayoutMode(viewportWidth) === 'narrow';
-    const shouldShowFinishLabel = (d: Task): boolean => {
-        if (!reduceLabelDensity) return true;
-        return d.internalId === this.selectedTaskId ||
-            d.isCritical ||
-            d.type === 'TT_Mile' ||
-            d.type === 'TT_FinMile';
-    };
-    const lineHeight = this.taskLabelLineHeight;
-    const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
-    const dateBgPaddingV = this.dateBackgroundPadding.vertical;
-    const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
-    const self = this;
-    const minInlineDurationWidth = 28;
-    const minBarWidthForStrongStroke = 8;
-    const minBarWidthForGlow = 10;
-
-    const getTaskBarWidth = (d: Task): number => {
-        if (!(d.startDate instanceof Date) || !(d.finishDate instanceof Date)) {
-            return this.minTaskWidthPixels;
+    /** Draws task bars, milestones, and associated labels */
+    private drawTasks(
+        tasks: Task[],
+        xScale: ScaleTime<number, number>,
+        yScale: ScaleBand<string>,
+        taskColor: string,
+        milestoneColor: string,
+        criticalColor: string,
+        labelColor: string,
+        showDuration: boolean,
+        taskHeight: number,
+        dateBackgroundColor: string,
+        dateBackgroundOpacity: number
+    ): void {
+        if (!this.taskLayer?.node() || !xScale || !yScale || !yScale.bandwidth()) {
+            console.error("Cannot draw tasks: Missing task layer or invalid scales/bandwidth.");
+            return;
         }
-        const startPos = xScale(d.startDate);
-        const finishPos = xScale(d.finishDate);
-        if (isNaN(startPos) || isNaN(finishPos) || finishPos < startPos) {
-            return this.minTaskWidthPixels;
-        }
-        return Math.max(this.minTaskWidthPixels, finishPos - startPos);
-    };
 
-    const getTaskFillColor = (d: Task, fallbackColor: string): string => {
-        if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-        if (this.legendDataExists && d.legendColor) return d.legendColor;
-        if (!this.legendDataExists) {
-            if (d.isCritical) return criticalColor;
-            if (d.isNearCritical) return nearCriticalColor;
-        }
-        return fallbackColor;
-    };
+        const showTooltips = this.settings.displayOptions.showTooltips.value;
+        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
+        const generalFontSize = this.settings.textAndLabels.fontSize.value;
+        const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+        const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
+        const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
+        const viewportWidth = this.lastUpdateOptions?.viewport?.width ?? 0;
+        const reduceLabelDensity = this.getLayoutMode(viewportWidth) === 'narrow';
+        const shouldShowFinishLabel = (d: Task): boolean => {
+            if (!reduceLabelDensity) return true;
+            return d.internalId === this.selectedTaskId ||
+                d.isCritical ||
+                d.type === 'TT_Mile' ||
+                d.type === 'TT_FinMile';
+        };
+        const lineHeight = this.taskLabelLineHeight;
+        const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
+        const dateBgPaddingV = this.dateBackgroundPadding.vertical;
+        const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
+        const self = this;
+        const minInlineDurationWidth = 28;
+        const minBarWidthForStrongStroke = 8;
+        const minBarWidthForGlow = 10;
 
-    const selectionHighlightColor = this.getSelectionColor();
-    const selectionStrokeWidth = 2.5;
-    const selectionLabelColor = selectionHighlightColor;
-    const selectionLabelWeight = "bold";
+        const getTaskBarWidth = (d: Task): number => {
+            if (!(d.startDate instanceof Date) || !(d.finishDate instanceof Date)) {
+                return this.minTaskWidthPixels;
+            }
+            const startPos = xScale(d.startDate);
+            const finishPos = xScale(d.finishDate);
+            if (isNaN(startPos) || isNaN(finishPos) || finishPos < startPos) {
+                return this.minTaskWidthPixels;
+            }
+            return Math.max(this.minTaskWidthPixels, finishPos - startPos);
+        };
 
-    const taskGroupsSelection = this.taskLayer.selectAll<SVGGElement, Task>(".task-group")
-        .data(tasks, (d: Task) => d.internalId);
+        const getTaskFillColor = (d: Task, fallbackColor: string): string => {
+            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
+            if (this.legendDataExists && d.legendColor) return d.legendColor;
+            if (!this.legendDataExists) {
+                if (d.isCritical) return criticalColor;
+                if (d.isNearCritical) return nearCriticalColor;
+            }
+            return fallbackColor;
+        };
 
-    taskGroupsSelection.exit().remove();
+        const selectionHighlightColor = this.getSelectionColor();
+        const selectionStrokeWidth = 2.5;
+        const selectionLabelColor = selectionHighlightColor;
+        const selectionLabelWeight = "bold";
 
-    const enterGroups = taskGroupsSelection.enter().append("g")
-        .attr("class", "task-group")
-        .attr("transform", (d: Task) => {
+        const taskGroupsSelection = this.taskLayer.selectAll<SVGGElement, Task>(".task-group")
+            .data(tasks, (d: Task) => d.internalId);
+
+        taskGroupsSelection.exit().remove();
+
+        const enterGroups = taskGroupsSelection.enter().append("g")
+            .attr("class", "task-group")
+            .attr("transform", (d: Task) => {
+                const domainKey = d.yOrder?.toString() ?? '';
+                const yPosition = yScale(domainKey);
+                if (yPosition === undefined || isNaN(yPosition)) {
+                    console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
+                    return null;
+                }
+                return `translate(0, ${yPosition})`;
+            })
+            .filter(function () {
+                return d3.select(this).attr("transform") !== null;
+            });
+
+        taskGroupsSelection.attr("transform", (d: Task) => {
             const domainKey = d.yOrder?.toString() ?? '';
             const yPosition = yScale(domainKey);
             if (yPosition === undefined || isNaN(yPosition)) {
@@ -6007,477 +6020,445 @@ private drawTasks(
                 return null;
             }
             return `translate(0, ${yPosition})`;
-        })
-        .filter(function() {
-            return d3.select(this).attr("transform") !== null;
         });
 
-    taskGroupsSelection.attr("transform", (d: Task) => {
-        const domainKey = d.yOrder?.toString() ?? '';
-        const yPosition = yScale(domainKey);
-        if (yPosition === undefined || isNaN(yPosition)) {
-            console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
-            return null;
-        }
-        return `translate(0, ${yPosition})`;
-    });
+        const allTaskGroups = enterGroups.merge(taskGroupsSelection);
 
-    const allTaskGroups = enterGroups.merge(taskGroupsSelection);
-
-    const showPreviousUpdate = this.showPreviousUpdateInternal;
-    if (showPreviousUpdate) {
-        const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
-        const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
-        const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
-        const previousUpdateRadius = Math.min(3, previousUpdateHeight / 2);
-        const previousUpdateOutline = this.getContrastColor(previousUpdateColor);
-
-        allTaskGroups.selectAll(".previous-update-bar").remove();
-
-        allTaskGroups.filter((d: Task) =>
-            d.previousUpdateStartDate instanceof Date && !isNaN(d.previousUpdateStartDate.getTime()) &&
-            d.previousUpdateFinishDate instanceof Date && !isNaN(d.previousUpdateFinishDate.getTime()) &&
-            d.previousUpdateFinishDate >= d.previousUpdateStartDate
-        )
-        .append("rect")
-            .attr("class", "previous-update-bar")
-            .attr("x", (d: Task) => xScale(d.previousUpdateStartDate!))
-            .attr("y", taskHeight + previousUpdateOffset)
-            .attr("width", (d: Task) => {
-                const startPos = xScale(d.previousUpdateStartDate!);
-                const finishPos = xScale(d.previousUpdateFinishDate!);
-                return Math.max(this.minTaskWidthPixels, finishPos - startPos);
-            })
-            .attr("height", previousUpdateHeight)
-            .attr("rx", previousUpdateRadius)
-            .attr("ry", previousUpdateRadius)
-            .style("fill", previousUpdateColor)
-            .style("stroke", previousUpdateOutline)
-            .style("stroke-opacity", 0.25)
-            .style("stroke-width", 0.6);
-    } else {
-        allTaskGroups.selectAll(".previous-update-bar").remove();
-    }
-
-    const showBaseline = this.showBaselineInternal;
-    if (showBaseline) {
-        const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
-        const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
-        const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
-        const baselineRadius = Math.min(3, baselineHeight / 2);
-        const baselineOutline = this.getContrastColor(baselineColor);
-
-        let baselineY = taskHeight;
+        const showPreviousUpdate = this.showPreviousUpdateInternal;
         if (showPreviousUpdate) {
+            const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
             const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
             const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
-            baselineY = taskHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset;
+            const previousUpdateRadius = Math.min(3, previousUpdateHeight / 2);
+            const previousUpdateOutline = this.getContrastColor(previousUpdateColor);
+
+            allTaskGroups.selectAll(".previous-update-bar").remove();
+
+            allTaskGroups.filter((d: Task) =>
+                d.previousUpdateStartDate instanceof Date && !isNaN(d.previousUpdateStartDate.getTime()) &&
+                d.previousUpdateFinishDate instanceof Date && !isNaN(d.previousUpdateFinishDate.getTime()) &&
+                d.previousUpdateFinishDate >= d.previousUpdateStartDate
+            )
+                .append("rect")
+                .attr("class", "previous-update-bar")
+                .attr("x", (d: Task) => xScale(d.previousUpdateStartDate!))
+                .attr("y", taskHeight + previousUpdateOffset)
+                .attr("width", (d: Task) => {
+                    const startPos = xScale(d.previousUpdateStartDate!);
+                    const finishPos = xScale(d.previousUpdateFinishDate!);
+                    return Math.max(this.minTaskWidthPixels, finishPos - startPos);
+                })
+                .attr("height", previousUpdateHeight)
+                .attr("rx", previousUpdateRadius)
+                .attr("ry", previousUpdateRadius)
+                .style("fill", previousUpdateColor)
+                .style("stroke", previousUpdateOutline)
+                .style("stroke-opacity", 0.25)
+                .style("stroke-width", 0.6);
         } else {
-            baselineY = taskHeight + baselineOffset;
+            allTaskGroups.selectAll(".previous-update-bar").remove();
         }
 
-        allTaskGroups.selectAll(".baseline-bar").remove();
+        const showBaseline = this.showBaselineInternal;
+        if (showBaseline) {
+            const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
+            const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
+            const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
+            const baselineRadius = Math.min(3, baselineHeight / 2);
+            const baselineOutline = this.getContrastColor(baselineColor);
 
-        allTaskGroups.filter((d: Task) =>
-            d.baselineStartDate instanceof Date && !isNaN(d.baselineStartDate.getTime()) &&
-            d.baselineFinishDate instanceof Date && !isNaN(d.baselineFinishDate.getTime()) &&
-            d.baselineFinishDate >= d.baselineStartDate
-        )
-        .append("rect")
-            .attr("class", "baseline-bar")
-            .attr("x", (d: Task) => xScale(d.baselineStartDate!))
-            .attr("y", baselineY)
-            .attr("width", (d: Task) => {
-                const startPos = xScale(d.baselineStartDate!);
-                const finishPos = xScale(d.baselineFinishDate!);
-                return Math.max(this.minTaskWidthPixels, finishPos - startPos);
-            })
-            .attr("height", baselineHeight)
-            .attr("rx", baselineRadius)
-            .attr("ry", baselineRadius)
-            .style("fill", baselineColor)
-            .style("stroke", baselineOutline)
-            .style("stroke-opacity", 0.25)
-            .style("stroke-width", 0.6);
-    } else {
-        allTaskGroups.selectAll(".baseline-bar").remove();
-    }
-
-    allTaskGroups.selectAll(".task-bar, .milestone").remove();
-
-    allTaskGroups.filter((d: Task) =>
-        d.type !== 'TT_Mile' && d.type !== 'TT_FinMile' &&
-        d.startDate instanceof Date && !isNaN(d.startDate.getTime()) &&
-        d.finishDate instanceof Date && !isNaN(d.finishDate.getTime()) &&
-        d.finishDate >= d.startDate
-    )
-    .append("rect")
-        .attr("class", (d: Task) => {
-            if (d.isCritical) return "task-bar critical";
-            if (d.isNearCritical) return "task-bar near-critical";
-            return "task-bar normal";
-        })
-
-        .attr("role", "button")
-        .attr("aria-label", (d: Task) => {
-            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
-            const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
-            return `${d.name}, ${statusText} task, Start: ${this.formatDate(d.startDate)}, Finish: ${this.formatDate(d.finishDate)}${selectedText}. Press Enter or Space to select.`;
-        })
-        .attr("tabindex", 0)
-        .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
-        .attr("x", (d: Task) => xScale(d.startDate!))
-        .attr("y", 0)
-        .attr("width", (d: Task) => getTaskBarWidth(d))
-        .attr("height", taskHeight)
-
-        .attr("rx", (d: Task) => Math.min(5, taskHeight * 0.15, getTaskBarWidth(d) / 2))
-        .attr("ry", (d: Task) => Math.min(5, taskHeight * 0.15, getTaskBarWidth(d) / 2))
-        .style("fill", (d: Task) => getTaskFillColor(d, taskColor))
-
-        .style("stroke", (d: Task) => {
-            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-
-            if (this.legendDataExists) {
-                if (d.isCritical) return criticalColor;
-                if (d.isNearCritical) return nearCriticalColor;
+            let baselineY = taskHeight;
+            if (showPreviousUpdate) {
+                const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
+                const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
+                baselineY = taskHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset;
+            } else {
+                baselineY = taskHeight + baselineOffset;
             }
 
-            return this.getForegroundColor();
-        })
-        .style("stroke-width", (d: Task) => {
-            const barWidth = getTaskBarWidth(d);
-            let baseWidth = 0.5;
+            allTaskGroups.selectAll(".baseline-bar").remove();
 
-            if (d.internalId === this.selectedTaskId) {
-                baseWidth = 3;
-            } else if (this.legendDataExists) {
-                if (d.isCritical) baseWidth = this.settings.taskAppearance.criticalBorderWidth.value;
-                else if (d.isNearCritical) baseWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
-            } else if (d.isCritical) {
-                baseWidth = 1;
-            }
+            allTaskGroups.filter((d: Task) =>
+                d.baselineStartDate instanceof Date && !isNaN(d.baselineStartDate.getTime()) &&
+                d.baselineFinishDate instanceof Date && !isNaN(d.baselineFinishDate.getTime()) &&
+                d.baselineFinishDate >= d.baselineStartDate
+            )
+                .append("rect")
+                .attr("class", "baseline-bar")
+                .attr("x", (d: Task) => xScale(d.baselineStartDate!))
+                .attr("y", baselineY)
+                .attr("width", (d: Task) => {
+                    const startPos = xScale(d.baselineStartDate!);
+                    const finishPos = xScale(d.baselineFinishDate!);
+                    return Math.max(this.minTaskWidthPixels, finishPos - startPos);
+                })
+                .attr("height", baselineHeight)
+                .attr("rx", baselineRadius)
+                .attr("ry", baselineRadius)
+                .style("fill", baselineColor)
+                .style("stroke", baselineOutline)
+                .style("stroke-opacity", 0.25)
+                .style("stroke-width", 0.6);
+        } else {
+            allTaskGroups.selectAll(".baseline-bar").remove();
+        }
 
-            if (barWidth < minBarWidthForStrongStroke) {
-                return Math.min(baseWidth, 1);
-            }
-            return baseWidth;
-        })
+        allTaskGroups.selectAll(".task-bar, .milestone").remove();
 
-        .style("filter", (d: Task) => {
-            const barWidth = getTaskBarWidth(d);
-            if (barWidth < minBarWidthForGlow) return "none";
-
-            if (this.legendDataExists) {
-                if (d.isCritical) {
-                    const rgb = this.hexToRgb(criticalColor);
-                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
-                }
-                if (d.isNearCritical) {
-                    const nearColor = nearCriticalColor;
-                    const rgb = this.hexToRgb(nearColor);
-                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
-                }
-            }
-
-            return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
-        });
-
-    allTaskGroups.filter((d: Task) =>
-        (d.type === 'TT_Mile' || d.type === 'TT_FinMile') &&
-        ((d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ||
-            (d.finishDate instanceof Date && !isNaN(d.finishDate.getTime())))
-    )
-    .append("path")
-        .attr("class", (d: Task) => {
-            if (d.isCritical) return "milestone critical";
-            if (d.isNearCritical) return "milestone near-critical";
-            return "milestone normal";
-        })
-
-        .attr("role", "button")
-        .attr("aria-label", (d: Task) => {
-            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
-            const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
-            const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
-            return `${d.name}, ${statusText} milestone, Date: ${this.formatDate(milestoneDate)}${selectedText}. Press Enter or Space to select.`;
-        })
-        .attr("tabindex", 0)
-        .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
-        .attr("transform", (d: Task) => {
-            const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
-            const x = (milestoneDate instanceof Date && !isNaN(milestoneDate.getTime())) ? xScale(milestoneDate) : 0;
-            const y = taskHeight / 2;
-            if (isNaN(x)) console.warn(`Invalid X position for milestone ${d.internalId}`);
-            return `translate(${x}, ${y})`;
-        })
-        .attr("d", () => {
-            const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-            return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
-        })
-        .style("fill", (d: Task) => getTaskFillColor(d, milestoneColor))
-
-        .style("stroke", (d: Task) => {
-            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-
-            if (this.legendDataExists) {
-                if (d.isCritical) return criticalColor;
-                if (d.isNearCritical) return nearCriticalColor;
-            }
-
-            return this.getForegroundColor();
-        })
-        .style("stroke-width", (d: Task) => {
-            if (d.internalId === this.selectedTaskId) return 3;
-
-            if (this.legendDataExists) {
-                if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
-                if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
-            }
-
-            return 1.5;
-        })
-
-        .style("filter", (d: Task) => {
-
-            if (this.legendDataExists) {
-                if (d.isCritical) {
-                    const rgb = this.hexToRgb(criticalColor);
-                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
-                }
-                if (d.isNearCritical) {
-                    const nearColor = nearCriticalColor;
-                    const rgb = this.hexToRgb(nearColor);
-                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
-                }
-            }
-
-            return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
-        });
-
-    this.drawTaskLabelsLayer(
-        tasks,
-        yScale,
-        taskHeight,
-        currentLeftMargin,
-        labelAvailableWidth,
-        taskNameFontSize,
-        labelColor,
-        selectionHighlightColor,
-        selectionLabelColor,
-        selectionLabelWeight,
-        this.taskLabelLineHeight
-    );
-
-    if (showFinishDates) {
-        allTaskGroups.selectAll(".date-label-group").remove();
-
-        const dateTextFontSize = Math.max(7, generalFontSize * (reduceLabelDensity ? 0.75 : 0.85));
-        const dateTextGroups = allTaskGroups
-            .filter((d: Task) => shouldShowFinishLabel(d))
-            .append("g")
-            .attr("class", "date-label-group");
-
-        const dateTextSelection = dateTextGroups.append("text")
-            .attr("class", "finish-date")
-            .attr("y", taskHeight / 2)
-            .attr("text-anchor", "start")
-            .attr("dominant-baseline", "central")
-            .style("font-size", `${dateTextFontSize}pt`)
-            .style("fill", labelColor)
-            .style("pointer-events", "none")
-            .attr("x", (d: Task): number | null => {
-                let xPos: number | null = null;
-                const dateToUse = d.finishDate;
-                if (!(dateToUse instanceof Date && !isNaN(dateToUse.getTime()))) return null;
-
-                if (d.type === 'TT_Mile' || d.type === 'TT_FinMile') {
-                    const milestoneMarkerDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
-                    const milestoneX = (milestoneMarkerDate instanceof Date && !isNaN(milestoneMarkerDate.getTime())) ? xScale(milestoneMarkerDate) : NaN;
-                    if (!isNaN(milestoneX)) {
-                        const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-                        xPos = milestoneX + size / 2;
-                    }
-                } else {
-                    const finishX = xScale(dateToUse);
-                    if (!isNaN(finishX)) xPos = finishX;
-                }
-                return (xPos === null || isNaN(xPos)) ? null : (xPos + self.dateLabelOffset);
-            })
-            .text((d: Task) => self.formatDate(d.finishDate))
-            .filter(function() { return d3.select(this).attr("x") !== null; });
-
-        dateTextGroups.each((d: Task, i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
-            const group = d3.select(nodes[i] as SVGGElement);
-            const textElement = group.select<SVGTextElement>(".finish-date").node();
-
-            if (!textElement) {
-                group.remove();
-                return;
-            }
-
-            if (textElement.getAttribute("x") === null || !textElement.textContent || textElement.textContent.trim() === "") {
-                group.remove();
-                return;
-            }
-
-            try {
-                const bbox = textElement.getBBox();
-                if (bbox && bbox.width > 0 && bbox.height > 0 && isFinite(bbox.x) && isFinite(bbox.y)) {
-                    group.insert("rect", ".finish-date")
-                        .attr("class", "date-background")
-                        .attr("x", bbox.x - dateBgPaddingH)
-                        .attr("y", bbox.y - dateBgPaddingV)
-                        .attr("width", bbox.width + (dateBgPaddingH * 2))
-                        .attr("height", bbox.height + (dateBgPaddingV * 2))
-
-                        .attr("rx", 4).attr("ry", 4)
-                        .style("fill", dateBackgroundColor)
-                        .style("fill-opacity", dateBackgroundOpacity)
-
-                        .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[1]})`);
-                }
-            } catch (e) {
-                console.warn(`Could not get BBox for date text on task ${d.internalId}`, e);
-            }
-        });
-    }
-
-    if (showDuration) {
-        allTaskGroups.selectAll(".duration-text").remove();
-
-        const durationFontSize = Math.max(7, generalFontSize * 0.8);
         allTaskGroups.filter((d: Task) =>
             d.type !== 'TT_Mile' && d.type !== 'TT_FinMile' &&
             d.startDate instanceof Date && !isNaN(d.startDate.getTime()) &&
             d.finishDate instanceof Date && !isNaN(d.finishDate.getTime()) &&
-            d.finishDate >= d.startDate &&
-            (d.duration || 0) > 0
+            d.finishDate >= d.startDate
         )
-        .append("text")
-            .attr("class", "duration-text")
-            .attr("y", taskHeight / 2)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-size", `${durationFontSize}pt`)
-            .style("fill", (d: Task) => this.getDurationTextColor(getTaskFillColor(d, taskColor)))
-            .style("font-weight", "500")
-            .style("pointer-events", "none")
-            .attr("x", (d: Task): number | null => {
-                const startX = xScale(d.startDate!);
-                const finishX = xScale(d.finishDate!);
-                return (isNaN(startX) || isNaN(finishX)) ? null : startX + (finishX - startX) / 2;
+            .append("rect")
+            .attr("class", (d: Task) => {
+                if (d.isCritical) return "task-bar critical";
+                if (d.isNearCritical) return "task-bar near-critical";
+                return "task-bar normal";
             })
-            .text((d: Task): string => {
-                const startX = xScale(d.startDate!);
-                const finishX = xScale(d.finishDate!);
-                if (isNaN(startX) || isNaN(finishX)) return "";
-                const barWidth = finishX - startX;
-                const textContent = `${Math.round(d.duration || 0)}d`;
-                const estimatedTextWidth = textContent.length * (durationFontSize * 0.6);
-                const minWidth = Math.max(minInlineDurationWidth, estimatedTextWidth + 8);
-                return (barWidth >= minWidth) ? textContent : "";
+
+            .attr("role", "button")
+            .attr("aria-label", (d: Task) => {
+                const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+                const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
+                return `${d.name}, ${statusText} task, Start: ${this.formatDate(d.startDate)}, Finish: ${this.formatDate(d.finishDate)}${selectedText}. Press Enter or Space to select.`;
             })
-            .filter(function() { return d3.select(this).attr("x") !== null && d3.select(this).text() !== ""; });
-    }
+            .attr("tabindex", 0)
+            .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
+            .attr("x", (d: Task) => xScale(d.startDate!))
+            .attr("y", 0)
+            .attr("width", (d: Task) => getTaskBarWidth(d))
+            .attr("height", taskHeight)
 
-    const setupInteractivity = (selection: Selection<BaseType, Task, BaseType, unknown>) => {
-        selection
-            .on("mouseover", (event: MouseEvent, d: Task) => {
-                self.setHoveredTask(d.internalId);
+            .attr("rx", (d: Task) => Math.min(5, taskHeight * 0.15, getTaskBarWidth(d) / 2))
+            .attr("ry", (d: Task) => Math.min(5, taskHeight * 0.15, getTaskBarWidth(d) / 2))
+            .style("fill", (d: Task) => getTaskFillColor(d, taskColor))
 
-                if (d.internalId !== self.selectedTaskId) {
+            .style("stroke", (d: Task) => {
+                if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
 
-                    let hoverStrokeColor = self.getForegroundColor();
-                    let hoverStrokeWidth = "2px";
+                if (this.legendDataExists) {
+                    if (d.isCritical) return criticalColor;
+                    if (d.isNearCritical) return nearCriticalColor;
+                }
 
-                    if (self.legendDataExists) {
+                return this.getForegroundColor();
+            })
+            .style("stroke-width", (d: Task) => {
+                const barWidth = getTaskBarWidth(d);
+                let baseWidth = 0.5;
 
-                        if (d.isCritical) {
-                            hoverStrokeColor = criticalColor;
-                            hoverStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
-                        } else if (d.isNearCritical) {
-                            hoverStrokeColor = nearCriticalColor;
-                            hoverStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
+                if (d.internalId === this.selectedTaskId) {
+                    baseWidth = 3;
+                } else if (this.legendDataExists) {
+                    if (d.isCritical) baseWidth = this.settings.taskAppearance.criticalBorderWidth.value;
+                    else if (d.isNearCritical) baseWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
+                } else if (d.isCritical) {
+                    baseWidth = 1;
+                }
+
+                if (barWidth < minBarWidthForStrongStroke) {
+                    return Math.min(baseWidth, 1);
+                }
+                return baseWidth;
+            })
+
+            .style("filter", (d: Task) => {
+                const barWidth = getTaskBarWidth(d);
+                if (barWidth < minBarWidthForGlow) return "none";
+
+                if (this.legendDataExists) {
+                    if (d.isCritical) {
+                        const rgb = this.hexToRgb(criticalColor);
+                        return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                    }
+                    if (d.isNearCritical) {
+                        const nearColor = nearCriticalColor;
+                        const rgb = this.hexToRgb(nearColor);
+                        return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                    }
+                }
+
+                return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
+            });
+
+        allTaskGroups.filter((d: Task) =>
+            (d.type === 'TT_Mile' || d.type === 'TT_FinMile') &&
+            ((d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ||
+                (d.finishDate instanceof Date && !isNaN(d.finishDate.getTime())))
+        )
+            .append("path")
+            .attr("class", (d: Task) => {
+                if (d.isCritical) return "milestone critical";
+                if (d.isNearCritical) return "milestone near-critical";
+                return "milestone normal";
+            })
+
+            .attr("role", "button")
+            .attr("aria-label", (d: Task) => {
+                const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+                const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
+                const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
+                return `${d.name}, ${statusText} milestone, Date: ${this.formatDate(milestoneDate)}${selectedText}. Press Enter or Space to select.`;
+            })
+            .attr("tabindex", 0)
+            .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
+            .attr("transform", (d: Task) => {
+                const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
+                const x = (milestoneDate instanceof Date && !isNaN(milestoneDate.getTime())) ? xScale(milestoneDate) : 0;
+                const y = taskHeight / 2;
+                if (isNaN(x)) console.warn(`Invalid X position for milestone ${d.internalId}`);
+                return `translate(${x}, ${y})`;
+            })
+            .attr("d", () => {
+                const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
+            })
+            .style("fill", (d: Task) => getTaskFillColor(d, milestoneColor))
+
+            .style("stroke", (d: Task) => {
+                if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
+
+                if (this.legendDataExists) {
+                    if (d.isCritical) return criticalColor;
+                    if (d.isNearCritical) return nearCriticalColor;
+                }
+
+                return this.getForegroundColor();
+            })
+            .style("stroke-width", (d: Task) => {
+                if (d.internalId === this.selectedTaskId) return 3;
+
+                if (this.legendDataExists) {
+                    if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
+                    if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
+                }
+
+                return 1.5;
+            })
+
+            .style("filter", (d: Task) => {
+
+                if (this.legendDataExists) {
+                    if (d.isCritical) {
+                        const rgb = this.hexToRgb(criticalColor);
+                        return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                    }
+                    if (d.isNearCritical) {
+                        const nearColor = nearCriticalColor;
+                        const rgb = this.hexToRgb(nearColor);
+                        return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                    }
+                }
+
+                return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
+            });
+
+        this.drawTaskLabelsLayer(
+            tasks,
+            yScale,
+            taskHeight,
+            currentLeftMargin,
+            labelAvailableWidth,
+            taskNameFontSize,
+            labelColor,
+            selectionHighlightColor,
+            selectionLabelColor,
+            selectionLabelWeight,
+            this.taskLabelLineHeight
+        );
+
+        if (showFinishDates) {
+            allTaskGroups.selectAll(".date-label-group").remove();
+
+            const dateTextFontSize = Math.max(7, generalFontSize * (reduceLabelDensity ? 0.75 : 0.85));
+            const dateTextGroups = allTaskGroups
+                .filter((d: Task) => shouldShowFinishLabel(d))
+                .append("g")
+                .attr("class", "date-label-group");
+
+            const dateTextSelection = dateTextGroups.append("text")
+                .attr("class", "finish-date")
+                .attr("y", taskHeight / 2)
+                .attr("text-anchor", "start")
+                .attr("dominant-baseline", "central")
+                .style("font-size", `${dateTextFontSize}pt`)
+                .style("fill", labelColor)
+                .style("pointer-events", "none")
+                .attr("x", (d: Task): number | null => {
+                    let xPos: number | null = null;
+                    const dateToUse = d.finishDate;
+                    if (!(dateToUse instanceof Date && !isNaN(dateToUse.getTime()))) return null;
+
+                    if (d.type === 'TT_Mile' || d.type === 'TT_FinMile') {
+                        const milestoneMarkerDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
+                        const milestoneX = (milestoneMarkerDate instanceof Date && !isNaN(milestoneMarkerDate.getTime())) ? xScale(milestoneMarkerDate) : NaN;
+                        if (!isNaN(milestoneX)) {
+                            const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                            xPos = milestoneX + size / 2;
                         }
                     } else {
+                        const finishX = xScale(dateToUse);
+                        if (!isNaN(finishX)) xPos = finishX;
+                    }
+                    return (xPos === null || isNaN(xPos)) ? null : (xPos + self.dateLabelOffset);
+                })
+                .text((d: Task) => self.formatDate(d.finishDate))
+                .filter(function () { return d3.select(this).attr("x") !== null; });
 
-                        if (d.isCritical) {
-                            hoverStrokeWidth = "1.5px";
+            dateTextGroups.each((d: Task, i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
+                const group = d3.select(nodes[i] as SVGGElement);
+                const textElement = group.select<SVGTextElement>(".finish-date").node();
+
+                if (!textElement) {
+                    group.remove();
+                    return;
+                }
+
+                if (textElement.getAttribute("x") === null || !textElement.textContent || textElement.textContent.trim() === "") {
+                    group.remove();
+                    return;
+                }
+
+                try {
+                    const bbox = textElement.getBBox();
+                    if (bbox && bbox.width > 0 && bbox.height > 0 && isFinite(bbox.x) && isFinite(bbox.y)) {
+                        group.insert("rect", ".finish-date")
+                            .attr("class", "date-background")
+                            .attr("x", bbox.x - dateBgPaddingH)
+                            .attr("y", bbox.y - dateBgPaddingV)
+                            .attr("width", bbox.width + (dateBgPaddingH * 2))
+                            .attr("height", bbox.height + (dateBgPaddingV * 2))
+
+                            .attr("rx", 4).attr("ry", 4)
+                            .style("fill", dateBackgroundColor)
+                            .style("fill-opacity", dateBackgroundOpacity)
+
+                            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[1]})`);
+                    }
+                } catch (e) {
+                    console.warn(`Could not get BBox for date text on task ${d.internalId}`, e);
+                }
+            });
+        }
+
+        if (showDuration) {
+            allTaskGroups.selectAll(".duration-text").remove();
+
+            const durationFontSize = Math.max(7, generalFontSize * 0.8);
+            allTaskGroups.filter((d: Task) =>
+                d.type !== 'TT_Mile' && d.type !== 'TT_FinMile' &&
+                d.startDate instanceof Date && !isNaN(d.startDate.getTime()) &&
+                d.finishDate instanceof Date && !isNaN(d.finishDate.getTime()) &&
+                d.finishDate >= d.startDate &&
+                (d.duration || 0) > 0
+            )
+                .append("text")
+                .attr("class", "duration-text")
+                .attr("y", taskHeight / 2)
+                .attr("text-anchor", "middle")
+                .attr("dominant-baseline", "central")
+                .style("font-size", `${durationFontSize}pt`)
+                .style("fill", (d: Task) => this.getDurationTextColor(getTaskFillColor(d, taskColor)))
+                .style("font-weight", "500")
+                .style("pointer-events", "none")
+                .attr("x", (d: Task): number | null => {
+                    const startX = xScale(d.startDate!);
+                    const finishX = xScale(d.finishDate!);
+                    return (isNaN(startX) || isNaN(finishX)) ? null : startX + (finishX - startX) / 2;
+                })
+                .text((d: Task): string => {
+                    const startX = xScale(d.startDate!);
+                    const finishX = xScale(d.finishDate!);
+                    if (isNaN(startX) || isNaN(finishX)) return "";
+                    const barWidth = finishX - startX;
+                    const textContent = `${Math.round(d.duration || 0)}d`;
+                    const estimatedTextWidth = textContent.length * (durationFontSize * 0.6);
+                    const minWidth = Math.max(minInlineDurationWidth, estimatedTextWidth + 8);
+                    return (barWidth >= minWidth) ? textContent : "";
+                })
+                .filter(function () { return d3.select(this).attr("x") !== null && d3.select(this).text() !== ""; });
+        }
+
+        const setupInteractivity = (selection: Selection<BaseType, Task, BaseType, unknown>) => {
+            selection
+                .on("mouseover", (event: MouseEvent, d: Task) => {
+                    self.setHoveredTask(d.internalId);
+
+                    if (d.internalId !== self.selectedTaskId) {
+
+                        let hoverStrokeColor = self.getForegroundColor();
+                        let hoverStrokeWidth = "2px";
+
+                        if (self.legendDataExists) {
+
+                            if (d.isCritical) {
+                                hoverStrokeColor = criticalColor;
+                                hoverStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
+                            } else if (d.isNearCritical) {
+                                hoverStrokeColor = nearCriticalColor;
+                                hoverStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
+                            }
+                        } else {
+
+                            if (d.isCritical) {
+                                hoverStrokeWidth = "1.5px";
+                            }
                         }
+
+                        d3.select(event.currentTarget as Element)
+                            .style("stroke", hoverStrokeColor)
+                            .style("stroke-width", hoverStrokeWidth);
+                    }
+                    d3.select(event.currentTarget as Element).style("cursor", "pointer");
+
+                    if (showTooltips) {
+                        self.showTaskTooltip(d, event);
+                    }
+                })
+                .on("mousemove", (event: MouseEvent) => {
+                    if (showTooltips) {
+                        self.moveTaskTooltip(event);
+                    }
+                })
+                .on("mouseout", (event: MouseEvent, d: Task) => {
+                    self.setHoveredTask(null);
+
+                    if (d.internalId !== self.selectedTaskId) {
+
+                        let defaultStrokeColor = self.getForegroundColor();
+                        let defaultStrokeWidth = "0.5";
+
+                        if (self.legendDataExists) {
+
+                            if (d.isCritical) {
+                                defaultStrokeColor = criticalColor;
+                                defaultStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
+                            } else if (d.isNearCritical) {
+                                defaultStrokeColor = nearCriticalColor;
+                                defaultStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
+                            }
+                        } else {
+
+                            if (d.isCritical) {
+                                defaultStrokeWidth = "1";
+                            }
+                        }
+
+                        d3.select(event.currentTarget as Element)
+                            .style("stroke", defaultStrokeColor)
+                            .style("stroke-width", defaultStrokeWidth);
                     }
 
-                    d3.select(event.currentTarget as Element)
-                        .style("stroke", hoverStrokeColor)
-                        .style("stroke-width", hoverStrokeWidth);
-                }
-                d3.select(event.currentTarget as Element).style("cursor", "pointer");
-
-                if (showTooltips) {
-                    self.showTaskTooltip(d, event);
-                }
-            })
-            .on("mousemove", (event: MouseEvent) => {
-                if (showTooltips) {
-                    self.moveTaskTooltip(event);
-                }
-            })
-            .on("mouseout", (event: MouseEvent, d: Task) => {
-                self.setHoveredTask(null);
-
-                if (d.internalId !== self.selectedTaskId) {
-
-                    let defaultStrokeColor = self.getForegroundColor();
-                    let defaultStrokeWidth = "0.5";
-
-                    if (self.legendDataExists) {
-
-                        if (d.isCritical) {
-                            defaultStrokeColor = criticalColor;
-                            defaultStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
-                        } else if (d.isNearCritical) {
-                            defaultStrokeColor = nearCriticalColor;
-                            defaultStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
-                        }
-                    } else {
-
-                        if (d.isCritical) {
-                            defaultStrokeWidth = "1";
-                        }
+                    if (showTooltips) {
+                        self.hideTooltip();
                     }
-
-                    d3.select(event.currentTarget as Element)
-                        .style("stroke", defaultStrokeColor)
-                        .style("stroke-width", defaultStrokeWidth);
-                }
-
-                if (showTooltips) {
-                    self.hideTooltip();
-                }
-            })
-            .on("contextmenu", (event: MouseEvent, d: Task) => {
-                self.showContextMenu(event, d);
-            })
-            .on("click", (event: MouseEvent, d: Task) => {
-
-                if (self.selectedTaskId === d.internalId) {
-                    self.selectTask(null, null);
-                } else {
-                    self.selectTask(d.internalId, d.name);
-                }
-
-                if (self.dropdownInput) {
-                    self.dropdownInput.property("value", self.selectedTaskName || "");
-                }
-
-                event.stopPropagation();
-            })
-
-            .on("keydown", (event: KeyboardEvent, d: Task) => {
-
-                if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    event.stopPropagation();
+                })
+                .on("contextmenu", (event: MouseEvent, d: Task) => {
+                    self.showContextMenu(event, d);
+                })
+                .on("click", (event: MouseEvent, d: Task) => {
 
                     if (self.selectedTaskId === d.internalId) {
                         self.selectTask(null, null);
@@ -6488,175 +6469,194 @@ private drawTasks(
                     if (self.dropdownInput) {
                         self.dropdownInput.property("value", self.selectedTaskName || "");
                     }
-                }
-            })
 
-            .on("focus", function(_event: FocusEvent, _d: Task) {
+                    event.stopPropagation();
+                })
 
-                d3.select(this)
-                    .style("outline", "2px solid #0078D4")
-                    .style("outline-offset", "2px");
+                .on("keydown", (event: KeyboardEvent, d: Task) => {
 
-                const element = this as SVGElement;
-                const ariaLabel = element.getAttribute("aria-label");
-                if (ariaLabel) {
+                    if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        event.stopPropagation();
 
-                    const liveRegion = d3.select("body").select(".sr-live-region");
-                    if (!liveRegion.empty()) {
-                        liveRegion.text(`Focused on ${ariaLabel}`);
+                        if (self.selectedTaskId === d.internalId) {
+                            self.selectTask(null, null);
+                        } else {
+                            self.selectTask(d.internalId, d.name);
+                        }
+
+                        if (self.dropdownInput) {
+                            self.dropdownInput.property("value", self.selectedTaskName || "");
+                        }
                     }
-                }
+                })
+
+                .on("focus", function (_event: FocusEvent, _d: Task) {
+
+                    d3.select(this)
+                        .style("outline", "2px solid #0078D4")
+                        .style("outline-offset", "2px");
+
+                    const element = this as SVGElement;
+                    const ariaLabel = element.getAttribute("aria-label");
+                    if (ariaLabel) {
+
+                        const liveRegion = d3.select("body").select(".sr-live-region");
+                        if (!liveRegion.empty()) {
+                            liveRegion.text(`Focused on ${ariaLabel}`);
+                        }
+                    }
+                })
+                .on("blur", function (_event: FocusEvent, _d: Task) {
+
+                    d3.select(this)
+                        .style("outline", null)
+                        .style("outline-offset", null);
+                });
+        };
+
+        setupInteractivity(allTaskGroups.selectAll(".task-bar, .milestone"));
+    }
+
+    /**
+     * Draws task name labels in an unclipped layer so they stay visible in the left margin.
+     */
+    private drawTaskLabelsLayer(
+        tasks: Task[],
+        yScale: ScaleBand<string>,
+        taskHeight: number,
+        currentLeftMargin: number,
+        labelAvailableWidth: number,
+        taskNameFontSize: number,
+        labelColor: string,
+        selectionHighlightColor: string,
+        selectionLabelColor: string,
+        selectionLabelWeight: string,
+        lineHeight: string
+    ): void {
+        if (!this.taskLabelLayer || !yScale) return;
+
+        const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+        const wbsIndentPerLevel = wbsGroupingEnabled ? (this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20) : 0;
+        const renderableTasks = tasks.filter(t => {
+            if (t.yOrder === undefined) return false;
+            const domainKey = t.yOrder.toString();
+            const yPosition = yScale(domainKey);
+            return yPosition !== undefined && !isNaN(yPosition);
+        });
+
+        const labelGroups = this.taskLabelLayer
+            .selectAll<SVGGElement, Task>(".task-label-group")
+            .data(renderableTasks, (d: Task) => d.internalId);
+
+        labelGroups.exit().remove();
+
+        const enterGroups = labelGroups.enter()
+            .append("g")
+            .attr("class", "task-label-group")
+            .attr("transform", (d: Task) => {
+                const domainKey = d.yOrder?.toString() ?? "";
+                const yPosition = yScale(domainKey);
+                if (yPosition === undefined || isNaN(yPosition)) return null;
+                return `translate(0, ${yPosition})`;
             })
-            .on("blur", function(_event: FocusEvent, _d: Task) {
+            .filter(function () { return d3.select(this).attr("transform") !== null; });
 
-                d3.select(this)
-                    .style("outline", null)
-                    .style("outline-offset", null);
-            });
-    };
+        const mergedGroups = enterGroups.merge(labelGroups);
 
-    setupInteractivity(allTaskGroups.selectAll(".task-bar, .milestone"));
-}
-
-/**
- * Draws task name labels in an unclipped layer so they stay visible in the left margin.
- */
-private drawTaskLabelsLayer(
-    tasks: Task[],
-    yScale: ScaleBand<string>,
-    taskHeight: number,
-    currentLeftMargin: number,
-    labelAvailableWidth: number,
-    taskNameFontSize: number,
-    labelColor: string,
-    selectionHighlightColor: string,
-    selectionLabelColor: string,
-    selectionLabelWeight: string,
-    lineHeight: string
-): void {
-    if (!this.taskLabelLayer || !yScale) return;
-
-    const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-    const wbsIndentPerLevel = wbsGroupingEnabled ? (this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20) : 0;
-    const renderableTasks = tasks.filter(t => {
-        if (t.yOrder === undefined) return false;
-        const domainKey = t.yOrder.toString();
-        const yPosition = yScale(domainKey);
-        return yPosition !== undefined && !isNaN(yPosition);
-    });
-
-    const labelGroups = this.taskLabelLayer
-        .selectAll<SVGGElement, Task>(".task-label-group")
-        .data(renderableTasks, (d: Task) => d.internalId);
-
-    labelGroups.exit().remove();
-
-    const enterGroups = labelGroups.enter()
-        .append("g")
-        .attr("class", "task-label-group")
-        .attr("transform", (d: Task) => {
+        mergedGroups.attr("transform", (d: Task) => {
             const domainKey = d.yOrder?.toString() ?? "";
             const yPosition = yScale(domainKey);
             if (yPosition === undefined || isNaN(yPosition)) return null;
             return `translate(0, ${yPosition})`;
-        })
-        .filter(function() { return d3.select(this).attr("transform") !== null; });
-
-    const mergedGroups = enterGroups.merge(labelGroups);
-
-    mergedGroups.attr("transform", (d: Task) => {
-        const domainKey = d.yOrder?.toString() ?? "";
-        const yPosition = yScale(domainKey);
-        if (yPosition === undefined || isNaN(yPosition)) return null;
-        return `translate(0, ${yPosition})`;
-    });
-
-    mergedGroups.filter(function() {
-        return d3.select(this).attr("transform") === null;
-    }).remove();
-
-    mergedGroups.selectAll(".task-label").remove();
-
-    const taskLabels = mergedGroups.append("text")
-        .attr("class", "task-label")
-        .attr("x", (d: Task) => {
-            const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
-            return -currentLeftMargin + this.labelPaddingLeft + indent;
-        })
-        .attr("y", taskHeight / 2)
-        .attr("text-anchor", "start")
-        .attr("dominant-baseline", "central")
-        .style("font-size", `${taskNameFontSize}pt`)
-        .style("fill", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelColor : labelColor)
-        .style("font-weight", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelWeight : "normal")
-        .style("pointer-events", "auto")
-        .style("cursor", "pointer")
-        .each((d: Task, _i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
-            const textElement = d3.select(nodes[_i] as SVGTextElement);
-            const words = (d.name || "").split(/\s+/).reverse();
-            let word: string | undefined;
-            let line: string[] = [];
-            const x = parseFloat(textElement.attr("x"));
-            const y = parseFloat(textElement.attr("y"));
-            const dy = 0;
-            const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
-            const adjustedLabelWidth = labelAvailableWidth - indent;
-            let tspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
-            let lineCount = 1;
-            const maxLines = 2;
-
-            while (word = words.pop()) {
-                line.push(word);
-                tspan.text(line.join(" "));
-                try {
-                    const node = tspan.node();
-                    if (node && node.getComputedTextLength() > adjustedLabelWidth && line.length > 1) {
-                        line.pop();
-                        tspan.text(line.join(" "));
-
-                        if (lineCount < maxLines) {
-                            line = [word];
-                            tspan = textElement.append("tspan")
-                                .attr("x", x)
-                                .attr("dy", lineHeight)
-                                .text(word);
-                            lineCount++;
-                        } else {
-                            const currentText = tspan.text();
-                            if (currentText.length > 3) {
-                                tspan.text(currentText.slice(0, -3) + "...");
-                            }
-                            break;
-                        }
-                    }
-                } catch (e) {
-                    console.warn("Could not get computed text length for wrapping:", e);
-                    tspan.text(line.join(" "));
-                    break;
-                }
-            }
         });
 
-    taskLabels.on("click", (event: MouseEvent, d: Task) => {
-        if (this.selectedTaskId === d.internalId) {
-            this.selectTask(null, null);
-        } else {
-            this.selectTask(d.internalId, d.name);
-        }
+        mergedGroups.filter(function () {
+            return d3.select(this).attr("transform") === null;
+        }).remove();
 
-        if (this.dropdownInput) {
-            this.dropdownInput.property("value", this.selectedTaskName || "");
-        }
+        mergedGroups.selectAll(".task-label").remove();
 
-        event.stopPropagation();
-    });
+        const taskLabels = mergedGroups.append("text")
+            .attr("class", "task-label")
+            .attr("x", (d: Task) => {
+                const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
+                return -currentLeftMargin + this.labelPaddingLeft + indent;
+            })
+            .attr("y", taskHeight / 2)
+            .attr("text-anchor", "start")
+            .attr("dominant-baseline", "central")
+            .style("font-size", `${taskNameFontSize}pt`)
+            .style("fill", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelColor : labelColor)
+            .style("font-weight", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelWeight : "normal")
+            .style("pointer-events", "auto")
+            .style("cursor", "pointer")
+            .each((d: Task, _i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
+                const textElement = d3.select(nodes[_i] as SVGTextElement);
+                const words = (d.name || "").split(/\s+/).reverse();
+                let word: string | undefined;
+                let line: string[] = [];
+                const x = parseFloat(textElement.attr("x"));
+                const y = parseFloat(textElement.attr("y"));
+                const dy = 0;
+                const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
+                const adjustedLabelWidth = labelAvailableWidth - indent;
+                let tspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
+                let lineCount = 1;
+                const maxLines = 2;
 
-    taskLabels.on("contextmenu", (event: MouseEvent, d: Task) => {
-        this.showContextMenu(event, d);
-    });
-}
+                while (word = words.pop()) {
+                    line.push(word);
+                    tspan.text(line.join(" "));
+                    try {
+                        const node = tspan.node();
+                        if (node && node.getComputedTextLength() > adjustedLabelWidth && line.length > 1) {
+                            line.pop();
+                            tspan.text(line.join(" "));
 
-private drawTasksCanvas(
+                            if (lineCount < maxLines) {
+                                line = [word];
+                                tspan = textElement.append("tspan")
+                                    .attr("x", x)
+                                    .attr("dy", lineHeight)
+                                    .text(word);
+                                lineCount++;
+                            } else {
+                                const currentText = tspan.text();
+                                if (currentText.length > 3) {
+                                    tspan.text(currentText.slice(0, -3) + "...");
+                                }
+                                break;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("Could not get computed text length for wrapping:", e);
+                        tspan.text(line.join(" "));
+                        break;
+                    }
+                }
+            });
+
+        taskLabels.on("click", (event: MouseEvent, d: Task) => {
+            if (this.selectedTaskId === d.internalId) {
+                this.selectTask(null, null);
+            } else {
+                this.selectTask(d.internalId, d.name);
+            }
+
+            if (this.dropdownInput) {
+                this.dropdownInput.property("value", this.selectedTaskName || "");
+            }
+
+            event.stopPropagation();
+        });
+
+        taskLabels.on("contextmenu", (event: MouseEvent, d: Task) => {
+            this.showContextMenu(event, d);
+        });
+    }
+
+    private drawTasksCanvas(
         tasks: Task[],
         xScale: ScaleTime<number, number>,
         yScale: ScaleBand<string>,
@@ -6774,9 +6774,9 @@ private drawTasksCanvas(
                             shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25)`;
                             shadowBlur = 2;
                         } else {
-                             shadowColor = 'rgba(0, 0, 0, 0.08)';
-                             shadowBlur = 2;
-                             shadowOffset = 1;
+                            shadowColor = 'rgba(0, 0, 0, 0.08)';
+                            shadowBlur = 2;
+                            shadowOffset = 1;
                         }
                     } else {
                         shadowColor = 'rgba(0, 0, 0, 0.08)';
@@ -6930,369 +6930,369 @@ private drawTasksCanvas(
         ctx.quadraticCurveTo(x, y, x + r, y);
     }
 
-/**
- * ACCESSIBILITY: Creates an invisible but screen-reader accessible fallback for canvas rendering.
- * This ensures users with assistive technology can access task information even when canvas mode is active.
- * @param tasks The tasks being rendered on canvas
- * @param yScale The Y-axis scale for positioning
- */
-private createAccessibleCanvasFallback(tasks: Task[], yScale: ScaleBand<string>): void {
-    if (!this.mainSvg) return;
+    /**
+     * ACCESSIBILITY: Creates an invisible but screen-reader accessible fallback for canvas rendering.
+     * This ensures users with assistive technology can access task information even when canvas mode is active.
+     * @param tasks The tasks being rendered on canvas
+     * @param yScale The Y-axis scale for positioning
+     */
+    private createAccessibleCanvasFallback(tasks: Task[], yScale: ScaleBand<string>): void {
+        if (!this.mainSvg) return;
 
-    this.mainSvg.selectAll(".accessible-fallback-layer").remove();
+        this.mainSvg.selectAll(".accessible-fallback-layer").remove();
 
-    const accessibleLayer = this.mainSvg.append("g")
-        .attr("class", "accessible-fallback-layer")
-        .attr("role", "list")
-        .attr("aria-label", "Project tasks (canvas rendering mode)")
-        .style("opacity", 0)
-        .style("pointer-events", "none");
+        const accessibleLayer = this.mainSvg.append("g")
+            .attr("class", "accessible-fallback-layer")
+            .attr("role", "list")
+            .attr("aria-label", "Project tasks (canvas rendering mode)")
+            .style("opacity", 0)
+            .style("pointer-events", "none");
 
-    const taskGroups = accessibleLayer.selectAll(".accessible-task")
-        .data(tasks, (d: Task) => d.internalId)
-        .enter()
-        .append("g")
-        .attr("class", "accessible-task")
-        .attr("role", "listitem")
-        .attr("transform", (d: Task) => {
-            const domainKey = d.yOrder?.toString() ?? '';
-            const yPosition = yScale(domainKey);
-            return yPosition !== undefined ? `translate(0, ${yPosition})` : "translate(0, 0)";
-        });
+        const taskGroups = accessibleLayer.selectAll(".accessible-task")
+            .data(tasks, (d: Task) => d.internalId)
+            .enter()
+            .append("g")
+            .attr("class", "accessible-task")
+            .attr("role", "listitem")
+            .attr("transform", (d: Task) => {
+                const domainKey = d.yOrder?.toString() ?? '';
+                const yPosition = yScale(domainKey);
+                return yPosition !== undefined ? `translate(0, ${yPosition})` : "translate(0, 0)";
+            });
 
-    taskGroups.append("rect")
-        .attr("role", "button")
-        .attr("aria-label", (d: Task) => {
-            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
-            const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
-            if (d.type === 'TT_Mile' || d.type === 'TT_FinMile') {
-                const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
-                return `${d.name}, ${statusText} milestone, Date: ${this.formatDate(milestoneDate)}${selectedText}. Press Enter or Space to select.`;
-            } else {
-                return `${d.name}, ${statusText} task, Start: ${this.formatDate(d.startDate)}, Finish: ${this.formatDate(d.finishDate)}${selectedText}. Press Enter or Space to select.`;
-            }
-        })
-        .attr("tabindex", 0)
-        .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
-        .attr("x", 0)
-        .attr("y", 0)
-        .attr("width", "100%")
-        .attr("height", this.settings.taskAppearance.taskHeight.value)
-        .style("fill", "transparent")
-        .on("keydown", (event: KeyboardEvent, d: Task) => {
-            if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                event.stopPropagation();
-
-                if (this.selectedTaskId === d.internalId) {
-                    this.selectTask(null, null);
+        taskGroups.append("rect")
+            .attr("role", "button")
+            .attr("aria-label", (d: Task) => {
+                const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+                const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
+                if (d.type === 'TT_Mile' || d.type === 'TT_FinMile') {
+                    const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
+                    return `${d.name}, ${statusText} milestone, Date: ${this.formatDate(milestoneDate)}${selectedText}. Press Enter or Space to select.`;
                 } else {
-                    this.selectTask(d.internalId, d.name);
+                    return `${d.name}, ${statusText} task, Start: ${this.formatDate(d.startDate)}, Finish: ${this.formatDate(d.finishDate)}${selectedText}. Press Enter or Space to select.`;
                 }
+            })
+            .attr("tabindex", 0)
+            .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
+            .attr("x", 0)
+            .attr("y", 0)
+            .attr("width", "100%")
+            .attr("height", this.settings.taskAppearance.taskHeight.value)
+            .style("fill", "transparent")
+            .on("keydown", (event: KeyboardEvent, d: Task) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    event.stopPropagation();
 
-                if (this.dropdownInput) {
-                    this.dropdownInput.property("value", this.selectedTaskName || "");
+                    if (this.selectedTaskId === d.internalId) {
+                        this.selectTask(null, null);
+                    } else {
+                        this.selectTask(d.internalId, d.name);
+                    }
+
+                    if (this.dropdownInput) {
+                        this.dropdownInput.property("value", this.selectedTaskName || "");
+                    }
                 }
-            }
-        })
-        .on("focus", function(_event: FocusEvent, _d: Task) {
-            d3.select(this)
-                .style("outline", "2px solid #0078D4")
-                .style("outline-offset", "2px");
-        })
-        .on("blur", function(_event: FocusEvent, _d: Task) {
-            d3.select(this)
-                .style("outline", null)
-                .style("outline-offset", null);
-        });
-}
-
-/**
- * Prepares the canvas for high-DPI rendering.
- * This function sizes the canvas backing store, clears it, and applies the necessary scale transform.
- * @param chartWidth The desired CSS width of the chart.
- * @param chartHeight The desired CSS height of the chart.
- * @returns {boolean} True if the canvas was set up successfully, false otherwise.
- */
-private _setupCanvasForDrawing(chartWidth: number, chartHeight: number): boolean {
-    if (!this.canvasElement) {
-        return false;
+            })
+            .on("focus", function (_event: FocusEvent, _d: Task) {
+                d3.select(this)
+                    .style("outline", "2px solid #0078D4")
+                    .style("outline-offset", "2px");
+            })
+            .on("blur", function (_event: FocusEvent, _d: Task) {
+                d3.select(this)
+                    .style("outline", null)
+                    .style("outline-offset", null);
+            });
     }
 
-    const ctx = this.canvasElement.getContext('2d');
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const backingStoreRatio = (ctx as any).webkitBackingStorePixelRatio ||
-                             (ctx as any).mozBackingStorePixelRatio ||
-                             (ctx as any).msBackingStorePixelRatio ||
-                             (ctx as any).oBackingStorePixelRatio ||
-                             (ctx as any).backingStorePixelRatio || 1;
-
-    const ratio = devicePixelRatio / backingStoreRatio;
-
-    const displayWidth = Math.round(chartWidth);
-    const displayHeight = Math.round(chartHeight);
-    const canvasWidth = Math.round(displayWidth * ratio);
-    const canvasHeight = Math.round(displayHeight * ratio);
-
-    this.canvasElement.style.width = `${displayWidth}px`;
-    this.canvasElement.style.height = `${displayHeight}px`;
-
-    this.canvasElement.width = canvasWidth;
-    this.canvasElement.height = canvasHeight;
-
-    this.canvasContext = this.canvasElement.getContext('2d', {
-        alpha: false,
-        desynchronized: false,
-        willReadFrequently: false
-    });
-
-    if (!this.canvasContext) {
-        console.error("Failed to get 2D context from canvas.");
-        return false;
-    }
-
-    this.canvasContext.setTransform(ratio, 0, 0, ratio, 0, 0);
-
-    this.canvasContext.fillStyle = '#FFFFFF';
-    this.canvasContext.fillRect(0, 0, displayWidth, displayHeight);
-
-    this.canvasContext.beginPath();
-    this.canvasContext.rect(0, 0, displayWidth, displayHeight);
-    this.canvasContext.clip();
-
-    this.canvasContext.imageSmoothingEnabled = false;
-    this.canvasContext.imageSmoothingQuality = 'high';
-
-    (this.canvasContext as any).textRendering = 'optimizeLegibility';
-    (this.canvasContext as any).webkitFontSmoothing = 'antialiased';
-    (this.canvasContext as any).mozOsxFontSmoothing = 'grayscale';
-
-    this.debugLog(`Canvas setup: Ratio=${ratio}, Display=${displayWidth}x${displayHeight}, Canvas=${canvasWidth}x${canvasHeight}`);
-    return true;
-}
-
-private drawArrowsCanvas(
-    tasks: Task[],
-    xScale: ScaleTime<number, number>,
-    yScale: ScaleBand<string>,
-    criticalColor: string,
-    connectorColor: string,
-    connectorWidth: number,
-    criticalConnectorWidth: number,
-    taskHeight: number,
-    milestoneSizeSetting: number
-): void {
-    if (!this.canvasContext || !this.canvasElement) return;
-
-    const ctx = this.canvasContext;
-
-    ctx.save();
-
-    try {
-        const connectionEndPadding = 0;
-        const elbowOffset = this.settings.connectorLines.elbowOffset.value;
-
-        const taskPositions = new Map<string, number>();
-        tasks.forEach((task: Task) => {
-            if (task.yOrder !== undefined) taskPositions.set(task.internalId, task.yOrder);
-        });
-
-        const visibleTaskIds = new Set(taskPositions.keys());
-        const visibleRelationships: Relationship[] = [];
-        for (const predecessorId of visibleTaskIds) {
-            const relationships = this.relationshipByPredecessor.get(predecessorId);
-            if (!relationships) continue;
-            for (const rel of relationships) {
-                if (visibleTaskIds.has(rel.successorId)) {
-                    visibleRelationships.push(rel);
-                }
-            }
+    /**
+     * Prepares the canvas for high-DPI rendering.
+     * This function sizes the canvas backing store, clears it, and applies the necessary scale transform.
+     * @param chartWidth The desired CSS width of the chart.
+     * @param chartHeight The desired CSS height of the chart.
+     * @returns {boolean} True if the canvas was set up successfully, false otherwise.
+     */
+    private _setupCanvasForDrawing(chartWidth: number, chartHeight: number): boolean {
+        if (!this.canvasElement) {
+            return false;
         }
 
-        visibleRelationships.forEach((rel: Relationship) => {
-            const pred = this.taskIdToTask.get(rel.predecessorId);
-            const succ = this.taskIdToTask.get(rel.successorId);
-            const predYOrder = taskPositions.get(rel.predecessorId);
-            const succYOrder = taskPositions.get(rel.successorId);
+        const ctx = this.canvasElement.getContext('2d');
+        const devicePixelRatio = window.devicePixelRatio || 1;
+        const backingStoreRatio = (ctx as any).webkitBackingStorePixelRatio ||
+            (ctx as any).mozBackingStorePixelRatio ||
+            (ctx as any).msBackingStorePixelRatio ||
+            (ctx as any).oBackingStorePixelRatio ||
+            (ctx as any).backingStorePixelRatio || 1;
 
-            if (!pred || !succ || predYOrder === undefined || succYOrder === undefined) return;
+        const ratio = devicePixelRatio / backingStoreRatio;
 
-            const predYBandPos = yScale(predYOrder.toString());
-            const succYBandPos = yScale(succYOrder.toString());
-            if (predYBandPos === undefined || succYBandPos === undefined) return;
+        const displayWidth = Math.round(chartWidth);
+        const displayHeight = Math.round(chartHeight);
+        const canvasWidth = Math.round(displayWidth * ratio);
+        const canvasHeight = Math.round(displayHeight * ratio);
 
-            const predY = predYBandPos + taskHeight / 2;
-            const succY = succYBandPos + taskHeight / 2;
-            const relType = rel.type || 'FS';
-            const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
-            const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
+        this.canvasElement.style.width = `${displayWidth}px`;
+        this.canvasElement.style.height = `${displayHeight}px`;
 
-            let baseStartDate: Date | null | undefined = null;
-            let baseEndDate: Date | null | undefined = null;
+        this.canvasElement.width = canvasWidth;
+        this.canvasElement.height = canvasHeight;
 
-            switch (relType) {
-                case 'FS': case 'FF':
-                    baseStartDate = predIsMilestone ? (pred.startDate ?? pred.finishDate) : pred.finishDate;
-                    break;
-                case 'SS': case 'SF':
-                    baseStartDate = pred.startDate;
-                    break;
+        this.canvasContext = this.canvasElement.getContext('2d', {
+            alpha: false,
+            desynchronized: false,
+            willReadFrequently: false
+        });
+
+        if (!this.canvasContext) {
+            console.error("Failed to get 2D context from canvas.");
+            return false;
+        }
+
+        this.canvasContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+        this.canvasContext.fillStyle = '#FFFFFF';
+        this.canvasContext.fillRect(0, 0, displayWidth, displayHeight);
+
+        this.canvasContext.beginPath();
+        this.canvasContext.rect(0, 0, displayWidth, displayHeight);
+        this.canvasContext.clip();
+
+        this.canvasContext.imageSmoothingEnabled = false;
+        this.canvasContext.imageSmoothingQuality = 'high';
+
+        (this.canvasContext as any).textRendering = 'optimizeLegibility';
+        (this.canvasContext as any).webkitFontSmoothing = 'antialiased';
+        (this.canvasContext as any).mozOsxFontSmoothing = 'grayscale';
+
+        this.debugLog(`Canvas setup: Ratio=${ratio}, Display=${displayWidth}x${displayHeight}, Canvas=${canvasWidth}x${canvasHeight}`);
+        return true;
+    }
+
+    private drawArrowsCanvas(
+        tasks: Task[],
+        xScale: ScaleTime<number, number>,
+        yScale: ScaleBand<string>,
+        criticalColor: string,
+        connectorColor: string,
+        connectorWidth: number,
+        criticalConnectorWidth: number,
+        taskHeight: number,
+        milestoneSizeSetting: number
+    ): void {
+        if (!this.canvasContext || !this.canvasElement) return;
+
+        const ctx = this.canvasContext;
+
+        ctx.save();
+
+        try {
+            const connectionEndPadding = 0;
+            const elbowOffset = this.settings.connectorLines.elbowOffset.value;
+
+            const taskPositions = new Map<string, number>();
+            tasks.forEach((task: Task) => {
+                if (task.yOrder !== undefined) taskPositions.set(task.internalId, task.yOrder);
+            });
+
+            const visibleTaskIds = new Set(taskPositions.keys());
+            const visibleRelationships: Relationship[] = [];
+            for (const predecessorId of visibleTaskIds) {
+                const relationships = this.relationshipByPredecessor.get(predecessorId);
+                if (!relationships) continue;
+                for (const rel of relationships) {
+                    if (visibleTaskIds.has(rel.successorId)) {
+                        visibleRelationships.push(rel);
+                    }
+                }
             }
-            switch (relType) {
-                case 'FS': case 'SS':
-                    baseEndDate = succ.startDate;
-                    break;
-                case 'FF': case 'SF':
-                    baseEndDate = succIsMilestone ? (succ.startDate ?? succ.finishDate) : succ.finishDate;
-                    break;
-            }
 
-            if (!baseStartDate || !baseEndDate) return;
+            visibleRelationships.forEach((rel: Relationship) => {
+                const pred = this.taskIdToTask.get(rel.predecessorId);
+                const succ = this.taskIdToTask.get(rel.successorId);
+                const predYOrder = taskPositions.get(rel.predecessorId);
+                const succYOrder = taskPositions.get(rel.successorId);
 
-            const startX = xScale(baseStartDate);
-            const endX = xScale(baseEndDate);
+                if (!pred || !succ || predYOrder === undefined || succYOrder === undefined) return;
 
-            const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-            const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
-            const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
+                const predYBandPos = yScale(predYOrder.toString());
+                const succYBandPos = yScale(succYOrder.toString());
+                if (predYBandPos === undefined || succYBandPos === undefined) return;
 
-            let effectiveStartX = startX;
-            let effectiveEndX = endX;
+                const predY = predYBandPos + taskHeight / 2;
+                const succY = succYBandPos + taskHeight / 2;
+                const relType = rel.type || 'FS';
+                const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
+                const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
 
-            if (relType === 'FS' || relType === 'FF') effectiveStartX += startGap;
-            else effectiveStartX -= startGap;
-            if (predIsMilestone && (relType === 'SS' || relType === 'SF')) effectiveStartX = startX + startGap;
+                let baseStartDate: Date | null | undefined = null;
+                let baseEndDate: Date | null | undefined = null;
 
-            if (relType === 'FS' || relType === 'SS') effectiveEndX -= endGap;
-            else effectiveEndX += endGap;
-            if (succIsMilestone && (relType === 'FF' || relType === 'SF')) effectiveEndX = endX + endGap - connectionEndPadding;
+                switch (relType) {
+                    case 'FS': case 'FF':
+                        baseStartDate = predIsMilestone ? (pred.startDate ?? pred.finishDate) : pred.finishDate;
+                        break;
+                    case 'SS': case 'SF':
+                        baseStartDate = pred.startDate;
+                        break;
+                }
+                switch (relType) {
+                    case 'FS': case 'SS':
+                        baseEndDate = succ.startDate;
+                        break;
+                    case 'FF': case 'SF':
+                        baseEndDate = succIsMilestone ? (succ.startDate ?? succ.finishDate) : succ.finishDate;
+                        break;
+                }
 
-            const isCritical = rel.isCritical;
-            const baseLineWidth = isCritical ? criticalConnectorWidth : connectorWidth;
-            const enhancedLineWidth = isCritical
-                ? Math.max(1.6, baseLineWidth)
-                : Math.max(1, baseLineWidth);
+                if (!baseStartDate || !baseEndDate) return;
 
-            const previousAlpha = ctx.globalAlpha;
-            ctx.globalAlpha = this.getConnectorOpacity(rel);
-            ctx.strokeStyle = isCritical ? criticalColor : connectorColor;
-            ctx.lineWidth = enhancedLineWidth;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
+                const startX = xScale(baseStartDate);
+                const endX = xScale(baseEndDate);
 
-            (ctx as any).imageSmoothingEnabled = true;
-            (ctx as any).imageSmoothingQuality = 'high';
+                const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
+                const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
 
-            ctx.beginPath();
-            ctx.moveTo(effectiveStartX, predY);
+                let effectiveStartX = startX;
+                let effectiveEndX = endX;
 
-            const cornerRadius = 8;
+                if (relType === 'FS' || relType === 'FF') effectiveStartX += startGap;
+                else effectiveStartX -= startGap;
+                if (predIsMilestone && (relType === 'SS' || relType === 'SF')) effectiveStartX = startX + startGap;
 
-            if (Math.abs(predY - succY) < 1) {
+                if (relType === 'FS' || relType === 'SS') effectiveEndX -= endGap;
+                else effectiveEndX += endGap;
+                if (succIsMilestone && (relType === 'FF' || relType === 'SF')) effectiveEndX = endX + endGap - connectionEndPadding;
 
-                ctx.lineTo(effectiveEndX, succY);
-            } else {
+                const isCritical = rel.isCritical;
+                const baseLineWidth = isCritical ? criticalConnectorWidth : connectorWidth;
+                const enhancedLineWidth = isCritical
+                    ? Math.max(1.6, baseLineWidth)
+                    : Math.max(1, baseLineWidth);
 
-                const isGoingDown = succY > predY;
+                const previousAlpha = ctx.globalAlpha;
+                ctx.globalAlpha = this.getConnectorOpacity(rel);
+                ctx.strokeStyle = isCritical ? criticalColor : connectorColor;
+                ctx.lineWidth = enhancedLineWidth;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
 
-                switch(relType) {
-                    case 'FS':
+                (ctx as any).imageSmoothingEnabled = true;
+                (ctx as any).imageSmoothingQuality = 'high';
 
-                        if (Math.abs(effectiveStartX - effectiveStartX) > cornerRadius * 2 &&
-                            Math.abs(succY - predY) > cornerRadius * 2) {
-                            const verticalStart = predY + (isGoingDown ? cornerRadius : -cornerRadius);
-                            const horizontalStart = effectiveStartX;
-                            const horizontalEnd = effectiveEndX - (effectiveEndX > effectiveStartX ? cornerRadius : -cornerRadius);
+                ctx.beginPath();
+                ctx.moveTo(effectiveStartX, predY);
 
-                            ctx.lineTo(effectiveStartX, verticalStart);
-                            ctx.arcTo(effectiveStartX, succY, horizontalEnd, succY, cornerRadius);
-                            ctx.lineTo(effectiveEndX, succY);
-                        } else {
+                const cornerRadius = 8;
+
+                if (Math.abs(predY - succY) < 1) {
+
+                    ctx.lineTo(effectiveEndX, succY);
+                } else {
+
+                    const isGoingDown = succY > predY;
+
+                    switch (relType) {
+                        case 'FS':
+
+                            if (Math.abs(effectiveStartX - effectiveStartX) > cornerRadius * 2 &&
+                                Math.abs(succY - predY) > cornerRadius * 2) {
+                                const verticalStart = predY + (isGoingDown ? cornerRadius : -cornerRadius);
+                                const horizontalStart = effectiveStartX;
+                                const horizontalEnd = effectiveEndX - (effectiveEndX > effectiveStartX ? cornerRadius : -cornerRadius);
+
+                                ctx.lineTo(effectiveStartX, verticalStart);
+                                ctx.arcTo(effectiveStartX, succY, horizontalEnd, succY, cornerRadius);
+                                ctx.lineTo(effectiveEndX, succY);
+                            } else {
+
+                                ctx.lineTo(effectiveStartX, succY);
+                                ctx.lineTo(effectiveEndX, succY);
+                            }
+                            break;
+                        case 'SS':
+                            const ssOffsetX = Math.min(effectiveStartX, effectiveEndX) - elbowOffset;
+
+                            if (Math.abs(effectiveStartX - ssOffsetX) > cornerRadius &&
+                                Math.abs(succY - predY) > cornerRadius * 2) {
+                                ctx.lineTo(ssOffsetX + cornerRadius, predY);
+                                ctx.arcTo(ssOffsetX, predY, ssOffsetX, predY + (isGoingDown ? cornerRadius : -cornerRadius), cornerRadius);
+                                const vertEnd = succY - (isGoingDown ? cornerRadius : -cornerRadius);
+                                ctx.lineTo(ssOffsetX, vertEnd);
+                                ctx.arcTo(ssOffsetX, succY, ssOffsetX + cornerRadius, succY, cornerRadius);
+                                ctx.lineTo(effectiveEndX, succY);
+                            } else {
+                                ctx.lineTo(ssOffsetX, predY);
+                                ctx.lineTo(ssOffsetX, succY);
+                                ctx.lineTo(effectiveEndX, succY);
+                            }
+                            break;
+                        case 'FF':
+                            const ffOffsetX = Math.max(effectiveStartX, effectiveEndX) + elbowOffset;
+                            if (Math.abs(ffOffsetX - effectiveStartX) > cornerRadius &&
+                                Math.abs(succY - predY) > cornerRadius * 2) {
+                                ctx.lineTo(ffOffsetX - cornerRadius, predY);
+                                ctx.arcTo(ffOffsetX, predY, ffOffsetX, predY + (isGoingDown ? cornerRadius : -cornerRadius), cornerRadius);
+                                const vertEnd = succY - (isGoingDown ? cornerRadius : -cornerRadius);
+                                ctx.lineTo(ffOffsetX, vertEnd);
+                                ctx.arcTo(ffOffsetX, succY, ffOffsetX - cornerRadius, succY, cornerRadius);
+                                ctx.lineTo(effectiveEndX, succY);
+                            } else {
+                                ctx.lineTo(ffOffsetX, predY);
+                                ctx.lineTo(ffOffsetX, succY);
+                                ctx.lineTo(effectiveEndX, succY);
+                            }
+                            break;
+                        case 'SF':
+                            const sfStartOffset = effectiveStartX - elbowOffset;
+                            const sfEndOffset = effectiveEndX + elbowOffset;
+                            const midY = (predY + succY) / 2;
+
+                            if (Math.abs(effectiveStartX - sfStartOffset) > cornerRadius) {
+                                ctx.lineTo(sfStartOffset + cornerRadius, predY);
+                                ctx.arcTo(sfStartOffset, predY, sfStartOffset, midY, cornerRadius);
+                                const mid1 = midY + (predY < midY ? -cornerRadius : cornerRadius);
+                                ctx.lineTo(sfStartOffset, mid1);
+                                ctx.arcTo(sfStartOffset, midY, sfEndOffset, midY, cornerRadius);
+                                ctx.lineTo(sfEndOffset - cornerRadius, midY);
+                                const mid2 = midY + (succY > midY ? cornerRadius : -cornerRadius);
+                                ctx.arcTo(sfEndOffset, midY, sfEndOffset, mid2, cornerRadius);
+                                ctx.lineTo(sfEndOffset, succY - (succY > midY ? cornerRadius : -cornerRadius));
+                                ctx.arcTo(sfEndOffset, succY, effectiveEndX, succY, cornerRadius);
+                                ctx.lineTo(effectiveEndX, succY);
+                            } else {
+
+                                ctx.lineTo(sfStartOffset, predY);
+                                ctx.lineTo(sfStartOffset, midY);
+                                ctx.lineTo(sfEndOffset, midY);
+                                ctx.lineTo(sfEndOffset, succY);
+                                ctx.lineTo(effectiveEndX, succY);
+                            }
+                            break;
+                        default:
 
                             ctx.lineTo(effectiveStartX, succY);
                             ctx.lineTo(effectiveEndX, succY);
-                        }
-                        break;
-                    case 'SS':
-                        const ssOffsetX = Math.min(effectiveStartX, effectiveEndX) - elbowOffset;
-
-                        if (Math.abs(effectiveStartX - ssOffsetX) > cornerRadius &&
-                            Math.abs(succY - predY) > cornerRadius * 2) {
-                            ctx.lineTo(ssOffsetX + cornerRadius, predY);
-                            ctx.arcTo(ssOffsetX, predY, ssOffsetX, predY + (isGoingDown ? cornerRadius : -cornerRadius), cornerRadius);
-                            const vertEnd = succY - (isGoingDown ? cornerRadius : -cornerRadius);
-                            ctx.lineTo(ssOffsetX, vertEnd);
-                            ctx.arcTo(ssOffsetX, succY, ssOffsetX + cornerRadius, succY, cornerRadius);
-                            ctx.lineTo(effectiveEndX, succY);
-                        } else {
-                            ctx.lineTo(ssOffsetX, predY);
-                            ctx.lineTo(ssOffsetX, succY);
-                            ctx.lineTo(effectiveEndX, succY);
-                        }
-                        break;
-                    case 'FF':
-                        const ffOffsetX = Math.max(effectiveStartX, effectiveEndX) + elbowOffset;
-                        if (Math.abs(ffOffsetX - effectiveStartX) > cornerRadius &&
-                            Math.abs(succY - predY) > cornerRadius * 2) {
-                            ctx.lineTo(ffOffsetX - cornerRadius, predY);
-                            ctx.arcTo(ffOffsetX, predY, ffOffsetX, predY + (isGoingDown ? cornerRadius : -cornerRadius), cornerRadius);
-                            const vertEnd = succY - (isGoingDown ? cornerRadius : -cornerRadius);
-                            ctx.lineTo(ffOffsetX, vertEnd);
-                            ctx.arcTo(ffOffsetX, succY, ffOffsetX - cornerRadius, succY, cornerRadius);
-                            ctx.lineTo(effectiveEndX, succY);
-                        } else {
-                            ctx.lineTo(ffOffsetX, predY);
-                            ctx.lineTo(ffOffsetX, succY);
-                            ctx.lineTo(effectiveEndX, succY);
-                        }
-                        break;
-                    case 'SF':
-                        const sfStartOffset = effectiveStartX - elbowOffset;
-                        const sfEndOffset = effectiveEndX + elbowOffset;
-                        const midY = (predY + succY) / 2;
-
-                        if (Math.abs(effectiveStartX - sfStartOffset) > cornerRadius) {
-                            ctx.lineTo(sfStartOffset + cornerRadius, predY);
-                            ctx.arcTo(sfStartOffset, predY, sfStartOffset, midY, cornerRadius);
-                            const mid1 = midY + (predY < midY ? -cornerRadius : cornerRadius);
-                            ctx.lineTo(sfStartOffset, mid1);
-                            ctx.arcTo(sfStartOffset, midY, sfEndOffset, midY, cornerRadius);
-                            ctx.lineTo(sfEndOffset - cornerRadius, midY);
-                            const mid2 = midY + (succY > midY ? cornerRadius : -cornerRadius);
-                            ctx.arcTo(sfEndOffset, midY, sfEndOffset, mid2, cornerRadius);
-                            ctx.lineTo(sfEndOffset, succY - (succY > midY ? cornerRadius : -cornerRadius));
-                            ctx.arcTo(sfEndOffset, succY, effectiveEndX, succY, cornerRadius);
-                            ctx.lineTo(effectiveEndX, succY);
-                        } else {
-
-                            ctx.lineTo(sfStartOffset, predY);
-                            ctx.lineTo(sfStartOffset, midY);
-                            ctx.lineTo(sfEndOffset, midY);
-                            ctx.lineTo(sfEndOffset, succY);
-                            ctx.lineTo(effectiveEndX, succY);
-                        }
-                        break;
-                    default:
-
-                        ctx.lineTo(effectiveStartX, succY);
-                        ctx.lineTo(effectiveEndX, succY);
+                    }
                 }
-            }
 
-            ctx.stroke();
-            ctx.globalAlpha = previousAlpha;
-        });
-    } finally {
+                ctx.stroke();
+                ctx.globalAlpha = previousAlpha;
+            });
+        } finally {
 
-        ctx.restore();
+            ctx.restore();
+        }
     }
-}
 
-/**
- * Positions the tooltip intelligently to prevent it from being cut off at screen edges
- * @param tooltipNode The tooltip DOM element
- * @param event The mouse event that triggered the tooltip
- */
+    /**
+     * Positions the tooltip intelligently to prevent it from being cut off at screen edges
+     * @param tooltipNode The tooltip DOM element
+     * @param event The mouse event that triggered the tooltip
+     */
     private positionTooltip(tooltipNode: HTMLElement | null, event: MouseEvent): void {
         if (!tooltipNode) return;
 
@@ -7454,7 +7454,7 @@ private drawArrowsCanvas(
 
                     const isGoingDown = pEndY > pStartY;
 
-                    switch(relType) {
+                    switch (relType) {
                         case 'FS':
 
                             if (Math.abs(pEndY - pStartY) > cornerRadius * 2) {
@@ -7514,7 +7514,7 @@ private drawArrowsCanvas(
                 }
                 return pathData;
             })
-            .filter(function() { return d3.select(this).attr("d") !== null; });
+            .filter(function () { return d3.select(this).attr("d") !== null; });
 
         this.arrowLayer.selectAll(".connection-dot-start")
             .data(visibleRelationships, (d: Relationship) => `start-${d.predecessorId}-${d.successorId}`)
@@ -7946,537 +7946,527 @@ private drawArrowsCanvas(
         });
     }
 
-/**
- * Applies Float-Based criticality using user-provided Total Float values
- * Tasks are critical if Total Float ≤ 0, near-critical if 0 < Total Float ≤ threshold
- */
-private applyFloatBasedCriticality(): void {
-    this.debugLog("Applying Float-Based criticality using Total Float values...");
-    const startTime = performance.now();
+    /**
+     * Applies Float-Based criticality using user-provided Total Float values
+     * Tasks are critical if Total Float ≤ 0, near-critical if 0 < Total Float ≤ threshold
+     */
+    private applyFloatBasedCriticality(): void {
+        this.debugLog("Applying Float-Based criticality using Total Float values...");
+        const startTime = performance.now();
 
-    this.allDrivingChains = [];
+        this.allDrivingChains = [];
 
-    let criticalCount = 0;
-    let nearCriticalCount = 0;
+        let criticalCount = 0;
+        let nearCriticalCount = 0;
 
-    for (const task of this.allTasksData) {
-        if (task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)) {
-            task.totalFloat = task.userProvidedTotalFloat;
-            task.isCritical = task.totalFloat <= 0;
-            task.isCriticalByFloat = task.isCritical;
+        for (const task of this.allTasksData) {
+            if (task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)) {
+                task.totalFloat = task.userProvidedTotalFloat;
+                task.isCritical = task.totalFloat <= 0;
+                task.isCriticalByFloat = task.isCritical;
 
-            if (this.showNearCritical && !task.isCritical && this.floatThreshold > 0) {
-                task.isNearCritical = task.totalFloat > 0 && task.totalFloat <= this.floatThreshold;
+                if (this.showNearCritical && !task.isCritical && this.floatThreshold > 0) {
+                    task.isNearCritical = task.totalFloat > 0 && task.totalFloat <= this.floatThreshold;
+                } else {
+                    task.isNearCritical = false;
+                }
+
+                if (task.isCritical) criticalCount++;
+                else if (task.isNearCritical) nearCriticalCount++;
             } else {
+
+                task.totalFloat = Infinity;
+                task.isCritical = false;
+                task.isCriticalByFloat = false;
                 task.isNearCritical = false;
             }
 
-            if (task.isCritical) criticalCount++;
-            else if (task.isNearCritical) nearCriticalCount++;
-        } else {
+            task.isCriticalByRel = false;
 
-            task.totalFloat = Infinity;
+            task.earlyStart = 0;
+            task.earlyFinish = task.duration;
+            task.lateStart = task.totalFloat === Infinity ? Infinity : 0;
+            task.lateFinish = task.totalFloat === Infinity ? Infinity : task.duration;
+        }
+
+        for (const rel of this.relationships) {
+            rel.isCritical = false;
+            rel.isDriving = false;
+        }
+
+        this.updatePathInfoLabel();
+
+        const endTime = performance.now();
+        this.debugLog(`Float-Based criticality applied in ${(endTime - startTime).toFixed(2)}ms.`);
+        this.debugLog(`Critical tasks (Total Float ≤ 0): ${criticalCount}, Near-critical tasks: ${nearCriticalCount}`);
+    }
+
+    /**
+     * Identifies the longest path using P6 scheduled dates (reflective approach)
+     */
+    private identifyLongestPathFromP6(): void {
+        this.debugLog("Starting P6 reflective longest path identification...");
+        const startTime = performance.now();
+
+        if (this.allTasksData.length === 0) {
+            this.debugLog("No tasks for longest path identification.");
+            return;
+        }
+
+        for (const task of this.allTasksData) {
             task.isCritical = false;
             task.isCriticalByFloat = false;
+            task.isCriticalByRel = false;
             task.isNearCritical = false;
+            task.totalFloat = Infinity;
         }
 
-        task.isCriticalByRel = false;
+        this.identifyDrivingRelationships();
 
-        task.earlyStart = 0;
-        task.earlyFinish = task.duration;
-        task.lateStart = task.totalFloat === Infinity ? Infinity : 0;
-        task.lateFinish = task.totalFloat === Infinity ? Infinity : task.duration;
-    }
+        const projectFinishTask = this.findProjectFinishTask();
+        if (!projectFinishTask) {
+            console.warn("Could not identify project finish task");
+            return;
+        }
 
-    for (const rel of this.relationships) {
-        rel.isCritical = false;
-        rel.isDriving = false;
-    }
+        this.debugLog(`Project finish task: ${projectFinishTask.name} (${projectFinishTask.internalId})`);
 
-    this.updatePathInfoLabel();
+        const drivingChains = this.findAllDrivingChainsToTask(projectFinishTask.internalId);
 
-    const endTime = performance.now();
-    this.debugLog(`Float-Based criticality applied in ${(endTime - startTime).toFixed(2)}ms.`);
-    this.debugLog(`Critical tasks (Total Float ≤ 0): ${criticalCount}, Near-critical tasks: ${nearCriticalCount}`);
-}
+        this.allDrivingChains = this.sortAndStoreDrivingChains(drivingChains);
 
-/**
- * Identifies the longest path using P6 scheduled dates (reflective approach)
- */
-private identifyLongestPathFromP6(): void {
-    this.debugLog("Starting P6 reflective longest path identification...");
-    const startTime = performance.now();
+        const selectedChain = this.getSelectedDrivingChain();
 
-    if (this.allTasksData.length === 0) {
-        this.debugLog("No tasks for longest path identification.");
-        return;
-    }
+        if (selectedChain) {
 
-    for (const task of this.allTasksData) {
-        task.isCritical = false;
-        task.isCriticalByFloat = false;
-        task.isCriticalByRel = false;
-        task.isNearCritical = false;
-        task.totalFloat = Infinity;
-    }
-
-    this.identifyDrivingRelationships();
-
-    const projectFinishTask = this.findProjectFinishTask();
-    if (!projectFinishTask) {
-        console.warn("Could not identify project finish task");
-        return;
-    }
-
-    this.debugLog(`Project finish task: ${projectFinishTask.name} (${projectFinishTask.internalId})`);
-
-    const drivingChains = this.findAllDrivingChainsToTask(projectFinishTask.internalId);
-
-    this.allDrivingChains = this.sortAndStoreDrivingChains(drivingChains);
-
-    const selectedChain = this.getSelectedDrivingChain();
-
-    if (selectedChain) {
-
-        for (const taskId of selectedChain.tasks) {
-            const task = this.taskIdToTask.get(taskId);
-            if (task) {
-                task.isCritical = true;
-                task.isCriticalByFloat = true;
-                task.totalFloat = 0;
+            for (const taskId of selectedChain.tasks) {
+                const task = this.taskIdToTask.get(taskId);
+                if (task) {
+                    task.isCritical = true;
+                    task.isCriticalByFloat = true;
+                    task.totalFloat = 0;
+                }
             }
+
+            for (const rel of selectedChain.relationships) {
+                rel.isCritical = true;
+            }
+
+            this.debugLog(`Selected driving path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}: ${selectedChain.tasks.size} tasks, duration ${selectedChain.totalDuration}`);
         }
 
-        for (const rel of selectedChain.relationships) {
-            rel.isCritical = true;
+        if (this.showNearCritical && this.floatThreshold > 0) {
+            this.identifyNearCriticalTasks();
         }
 
-        this.debugLog(`Selected driving path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}: ${selectedChain.tasks.size} tasks, duration ${selectedChain.totalDuration}`);
+        this.updatePathInfoLabel();
+
+        const endTime = performance.now();
+        this.debugLog(`P6 longest path completed in ${endTime - startTime}ms`);
     }
 
-    if (this.showNearCritical && this.floatThreshold > 0) {
-        this.identifyNearCriticalTasks();
-    }
+    /**
+    /**
+     * Identifies which relationships are driving based on minimum float
+     */
+    private identifyDrivingRelationships(): void {
 
-    this.updatePathInfoLabel();
+        for (const rel of this.relationships) {
+            const pred = this.taskIdToTask.get(rel.predecessorId);
+            const succ = this.taskIdToTask.get(rel.successorId);
 
-    const endTime = performance.now();
-    this.debugLog(`P6 longest path completed in ${endTime - startTime}ms`);
-}
-
-/**
-/**
- * Identifies which relationships are driving based on minimum float
- */
-private identifyDrivingRelationships(): void {
-
-    for (const rel of this.relationships) {
-        const pred = this.taskIdToTask.get(rel.predecessorId);
-        const succ = this.taskIdToTask.get(rel.successorId);
-
-        if (!pred || !succ) {
-            rel.relationshipFloat = Infinity;
-            rel.isDriving = false;
-            rel.isCritical = false;
-            continue;
-        }
-
-        let relFloat: number;
-
-        if (rel.freeFloat !== null && rel.freeFloat !== undefined) {
-            relFloat = rel.freeFloat;
-        } else {
-
-            if (!pred.startDate || !pred.finishDate ||
-                !succ.startDate || !succ.finishDate) {
+            if (!pred || !succ) {
                 rel.relationshipFloat = Infinity;
                 rel.isDriving = false;
                 rel.isCritical = false;
                 continue;
             }
 
-            const relType = rel.type || 'FS';
-            const lag = rel.lag || 0;
+            let relFloat: number;
 
-            const predStart = pred.startDate.getTime() / 86400000;
-            const predFinish = pred.finishDate.getTime() / 86400000;
-            const succStart = succ.startDate.getTime() / 86400000;
-            const succFinish = succ.finishDate.getTime() / 86400000;
+            if (rel.freeFloat !== null && rel.freeFloat !== undefined) {
+                relFloat = rel.freeFloat;
+            } else {
 
-            relFloat = 0;
+                if (!pred.startDate || !pred.finishDate ||
+                    !succ.startDate || !succ.finishDate) {
+                    rel.relationshipFloat = Infinity;
+                    rel.isDriving = false;
+                    rel.isCritical = false;
+                    continue;
+                }
 
-            switch (relType) {
-                case 'FS': relFloat = succStart - (predFinish + lag); break;
-                case 'SS': relFloat = succStart - (predStart + lag); break;
-                case 'FF': relFloat = succFinish - (predFinish + lag); break;
-                case 'SF': relFloat = succFinish - (predStart + lag); break;
+                const relType = rel.type || 'FS';
+                const lag = rel.lag || 0;
+
+                const predStart = pred.startDate.getTime() / 86400000;
+                const predFinish = pred.finishDate.getTime() / 86400000;
+                const succStart = succ.startDate.getTime() / 86400000;
+                const succFinish = succ.finishDate.getTime() / 86400000;
+
+                relFloat = 0;
+
+                switch (relType) {
+                    case 'FS': relFloat = succStart - (predFinish + lag); break;
+                    case 'SS': relFloat = succStart - (predStart + lag); break;
+                    case 'FF': relFloat = succFinish - (predFinish + lag); break;
+                    case 'SF': relFloat = succFinish - (predStart + lag); break;
+                }
+            }
+
+            rel.relationshipFloat = relFloat;
+            rel.isDriving = false;
+            rel.isCritical = false;
+        }
+
+        const successorGroups = new Map<string, Relationship[]>();
+        for (const rel of this.relationships) {
+            if (!successorGroups.has(rel.successorId)) {
+                successorGroups.set(rel.successorId, []);
+            }
+            successorGroups.get(rel.successorId)!.push(rel);
+        }
+
+        for (const [successorId, rels] of successorGroups) {
+            let minFloat = Infinity;
+            for (const rel of rels) {
+                const relFloat = rel.relationshipFloat ?? Infinity;
+                if (relFloat < minFloat) {
+                    minFloat = relFloat;
+                }
+            }
+
+            for (const rel of rels) {
+                const relFloat = rel.relationshipFloat ?? Infinity;
+                if (Math.abs(relFloat - minFloat) <= this.floatTolerance) {
+                    rel.isDriving = true;
+                }
             }
         }
 
-        rel.relationshipFloat = relFloat;
-        rel.isDriving = false;
-        rel.isCritical = false;
+        const drivingCount = this.relationships.filter(r => r.isDriving).length;
+        this.debugLog(`Identified ${drivingCount} driving relationships`);
     }
 
-    const successorGroups = new Map<string, Relationship[]>();
-    for (const rel of this.relationships) {
-        if (!successorGroups.has(rel.successorId)) {
-            successorGroups.set(rel.successorId, []);
-        }
-        successorGroups.get(rel.successorId)!.push(rel);
-    }
+    /**
+     * Finds the project finish task (latest finish date)
+     */
+    private findProjectFinishTask(): Task | null {
+        let latestFinish: Date | null = null;
+        let candidates: Task[] = [];
 
-    for (const [successorId, rels] of successorGroups) {
-        let minFloat = Infinity;
-        for (const rel of rels) {
-            const relFloat = rel.relationshipFloat ?? Infinity;
-            if (relFloat < minFloat) {
-                minFloat = relFloat;
+        for (const task of this.allTasksData) {
+            if (!task.finishDate) continue;
+
+            if (!latestFinish || task.finishDate > latestFinish) {
+                latestFinish = task.finishDate;
+                candidates = [task];
+            } else if (Math.abs(task.finishDate.getTime() - latestFinish.getTime()) <= this.floatTolerance * 86400000) {
+                candidates.push(task);
             }
         }
 
-        for (const rel of rels) {
-            const relFloat = rel.relationshipFloat ?? Infinity;
-            if (Math.abs(relFloat - minFloat) <= this.floatTolerance) {
-                rel.isDriving = true;
+        if (candidates.length === 0) return null;
+        if (candidates.length === 1) return candidates[0];
+        let bestCandidate = candidates[0];
+        let earliestStart = bestCandidate.startDate?.getTime() ?? Infinity;
+
+        for (let i = 1; i < candidates.length; i++) {
+            const candidate = candidates[i];
+            const candidateStart = candidate.startDate?.getTime() ?? Infinity;
+
+            if (candidateStart < earliestStart) {
+                earliestStart = candidateStart;
+                bestCandidate = candidate;
             }
         }
+
+        this.debugLog(`Found ${candidates.length} tasks with latest finish date, selected ${bestCandidate.name} (earliest start)`);
+        return bestCandidate;
     }
 
-    const drivingCount = this.relationships.filter(r => r.isDriving).length;
-    this.debugLog(`Identified ${drivingCount} driving relationships`);
-}
-
-/**
- * Finds the project finish task (latest finish date)
- */
-private findProjectFinishTask(): Task | null {
-    let latestFinish: Date | null = null;
-    let candidates: Task[] = [];
-
-    for (const task of this.allTasksData) {
-        if (!task.finishDate) continue;
-
-        if (!latestFinish || task.finishDate > latestFinish) {
-            latestFinish = task.finishDate;
-            candidates = [task];
-        } else if (Math.abs(task.finishDate.getTime() - latestFinish.getTime()) <= this.floatTolerance * 86400000) {
-            candidates.push(task);
-        }
-    }
-
-    if (candidates.length === 0) return null;
-    if (candidates.length === 1) return candidates[0];
-    let bestCandidate = candidates[0];
-    let earliestStart = bestCandidate.startDate?.getTime() ?? Infinity;
-
-    for (let i = 1; i < candidates.length; i++) {
-        const candidate = candidates[i];
-        const candidateStart = candidate.startDate?.getTime() ?? Infinity;
-
-        if (candidateStart < earliestStart) {
-            earliestStart = candidateStart;
-            bestCandidate = candidate;
-        }
-    }
-
-    this.debugLog(`Found ${candidates.length} tasks with latest finish date, selected ${bestCandidate.name} (earliest start)`);
-    return bestCandidate;
-}
-
-/**
- * Finds all driving chains leading to a specific task
- * Uses recursive DFS with global visited set to prevent re-exploration
- */
-private findAllDrivingChainsToTask(targetTaskId: string): Array<{
-    tasks: Set<string>,
-    relationships: Relationship[],
-    totalDuration: number,
-    startingTask: Task | null
-}> {
-    const chains: Array<{
+    /**
+     * Finds all driving chains leading to a specific task
+     * Uses recursive DFS with global visited set to prevent re-exploration
+     */
+    private findAllDrivingChainsToTask(targetTaskId: string): Array<{
         tasks: Set<string>,
         relationships: Relationship[],
         totalDuration: number,
         startingTask: Task | null
-    }> = [];
+    }> {
+        const chains: Array<{
+            tasks: Set<string>,
+            relationships: Relationship[],
+            totalDuration: number,
+            startingTask: Task | null
+        }> = [];
 
-    const visited = new Set<string>();
-    const currentPath = new Set<string>();
-    const currentRelationships: Relationship[] = [];
+        const visited = new Set<string>();
+        const currentPath = new Set<string>();
+        const currentRelationships: Relationship[] = [];
 
-    const dfs = (taskId: string) => {
-        if (visited.has(taskId)) return;
+        const dfs = (taskId: string) => {
+            if (visited.has(taskId)) return;
 
-        visited.add(taskId);
-        currentPath.add(taskId);
+            visited.add(taskId);
+            currentPath.add(taskId);
 
-        const task = this.taskIdToTask.get(taskId);
-        if (!task) {
+            const task = this.taskIdToTask.get(taskId);
+            if (!task) {
+                currentPath.delete(taskId);
+                return;
+            }
+
+            const drivingPreds = this.relationships.filter(rel =>
+                rel.successorId === taskId && rel.isDriving
+            );
+
+            if (drivingPreds.length === 0) {
+
+                const chainTasks = new Set(currentPath);
+                const chainRels = [...currentRelationships];
+
+                let totalDuration = 0;
+                chainTasks.forEach(tId => {
+                    const t = this.taskIdToTask.get(tId);
+                    if (t) totalDuration += t.duration;
+                });
+
+                chains.push({
+                    tasks: chainTasks,
+                    relationships: chainRels,
+                    totalDuration: totalDuration,
+                    startingTask: task
+                });
+            } else {
+                for (const rel of drivingPreds) {
+                    currentRelationships.push(rel);
+                    dfs(rel.predecessorId);
+                    currentRelationships.pop();
+                }
+            }
+
             currentPath.delete(taskId);
-            return;
-        }
+        };
 
-        const drivingPreds = this.relationships.filter(rel =>
-            rel.successorId === taskId && rel.isDriving
-        );
+        dfs(targetTaskId);
 
-        if (drivingPreds.length === 0) {
-
-            const chainTasks = new Set(currentPath);
-            const chainRels = [...currentRelationships];
-
-            let totalDuration = 0;
-            chainTasks.forEach(tId => {
-                const t = this.taskIdToTask.get(tId);
-                if (t) totalDuration += t.duration;
-            });
-
-            chains.push({
-                tasks: chainTasks,
-                relationships: chainRels,
-                totalDuration: totalDuration,
-                startingTask: task
-            });
-        } else {
-            for (const rel of drivingPreds) {
-                currentRelationships.push(rel);
-                dfs(rel.predecessorId);
-                currentRelationships.pop();
+        if (chains.length === 0) {
+            const task = this.taskIdToTask.get(targetTaskId);
+            if (task) {
+                chains.push({
+                    tasks: new Set([targetTaskId]),
+                    relationships: [],
+                    totalDuration: task.duration,
+                    startingTask: task
+                });
             }
         }
 
-        currentPath.delete(taskId);
-    };
+        return chains;
+    }
+    /**
+     * Selects the longest chain by total working duration
+     */
+    private selectLongestChain(chains: Array<{
+        tasks: Set<string>,
+        relationships: Relationship[],
+        totalDuration: number
+    }>): {
+        tasks: Set<string>,
+        relationships: Relationship[],
+        totalDuration: number
+    } | null {
+        if (chains.length === 0) return null;
+        chains.sort((a, b) => b.totalDuration - a.totalDuration);
+        return chains[0];
+    }
 
-    dfs(targetTaskId);
+    /**
+     * Sorts driving chains and stores them for multi-path toggle
+     * Sorting: earliest start date first, then longest duration as tiebreaker
+     */
+    private sortAndStoreDrivingChains(chains: Array<{
+        tasks: Set<string>,
+        relationships: Relationship[],
+        totalDuration: number,
+        startingTask: Task | null
+    }>): Array<{
+        tasks: Set<string>,
+        relationships: Relationship[],
+        totalDuration: number,
+        startingTask: Task | null
+    }> {
+        if (chains.length === 0) return [];
 
-    if (chains.length === 0) {
-        const task = this.taskIdToTask.get(targetTaskId);
-        if (task) {
-            chains.push({
-                tasks: new Set([targetTaskId]),
-                relationships: [],
-                totalDuration: task.duration,
-                startingTask: task
+        const sortedChains = [...chains].sort((a, b) => {
+            const aDate = a.startingTask?.startDate?.getTime() ?? Infinity;
+            const bDate = b.startingTask?.startDate?.getTime() ?? Infinity;
+
+            if (aDate < bDate) return -1;
+            if (aDate > bDate) return 1;
+
+            return b.totalDuration - a.totalDuration;
+        });
+
+        this.debugLog(`Found ${sortedChains.length} driving paths`);
+
+        const logCount = Math.min(sortedChains.length, 5);
+        for (let i = 0; i < logCount; i++) {
+            const chain = sortedChains[i];
+            this.debugLog(`  Path ${i + 1}: ${chain.tasks.size} tasks, ` +
+                `${chain.totalDuration.toFixed(1)} days, ` +
+                `starts ${this.formatDate(chain.startingTask?.startDate)}`);
+        }
+        if (sortedChains.length > 5) {
+            this.debugLog(`  ... and ${sortedChains.length - 5} more paths`);
+        }
+
+        return sortedChains;
+    }
+
+    /**
+     * Gets the currently selected driving chain based on settings
+     * Validates index bounds to prevent errors when switching views
+     */
+    private getSelectedDrivingChain(): {
+        tasks: Set<string>,
+        relationships: Relationship[],
+        totalDuration: number,
+        startingTask: Task | null
+    } | null {
+        if (this.allDrivingChains.length === 0) return null;
+
+        const settingsIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value ?? 1;
+
+        this.selectedPathIndex = Math.max(0, Math.min(settingsIndex - 1, this.allDrivingChains.length - 1));
+
+        const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
+
+        if (!multiPathEnabled) {
+            this.selectedPathIndex = 0;
+        }
+
+        this.debugLog(`[Path Selection] Index: ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}, ` +
+            `Multi-path: ${multiPathEnabled ? 'enabled' : 'disabled'}`);
+
+        return this.allDrivingChains[this.selectedPathIndex];
+    }
+
+    /**
+     * Updates the path information label display with interactive navigation
+     * Professional navigation buttons with enhanced design and smooth animations
+     * Shows "Path 1/1" even with single path so users understand there's only one driving path
+     */
+    private updatePathInfoLabel(): void {
+        if (!this.pathInfoLabel) return;
+
+        const showPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value ?? true;
+        const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
+
+        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value ?? 'longestPath';
+        const hasMultiplePaths = this.allDrivingChains.length > 1;
+        const hasAnyPaths = this.allDrivingChains.length > 0;
+
+        if (!showPathInfo || mode !== 'longestPath' || !hasAnyPaths || !multiPathEnabled) {
+            this.pathInfoLabel.style("display", "none");
+            return;
+        }
+
+        const currentChain = this.allDrivingChains[this.selectedPathIndex];
+        if (!currentChain) {
+            this.pathInfoLabel.style("display", "none");
+            return;
+        }
+
+        const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
+        const layoutMode = this.getLayoutMode(viewportWidth);
+        const isCompact = layoutMode === 'narrow';
+        const isMedium = layoutMode === 'medium';
+
+        this.pathInfoLabel
+            .style("padding", isCompact ? `0 ${this.UI_TOKENS.spacing.xs}px` : `0 ${this.UI_TOKENS.spacing.sm}px`)
+            .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`);
+
+        this.pathInfoLabel.selectAll("*").remove();
+
+        const pathNumber = this.selectedPathIndex + 1;
+        const totalPaths = this.allDrivingChains.length;
+        const duration = currentChain.totalDuration.toFixed(1);
+        const taskCount = currentChain.tasks.size;
+
+        const buttonOpacity = hasMultiplePaths ? "1" : "0.35";
+        const buttonCursor = hasMultiplePaths ? "pointer" : "default";
+        const buttonTitle = hasMultiplePaths ? "Previous driving path" : "Only one driving path";
+
+        const prevButton = this.pathInfoLabel.append("div")
+            .style("cursor", buttonCursor)
+            .style("opacity", buttonOpacity)
+            .style("padding", "4px")
+            .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+            .style("user-select", "none")
+            .style("width", "22px")
+            .style("height", "22px")
+            .attr("title", buttonTitle);
+
+        const prevSvg = prevButton.append("svg")
+            .attr("width", "12")
+            .attr("height", "12")
+            .attr("viewBox", "0 0 12 12");
+
+        prevSvg.append("path")
+            .attr("d", "M 8 2 L 4 6 L 8 10")
+            .attr("stroke", this.UI_TOKENS.color.primary.default)
+            .attr("stroke-width", "2")
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round")
+            .attr("fill", "none");
+
+        const self = this;
+
+        if (hasMultiplePaths) {
+            prevButton
+                .on("mouseover", function () {
+                    d3.select(this)
+                        .style("background-color", self.UI_TOKENS.color.primary.light)
+                        .style("transform", "scale(1.1)");
+                })
+                .on("mouseout", function () {
+                    d3.select(this)
+                        .style("background-color", "transparent")
+                        .style("transform", "scale(1)");
+                })
+                .on("mousedown", function () {
+                    d3.select(this).style("transform", "scale(0.95)");
+                })
+                .on("mouseup", function () {
+                    d3.select(this).style("transform", "scale(1.1)");
+                });
+
+            prevButton.on("click", function (event) {
+                event.stopPropagation();
+                self.navigateToPreviousPath();
             });
         }
-    }
 
-    return chains;
-}
-/**
- * Selects the longest chain by total working duration
- */
-private selectLongestChain(chains: Array<{
-    tasks: Set<string>,
-    relationships: Relationship[],
-    totalDuration: number
-}>): {
-    tasks: Set<string>,
-    relationships: Relationship[],
-    totalDuration: number
-} | null {
-    if (chains.length === 0) return null;
-    chains.sort((a, b) => b.totalDuration - a.totalDuration);
-    return chains[0];
-}
-
-/**
- * Sorts driving chains and stores them for multi-path toggle
- * Sorting: earliest start date first, then longest duration as tiebreaker
- */
-private sortAndStoreDrivingChains(chains: Array<{
-    tasks: Set<string>,
-    relationships: Relationship[],
-    totalDuration: number,
-    startingTask: Task | null
-}>): Array<{
-    tasks: Set<string>,
-    relationships: Relationship[],
-    totalDuration: number,
-    startingTask: Task | null
-}> {
-    if (chains.length === 0) return [];
-
-    const sortedChains = [...chains].sort((a, b) => {
-        const aDate = a.startingTask?.startDate?.getTime() ?? Infinity;
-        const bDate = b.startingTask?.startDate?.getTime() ?? Infinity;
-
-        if (aDate < bDate) return -1;
-        if (aDate > bDate) return 1;
-
-        return b.totalDuration - a.totalDuration;
-    });
-
-    this.debugLog(`Found ${sortedChains.length} driving paths`);
-
-    const logCount = Math.min(sortedChains.length, 5);
-    for (let i = 0; i < logCount; i++) {
-        const chain = sortedChains[i];
-        this.debugLog(`  Path ${i + 1}: ${chain.tasks.size} tasks, ` +
-            `${chain.totalDuration.toFixed(1)} days, ` +
-            `starts ${this.formatDate(chain.startingTask?.startDate)}`);
-    }
-    if (sortedChains.length > 5) {
-        this.debugLog(`  ... and ${sortedChains.length - 5} more paths`);
-    }
-
-    return sortedChains;
-}
-
-/**
- * Gets the currently selected driving chain based on settings
- * Validates index bounds to prevent errors when switching views
- */
-private getSelectedDrivingChain(): {
-    tasks: Set<string>,
-    relationships: Relationship[],
-    totalDuration: number,
-    startingTask: Task | null
-} | null {
-    if (this.allDrivingChains.length === 0) return null;
-
-    const settingsIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value ?? 1;
-
-    this.selectedPathIndex = Math.max(0, Math.min(settingsIndex - 1, this.allDrivingChains.length - 1));
-
-    const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
-
-    if (!multiPathEnabled) {
-        this.selectedPathIndex = 0;
-    }
-
-    this.debugLog(`[Path Selection] Index: ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}, ` +
-        `Multi-path: ${multiPathEnabled ? 'enabled' : 'disabled'}`);
-
-    return this.allDrivingChains[this.selectedPathIndex];
-}
-
-/**
- * Updates the path information label display with interactive navigation
- * Professional navigation buttons with enhanced design and smooth animations
- * Shows "Path 1/1" even with single path so users understand there's only one driving path
- */
-private updatePathInfoLabel(): void {
-    if (!this.pathInfoLabel) return;
-
-    const showPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value ?? true;
-    const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
-
-    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value ?? 'longestPath';
-    const hasMultiplePaths = this.allDrivingChains.length > 1;
-    const hasAnyPaths = this.allDrivingChains.length > 0;
-
-    if (!showPathInfo || mode !== 'longestPath' || !hasAnyPaths || !multiPathEnabled) {
-        this.pathInfoLabel.style("display", "none");
-        return;
-    }
-
-    const currentChain = this.allDrivingChains[this.selectedPathIndex];
-    if (!currentChain) {
-        this.pathInfoLabel.style("display", "none");
-        return;
-    }
-
-    const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
-    const layoutMode = this.getLayoutMode(viewportWidth);
-    const isCompact = layoutMode === 'narrow';
-    const isMedium = layoutMode === 'medium';
-
-    this.pathInfoLabel
-        .style("padding", isCompact ? `0 ${this.UI_TOKENS.spacing.xs}px` : `0 ${this.UI_TOKENS.spacing.sm}px`)
-        .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`);
-
-    this.pathInfoLabel.selectAll("*").remove();
-
-    const pathNumber = this.selectedPathIndex + 1;
-    const totalPaths = this.allDrivingChains.length;
-    const duration = currentChain.totalDuration.toFixed(1);
-    const taskCount = currentChain.tasks.size;
-
-    const buttonOpacity = hasMultiplePaths ? "1" : "0.35";
-    const buttonCursor = hasMultiplePaths ? "pointer" : "default";
-    const buttonTitle = hasMultiplePaths ? "Previous driving path" : "Only one driving path";
-
-    const prevButton = this.pathInfoLabel.append("div")
-        .style("cursor", buttonCursor)
-        .style("opacity", buttonOpacity)
-        .style("padding", "4px")
-        .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("justify-content", "center")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-        .style("user-select", "none")
-        .style("width", "22px")
-        .style("height", "22px")
-        .attr("title", buttonTitle);
-
-    const prevSvg = prevButton.append("svg")
-        .attr("width", "12")
-        .attr("height", "12")
-        .attr("viewBox", "0 0 12 12");
-
-    prevSvg.append("path")
-        .attr("d", "M 8 2 L 4 6 L 8 10")
-        .attr("stroke", this.UI_TOKENS.color.primary.default)
-        .attr("stroke-width", "2")
-        .attr("stroke-linecap", "round")
-        .attr("stroke-linejoin", "round")
-        .attr("fill", "none");
-
-    const self = this;
-
-    if (hasMultiplePaths) {
-        prevButton
-            .on("mouseover", function() {
-                d3.select(this)
-                    .style("background-color", self.UI_TOKENS.color.primary.light)
-                    .style("transform", "scale(1.1)");
-            })
-            .on("mouseout", function() {
-                d3.select(this)
-                    .style("background-color", "transparent")
-                    .style("transform", "scale(1)");
-            })
-            .on("mousedown", function() {
-                d3.select(this).style("transform", "scale(0.95)");
-            })
-            .on("mouseup", function() {
-                d3.select(this).style("transform", "scale(1.1)");
-            });
-
-        prevButton.on("click", function(event) {
-            event.stopPropagation();
-            self.navigateToPreviousPath();
-        });
-    }
-
-    const infoContainer = this.pathInfoLabel.append("div")
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`)
-        .style("padding", isCompact ? "0 1px" : "0 4px")
-        .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`);
-
-    infoContainer.append("span")
-        .style("font-weight", "700")
-        .style("letter-spacing", "0.15px")
-        .text(isCompact ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`);
-
-    if (!isCompact) {
-        infoContainer.append("span")
-            .style("color", this.UI_TOKENS.color.primary.default)
-            .style("font-weight", "600")
-            .text("|");
+        const infoContainer = this.pathInfoLabel.append("div")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`)
+            .style("padding", isCompact ? "0 1px" : "0 4px")
+            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`);
 
         infoContainer.append("span")
-            .style("font-weight", "500")
-            .text(`${taskCount} tasks`);
+            .style("font-weight", "700")
+            .style("letter-spacing", "0.15px")
+            .text(isCompact ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`);
 
-        if (!isMedium) {
+        if (!isCompact) {
             infoContainer.append("span")
                 .style("color", this.UI_TOKENS.color.primary.default)
                 .style("font-weight", "600")
@@ -8484,2497 +8474,2507 @@ private updatePathInfoLabel(): void {
 
             infoContainer.append("span")
                 .style("font-weight", "500")
-                .text(`${duration} days`);
+                .text(`${taskCount} tasks`);
+
+            if (!isMedium) {
+                infoContainer.append("span")
+                    .style("color", this.UI_TOKENS.color.primary.default)
+                    .style("font-weight", "600")
+                    .text("|");
+
+                infoContainer.append("span")
+                    .style("font-weight", "500")
+                    .text(`${duration} days`);
+            }
         }
-    }
 
-    const nextButtonTitle = hasMultiplePaths ? "Next driving path" : "Only one driving path";
-    const nextButton = this.pathInfoLabel.append("div")
-        .style("cursor", buttonCursor)
-        .style("opacity", buttonOpacity)
-        .style("padding", "4px")
-        .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
-        .style("display", "flex")
-        .style("align-items", "center")
-        .style("justify-content", "center")
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-        .style("user-select", "none")
-        .style("width", "22px")
-        .style("height", "22px")
-        .attr("title", nextButtonTitle);
-
-    const nextSvg = nextButton.append("svg")
-        .attr("width", "12")
-        .attr("height", "12")
-        .attr("viewBox", "0 0 12 12");
-
-    nextSvg.append("path")
-        .attr("d", "M 4 2 L 8 6 L 4 10")
-        .attr("stroke", this.UI_TOKENS.color.primary.default)
-        .attr("stroke-width", "2")
-        .attr("stroke-linecap", "round")
-        .attr("stroke-linejoin", "round")
-        .attr("fill", "none");
-
-    if (hasMultiplePaths) {
-        nextButton
-            .on("mouseover", function() {
-                d3.select(this)
-                    .style("background-color", self.UI_TOKENS.color.primary.light)
-                    .style("transform", "scale(1.1)");
-            })
-            .on("mouseout", function() {
-                d3.select(this)
-                    .style("background-color", "transparent")
-                    .style("transform", "scale(1)");
-            })
-            .on("mousedown", function() {
-                d3.select(this).style("transform", "scale(0.95)");
-            })
-            .on("mouseup", function() {
-                d3.select(this).style("transform", "scale(1.1)");
-            });
-
-        nextButton.on("click", function(event) {
-            event.stopPropagation();
-            self.navigateToNextPath();
-        });
-    }
-
-    this.pathInfoLabel.style("display", "flex");
-}
-
-/**
- * Navigate to the previous driving path
- * Provides feedback when navigation is not possible
- */
-private navigateToPreviousPath(): void {
-
-    if (this.allDrivingChains.length === 0) {
-        this.debugLog("[Path Navigation] No driving chains available");
-        return;
-    }
-
-    if (this.allDrivingChains.length === 1) {
-        this.debugLog("[Path Navigation] Only one path exists - navigation disabled");
-        this.showPathNavigationFeedback("Only one driving path exists");
-        return;
-    }
-
-    this.selectedPathIndex = this.selectedPathIndex === 0
-        ? this.allDrivingChains.length - 1
-        : this.selectedPathIndex - 1;
-
-    this.debugLog(`[Path Navigation] Switched to path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}`);
-
-    this.persistPathSelection();
-
-    this.identifyLongestPathFromP6();
-
-    this.forceFullUpdate = true;
-    if (this.lastUpdateOptions) {
-        this.update(this.lastUpdateOptions);
-    }
-}
-
-/**
- * Navigate to the next driving path
- * Provides feedback when navigation is not possible
- */
-private navigateToNextPath(): void {
-
-    if (this.allDrivingChains.length === 0) {
-        this.debugLog("[Path Navigation] No driving chains available");
-        return;
-    }
-
-    if (this.allDrivingChains.length === 1) {
-        this.debugLog("[Path Navigation] Only one path exists - navigation disabled");
-        this.showPathNavigationFeedback("Only one driving path exists");
-        return;
-    }
-
-    this.selectedPathIndex = (this.selectedPathIndex + 1) % this.allDrivingChains.length;
-
-    this.debugLog(`[Path Navigation] Switched to path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}`);
-
-    this.persistPathSelection();
-
-    this.identifyLongestPathFromP6();
-
-    this.forceFullUpdate = true;
-    if (this.lastUpdateOptions) {
-        this.update(this.lastUpdateOptions);
-    }
-}
-
-/**
- * Helper method for user feedback when navigation not possible
- * Shows a brief message in the path info label
- */
-private showPathNavigationFeedback(message: string): void {
-    if (this.pathInfoLabel) {
-
-        const originalDisplay = this.pathInfoLabel.style("display");
-
-        this.pathInfoLabel
+        const nextButtonTitle = hasMultiplePaths ? "Next driving path" : "Only one driving path";
+        const nextButton = this.pathInfoLabel.append("div")
+            .style("cursor", buttonCursor)
+            .style("opacity", buttonOpacity)
+            .style("padding", "4px")
+            .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
             .style("display", "flex")
-            .selectAll("*").remove();
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+            .style("user-select", "none")
+            .style("width", "22px")
+            .style("height", "22px")
+            .attr("title", nextButtonTitle);
 
-        this.pathInfoLabel.append("span")
-            .style("color", this.UI_TOKENS.color.warning?.default || "#C87800")
-            .style("font-weight", "500")
-            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-            .text(message);
+        const nextSvg = nextButton.append("svg")
+            .attr("width", "12")
+            .attr("height", "12")
+            .attr("viewBox", "0 0 12 12");
 
-        setTimeout(() => {
-            this.pathInfoLabel.style("display", originalDisplay);
-            this.updatePathInfoLabel();
-        }, 2000);
-    }
-}
+        nextSvg.append("path")
+            .attr("d", "M 4 2 L 8 6 L 4 10")
+            .attr("stroke", this.UI_TOKENS.color.primary.default)
+            .attr("stroke-width", "2")
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round")
+            .attr("fill", "none");
 
-/**
- * Persist the selected path index to settings
- */
-private persistPathSelection(): void {
-    try {
-        const pathIndex1Based = this.selectedPathIndex + 1;
-
-        if (this.settings?.drivingPathSelection?.selectedPathIndex) {
-            this.settings.drivingPathSelection.selectedPathIndex.value = pathIndex1Based;
-        }
-
-        this.host.persistProperties({
-            merge: [{
-                objectName: "drivingPathSelection",
-                properties: { selectedPathIndex: pathIndex1Based },
-                selector: null
-            }]
-        });
-
-        this.debugLog(`[Path Selection] Persisted path index: ${pathIndex1Based}`);
-    } catch (error) {
-        console.error("Error persisting path selection:", error);
-    }
-}
-
-private identifyNearCriticalTasks(): void {
-
-    if (this.floatThreshold <= 0) {
-        this.debugLog("Float threshold is 0, skipping near-critical identification");
-        return;
-    }
-
-    const predecessorToSuccessorMinFloat = new Map<string, Map<string, number>>();
-    for (const rel of this.relationships) {
-        const relFloat = (rel as any).relationshipFloat ?? Infinity;
-        let successorMap = predecessorToSuccessorMinFloat.get(rel.predecessorId);
-        if (!successorMap) {
-            successorMap = new Map<string, number>();
-            predecessorToSuccessorMinFloat.set(rel.predecessorId, successorMap);
-        }
-        const currentMin = successorMap.get(rel.successorId) ?? Infinity;
-        if (relFloat < currentMin) {
-            successorMap.set(rel.successorId, relFloat);
-        }
-    }
-
-    this.allTasksData.forEach(task => {
-        if (task.isCritical) return;
-
-        let minFloatToCritical = Infinity;
-        const visited = new Set<string>();
-        const queue: Array<{taskId: string, accumulatedFloat: number}> = [
-            {taskId: task.internalId, accumulatedFloat: 0}
-        ];
-
-        while (queue.length > 0) {
-            const {taskId, accumulatedFloat} = queue.shift()!;
-
-            if (visited.has(taskId)) continue;
-            visited.add(taskId);
-
-            const currentTask = this.taskIdToTask.get(taskId);
-            if (!currentTask) continue;
-
-            if (currentTask.isCritical) {
-                minFloatToCritical = Math.min(minFloatToCritical, accumulatedFloat);
-                continue;
-            }
-
-            const successorFloats = predecessorToSuccessorMinFloat.get(taskId);
-            if (!successorFloats) {
-                continue;
-            }
-
-            for (const [succId, minFloat] of successorFloats) {
-                const floatToAdd = Math.max(0, minFloat);
-                queue.push({
-                    taskId: succId,
-                    accumulatedFloat: accumulatedFloat + floatToAdd
+        if (hasMultiplePaths) {
+            nextButton
+                .on("mouseover", function () {
+                    d3.select(this)
+                        .style("background-color", self.UI_TOKENS.color.primary.light)
+                        .style("transform", "scale(1.1)");
+                })
+                .on("mouseout", function () {
+                    d3.select(this)
+                        .style("background-color", "transparent")
+                        .style("transform", "scale(1)");
+                })
+                .on("mousedown", function () {
+                    d3.select(this).style("transform", "scale(0.95)");
+                })
+                .on("mouseup", function () {
+                    d3.select(this).style("transform", "scale(1.1)");
                 });
-            }
+
+            nextButton.on("click", function (event) {
+                event.stopPropagation();
+                self.navigateToNextPath();
+            });
         }
 
-        if (minFloatToCritical <= this.floatThreshold) {
-            task.isNearCritical = true;
-            task.totalFloat = minFloatToCritical;
-        }
-    });
-}
-
-/**
- * Calculates CPM backward to a selected target task
- * Populates allDrivingChains for multi-path support
- */
-private calculateCPMToTask(targetTaskId: string | null): void {
-    this.debugLog(`Calculating P6 driving path to task: ${targetTaskId || "None"}`);
-
-    if (!targetTaskId) {
-        this.identifyLongestPathFromP6();
-        return;
+        this.pathInfoLabel.style("display", "flex");
     }
 
-    const targetTask = this.taskIdToTask.get(targetTaskId);
-    if (!targetTask) {
-        console.warn(`Target task ${targetTaskId} not found.`);
-        this.identifyLongestPathFromP6();
-        return;
-    }
+    /**
+     * Navigate to the previous driving path
+     * Provides feedback when navigation is not possible
+     */
+    private navigateToPreviousPath(): void {
 
-    for (const task of this.allTasksData) {
-        task.isCritical = false;
-        task.isCriticalByFloat = false;
-        task.isCriticalByRel = false;
-        task.isNearCritical = false;
-        task.totalFloat = Infinity;
-    }
-
-    this.identifyDrivingRelationships();
-
-    const chains = this.findAllDrivingChainsToTask(targetTaskId);
-
-    this.allDrivingChains = [...chains].sort((a, b) => {
-        const aDate = a.startingTask?.startDate?.getTime() ?? Infinity;
-        const bDate = b.startingTask?.startDate?.getTime() ?? Infinity;
-
-        if (aDate < bDate) return -1;
-        if (aDate > bDate) return 1;
-
-        return b.totalDuration - a.totalDuration;
-    });
-
-    if (this.selectedPathIndex >= this.allDrivingChains.length) {
-        this.selectedPathIndex = 0;
-    }
-
-    const selectedChain = this.getSelectedDrivingChain();
-
-    if (selectedChain) {
-
-        for (const taskId of selectedChain.tasks) {
-            const task = this.taskIdToTask.get(taskId);
-            if (task) {
-                task.isCritical = true;
-                task.isCriticalByFloat = true;
-                task.totalFloat = 0;
-            }
-        }
-
-        for (const rel of selectedChain.relationships) {
-            rel.isCritical = true;
-        }
-
-        this.debugLog(`P6 path to ${targetTaskId}: ${selectedChain.tasks.size} tasks, ` +
-            `${this.allDrivingChains.length} total paths, ` +
-            `starting ${this.formatDate(selectedChain.startingTask?.startDate)}`);
-    }
-
-    targetTask.isCritical = true;
-    targetTask.isCriticalByFloat = true;
-
-    this.updatePathInfoLabel();
-}
-
-/**
- * Calculates CPM forward from a selected source task to the latest finish date
- * Uses recursive DFS with global visited set
- */
-private calculateCPMFromTask(sourceTaskId: string | null): void {
-    this.debugLog(`Calculating driving path from task: ${sourceTaskId || "None"} to the latest finish date.`);
-
-    if (!sourceTaskId) {
-        this.identifyLongestPathFromP6();
-        return;
-    }
-
-    const sourceTask = this.taskIdToTask.get(sourceTaskId);
-    if (!sourceTask) {
-        console.warn(`Source task ${sourceTaskId} not found.`);
-        this.identifyLongestPathFromP6();
-        return;
-    }
-
-    for (const task of this.allTasksData) {
-        task.isCritical = false;
-        task.isCriticalByFloat = false;
-        task.isCriticalByRel = false;
-        task.isNearCritical = false;
-        task.totalFloat = Infinity;
-    }
-
-    this.identifyDrivingRelationships();
-
-    const completedChains: Array<{
-        tasks: Set<string>,
-        relationships: Relationship[],
-        totalDuration: number,
-        endingTask: Task | null
-    }> = [];
-
-    const visited = new Set<string>();
-    const currentPath = new Set<string>();
-    const currentRelationships: Relationship[] = [];
-
-    const dfs = (taskId: string, currentDuration: number) => {
-        if (visited.has(taskId)) return;
-
-        visited.add(taskId);
-        currentPath.add(taskId);
-
-        const task = this.taskIdToTask.get(taskId);
-        if (!task) {
-            currentPath.delete(taskId);
+        if (this.allDrivingChains.length === 0) {
+            this.debugLog("[Path Navigation] No driving chains available");
             return;
         }
 
-        const taskDuration = currentDuration + task.duration;
+        if (this.allDrivingChains.length === 1) {
+            this.debugLog("[Path Navigation] Only one path exists - navigation disabled");
+            this.showPathNavigationFeedback("Only one driving path exists");
+            return;
+        }
+
+        this.selectedPathIndex = this.selectedPathIndex === 0
+            ? this.allDrivingChains.length - 1
+            : this.selectedPathIndex - 1;
+
+        this.debugLog(`[Path Navigation] Switched to path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}`);
+
+        this.persistPathSelection();
+
+        this.identifyLongestPathFromP6();
+
+        this.forceFullUpdate = true;
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+    }
+
+    /**
+     * Navigate to the next driving path
+     * Provides feedback when navigation is not possible
+     */
+    private navigateToNextPath(): void {
+
+        if (this.allDrivingChains.length === 0) {
+            this.debugLog("[Path Navigation] No driving chains available");
+            return;
+        }
+
+        if (this.allDrivingChains.length === 1) {
+            this.debugLog("[Path Navigation] Only one path exists - navigation disabled");
+            this.showPathNavigationFeedback("Only one driving path exists");
+            return;
+        }
+
+        this.selectedPathIndex = (this.selectedPathIndex + 1) % this.allDrivingChains.length;
+
+        this.debugLog(`[Path Navigation] Switched to path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}`);
+
+        this.persistPathSelection();
+
+        this.identifyLongestPathFromP6();
+
+        this.forceFullUpdate = true;
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+    }
+
+    /**
+     * Helper method for user feedback when navigation not possible
+     * Shows a brief message in the path info label
+     */
+    private showPathNavigationFeedback(message: string): void {
+        if (this.pathInfoLabel) {
+
+            const originalDisplay = this.pathInfoLabel.style("display");
+
+            this.pathInfoLabel
+                .style("display", "flex")
+                .selectAll("*").remove();
+
+            this.pathInfoLabel.append("span")
+                .style("color", this.UI_TOKENS.color.warning?.default || "#C87800")
+                .style("font-weight", "500")
+                .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+                .text(message);
+
+            setTimeout(() => {
+                this.pathInfoLabel.style("display", originalDisplay);
+                this.updatePathInfoLabel();
+            }, 2000);
+        }
+    }
+
+    /**
+     * Persist the selected path index to settings
+     */
+    private persistPathSelection(): void {
+        try {
+            const pathIndex1Based = this.selectedPathIndex + 1;
+
+            if (this.settings?.drivingPathSelection?.selectedPathIndex) {
+                this.settings.drivingPathSelection.selectedPathIndex.value = pathIndex1Based;
+            }
+
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "drivingPathSelection",
+                    properties: { selectedPathIndex: pathIndex1Based },
+                    selector: null
+                }]
+            });
+
+            this.debugLog(`[Path Selection] Persisted path index: ${pathIndex1Based}`);
+        } catch (error) {
+            console.error("Error persisting path selection:", error);
+        }
+    }
+
+    private identifyNearCriticalTasks(): void {
+
+        if (this.floatThreshold <= 0) {
+            this.debugLog("Float threshold is 0, skipping near-critical identification");
+            return;
+        }
+
+        const predecessorToSuccessorMinFloat = new Map<string, Map<string, number>>();
+        for (const rel of this.relationships) {
+            const relFloat = (rel as any).relationshipFloat ?? Infinity;
+            let successorMap = predecessorToSuccessorMinFloat.get(rel.predecessorId);
+            if (!successorMap) {
+                successorMap = new Map<string, number>();
+                predecessorToSuccessorMinFloat.set(rel.predecessorId, successorMap);
+            }
+            const currentMin = successorMap.get(rel.successorId) ?? Infinity;
+            if (relFloat < currentMin) {
+                successorMap.set(rel.successorId, relFloat);
+            }
+        }
+
+        this.allTasksData.forEach(task => {
+            if (task.isCritical) return;
+
+            let minFloatToCritical = Infinity;
+            const visited = new Set<string>();
+            const queue: Array<{ taskId: string, accumulatedFloat: number }> = [
+                { taskId: task.internalId, accumulatedFloat: 0 }
+            ];
+
+            while (queue.length > 0) {
+                const { taskId, accumulatedFloat } = queue.shift()!;
+
+                if (visited.has(taskId)) continue;
+                visited.add(taskId);
+
+                const currentTask = this.taskIdToTask.get(taskId);
+                if (!currentTask) continue;
+
+                if (currentTask.isCritical) {
+                    minFloatToCritical = Math.min(minFloatToCritical, accumulatedFloat);
+                    continue;
+                }
+
+                const successorFloats = predecessorToSuccessorMinFloat.get(taskId);
+                if (!successorFloats) {
+                    continue;
+                }
+
+                for (const [succId, minFloat] of successorFloats) {
+                    const floatToAdd = Math.max(0, minFloat);
+                    queue.push({
+                        taskId: succId,
+                        accumulatedFloat: accumulatedFloat + floatToAdd
+                    });
+                }
+            }
+
+            if (minFloatToCritical <= this.floatThreshold) {
+                task.isNearCritical = true;
+                task.totalFloat = minFloatToCritical;
+            }
+        });
+    }
+
+    /**
+     * Calculates CPM backward to a selected target task
+     * Populates allDrivingChains for multi-path support
+     */
+    private calculateCPMToTask(targetTaskId: string | null): void {
+        this.debugLog(`Calculating P6 driving path to task: ${targetTaskId || "None"}`);
+
+        if (!targetTaskId) {
+            this.identifyLongestPathFromP6();
+            return;
+        }
+
+        const targetTask = this.taskIdToTask.get(targetTaskId);
+        if (!targetTask) {
+            console.warn(`Target task ${targetTaskId} not found.`);
+            this.identifyLongestPathFromP6();
+            return;
+        }
+
+        for (const task of this.allTasksData) {
+            task.isCritical = false;
+            task.isCriticalByFloat = false;
+            task.isCriticalByRel = false;
+            task.isNearCritical = false;
+            task.totalFloat = Infinity;
+        }
+
+        this.identifyDrivingRelationships();
+
+        const chains = this.findAllDrivingChainsToTask(targetTaskId);
+
+        this.allDrivingChains = [...chains].sort((a, b) => {
+            const aDate = a.startingTask?.startDate?.getTime() ?? Infinity;
+            const bDate = b.startingTask?.startDate?.getTime() ?? Infinity;
+
+            if (aDate < bDate) return -1;
+            if (aDate > bDate) return 1;
+
+            return b.totalDuration - a.totalDuration;
+        });
+
+        if (this.selectedPathIndex >= this.allDrivingChains.length) {
+            this.selectedPathIndex = 0;
+        }
+
+        const selectedChain = this.getSelectedDrivingChain();
+
+        if (selectedChain) {
+
+            for (const taskId of selectedChain.tasks) {
+                const task = this.taskIdToTask.get(taskId);
+                if (task) {
+                    task.isCritical = true;
+                    task.isCriticalByFloat = true;
+                    task.totalFloat = 0;
+                }
+            }
+
+            for (const rel of selectedChain.relationships) {
+                rel.isCritical = true;
+            }
+
+            this.debugLog(`P6 path to ${targetTaskId}: ${selectedChain.tasks.size} tasks, ` +
+                `${this.allDrivingChains.length} total paths, ` +
+                `starting ${this.formatDate(selectedChain.startingTask?.startDate)}`);
+        }
+
+        targetTask.isCritical = true;
+        targetTask.isCriticalByFloat = true;
+
+        this.updatePathInfoLabel();
+    }
+
+    /**
+     * Calculates CPM forward from a selected source task to the latest finish date
+     * Uses recursive DFS with global visited set
+     */
+    private calculateCPMFromTask(sourceTaskId: string | null): void {
+        this.debugLog(`Calculating driving path from task: ${sourceTaskId || "None"} to the latest finish date.`);
+
+        if (!sourceTaskId) {
+            this.identifyLongestPathFromP6();
+            return;
+        }
+
+        const sourceTask = this.taskIdToTask.get(sourceTaskId);
+        if (!sourceTask) {
+            console.warn(`Source task ${sourceTaskId} not found.`);
+            this.identifyLongestPathFromP6();
+            return;
+        }
+
+        for (const task of this.allTasksData) {
+            task.isCritical = false;
+            task.isCriticalByFloat = false;
+            task.isCriticalByRel = false;
+            task.isNearCritical = false;
+            task.totalFloat = Infinity;
+        }
+
+        this.identifyDrivingRelationships();
+
+        const completedChains: Array<{
+            tasks: Set<string>,
+            relationships: Relationship[],
+            totalDuration: number,
+            endingTask: Task | null
+        }> = [];
+
+        const visited = new Set<string>();
+        const currentPath = new Set<string>();
+        const currentRelationships: Relationship[] = [];
+
+        const dfs = (taskId: string, currentDuration: number) => {
+            if (visited.has(taskId)) return;
+
+            visited.add(taskId);
+            currentPath.add(taskId);
+
+            const task = this.taskIdToTask.get(taskId);
+            if (!task) {
+                currentPath.delete(taskId);
+                return;
+            }
+
+            const taskDuration = currentDuration + task.duration;
+
+            const drivingSuccs = this.relationships.filter(rel =>
+                rel.predecessorId === taskId && rel.isDriving
+            );
+
+            if (drivingSuccs.length === 0) {
+
+                completedChains.push({
+                    tasks: new Set(currentPath),
+                    relationships: [...currentRelationships],
+                    totalDuration: taskDuration,
+                    endingTask: task
+                });
+            } else {
+                for (const rel of drivingSuccs) {
+                    currentRelationships.push(rel);
+                    dfs(rel.successorId, taskDuration);
+                    currentRelationships.pop();
+                }
+            }
+
+            currentPath.delete(taskId);
+        };
+
+        currentPath.add(sourceTaskId);
+        visited.add(sourceTaskId);
 
         const drivingSuccs = this.relationships.filter(rel =>
-            rel.predecessorId === taskId && rel.isDriving
+            rel.predecessorId === sourceTaskId && rel.isDriving
         );
 
         if (drivingSuccs.length === 0) {
 
             completedChains.push({
-                tasks: new Set(currentPath),
-                relationships: [...currentRelationships],
-                totalDuration: taskDuration,
-                endingTask: task
+                tasks: new Set([sourceTaskId]),
+                relationships: [],
+                totalDuration: sourceTask.duration,
+                endingTask: sourceTask
             });
         } else {
             for (const rel of drivingSuccs) {
                 currentRelationships.push(rel);
-                dfs(rel.successorId, taskDuration);
+                dfs(rel.successorId, sourceTask.duration);
                 currentRelationships.pop();
             }
         }
 
-        currentPath.delete(taskId);
-    };
+        this.allDrivingChains = completedChains.map(c => ({
+            tasks: c.tasks,
+            relationships: c.relationships,
+            totalDuration: c.totalDuration,
+            startingTask: sourceTask
+        }));
 
-    currentPath.add(sourceTaskId);
-    visited.add(sourceTaskId);
+        this.allDrivingChains.sort((a, b) => {
 
-    const drivingSuccs = this.relationships.filter(rel =>
-        rel.predecessorId === sourceTaskId && rel.isDriving
-    );
+            const aEndTask = completedChains.find(c => c.tasks === a.tasks)?.endingTask;
+            const bEndTask = completedChains.find(c => c.tasks === b.tasks)?.endingTask;
 
-    if (drivingSuccs.length === 0) {
+            const aDate = aEndTask?.finishDate?.getTime() ?? -Infinity;
+            const bDate = bEndTask?.finishDate?.getTime() ?? -Infinity;
 
-        completedChains.push({
-            tasks: new Set([sourceTaskId]),
-            relationships: [],
-            totalDuration: sourceTask.duration,
-            endingTask: sourceTask
+            if (aDate > bDate) return -1;
+            if (aDate < bDate) return 1;
+
+            return b.totalDuration - a.totalDuration;
         });
-    } else {
-        for (const rel of drivingSuccs) {
-            currentRelationships.push(rel);
-            dfs(rel.successorId, sourceTask.duration);
-            currentRelationships.pop();
-        }
-    }
 
-    this.allDrivingChains = completedChains.map(c => ({
-        tasks: c.tasks,
-        relationships: c.relationships,
-        totalDuration: c.totalDuration,
-        startingTask: sourceTask
-    }));
-
-    this.allDrivingChains.sort((a, b) => {
-
-        const aEndTask = completedChains.find(c => c.tasks === a.tasks)?.endingTask;
-        const bEndTask = completedChains.find(c => c.tasks === b.tasks)?.endingTask;
-
-        const aDate = aEndTask?.finishDate?.getTime() ?? -Infinity;
-        const bDate = bEndTask?.finishDate?.getTime() ?? -Infinity;
-
-        if (aDate > bDate) return -1;
-        if (aDate < bDate) return 1;
-
-        return b.totalDuration - a.totalDuration;
-    });
-
-    if (this.selectedPathIndex >= this.allDrivingChains.length) {
-        this.selectedPathIndex = 0;
-    }
-
-    const selectedChain = this.getSelectedDrivingChain();
-
-    if (selectedChain) {
-
-        for (const taskId of selectedChain.tasks) {
-            const task = this.taskIdToTask.get(taskId);
-            if (task) {
-                task.isCritical = true;
-                task.isCriticalByFloat = true;
-                task.totalFloat = 0;
-            }
+        if (this.selectedPathIndex >= this.allDrivingChains.length) {
+            this.selectedPathIndex = 0;
         }
 
-        for (const rel of selectedChain.relationships) {
-            rel.isCritical = true;
-        }
+        const selectedChain = this.getSelectedDrivingChain();
 
-        this.debugLog(`Forward path from ${sourceTaskId}: ${selectedChain.tasks.size} tasks, ` +
-            `${this.allDrivingChains.length} chains found`);
-    } else {
+        if (selectedChain) {
 
-        sourceTask.isCritical = true;
-        sourceTask.isCriticalByFloat = true;
-        this.debugLog(`No forward driving path from ${sourceTaskId}. Task marked as critical endpoint.`);
-    }
-
-    this.updatePathInfoLabel();
-}
-
-/**
- * Traces backward from a target task to find all predecessor tasks (Float-Based mode)
- */
-private identifyPredecessorTasksFloatBased(targetTaskId: string): Set<string> {
-    const tasksInPath = new Set<string>();
-    tasksInPath.add(targetTaskId);
-
-    const queue: string[] = [targetTaskId];
-    const visited = new Set<string>();
-    visited.add(targetTaskId);
-
-    const MAX_TASKS = 10000;
-    const MAX_ITERATIONS = 50000;
-    let iterations = 0;
-
-    while (queue.length > 0 && iterations < MAX_ITERATIONS) {
-        iterations++;
-
-        if (tasksInPath.size > MAX_TASKS) {
-            console.warn(`Backward trace from ${targetTaskId} hit task limit (${MAX_TASKS}). Stopping to prevent memory exhaustion.`);
-            break;
-        }
-
-        const currentTaskId = queue.shift()!;
-        const task = this.taskIdToTask.get(currentTaskId);
-        if (!task) continue;
-
-        for (const predId of task.predecessorIds) {
-            if (!visited.has(predId)) {
-                const predecessor = this.taskIdToTask.get(predId);
-                if (!predecessor) continue;
-
-                tasksInPath.add(predId);
-                visited.add(predId);
-                queue.push(predId);
-            }
-        }
-    }
-
-    if (iterations >= MAX_ITERATIONS) {
-        console.warn(`Backward trace from ${targetTaskId} hit iteration limit (${MAX_ITERATIONS}). Network may contain cycles or be extremely large.`);
-    }
-
-    this.debugLog(`Float-Based backward trace from ${targetTaskId}: found ${tasksInPath.size} tasks in ${iterations} iterations`);
-    return tasksInPath;
-}
-
-/**
- * Traces forward from a source task to find all successor tasks (Float-Based mode)
- * OPTIMIZED: Added safety limits to prevent memory exhaustion
- */
-private identifySuccessorTasksFloatBased(sourceTaskId: string): Set<string> {
-    const tasksInPath = new Set<string>();
-    tasksInPath.add(sourceTaskId);
-
-    const queue: string[] = [sourceTaskId];
-    const visited = new Set<string>();
-    visited.add(sourceTaskId);
-
-    const MAX_TASKS = 10000;
-    const MAX_ITERATIONS = 50000;
-    let iterations = 0;
-
-    while (queue.length > 0 && iterations < MAX_ITERATIONS) {
-        iterations++;
-
-        if (tasksInPath.size > MAX_TASKS) {
-            console.warn(`Forward trace from ${sourceTaskId} hit task limit (${MAX_TASKS}). Stopping to prevent memory exhaustion.`);
-            break;
-        }
-
-        const currentTaskId = queue.shift()!;
-
-        const successorIds = this.predecessorIndex.get(currentTaskId) || new Set();
-
-        for (const succId of successorIds) {
-            if (!visited.has(succId)) {
-                const successor = this.taskIdToTask.get(succId);
-                if (!successor) continue;
-
-                tasksInPath.add(succId);
-                visited.add(succId);
-                queue.push(succId);
-            }
-        }
-    }
-
-    if (iterations >= MAX_ITERATIONS) {
-        console.warn(`Forward trace from ${sourceTaskId} hit iteration limit (${MAX_ITERATIONS}). Network may contain cycles or be extremely large.`);
-    }
-
-    this.debugLog(`Float-Based forward trace from ${sourceTaskId}: found ${tasksInPath.size} tasks in ${iterations} iterations`);
-    return tasksInPath;
-}
-
-/**
- * Extracts and validates task ID from a data row
- */
-private extractTaskId(row: any[]): string | null {
-    const idIdx = this.getColumnIndex(this.lastUpdateOptions?.dataViews[0], 'taskId');
-    if (idIdx === -1) return null;
-
-    const rawTaskId = row[idIdx];
-    if (rawTaskId == null || (typeof rawTaskId !== 'string' && typeof rawTaskId !== 'number')) {
-        return null;
-    }
-
-    const taskIdStr = String(rawTaskId).trim();
-    return taskIdStr === '' ? null : taskIdStr;
-}
-
-/**
- * Extracts predecessor ID from a data row
- */
-private extractPredecessorId(row: any[]): string | null {
-    const predIdIdx = this.getColumnIndex(this.lastUpdateOptions?.dataViews[0], 'predecessorId');
-    if (predIdIdx === -1) return null;
-
-    const rawPredId = row[predIdIdx];
-    if (rawPredId == null || (typeof rawPredId !== 'string' && typeof rawPredId !== 'number')) {
-        return null;
-    }
-
-    const predIdStr = String(rawPredId).trim();
-    return predIdStr === '' ? null : predIdStr;
-}
-
-private createTaskFromRow(row: any[], rowIndex: number): Task | null {
-    const dataView = this.lastUpdateOptions?.dataViews?.[0];
-    if (!dataView) return null;
-
-    const taskId = this.extractTaskId(row);
-    if (!taskId) return null;
-
-    const nameIdx = this.getColumnIndex(dataView, 'taskName');
-    const typeIdx = this.getColumnIndex(dataView, 'taskType');
-    const durationIdx = this.getColumnIndex(dataView, 'duration');
-    const startDateIdx = this.getColumnIndex(dataView, 'startDate');
-    const finishDateIdx = this.getColumnIndex(dataView, 'finishDate');
-    const totalFloatIdx = this.getColumnIndex(dataView, 'taskTotalFloat');
-    const taskFreeFloatIdx = this.getColumnIndex(dataView, 'taskFreeFloat');
-    const baselineStartDateIdx = this.getColumnIndex(dataView, 'baselineStartDate');
-    const baselineFinishDateIdx = this.getColumnIndex(dataView, 'baselineFinishDate');
-    const previousUpdateStartDateIdx = this.getColumnIndex(dataView, 'previousUpdateStartDate');
-    const previousUpdateFinishDateIdx = this.getColumnIndex(dataView, 'previousUpdateFinishDate');
-
-    const taskName = (nameIdx !== -1 && row[nameIdx] != null)
-        ? String(row[nameIdx]).trim()
-        : `Task ${taskId}`;
-
-    const taskType = (typeIdx !== -1 && row[typeIdx] != null)
-        ? String(row[typeIdx]).trim()
-        : 'TT_Task';
-
-    let duration = 0;
-    if (durationIdx !== -1 && row[durationIdx] != null) {
-        const parsedDuration = Number(row[durationIdx]);
-        if (!isNaN(parsedDuration) && isFinite(parsedDuration)) {
-            duration = parsedDuration;
-        }
-    }
-    if (taskType === 'TT_Mile' || taskType === 'TT_FinMile') {
-        duration = 0;
-    }
-    duration = Math.max(0, duration);
-
-    let userProvidedTotalFloat: number | undefined = undefined;
-    if (totalFloatIdx !== -1 && row[totalFloatIdx] != null) {
-        const parsedFloat = Number(row[totalFloatIdx]);
-        if (!isNaN(parsedFloat) && isFinite(parsedFloat)) {
-            userProvidedTotalFloat = parsedFloat;
-        }
-    }
-
-    let taskFreeFloat: number | undefined = undefined;
-    if (taskFreeFloatIdx !== -1 && row[taskFreeFloatIdx] != null) {
-        const parsedFloat = Number(row[taskFreeFloatIdx]);
-        if (!isNaN(parsedFloat) && isFinite(parsedFloat)) {
-            taskFreeFloat = parsedFloat;
-        }
-    }
-
-    const startDate = (startDateIdx !== -1 && row[startDateIdx] != null)
-        ? this.parseDate(row[startDateIdx])
-        : null;
-    const finishDate = (finishDateIdx !== -1 && row[finishDateIdx] != null)
-        ? this.parseDate(row[finishDateIdx])
-        : null;
-
-    const baselineStartDate = (baselineStartDateIdx !== -1 && row[baselineStartDateIdx] != null)
-        ? this.parseDate(row[baselineStartDateIdx])
-        : null;
-    const baselineFinishDate = (baselineFinishDateIdx !== -1 && row[baselineFinishDateIdx] != null)
-        ? this.parseDate(row[baselineFinishDateIdx])
-        : null;
-
-    const previousUpdateStartDate = (previousUpdateStartDateIdx !== -1 && row[previousUpdateStartDateIdx] != null)
-        ? this.parseDate(row[previousUpdateStartDateIdx])
-        : null;
-    const previousUpdateFinishDate = (previousUpdateFinishDateIdx !== -1 && row[previousUpdateFinishDateIdx] != null)
-        ? this.parseDate(row[previousUpdateFinishDateIdx])
-        : null;
-
-    const legendIdx = this.getColumnIndex(dataView, 'legend');
-    const legendValue = (legendIdx !== -1 && row[legendIdx] != null)
-        ? String(row[legendIdx])
-        : undefined;
-
-    const wbsLevels: string[] = [];
-    for (const colIdx of this.wbsLevelColumnIndices) {
-        if (colIdx !== -1 && row[colIdx] != null) {
-            const value = String(row[colIdx]).trim();
-            if (value) {
-                wbsLevels.push(value);
-            }
-        }
-    }
-
-    const tooltipData = this.extractTooltipData(row, dataView);
-
-    const safeRowIndex = rowIndex >= 0 ? rowIndex : 0;
-    const selectionId = dataView.table
-        ? this.host.createSelectionIdBuilder().withTable(dataView.table, safeRowIndex).createSelectionId()
-        : undefined;
-
-    const task: Task = {
-        id: row[this.getColumnIndex(dataView, 'taskId')],
-        internalId: taskId,
-        name: taskName,
-        type: taskType,
-        duration: duration,
-        userProvidedTotalFloat: userProvidedTotalFloat,
-        taskFreeFloat: taskFreeFloat,
-        predecessorIds: [],
-        predecessors: [],
-        successors: [],
-        relationshipTypes: {},
-        relationshipLags: {},
-        earlyStart: 0,
-        earlyFinish: duration,
-        lateStart: Infinity,
-        lateFinish: Infinity,
-        totalFloat: Infinity,
-        isCritical: false,
-        isCriticalByFloat: false,
-        isCriticalByRel: false,
-        startDate: startDate,
-        finishDate: finishDate,
-        baselineStartDate: baselineStartDate,
-        baselineFinishDate: baselineFinishDate,
-        previousUpdateStartDate: previousUpdateStartDate,
-        previousUpdateFinishDate: previousUpdateFinishDate,
-        tooltipData: tooltipData,
-        selectionId: selectionId,
-        legendValue: legendValue,
-        wbsLevels: wbsLevels.length > 0 ? wbsLevels : undefined
-    };
-
-    return task;
-}
-
-/**
- * Extracts tooltip data from a row
- */
-private extractTooltipData(row: any[], dataView: DataView): Array<{key: string, value: PrimitiveValue}> | undefined {
-    const columns = dataView.metadata?.columns;
-    if (!columns) return undefined;
-
-    const tooltipColumns: Array<{column: any, rowIndex: number}> = [];
-
-    columns.forEach((column, index) => {
-        if (column.roles?.tooltip) {
-
-            if (index === 0 || !this.tooltipDebugLogged) {
-                this.debugLog(`Tooltip column: ${column.displayName}, index: ${column.index}, queryName: ${column.queryName}`);
-            }
-            tooltipColumns.push({
-                column: column,
-                rowIndex: index
-            });
-        }
-    });
-
-    this.tooltipDebugLogged = true;
-
-    tooltipColumns.sort((a, b) => {
-        const aQuery = a.column.queryName || '';
-        const bQuery = b.column.queryName || '';
-
-        const aMatch = aQuery.match(/\.tooltip\.(\d+)$/);
-        const bMatch = bQuery.match(/\.tooltip\.(\d+)$/);
-
-        if (aMatch && bMatch) {
-            return parseInt(aMatch[1]) - parseInt(bMatch[1]);
-        }
-
-        if (a.column.index !== undefined && b.column.index !== undefined) {
-            return a.column.index - b.column.index;
-        }
-
-        return a.rowIndex - b.rowIndex;
-    });
-
-    const tooltipData: Array<{key: string, value: PrimitiveValue}> = [];
-
-    for (const item of tooltipColumns) {
-        const value = row[item.rowIndex];
-        if (value !== null && value !== undefined) {
-
-            if (item.column.type?.dateTime || this.mightBeDate(value)) {
-                const parsedDate = this.parseDate(value);
-                if (parsedDate) {
-                    tooltipData.push({
-                        key: item.column.displayName || `Field ${item.rowIndex}`,
-                        value: parsedDate
-                    });
-                    continue;
+            for (const taskId of selectedChain.tasks) {
+                const task = this.taskIdToTask.get(taskId);
+                if (task) {
+                    task.isCritical = true;
+                    task.isCriticalByFloat = true;
+                    task.totalFloat = 0;
                 }
             }
 
-            tooltipData.push({
-                key: item.column.displayName || `Field ${item.rowIndex}`,
-                value: value
-            });
-        }
-    }
+            for (const rel of selectedChain.relationships) {
+                rel.isCritical = true;
+            }
 
-    return tooltipData.length > 0 ? tooltipData : undefined;
-}
-
-private transformDataOptimized(dataView: DataView): void {
-    this.debugLog("Transforming data with enhanced optimization...");
-    const startTime = performance.now();
-
-    this.allTasksData = [];
-    this.relationships = [];
-    this.taskIdToTask.clear();
-    this.predecessorIndex.clear();
-    this.relationshipIndex.clear();
-    this.relationshipByPredecessor.clear();
-    this.dataDate = null;
-
-    if (!dataView.table?.rows || !dataView.metadata?.columns) {
-        console.error("Data transformation failed: No table data or columns found.");
-        return;
-    }
-
-    const rows = dataView.table.rows;
-    const columns = dataView.metadata.columns;
-
-    const idIdx = this.getColumnIndex(dataView, "taskId");
-    if (idIdx !== -1) {
-        this.taskIdQueryName = dataView.metadata.columns[idIdx].queryName || null;
-        const match = this.taskIdQueryName
-            ? this.taskIdQueryName.match(/([^\[]+)\[([^\]]+)\]/)
-            : null;
-        if (match) {
-            this.taskIdTable = match[1];
-            this.taskIdColumn = match[2];
-        } else if (this.taskIdQueryName) {
-            const parts = this.taskIdQueryName.split(".");
-            this.taskIdTable = parts.length > 1 ? parts[0] : null;
-            this.taskIdColumn = parts[parts.length - 1];
+            this.debugLog(`Forward path from ${sourceTaskId}: ${selectedChain.tasks.size} tasks, ` +
+                `${this.allDrivingChains.length} chains found`);
         } else {
-            this.taskIdTable = null;
-            this.taskIdColumn = null;
+
+            sourceTask.isCritical = true;
+            sourceTask.isCriticalByFloat = true;
+            this.debugLog(`No forward driving path from ${sourceTaskId}. Task marked as critical endpoint.`);
         }
+
+        this.updatePathInfoLabel();
     }
 
-    const predIdIdx = this.getColumnIndex(dataView, "predecessorId");
-    const relTypeIdx = this.getColumnIndex(dataView, "relationshipType");
-    const relLagIdx = this.getColumnIndex(dataView, "relationshipLag");
-    const relFreeFloatIdx = this.getColumnIndex(dataView, "relationshipFreeFloat");
-    const dataDateIdx = this.getColumnIndex(dataView, "dataDate");
+    /**
+     * Traces backward from a target task to find all predecessor tasks (Float-Based mode)
+     */
+    private identifyPredecessorTasksFloatBased(targetTaskId: string): Set<string> {
+        const tasksInPath = new Set<string>();
+        tasksInPath.add(targetTaskId);
 
-    if (idIdx === -1) {
-        console.error("Data transformation failed: Missing Task ID column.");
-        this.displayMessage("Missing essential data fields.");
-        return;
+        const queue: string[] = [targetTaskId];
+        const visited = new Set<string>();
+        visited.add(targetTaskId);
+
+        const MAX_TASKS = 10000;
+        const MAX_ITERATIONS = 50000;
+        let iterations = 0;
+
+        while (queue.length > 0 && iterations < MAX_ITERATIONS) {
+            iterations++;
+
+            if (tasksInPath.size > MAX_TASKS) {
+                console.warn(`Backward trace from ${targetTaskId} hit task limit (${MAX_TASKS}). Stopping to prevent memory exhaustion.`);
+                break;
+            }
+
+            const currentTaskId = queue.shift()!;
+            const task = this.taskIdToTask.get(currentTaskId);
+            if (!task) continue;
+
+            for (const predId of task.predecessorIds) {
+                if (!visited.has(predId)) {
+                    const predecessor = this.taskIdToTask.get(predId);
+                    if (!predecessor) continue;
+
+                    tasksInPath.add(predId);
+                    visited.add(predId);
+                    queue.push(predId);
+                }
+            }
+        }
+
+        if (iterations >= MAX_ITERATIONS) {
+            console.warn(`Backward trace from ${targetTaskId} hit iteration limit (${MAX_ITERATIONS}). Network may contain cycles or be extremely large.`);
+        }
+
+        this.debugLog(`Float-Based backward trace from ${targetTaskId}: found ${tasksInPath.size} tasks in ${iterations} iterations`);
+        return tasksInPath;
     }
 
-    const taskDataMap = new Map<
-        string,
-        {
-            rows: any[];
-            task: Task | null;
-            rowIndex: number;
-            relationships: Array<{
-                predId: string;
-                relType: string;
-                lag: number | null;
-                freeFloat: number | null;
-            }>;
+    /**
+     * Traces forward from a source task to find all successor tasks (Float-Based mode)
+     * OPTIMIZED: Added safety limits to prevent memory exhaustion
+     */
+    private identifySuccessorTasksFloatBased(sourceTaskId: string): Set<string> {
+        const tasksInPath = new Set<string>();
+        tasksInPath.add(sourceTaskId);
+
+        const queue: string[] = [sourceTaskId];
+        const visited = new Set<string>();
+        visited.add(sourceTaskId);
+
+        const MAX_TASKS = 10000;
+        const MAX_ITERATIONS = 50000;
+        let iterations = 0;
+
+        while (queue.length > 0 && iterations < MAX_ITERATIONS) {
+            iterations++;
+
+            if (tasksInPath.size > MAX_TASKS) {
+                console.warn(`Forward trace from ${sourceTaskId} hit task limit (${MAX_TASKS}). Stopping to prevent memory exhaustion.`);
+                break;
+            }
+
+            const currentTaskId = queue.shift()!;
+
+            const successorIds = this.predecessorIndex.get(currentTaskId) || new Set();
+
+            for (const succId of successorIds) {
+                if (!visited.has(succId)) {
+                    const successor = this.taskIdToTask.get(succId);
+                    if (!successor) continue;
+
+                    tasksInPath.add(succId);
+                    visited.add(succId);
+                    queue.push(succId);
+                }
+            }
         }
-    >();
 
-    const allPredecessorIds = new Set<string>();
+        if (iterations >= MAX_ITERATIONS) {
+            console.warn(`Forward trace from ${sourceTaskId} hit iteration limit (${MAX_ITERATIONS}). Network may contain cycles or be extremely large.`);
+        }
 
-    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-        const row = rows[rowIndex];
+        this.debugLog(`Float-Based forward trace from ${sourceTaskId}: found ${tasksInPath.size} tasks in ${iterations} iterations`);
+        return tasksInPath;
+    }
+
+    /**
+     * Extracts and validates task ID from a data row
+     */
+    private extractTaskId(row: any[]): string | null {
+        const idIdx = this.getColumnIndex(this.lastUpdateOptions?.dataViews[0], 'taskId');
+        if (idIdx === -1) return null;
+
+        const rawTaskId = row[idIdx];
+        if (rawTaskId == null || (typeof rawTaskId !== 'string' && typeof rawTaskId !== 'number')) {
+            return null;
+        }
+
+        const taskIdStr = String(rawTaskId).trim();
+        return taskIdStr === '' ? null : taskIdStr;
+    }
+
+    /**
+     * Extracts predecessor ID from a data row
+     */
+    private extractPredecessorId(row: any[]): string | null {
+        const predIdIdx = this.getColumnIndex(this.lastUpdateOptions?.dataViews[0], 'predecessorId');
+        if (predIdIdx === -1) return null;
+
+        const rawPredId = row[predIdIdx];
+        if (rawPredId == null || (typeof rawPredId !== 'string' && typeof rawPredId !== 'number')) {
+            return null;
+        }
+
+        const predIdStr = String(rawPredId).trim();
+        return predIdStr === '' ? null : predIdStr;
+    }
+
+    private createTaskFromRow(row: any[], rowIndex: number): Task | null {
+        const dataView = this.lastUpdateOptions?.dataViews?.[0];
+        if (!dataView) return null;
+
         const taskId = this.extractTaskId(row);
-        if (!taskId) {
-            console.warn(`Skipping row ${rowIndex}: Invalid or missing Task ID.`);
-            continue;
+        if (!taskId) return null;
+
+        const nameIdx = this.getColumnIndex(dataView, 'taskName');
+        const typeIdx = this.getColumnIndex(dataView, 'taskType');
+        const durationIdx = this.getColumnIndex(dataView, 'duration');
+        const startDateIdx = this.getColumnIndex(dataView, 'startDate');
+        const finishDateIdx = this.getColumnIndex(dataView, 'finishDate');
+        const totalFloatIdx = this.getColumnIndex(dataView, 'taskTotalFloat');
+        const taskFreeFloatIdx = this.getColumnIndex(dataView, 'taskFreeFloat');
+        const baselineStartDateIdx = this.getColumnIndex(dataView, 'baselineStartDate');
+        const baselineFinishDateIdx = this.getColumnIndex(dataView, 'baselineFinishDate');
+        const previousUpdateStartDateIdx = this.getColumnIndex(dataView, 'previousUpdateStartDate');
+        const previousUpdateFinishDateIdx = this.getColumnIndex(dataView, 'previousUpdateFinishDate');
+
+        const taskName = (nameIdx !== -1 && row[nameIdx] != null)
+            ? String(row[nameIdx]).trim()
+            : `Task ${taskId}`;
+
+        const taskType = (typeIdx !== -1 && row[typeIdx] != null)
+            ? String(row[typeIdx]).trim()
+            : 'TT_Task';
+
+        let duration = 0;
+        if (durationIdx !== -1 && row[durationIdx] != null) {
+            const parsedDuration = Number(row[durationIdx]);
+            if (!isNaN(parsedDuration) && isFinite(parsedDuration)) {
+                duration = parsedDuration;
+            }
+        }
+        if (taskType === 'TT_Mile' || taskType === 'TT_FinMile') {
+            duration = 0;
+        }
+        duration = Math.max(0, duration);
+
+        let userProvidedTotalFloat: number | undefined = undefined;
+        if (totalFloatIdx !== -1 && row[totalFloatIdx] != null) {
+            const parsedFloat = Number(row[totalFloatIdx]);
+            if (!isNaN(parsedFloat) && isFinite(parsedFloat)) {
+                userProvidedTotalFloat = parsedFloat;
+            }
         }
 
-        if (dataDateIdx !== -1 && row[dataDateIdx] != null) {
-            const parsedDataDate = this.parseDate(row[dataDateIdx]);
-            if (parsedDataDate) {
-                const ts = parsedDataDate.getTime();
-                if (this.dataDate === null || ts > this.dataDate.getTime()) {
-                    this.dataDate = parsedDataDate;
+        let taskFreeFloat: number | undefined = undefined;
+        if (taskFreeFloatIdx !== -1 && row[taskFreeFloatIdx] != null) {
+            const parsedFloat = Number(row[taskFreeFloatIdx]);
+            if (!isNaN(parsedFloat) && isFinite(parsedFloat)) {
+                taskFreeFloat = parsedFloat;
+            }
+        }
+
+        const startDate = (startDateIdx !== -1 && row[startDateIdx] != null)
+            ? this.parseDate(row[startDateIdx])
+            : null;
+        const finishDate = (finishDateIdx !== -1 && row[finishDateIdx] != null)
+            ? this.parseDate(row[finishDateIdx])
+            : null;
+
+        const baselineStartDate = (baselineStartDateIdx !== -1 && row[baselineStartDateIdx] != null)
+            ? this.parseDate(row[baselineStartDateIdx])
+            : null;
+        const baselineFinishDate = (baselineFinishDateIdx !== -1 && row[baselineFinishDateIdx] != null)
+            ? this.parseDate(row[baselineFinishDateIdx])
+            : null;
+
+        const previousUpdateStartDate = (previousUpdateStartDateIdx !== -1 && row[previousUpdateStartDateIdx] != null)
+            ? this.parseDate(row[previousUpdateStartDateIdx])
+            : null;
+        const previousUpdateFinishDate = (previousUpdateFinishDateIdx !== -1 && row[previousUpdateFinishDateIdx] != null)
+            ? this.parseDate(row[previousUpdateFinishDateIdx])
+            : null;
+
+        const legendIdx = this.getColumnIndex(dataView, 'legend');
+        const legendValue = (legendIdx !== -1 && row[legendIdx] != null)
+            ? String(row[legendIdx])
+            : undefined;
+
+        const wbsLevels: string[] = [];
+        for (const colIdx of this.wbsLevelColumnIndices) {
+            if (colIdx !== -1 && row[colIdx] != null) {
+                const value = String(row[colIdx]).trim();
+                if (value) {
+                    wbsLevels.push(value);
                 }
             }
         }
 
-        let taskData = taskDataMap.get(taskId);
-        if (!taskData) {
-            taskData = {
-                rows: [],
-                task: null,
-                rowIndex: rowIndex,
-                relationships: [],
-            };
-            taskDataMap.set(taskId, taskData);
-        }
+        const tooltipData = this.extractTooltipData(row, dataView);
 
-        taskData.rows.push(row);
+        const safeRowIndex = rowIndex >= 0 ? rowIndex : 0;
+        const selectionId = dataView.table
+            ? this.host.createSelectionIdBuilder().withTable(dataView.table, safeRowIndex).createSelectionId()
+            : undefined;
 
-        if (predIdIdx !== -1 && row[predIdIdx] != null) {
-            const predId = this.extractPredecessorId(row);
-            if (predId && predId !== taskId) {
-
-                allPredecessorIds.add(predId);
-
-                const relTypeRaw =
-                    relTypeIdx !== -1 && row[relTypeIdx] != null
-                        ? String(row[relTypeIdx]).trim().toUpperCase()
-                        : "FS";
-                const validRelTypes = ["FS", "SS", "FF", "SF"];
-                const relType = validRelTypes.includes(relTypeRaw)
-                    ? relTypeRaw
-                    : "FS";
-
-                let relLag: number | null = null;
-                if (relLagIdx !== -1 && row[relLagIdx] != null) {
-                    const parsedLag = Number(row[relLagIdx]);
-                    if (!isNaN(parsedLag) && isFinite(parsedLag)) {
-                        relLag = parsedLag;
-                    }
-                }
-
-                let relFreeFloat: number | null = null;
-                if (relFreeFloatIdx !== -1 && row[relFreeFloatIdx] != null) {
-                    const parsedFreeFloat = Number(row[relFreeFloatIdx]);
-                    if (!isNaN(parsedFreeFloat) && isFinite(parsedFreeFloat)) {
-                        relFreeFloat = parsedFreeFloat;
-                    }
-                }
-
-                const existingRel = taskData.relationships.find(
-                    (r) => r.predId === predId
-                );
-                if (!existingRel) {
-                    taskData.relationships.push({
-                        predId: predId,
-                        relType: relType,
-                        lag: relLag,
-                        freeFloat: relFreeFloat,
-                    });
-                }
-            }
-        }
-    }
-
-    let syntheticTaskCount = 0;
-    for (const predId of allPredecessorIds) {
-        if (!taskDataMap.has(predId)) {
-            syntheticTaskCount++;
-        }
-    }
-
-    this.allTasksData = new Array(taskDataMap.size + syntheticTaskCount);
-    this.relationships = [];
-
-    const successorMap = new Map<string, Task[]>();
-    let taskIndex = 0;
-
-    for (const [taskId, taskData] of taskDataMap) {
-
-        if (taskData.rows.length > 0 && !taskData.task) {
-            taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex);
-        }
-        if (!taskData.task) continue;
-
-        const task = taskData.task;
-
-        if (!this.predecessorIndex.has(taskId)) {
-            this.predecessorIndex.set(taskId, new Set());
-        }
-
-        for (const rel of taskData.relationships) {
-            task.predecessorIds.push(rel.predId);
-            task.relationshipTypes[rel.predId] = rel.relType;
-            task.relationshipLags[rel.predId] = rel.lag;
-
-            if (!this.predecessorIndex.has(rel.predId)) {
-                this.predecessorIndex.set(rel.predId, new Set());
-            }
-            this.predecessorIndex.get(rel.predId)!.add(taskId);
-
-            if (!successorMap.has(rel.predId)) {
-                successorMap.set(rel.predId, []);
-            }
-            successorMap.get(rel.predId)!.push(task);
-
-            const relationship: Relationship = {
-                predecessorId: rel.predId,
-                successorId: taskId,
-                type: rel.relType,
-                freeFloat: rel.freeFloat,
-                lag: rel.lag,
-                isCritical: false,
-            };
-            this.relationships.push(relationship);
-
-            if (!this.relationshipIndex.has(taskId)) {
-                this.relationshipIndex.set(taskId, []);
-            }
-            this.relationshipIndex.get(taskId)!.push(relationship);
-
-            if (!this.relationshipByPredecessor.has(rel.predId)) {
-                this.relationshipByPredecessor.set(rel.predId, []);
-            }
-            this.relationshipByPredecessor.get(rel.predId)!.push(relationship);
-        }
-
-        this.allTasksData[taskIndex++] = task;
-        this.taskIdToTask.set(taskId, task);
-    }
-
-    for (const predId of allPredecessorIds) {
-
-        if (this.taskIdToTask.has(predId)) {
-            continue;
-        }
-
-        const syntheticTask: Task = {
-            id: predId,
-            internalId: predId,
-            name: String(predId),
-            type: "Synthetic",
-            duration: 0,
-            userProvidedTotalFloat: undefined,
-            taskFreeFloat: undefined,
+        const task: Task = {
+            id: row[this.getColumnIndex(dataView, 'taskId')],
+            internalId: taskId,
+            name: taskName,
+            type: taskType,
+            duration: duration,
+            userProvidedTotalFloat: userProvidedTotalFloat,
+            taskFreeFloat: taskFreeFloat,
             predecessorIds: [],
             predecessors: [],
             successors: [],
             relationshipTypes: {},
             relationshipLags: {},
             earlyStart: 0,
-            earlyFinish: 0,
+            earlyFinish: duration,
             lateStart: Infinity,
             lateFinish: Infinity,
             totalFloat: Infinity,
             isCritical: false,
             isCriticalByFloat: false,
             isCriticalByRel: false,
-            startDate: null,
-            finishDate: null,
-            baselineStartDate: null,
-            baselineFinishDate: null,
-            previousUpdateStartDate: null,
-            previousUpdateFinishDate: null,
-            tooltipData: undefined,
-            legendValue: undefined,
+            startDate: startDate,
+            finishDate: finishDate,
+            baselineStartDate: baselineStartDate,
+            baselineFinishDate: baselineFinishDate,
+            previousUpdateStartDate: previousUpdateStartDate,
+            previousUpdateFinishDate: previousUpdateFinishDate,
+            tooltipData: tooltipData,
+            selectionId: selectionId,
+            legendValue: legendValue,
+            wbsLevels: wbsLevels.length > 0 ? wbsLevels : undefined
         };
 
-        this.allTasksData[taskIndex++] = syntheticTask;
-        this.taskIdToTask.set(predId, syntheticTask);
+        return task;
     }
 
-    if (taskIndex < this.allTasksData.length) {
-        this.allTasksData.length = taskIndex;
-    }
+    /**
+     * Extracts tooltip data from a row
+     */
+    private extractTooltipData(row: any[], dataView: DataView): Array<{ key: string, value: PrimitiveValue }> | undefined {
+        const columns = dataView.metadata?.columns;
+        if (!columns) return undefined;
 
-    for (const task of this.allTasksData) {
+        const tooltipColumns: Array<{ column: any, rowIndex: number }> = [];
 
-        task.successors = successorMap.get(task.internalId) || [];
+        columns.forEach((column, index) => {
+            if (column.roles?.tooltip) {
 
-        task.predecessors = task.predecessorIds
-            .map((id) => this.taskIdToTask.get(id))
-            .filter((t) => t !== undefined) as Task[];
-    }
-
-    this.processLegendData(dataView);
-
-    this.processWBSData();
-
-    this.validateDataQuality();
-
-    const endTime = performance.now();
-    this.debugLog(
-        `Data transformation complete in ${endTime - startTime}ms. ` +
-            `Found ${this.allTasksData.length} tasks and ${this.relationships.length} relationships.`
-    );
-}
-
-/**
- * DATA QUALITY: Validates data quality and reports issues to the user
- * Checks for:
- * - Duplicate Task IDs
- * - Circular dependencies
- * - Invalid date ranges (start after finish)
- * - Tasks with no dates
- */
-private validateDataQuality(): void {
-    const warnings: string[] = [];
-
-    const seenIds = new Map<string, number>();
-    for (const task of this.allTasksData) {
-        const count = seenIds.get(task.id as string) || 0;
-        seenIds.set(task.id as string, count + 1);
-    }
-
-    const duplicates = Array.from(seenIds.entries())
-        .filter(([_id, count]) => count > 1)
-        .map(([id, count]) => `${id} (${count}x)`);
-
-    if (duplicates.length > 0) {
-        warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
-    }
-
-    const circularPaths = this.detectCircularDependencies();
-    if (circularPaths.length > 0) {
-        warnings.push(`Circular dependencies detected in ${circularPaths.length} path(s): ${circularPaths.slice(0, 3).join(', ')}${circularPaths.length > 3 ? '...' : ''}`);
-    }
-
-    const invalidDates: string[] = [];
-    for (const task of this.allTasksData) {
-        if (task.startDate instanceof Date && task.finishDate instanceof Date &&
-            !isNaN(task.startDate.getTime()) && !isNaN(task.finishDate.getTime())) {
-            if (task.startDate > task.finishDate) {
-                invalidDates.push(task.name);
+                if (index === 0 || !this.tooltipDebugLogged) {
+                    this.debugLog(`Tooltip column: ${column.displayName}, index: ${column.index}, queryName: ${column.queryName}`);
+                }
+                tooltipColumns.push({
+                    column: column,
+                    rowIndex: index
+                });
             }
-        }
-    }
-
-    if (invalidDates.length > 0) {
-        warnings.push(`Invalid date ranges (start > finish): ${invalidDates.slice(0, 5).join(', ')}${invalidDates.length > 5 ? ` and ${invalidDates.length - 5} more` : ''}`);
-    }
-
-    const noDateTasks = this.allTasksData.filter(task =>
-        !(task.startDate instanceof Date && !isNaN(task.startDate.getTime())) &&
-        !(task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()))
-    );
-
-    if (noDateTasks.length > 0 && noDateTasks.length < this.allTasksData.length) {
-        warnings.push(`${noDateTasks.length} task(s) have no valid dates and will not be displayed`);
-    }
-
-    const syntheticTasks = this.allTasksData.filter(task => task.type === "Synthetic");
-    if (syntheticTasks.length > 0) {
-        const syntheticIds = syntheticTasks.map(t => t.id).slice(0, 5);
-        warnings.push(`${syntheticTasks.length} task(s) referenced as predecessors but missing from task list: ${syntheticIds.join(', ')}${syntheticTasks.length > 5 ? '...' : ''}. Add these tasks to your data source with proper Task Name values.`);
-    }
-
-    if (warnings.length > 0) {
-        console.warn('Data Quality Issues Detected:');
-        warnings.forEach((warning, index) => {
-            console.warn(`  ${index + 1}. ${warning}`);
         });
-    }
-}
 
-/**
- * Detects circular dependencies in the task graph
- * @returns Array of circular dependency paths as strings
- */
-private detectCircularDependencies(): string[] {
-    const circularPaths: string[] = [];
-    const seenCycles = new Set<string>();
-    const visitState = new Map<string, 0 | 1 | 2>();
-    const parent = new Map<string, string | null>();
+        this.tooltipDebugLogged = true;
 
-    type StackFrame = { id: string; preds: string[]; index: number };
-    const stack: StackFrame[] = [];
+        tooltipColumns.sort((a, b) => {
+            const aQuery = a.column.queryName || '';
+            const bQuery = b.column.queryName || '';
 
-    const pushNode = (taskId: string, parentId: string | null) => {
-        visitState.set(taskId, 1);
-        parent.set(taskId, parentId);
-        const preds = this.taskIdToTask.get(taskId)?.predecessorIds ?? [];
-        stack.push({ id: taskId, preds, index: 0 });
-    };
+            const aMatch = aQuery.match(/\.tooltip\.(\d+)$/);
+            const bMatch = bQuery.match(/\.tooltip\.(\d+)$/);
 
-    for (const task of this.allTasksData) {
-        const startId = task.internalId;
-        if (visitState.get(startId)) {
-            continue;
+            if (aMatch && bMatch) {
+                return parseInt(aMatch[1]) - parseInt(bMatch[1]);
+            }
+
+            if (a.column.index !== undefined && b.column.index !== undefined) {
+                return a.column.index - b.column.index;
+            }
+
+            return a.rowIndex - b.rowIndex;
+        });
+
+        const tooltipData: Array<{ key: string, value: PrimitiveValue }> = [];
+
+        for (const item of tooltipColumns) {
+            const value = row[item.rowIndex];
+            if (value !== null && value !== undefined) {
+
+                if (item.column.type?.dateTime || this.mightBeDate(value)) {
+                    const parsedDate = this.parseDate(value);
+                    if (parsedDate) {
+                        tooltipData.push({
+                            key: item.column.displayName || `Field ${item.rowIndex}`,
+                            value: parsedDate
+                        });
+                        continue;
+                    }
+                }
+
+                tooltipData.push({
+                    key: item.column.displayName || `Field ${item.rowIndex}`,
+                    value: value
+                });
+            }
         }
 
-        pushNode(startId, null);
+        return tooltipData.length > 0 ? tooltipData : undefined;
+    }
 
-        while (stack.length > 0) {
-            const frame = stack[stack.length - 1];
+    private transformDataOptimized(dataView: DataView): void {
+        this.debugLog("Transforming data with enhanced optimization...");
+        const startTime = performance.now();
 
-            if (frame.index >= frame.preds.length) {
-                visitState.set(frame.id, 2);
-                stack.pop();
+        this.allTasksData = [];
+        this.relationships = [];
+        this.taskIdToTask.clear();
+        this.predecessorIndex.clear();
+        this.relationshipIndex.clear();
+        this.relationshipByPredecessor.clear();
+        this.dataDate = null;
+
+        if (!dataView.table?.rows || !dataView.metadata?.columns) {
+            console.error("Data transformation failed: No table data or columns found.");
+            return;
+        }
+
+        const rows = dataView.table.rows;
+        const columns = dataView.metadata.columns;
+
+        const idIdx = this.getColumnIndex(dataView, "taskId");
+        if (idIdx !== -1) {
+            this.taskIdQueryName = dataView.metadata.columns[idIdx].queryName || null;
+            const match = this.taskIdQueryName
+                ? this.taskIdQueryName.match(/([^\[]+)\[([^\]]+)\]/)
+                : null;
+            if (match) {
+                this.taskIdTable = match[1];
+                this.taskIdColumn = match[2];
+            } else if (this.taskIdQueryName) {
+                const parts = this.taskIdQueryName.split(".");
+                this.taskIdTable = parts.length > 1 ? parts[0] : null;
+                this.taskIdColumn = parts[parts.length - 1];
+            } else {
+                this.taskIdTable = null;
+                this.taskIdColumn = null;
+            }
+        }
+
+        const predIdIdx = this.getColumnIndex(dataView, "predecessorId");
+        const relTypeIdx = this.getColumnIndex(dataView, "relationshipType");
+        const relLagIdx = this.getColumnIndex(dataView, "relationshipLag");
+        const relFreeFloatIdx = this.getColumnIndex(dataView, "relationshipFreeFloat");
+        const dataDateIdx = this.getColumnIndex(dataView, "dataDate");
+
+        if (idIdx === -1) {
+            console.error("Data transformation failed: Missing Task ID column.");
+            this.displayMessage("Missing essential data fields.");
+            return;
+        }
+
+        const taskDataMap = new Map<
+            string,
+            {
+                rows: any[];
+                task: Task | null;
+                rowIndex: number;
+                relationships: Array<{
+                    predId: string;
+                    relType: string;
+                    lag: number | null;
+                    freeFloat: number | null;
+                }>;
+            }
+        >();
+
+        const allPredecessorIds = new Set<string>();
+
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+            const row = rows[rowIndex];
+            const taskId = this.extractTaskId(row);
+            if (!taskId) {
+                console.warn(`Skipping row ${rowIndex}: Invalid or missing Task ID.`);
                 continue;
             }
 
-            const predId = frame.preds[frame.index++];
-            if (!this.taskIdToTask.has(predId)) {
+            if (dataDateIdx !== -1 && row[dataDateIdx] != null) {
+                const parsedDataDate = this.parseDate(row[dataDateIdx]);
+                if (parsedDataDate) {
+                    const ts = parsedDataDate.getTime();
+                    if (this.dataDate === null || ts > this.dataDate.getTime()) {
+                        this.dataDate = parsedDataDate;
+                    }
+                }
+            }
+
+            let taskData = taskDataMap.get(taskId);
+            if (!taskData) {
+                taskData = {
+                    rows: [],
+                    task: null,
+                    rowIndex: rowIndex,
+                    relationships: [],
+                };
+                taskDataMap.set(taskId, taskData);
+            }
+
+            taskData.rows.push(row);
+
+            if (predIdIdx !== -1 && row[predIdIdx] != null) {
+                const predId = this.extractPredecessorId(row);
+                if (predId && predId !== taskId) {
+
+                    allPredecessorIds.add(predId);
+
+                    const relTypeRaw =
+                        relTypeIdx !== -1 && row[relTypeIdx] != null
+                            ? String(row[relTypeIdx]).trim().toUpperCase()
+                            : "FS";
+                    const validRelTypes = ["FS", "SS", "FF", "SF"];
+                    const relType = validRelTypes.includes(relTypeRaw)
+                        ? relTypeRaw
+                        : "FS";
+
+                    let relLag: number | null = null;
+                    if (relLagIdx !== -1 && row[relLagIdx] != null) {
+                        const parsedLag = Number(row[relLagIdx]);
+                        if (!isNaN(parsedLag) && isFinite(parsedLag)) {
+                            relLag = parsedLag;
+                        }
+                    }
+
+                    let relFreeFloat: number | null = null;
+                    if (relFreeFloatIdx !== -1 && row[relFreeFloatIdx] != null) {
+                        const parsedFreeFloat = Number(row[relFreeFloatIdx]);
+                        if (!isNaN(parsedFreeFloat) && isFinite(parsedFreeFloat)) {
+                            relFreeFloat = parsedFreeFloat;
+                        }
+                    }
+
+                    const existingRel = taskData.relationships.find(
+                        (r) => r.predId === predId
+                    );
+                    if (!existingRel) {
+                        taskData.relationships.push({
+                            predId: predId,
+                            relType: relType,
+                            lag: relLag,
+                            freeFloat: relFreeFloat,
+                        });
+                    }
+                }
+            }
+        }
+
+        let syntheticTaskCount = 0;
+        for (const predId of allPredecessorIds) {
+            if (!taskDataMap.has(predId)) {
+                syntheticTaskCount++;
+            }
+        }
+
+        this.allTasksData = new Array(taskDataMap.size + syntheticTaskCount);
+        this.relationships = [];
+
+        const successorMap = new Map<string, Task[]>();
+        let taskIndex = 0;
+
+        for (const [taskId, taskData] of taskDataMap) {
+
+            if (taskData.rows.length > 0 && !taskData.task) {
+                taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex);
+            }
+            if (!taskData.task) continue;
+
+            const task = taskData.task;
+
+            if (!this.predecessorIndex.has(taskId)) {
+                this.predecessorIndex.set(taskId, new Set());
+            }
+
+            for (const rel of taskData.relationships) {
+                task.predecessorIds.push(rel.predId);
+                task.relationshipTypes[rel.predId] = rel.relType;
+                task.relationshipLags[rel.predId] = rel.lag;
+
+                if (!this.predecessorIndex.has(rel.predId)) {
+                    this.predecessorIndex.set(rel.predId, new Set());
+                }
+                this.predecessorIndex.get(rel.predId)!.add(taskId);
+
+                if (!successorMap.has(rel.predId)) {
+                    successorMap.set(rel.predId, []);
+                }
+                successorMap.get(rel.predId)!.push(task);
+
+                const relationship: Relationship = {
+                    predecessorId: rel.predId,
+                    successorId: taskId,
+                    type: rel.relType,
+                    freeFloat: rel.freeFloat,
+                    lag: rel.lag,
+                    isCritical: false,
+                };
+                this.relationships.push(relationship);
+
+                if (!this.relationshipIndex.has(taskId)) {
+                    this.relationshipIndex.set(taskId, []);
+                }
+                this.relationshipIndex.get(taskId)!.push(relationship);
+
+                if (!this.relationshipByPredecessor.has(rel.predId)) {
+                    this.relationshipByPredecessor.set(rel.predId, []);
+                }
+                this.relationshipByPredecessor.get(rel.predId)!.push(relationship);
+            }
+
+            this.allTasksData[taskIndex++] = task;
+            this.taskIdToTask.set(taskId, task);
+        }
+
+        for (const predId of allPredecessorIds) {
+
+            if (this.taskIdToTask.has(predId)) {
                 continue;
             }
 
-            const state = visitState.get(predId) ?? 0;
-            if (state === 0) {
-                pushNode(predId, frame.id);
-            } else if (state === 1) {
-                const cycle: string[] = [predId];
-                let current: string | null = frame.id;
+            const syntheticTask: Task = {
+                id: predId,
+                internalId: predId,
+                name: String(predId),
+                type: "Synthetic",
+                duration: 0,
+                userProvidedTotalFloat: undefined,
+                taskFreeFloat: undefined,
+                predecessorIds: [],
+                predecessors: [],
+                successors: [],
+                relationshipTypes: {},
+                relationshipLags: {},
+                earlyStart: 0,
+                earlyFinish: 0,
+                lateStart: Infinity,
+                lateFinish: Infinity,
+                totalFloat: Infinity,
+                isCritical: false,
+                isCriticalByFloat: false,
+                isCriticalByRel: false,
+                startDate: null,
+                finishDate: null,
+                baselineStartDate: null,
+                baselineFinishDate: null,
+                previousUpdateStartDate: null,
+                previousUpdateFinishDate: null,
+                tooltipData: undefined,
+                legendValue: undefined,
+            };
 
-                while (current && current !== predId) {
-                    cycle.push(current);
-                    current = parent.get(current) ?? null;
-                }
+            this.allTasksData[taskIndex++] = syntheticTask;
+            this.taskIdToTask.set(predId, syntheticTask);
+        }
 
-                cycle.push(predId);
-                cycle.reverse();
+        if (taskIndex < this.allTasksData.length) {
+            this.allTasksData.length = taskIndex;
+        }
 
-                const key = cycle.join('->');
-                if (!seenCycles.has(key)) {
-                    seenCycles.add(key);
-                    circularPaths.push(cycle.join(' -> '));
+        for (const task of this.allTasksData) {
+
+            task.successors = successorMap.get(task.internalId) || [];
+
+            task.predecessors = task.predecessorIds
+                .map((id) => this.taskIdToTask.get(id))
+                .filter((t) => t !== undefined) as Task[];
+        }
+
+        this.processLegendData(dataView);
+
+        this.processWBSData();
+
+        this.validateDataQuality();
+
+        const endTime = performance.now();
+        this.debugLog(
+            `Data transformation complete in ${endTime - startTime}ms. ` +
+            `Found ${this.allTasksData.length} tasks and ${this.relationships.length} relationships.`
+        );
+    }
+
+    /**
+     * DATA QUALITY: Validates data quality and reports issues to the user
+     * Checks for:
+     * - Duplicate Task IDs
+     * - Circular dependencies
+     * - Invalid date ranges (start after finish)
+     * - Tasks with no dates
+     */
+    private validateDataQuality(): void {
+        const warnings: string[] = [];
+
+        const seenIds = new Map<string, number>();
+        for (const task of this.allTasksData) {
+            const count = seenIds.get(task.id as string) || 0;
+            seenIds.set(task.id as string, count + 1);
+        }
+
+        const duplicates = Array.from(seenIds.entries())
+            .filter(([_id, count]) => count > 1)
+            .map(([id, count]) => `${id} (${count}x)`);
+
+        if (duplicates.length > 0) {
+            warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
+        }
+
+        const circularPaths = this.detectCircularDependencies();
+        if (circularPaths.length > 0) {
+            warnings.push(`Circular dependencies detected in ${circularPaths.length} path(s): ${circularPaths.slice(0, 3).join(', ')}${circularPaths.length > 3 ? '...' : ''}`);
+        }
+
+        const invalidDates: string[] = [];
+        for (const task of this.allTasksData) {
+            if (task.startDate instanceof Date && task.finishDate instanceof Date &&
+                !isNaN(task.startDate.getTime()) && !isNaN(task.finishDate.getTime())) {
+                if (task.startDate > task.finishDate) {
+                    invalidDates.push(task.name);
                 }
             }
         }
-    }
 
-    return circularPaths;
-}
-
-/**
- * Process legend data and assign colors to tasks based on legend values
- */
-private processLegendData(dataView: DataView): void {
-
-    this.legendDataExists = false;
-    this.legendColorMap.clear();
-    this.legendCategories = [];
-    this.legendSelectionIds.clear();
-    this.legendFieldName = "";
-
-    const columns = dataView.metadata?.columns;
-    if (!columns) return;
-
-    const legendColumn = columns.find(col => col.roles?.legend);
-    if (!legendColumn) {
-
-        for (const task of this.allTasksData) {
-            task.legendColor = undefined;
+        if (invalidDates.length > 0) {
+            warnings.push(`Invalid date ranges (start > finish): ${invalidDates.slice(0, 5).join(', ')}${invalidDates.length > 5 ? ` and ${invalidDates.length - 5} more` : ''}`);
         }
-        return;
-    }
 
-    this.legendFieldName = legendColumn.displayName || "Legend";
-    this.legendDataExists = true;
+        const noDateTasks = this.allTasksData.filter(task =>
+            !(task.startDate instanceof Date && !isNaN(task.startDate.getTime())) &&
+            !(task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()))
+        );
 
-    const legendValueSet = new Set<string>();
-    for (const task of this.allTasksData) {
-        if (task.legendValue) {
-            legendValueSet.add(task.legendValue);
+        if (noDateTasks.length > 0 && noDateTasks.length < this.allTasksData.length) {
+            warnings.push(`${noDateTasks.length} task(s) have no valid dates and will not be displayed`);
+        }
+
+        const syntheticTasks = this.allTasksData.filter(task => task.type === "Synthetic");
+        if (syntheticTasks.length > 0) {
+            const syntheticIds = syntheticTasks.map(t => t.id).slice(0, 5);
+            warnings.push(`${syntheticTasks.length} task(s) referenced as predecessors but missing from task list: ${syntheticIds.join(', ')}${syntheticTasks.length > 5 ? '...' : ''}. Add these tasks to your data source with proper Task Name values.`);
+        }
+
+        if (warnings.length > 0) {
+            console.warn('Data Quality Issues Detected:');
+            warnings.forEach((warning, index) => {
+                console.warn(`  ${index + 1}. ${warning}`);
+            });
         }
     }
 
-    this.legendCategories = Array.from(legendValueSet);
+    /**
+     * Detects circular dependencies in the task graph
+     * @returns Array of circular dependency paths as strings
+     */
+    private detectCircularDependencies(): string[] {
+        const circularPaths: string[] = [];
+        const seenCycles = new Set<string>();
+        const visitState = new Map<string, 0 | 1 | 2>();
+        const parent = new Map<string, string | null>();
 
-    const sortOrder = this.settings?.legend?.sortOrder?.value?.value || "none";
-    if (sortOrder === "ascending") {
-        this.legendCategories.sort((a, b) => a.localeCompare(b));
-    } else if (sortOrder === "descending") {
-        this.legendCategories.sort((a, b) => b.localeCompare(a));
-    }
+        type StackFrame = { id: string; preds: string[]; index: number };
+        const stack: StackFrame[] = [];
 
-    const legendColorsObjects = dataView.metadata?.objects?.legendColors;
-    const useHighContrast = this.highContrastMode;
-    for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
-        const category = this.legendCategories[i];
-        const colorKey = `color${i + 1}`;
-
-        if (useHighContrast) {
-            this.legendColorMap.set(category, this.highContrastForeground);
-            continue;
-        }
-
-        const persistedColor = legendColorsObjects?.[colorKey];
-
-        if (persistedColor && typeof persistedColor === 'object' && 'solid' in persistedColor) {
-
-            this.legendColorMap.set(category, (persistedColor as any).solid.color);
-        } else {
-
-            const defaultColor = this.host.colorPalette.getColor(category).value;
-            this.legendColorMap.set(category, defaultColor);
-        }
-    }
-
-    for (const task of this.allTasksData) {
-        if (task.legendValue) {
-            task.legendColor = this.legendColorMap.get(task.legendValue);
-        } else {
-            task.legendColor = undefined;
-        }
-    }
-
-    this.debugLog(`Legend processed: ${this.legendCategories.length} categories found`);
-}
-
-/**
- * WBS GROUPING: Processes WBS data and builds hierarchical group structure
- * Builds the WBS hierarchy from task WBS level fields and calculates summary metrics
- */
-private processWBSData(): void {
-
-    this.wbsDataExists = false;
-    this.wbsGroups = [];
-    this.wbsGroupMap.clear();
-    this.wbsRootGroups = [];
-    this.wbsAvailableLevels = [];
-
-    const hasWbsData = this.allTasksData.some(task =>
-        task.wbsLevels && task.wbsLevels.length > 0
-    );
-
-    if (!hasWbsData) {
-
-        for (const task of this.allTasksData) {
-            task.wbsGroupId = undefined;
-            task.wbsIndentLevel = 0;
-        }
-        return;
-    }
-
-    this.wbsDataExists = true;
-    const defaultExpanded = this.settings?.wbsGrouping?.defaultExpanded?.value ?? true;
-    const expandCollapseAll = this.settings?.wbsGrouping?.expandCollapseAll?.value ?? true;
-
-    const expandCollapseAllChanged = this.lastExpandCollapseAllState !== null &&
-                                      this.lastExpandCollapseAllState !== expandCollapseAll;
-    if (expandCollapseAllChanged) {
-
-        this.wbsExpandedState.clear();
-    }
-    this.lastExpandCollapseAllState = expandCollapseAll;
-
-    for (const task of this.allTasksData) {
-        const pathParts: string[] = [];
-
-        if (task.wbsLevels && task.wbsLevels.length > 0) {
-
-            for (let i = 0; i < task.wbsLevels.length; i++) {
-                const level = i + 1;
-                pathParts.push(`L${level}:${task.wbsLevels[i]}`);
-            }
-        }
-
-        if (pathParts.length > 0) {
-            task.wbsGroupId = pathParts.join('|');
-
-            task.wbsIndentLevel = pathParts.length - 1;
-        } else {
-            task.wbsGroupId = undefined;
-            task.wbsIndentLevel = 0;
-        }
-    }
-
-    const groupPaths = new Set<string>();
-
-    for (const task of this.allTasksData) {
-        if (!task.wbsGroupId) continue;
-
-        const parts = task.wbsGroupId.split('|');
-        let currentPath = '';
-        for (const part of parts) {
-            currentPath = currentPath ? `${currentPath}|${part}` : part;
-            groupPaths.add(currentPath);
-        }
-    }
-
-    for (const path of groupPaths) {
-        const parts = path.split('|');
-        const lastPart = parts[parts.length - 1];
-        const levelMatch = lastPart.match(/^L(\d+):(.+)$/);
-
-        if (!levelMatch) continue;
-
-        const level = parseInt(levelMatch[1], 10);
-        const name = levelMatch[2];
-        const parentPath = parts.length > 1 ? parts.slice(0, -1).join('|') : null;
-
-        const isExpanded = this.wbsExpandedState.has(path)
-            ? this.wbsExpandedState.get(path)!
-            : expandCollapseAll;
-
-        const group: WBSGroup = {
-            id: path,
-            level: level,
-            name: name,
-            fullPath: path,
-            parentId: parentPath,
-            children: [],
-            tasks: [],
-            allTasks: [],
-            isExpanded: isExpanded,
-            yOrder: undefined,
-            visibleTaskCount: 0,
-            summaryStartDate: null,
-            summaryFinishDate: null,
-            hasCriticalTasks: false,
-            taskCount: 0,
-            criticalStartDate: null,
-            criticalFinishDate: null,
-            hasNearCriticalTasks: false,
-            nearCriticalStartDate: null,
-            nearCriticalFinishDate: null,
-            summaryBaselineStartDate: null,
-            summaryBaselineFinishDate: null,
-            summaryPreviousUpdateStartDate: null,
-            summaryPreviousUpdateFinishDate: null
+        const pushNode = (taskId: string, parentId: string | null) => {
+            visitState.set(taskId, 1);
+            parent.set(taskId, parentId);
+            const preds = this.taskIdToTask.get(taskId)?.predecessorIds ?? [];
+            stack.push({ id: taskId, preds, index: 0 });
         };
 
-        this.wbsGroups.push(group);
-        this.wbsGroupMap.set(path, group);
-    }
-
-    for (const group of this.wbsGroups) {
-        if (group.parentId) {
-            const parent = this.wbsGroupMap.get(group.parentId);
-            if (parent) {
-                parent.children.push(group);
+        for (const task of this.allTasksData) {
+            const startId = task.internalId;
+            if (visitState.get(startId)) {
+                continue;
             }
-        } else {
-            this.wbsRootGroups.push(group);
-        }
-    }
 
-    for (const task of this.allTasksData) {
-        if (task.wbsGroupId) {
-            const group = this.wbsGroupMap.get(task.wbsGroupId);
-            if (group) {
-                group.tasks.push(task);
-            }
-        }
-    }
+            pushNode(startId, null);
 
-    const calculateGroupMetrics = (group: WBSGroup): void => {
+            while (stack.length > 0) {
+                const frame = stack[stack.length - 1];
 
-        group.allTasks = [...group.tasks];
-
-        for (const child of group.children) {
-            calculateGroupMetrics(child);
-
-            group.allTasks.push(...child.allTasks);
-        }
-
-        group.taskCount = group.allTasks.length;
-        group.hasCriticalTasks = group.allTasks.some(t => t.isCritical);
-        group.hasNearCriticalTasks = group.allTasks.some(t => t.isNearCritical);
-
-        let minStart: Date | null = null;
-        let maxFinish: Date | null = null;
-        let nearCriticalMinStart: Date | null = null;
-        let nearCriticalMaxFinish: Date | null = null;
-        let baselineMinStart: Date | null = null;
-        let baselineMaxFinish: Date | null = null;
-        let prevUpdateMinStart: Date | null = null;
-        let prevUpdateMaxFinish: Date | null = null;
-
-        for (const task of group.allTasks) {
-            if (task.startDate) {
-                if (!minStart || task.startDate < minStart) {
-                    minStart = task.startDate;
+                if (frame.index >= frame.preds.length) {
+                    visitState.set(frame.id, 2);
+                    stack.pop();
+                    continue;
                 }
-            }
-            if (task.finishDate) {
-                if (!maxFinish || task.finishDate > maxFinish) {
-                    maxFinish = task.finishDate;
-                }
-            }
 
-            if (task.baselineStartDate) {
-                if (!baselineMinStart || task.baselineStartDate < baselineMinStart) {
-                    baselineMinStart = task.baselineStartDate;
+                const predId = frame.preds[frame.index++];
+                if (!this.taskIdToTask.has(predId)) {
+                    continue;
                 }
-            }
-            if (task.baselineFinishDate) {
-                if (!baselineMaxFinish || task.baselineFinishDate > baselineMaxFinish) {
-                    baselineMaxFinish = task.baselineFinishDate;
-                }
-            }
 
-            if (task.previousUpdateStartDate) {
-                if (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart) {
-                    prevUpdateMinStart = task.previousUpdateStartDate;
-                }
-            }
-            if (task.previousUpdateFinishDate) {
-                if (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish) {
-                    prevUpdateMaxFinish = task.previousUpdateFinishDate;
-                }
-            }
+                const state = visitState.get(predId) ?? 0;
+                if (state === 0) {
+                    pushNode(predId, frame.id);
+                } else if (state === 1) {
+                    const cycle: string[] = [predId];
+                    let current: string | null = frame.id;
 
-            if (task.isNearCritical) {
-                if (task.startDate && (!nearCriticalMinStart || task.startDate < nearCriticalMinStart)) {
-                    nearCriticalMinStart = task.startDate;
-                }
-                if (task.finishDate && (!nearCriticalMaxFinish || task.finishDate > nearCriticalMaxFinish)) {
-                    nearCriticalMaxFinish = task.finishDate;
+                    while (current && current !== predId) {
+                        cycle.push(current);
+                        current = parent.get(current) ?? null;
+                    }
+
+                    cycle.push(predId);
+                    cycle.reverse();
+
+                    const key = cycle.join('->');
+                    if (!seenCycles.has(key)) {
+                        seenCycles.add(key);
+                        circularPaths.push(cycle.join(' -> '));
+                    }
                 }
             }
         }
 
-        group.summaryStartDate = minStart;
-        group.summaryFinishDate = maxFinish;
-        group.nearCriticalStartDate = nearCriticalMinStart;
-        group.nearCriticalFinishDate = nearCriticalMaxFinish;
-        group.summaryBaselineStartDate = baselineMinStart;
-        group.summaryBaselineFinishDate = baselineMaxFinish;
-        group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
-        group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
-    };
-
-    for (const rootGroup of this.wbsRootGroups) {
-        calculateGroupMetrics(rootGroup);
+        return circularPaths;
     }
 
-    const sortByStartDate = (a: WBSGroup, b: WBSGroup): number => {
-        const aStart = a.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
-        const bStart = b.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
-        if (aStart !== bStart) return aStart - bStart;
+    /**
+     * Process legend data and assign colors to tasks based on legend values
+     */
+    private processLegendData(dataView: DataView): void {
 
-        return a.fullPath.localeCompare(b.fullPath);
-    };
+        this.legendDataExists = false;
+        this.legendColorMap.clear();
+        this.legendCategories = [];
+        this.legendSelectionIds.clear();
+        this.legendFieldName = "";
 
-    this.wbsGroups.sort(sortByStartDate);
-    this.wbsRootGroups.sort(sortByStartDate);
+        const columns = dataView.metadata?.columns;
+        if (!columns) return;
 
-    for (const group of this.wbsGroups) {
-        group.children.sort(sortByStartDate);
+        const legendColumn = columns.find(col => col.roles?.legend);
+        if (!legendColumn) {
+
+            for (const task of this.allTasksData) {
+                task.legendColor = undefined;
+            }
+            return;
+        }
+
+        this.legendFieldName = legendColumn.displayName || "Legend";
+        this.legendDataExists = true;
+
+        const legendValueSet = new Set<string>();
+        for (const task of this.allTasksData) {
+            if (task.legendValue) {
+                legendValueSet.add(task.legendValue);
+            }
+        }
+
+        this.legendCategories = Array.from(legendValueSet);
+
+        const sortOrder = this.settings?.legend?.sortOrder?.value?.value || "none";
+        if (sortOrder === "ascending") {
+            this.legendCategories.sort((a, b) => a.localeCompare(b));
+        } else if (sortOrder === "descending") {
+            this.legendCategories.sort((a, b) => b.localeCompare(a));
+        }
+
+        const legendColorsObjects = dataView.metadata?.objects?.legendColors;
+        const useHighContrast = this.highContrastMode;
+        for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
+            const category = this.legendCategories[i];
+            const colorKey = `color${i + 1}`;
+
+            if (useHighContrast) {
+                this.legendColorMap.set(category, this.highContrastForeground);
+                continue;
+            }
+
+            const persistedColor = legendColorsObjects?.[colorKey];
+
+            if (persistedColor && typeof persistedColor === 'object' && 'solid' in persistedColor) {
+
+                this.legendColorMap.set(category, (persistedColor as any).solid.color);
+            } else {
+
+                const defaultColor = this.host.colorPalette.getColor(category).value;
+                this.legendColorMap.set(category, defaultColor);
+            }
+        }
+
+        for (const task of this.allTasksData) {
+            if (task.legendValue) {
+                task.legendColor = this.legendColorMap.get(task.legendValue);
+            } else {
+                task.legendColor = undefined;
+            }
+        }
+
+        this.debugLog(`Legend processed: ${this.legendCategories.length} categories found`);
     }
 
-    this.refreshWbsAvailableLevels();
-    if (this.wbsExpandToLevel !== undefined && !this.wbsManualExpansionOverride) {
-        this.applyWbsExpandLevel(this.wbsExpandToLevel);
-    }
+    /**
+     * WBS GROUPING: Processes WBS data and builds hierarchical group structure
+     * Builds the WBS hierarchy from task WBS level fields and calculates summary metrics
+     */
+    private processWBSData(): void {
 
-    this.debugLog(`WBS processed: ${this.wbsGroups.length} groups found, ${this.wbsRootGroups.length} root groups`);
-}
+        this.wbsDataExists = false;
+        this.wbsGroups = [];
+        this.wbsGroupMap.clear();
+        this.wbsRootGroups = [];
+        this.wbsAvailableLevels = [];
 
-/**
- * WBS GROUPING: Helpers for expand-to-level behavior
- */
-private refreshWbsAvailableLevels(): void {
-    const levelSet = new Set<number>();
-    for (const group of this.wbsGroups) {
-        levelSet.add(group.level);
-    }
-    this.wbsAvailableLevels = Array.from(levelSet).sort((a, b) => a - b);
-}
+        const hasWbsData = this.allTasksData.some(task =>
+            task.wbsLevels && task.wbsLevels.length > 0
+        );
 
-private getMaxWbsLevel(): number {
-    return this.wbsAvailableLevels.length > 0
-        ? this.wbsAvailableLevels[this.wbsAvailableLevels.length - 1]
-        : 0;
-}
+        if (!hasWbsData) {
 
-private getWbsExpandedStatePayload(): Record<string, boolean> {
-    const payload: Record<string, boolean> = {};
-    if (this.wbsGroups.length > 0) {
-        this.wbsExpandedState.clear();
+            for (const task of this.allTasksData) {
+                task.wbsGroupId = undefined;
+                task.wbsIndentLevel = 0;
+            }
+            return;
+        }
+
+        this.wbsDataExists = true;
+        const defaultExpanded = this.settings?.wbsGrouping?.defaultExpanded?.value ?? true;
+        const expandCollapseAll = this.settings?.wbsGrouping?.expandCollapseAll?.value ?? true;
+
+        const expandCollapseAllChanged = this.lastExpandCollapseAllState !== null &&
+            this.lastExpandCollapseAllState !== expandCollapseAll;
+        if (expandCollapseAllChanged) {
+
+            this.wbsExpandedState.clear();
+        }
+        this.lastExpandCollapseAllState = expandCollapseAll;
+
+        for (const task of this.allTasksData) {
+            const pathParts: string[] = [];
+
+            if (task.wbsLevels && task.wbsLevels.length > 0) {
+
+                for (let i = 0; i < task.wbsLevels.length; i++) {
+                    const level = i + 1;
+                    pathParts.push(`L${level}:${task.wbsLevels[i]}`);
+                }
+            }
+
+            if (pathParts.length > 0) {
+                task.wbsGroupId = pathParts.join('|');
+
+                task.wbsIndentLevel = pathParts.length - 1;
+            } else {
+                task.wbsGroupId = undefined;
+                task.wbsIndentLevel = 0;
+            }
+        }
+
+        const groupPaths = new Set<string>();
+
+        for (const task of this.allTasksData) {
+            if (!task.wbsGroupId) continue;
+
+            const parts = task.wbsGroupId.split('|');
+            let currentPath = '';
+            for (const part of parts) {
+                currentPath = currentPath ? `${currentPath}|${part}` : part;
+                groupPaths.add(currentPath);
+            }
+        }
+
+        for (const path of groupPaths) {
+            const parts = path.split('|');
+            const lastPart = parts[parts.length - 1];
+            const levelMatch = lastPart.match(/^L(\d+):(.+)$/);
+
+            if (!levelMatch) continue;
+
+            const level = parseInt(levelMatch[1], 10);
+            const name = levelMatch[2];
+            const parentPath = parts.length > 1 ? parts.slice(0, -1).join('|') : null;
+
+            const isExpanded = this.wbsExpandedState.has(path)
+                ? this.wbsExpandedState.get(path)!
+                : expandCollapseAll;
+
+            const group: WBSGroup = {
+                id: path,
+                level: level,
+                name: name,
+                fullPath: path,
+                parentId: parentPath,
+                children: [],
+                tasks: [],
+                allTasks: [],
+                isExpanded: isExpanded,
+                yOrder: undefined,
+                visibleTaskCount: 0,
+                summaryStartDate: null,
+                summaryFinishDate: null,
+                hasCriticalTasks: false,
+                taskCount: 0,
+                criticalStartDate: null,
+                criticalFinishDate: null,
+                hasNearCriticalTasks: false,
+                nearCriticalStartDate: null,
+                nearCriticalFinishDate: null,
+                summaryBaselineStartDate: null,
+                summaryBaselineFinishDate: null,
+                summaryPreviousUpdateStartDate: null,
+                summaryPreviousUpdateFinishDate: null
+            };
+
+            this.wbsGroups.push(group);
+            this.wbsGroupMap.set(path, group);
+        }
+
         for (const group of this.wbsGroups) {
-            this.wbsExpandedState.set(group.id, group.isExpanded);
-            payload[group.id] = group.isExpanded;
+            if (group.parentId) {
+                const parent = this.wbsGroupMap.get(group.parentId);
+                if (parent) {
+                    parent.children.push(group);
+                }
+            } else {
+                this.wbsRootGroups.push(group);
+            }
+        }
+
+        for (const task of this.allTasksData) {
+            if (task.wbsGroupId) {
+                const group = this.wbsGroupMap.get(task.wbsGroupId);
+                if (group) {
+                    group.tasks.push(task);
+                }
+            }
+        }
+
+        const calculateGroupMetrics = (group: WBSGroup): void => {
+
+            group.allTasks = [...group.tasks];
+
+            for (const child of group.children) {
+                calculateGroupMetrics(child);
+
+                group.allTasks.push(...child.allTasks);
+            }
+
+            group.taskCount = group.allTasks.length;
+            group.hasCriticalTasks = group.allTasks.some(t => t.isCritical);
+            group.hasNearCriticalTasks = group.allTasks.some(t => t.isNearCritical);
+
+            let minStart: Date | null = null;
+            let maxFinish: Date | null = null;
+            let nearCriticalMinStart: Date | null = null;
+            let nearCriticalMaxFinish: Date | null = null;
+            let baselineMinStart: Date | null = null;
+            let baselineMaxFinish: Date | null = null;
+            let prevUpdateMinStart: Date | null = null;
+            let prevUpdateMaxFinish: Date | null = null;
+
+            for (const task of group.allTasks) {
+                if (task.startDate) {
+                    if (!minStart || task.startDate < minStart) {
+                        minStart = task.startDate;
+                    }
+                }
+                if (task.finishDate) {
+                    if (!maxFinish || task.finishDate > maxFinish) {
+                        maxFinish = task.finishDate;
+                    }
+                }
+
+                if (task.baselineStartDate) {
+                    if (!baselineMinStart || task.baselineStartDate < baselineMinStart) {
+                        baselineMinStart = task.baselineStartDate;
+                    }
+                }
+                if (task.baselineFinishDate) {
+                    if (!baselineMaxFinish || task.baselineFinishDate > baselineMaxFinish) {
+                        baselineMaxFinish = task.baselineFinishDate;
+                    }
+                }
+
+                if (task.previousUpdateStartDate) {
+                    if (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart) {
+                        prevUpdateMinStart = task.previousUpdateStartDate;
+                    }
+                }
+                if (task.previousUpdateFinishDate) {
+                    if (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish) {
+                        prevUpdateMaxFinish = task.previousUpdateFinishDate;
+                    }
+                }
+
+                if (task.isNearCritical) {
+                    if (task.startDate && (!nearCriticalMinStart || task.startDate < nearCriticalMinStart)) {
+                        nearCriticalMinStart = task.startDate;
+                    }
+                    if (task.finishDate && (!nearCriticalMaxFinish || task.finishDate > nearCriticalMaxFinish)) {
+                        nearCriticalMaxFinish = task.finishDate;
+                    }
+                }
+            }
+
+            group.summaryStartDate = minStart;
+            group.summaryFinishDate = maxFinish;
+            group.nearCriticalStartDate = nearCriticalMinStart;
+            group.nearCriticalFinishDate = nearCriticalMaxFinish;
+            group.summaryBaselineStartDate = baselineMinStart;
+            group.summaryBaselineFinishDate = baselineMaxFinish;
+            group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
+            group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
+        };
+
+        for (const rootGroup of this.wbsRootGroups) {
+            calculateGroupMetrics(rootGroup);
+        }
+
+        const sortByStartDate = (a: WBSGroup, b: WBSGroup): number => {
+            const aStart = a.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+            const bStart = b.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+            if (aStart !== bStart) return aStart - bStart;
+
+            return a.fullPath.localeCompare(b.fullPath);
+        };
+
+        this.wbsGroups.sort(sortByStartDate);
+        this.wbsRootGroups.sort(sortByStartDate);
+
+        for (const group of this.wbsGroups) {
+            group.children.sort(sortByStartDate);
+        }
+
+        this.refreshWbsAvailableLevels();
+        if (this.wbsExpandToLevel !== undefined && !this.wbsManualExpansionOverride) {
+            this.applyWbsExpandLevel(this.wbsExpandToLevel);
+        }
+
+        this.debugLog(`WBS processed: ${this.wbsGroups.length} groups found, ${this.wbsRootGroups.length} root groups`);
+    }
+
+    /**
+     * WBS GROUPING: Helpers for expand-to-level behavior
+     */
+    private refreshWbsAvailableLevels(): void {
+        const levelSet = new Set<number>();
+        for (const group of this.wbsGroups) {
+            levelSet.add(group.level);
+        }
+        this.wbsAvailableLevels = Array.from(levelSet).sort((a, b) => a - b);
+    }
+
+    private getMaxWbsLevel(): number {
+        return this.wbsAvailableLevels.length > 0
+            ? this.wbsAvailableLevels[this.wbsAvailableLevels.length - 1]
+            : 0;
+    }
+
+    private getWbsExpandedStatePayload(): Record<string, boolean> {
+        const payload: Record<string, boolean> = {};
+        if (this.wbsGroups.length > 0) {
+            this.wbsExpandedState.clear();
+            for (const group of this.wbsGroups) {
+                this.wbsExpandedState.set(group.id, group.isExpanded);
+                payload[group.id] = group.isExpanded;
+            }
+            return payload;
+        }
+
+        for (const [groupId, expanded] of this.wbsExpandedState.entries()) {
+            payload[groupId] = expanded;
         }
         return payload;
     }
 
-    for (const [groupId, expanded] of this.wbsExpandedState.entries()) {
-        payload[groupId] = expanded;
-    }
-    return payload;
-}
-
-private getWbsExpandLevelLabel(level: number | null | undefined): string {
-    if (level === 0) {
-        return "Collapse all WBS levels";
-    }
-    if (level === null) {
-        const max = this.getMaxWbsLevel();
-        return max > 0 ? `Expand all (to Level ${max})` : "Expand all WBS levels";
-    }
-    if (level === undefined) {
-        return this.wbsExpandedInternal ? "Expand all WBS levels" : "Collapse all WBS levels";
-    }
-    return `Expand to Level ${level}`;
-}
-
-private getCurrentWbsExpandLevel(): number {
-    if (this.wbsAvailableLevels.length === 0) {
-        return 0;
-    }
-
-    const maxLevel = this.getMaxWbsLevel();
-    if (this.wbsExpandToLevel === null) {
-        return maxLevel;
-    }
-    if (this.wbsExpandToLevel === undefined) {
-        return this.wbsExpandedInternal ? maxLevel : 0;
-    }
-
-    return Math.min(Math.max(this.wbsExpandToLevel, 0), maxLevel);
-}
-
-private getNextWbsExpandLevel(): number | null {
-    if (this.wbsAvailableLevels.length === 0) {
-        return null;
-    }
-    const levels = Array.from(new Set(this.wbsAvailableLevels)).sort((a, b) => a - b);
-    const sequence: Array<number> = [0, ...levels];
-    const current = this.getCurrentWbsExpandLevel();
-    const idx = sequence.findIndex(l => l === current);
-    if (idx === -1) {
-        return sequence[0];
-    }
-    const nextIdx = Math.min(idx + 1, sequence.length - 1);
-    return sequence[nextIdx];
-}
-
-private getPreviousWbsExpandLevel(): number | null {
-    if (this.wbsAvailableLevels.length === 0) {
-        return null;
-    }
-    const levels = Array.from(new Set(this.wbsAvailableLevels)).sort((a, b) => a - b);
-    const sequence: Array<number> = [0, ...levels];
-    const current = this.getCurrentWbsExpandLevel();
-    const idx = sequence.findIndex(l => l === current);
-    if (idx === -1) {
-        return sequence[0];
-    }
-    const prevIdx = Math.max(idx - 1, 0);
-    return sequence[prevIdx];
-}
-
-private applyWbsExpandLevel(targetLevel: number | null): void {
-
-    if (!this.wbsGroups.length) {
-        this.wbsExpandToLevel = targetLevel;
-        this.wbsExpandedInternal = targetLevel !== 0;
-        return;
-    }
-
-    const maxLevel = this.getMaxWbsLevel();
-    const effectiveLevel = targetLevel === null
-        ? null
-        : Math.min(Math.max(targetLevel, 0), maxLevel);
-
-    this.wbsExpandToLevel = effectiveLevel;
-    this.wbsExpandedInternal = effectiveLevel !== 0;
-
-    for (const group of this.wbsGroups) {
-
-        if (this.wbsManuallyToggledGroups.has(group.id)) {
-
-            const existingState = this.wbsExpandedState.get(group.id);
-            if (existingState !== undefined) {
-                group.isExpanded = existingState;
-            }
-        } else {
-
-            const expanded = effectiveLevel === null ? true : group.level <= effectiveLevel;
-            group.isExpanded = expanded;
-            this.wbsExpandedState.set(group.id, expanded);
+    private getWbsExpandLevelLabel(level: number | null | undefined): string {
+        if (level === 0) {
+            return "Collapse all WBS levels";
         }
-    }
-
-    this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
-}
-
-/**
- * Capture a WBS anchor near the middle of the current viewport so global
- * expand/collapse cycles keep the user roughly in place.
- */
-private captureWbsAnchorForGlobalToggle(): void {
-    if (!this.scrollableContainer?.node()) return;
-    if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) return;
-
-    const container = this.scrollableContainer.node();
-    const scrollTop = container.scrollTop;
-    const viewportHeight = container.clientHeight || 0;
-    const targetY = scrollTop + viewportHeight / 2;
-
-    let bestGroup: WBSGroup | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
-
-    for (const group of this.wbsGroups) {
-        if (group.yOrder === undefined) continue;
-        const rowY = group.yOrder * this.taskElementHeight;
-        const distance = Math.abs(rowY - targetY);
-        if (distance < bestDistance) {
-            bestDistance = distance;
-            bestGroup = group;
+        if (level === null) {
+            const max = this.getMaxWbsLevel();
+            return max > 0 ? `Expand all (to Level ${max})` : "Expand all WBS levels";
         }
+        if (level === undefined) {
+            return this.wbsExpandedInternal ? "Expand all WBS levels" : "Collapse all WBS levels";
+        }
+        return `Expand to Level ${level}`;
     }
 
-    if (bestGroup && bestGroup.yOrder !== undefined) {
-        const groupAbsoluteY = bestGroup.yOrder * this.taskElementHeight;
-        const visualOffset = groupAbsoluteY - scrollTop;
-        this.wbsToggleScrollAnchor = { groupId: bestGroup.id, visualOffset };
-        this.preserveScrollOnUpdate = true;
-        this.scrollPreservationUntil = Date.now() + 2000;
-        this.debugLog(`Global WBS anchor captured: group=${bestGroup.id}, yOrder=${bestGroup.yOrder}, offset=${visualOffset}`);
-    } else {
+    private getCurrentWbsExpandLevel(): number {
+        if (this.wbsAvailableLevels.length === 0) {
+            return 0;
+        }
 
-        this.preservedScrollTop = scrollTop;
-        this.preserveScrollOnUpdate = true;
-        this.scrollPreservationUntil = Date.now() + 2000;
-        this.debugLog("Global WBS anchor fallback: preserving current scrollTop");
-    }
-}
+        const maxLevel = this.getMaxWbsLevel();
+        if (this.wbsExpandToLevel === null) {
+            return maxLevel;
+        }
+        if (this.wbsExpandToLevel === undefined) {
+            return this.wbsExpandedInternal ? maxLevel : 0;
+        }
 
-/**
- * WBS GROUPING: Toggle expansion state for a WBS group
- */
-private toggleWbsGroupExpansion(groupId: string): void {
-    const group = this.wbsGroupMap.get(groupId);
-    if (!group) return;
-    this.lastWbsToggleTimestamp = Date.now();
-    this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
-
-    if (this.scrollThrottleTimeout) {
-        clearTimeout(this.scrollThrottleTimeout);
-        this.scrollThrottleTimeout = null;
+        return Math.min(Math.max(this.wbsExpandToLevel, 0), maxLevel);
     }
 
-    this.hideTooltip();
-
-    if (this.scrollableContainer?.node() && group.yOrder !== undefined) {
-        const scrollTop = this.scrollableContainer.node().scrollTop;
-        const groupAbsoluteY = group.yOrder * this.taskElementHeight;
-        const visualOffset = groupAbsoluteY - scrollTop;
-        this.wbsToggleScrollAnchor = { groupId, visualOffset };
-        this.debugLog(`WBS toggle: Capturing anchor for group ${groupId}, yOrder=${group.yOrder}, visualOffset=${visualOffset}`);
+    private getNextWbsExpandLevel(): number | null {
+        if (this.wbsAvailableLevels.length === 0) {
+            return null;
+        }
+        const levels = Array.from(new Set(this.wbsAvailableLevels)).sort((a, b) => a - b);
+        const sequence: Array<number> = [0, ...levels];
+        const current = this.getCurrentWbsExpandLevel();
+        const idx = sequence.findIndex(l => l === current);
+        if (idx === -1) {
+            return sequence[0];
+        }
+        const nextIdx = Math.min(idx + 1, sequence.length - 1);
+        return sequence[nextIdx];
     }
 
-    const priorExpandedInternal = this.wbsExpandedInternal;
-    if (this.wbsExpandToLevel === undefined) {
-        this.wbsExpandToLevel = priorExpandedInternal ? null : 0;
-    }
-    this.wbsManualExpansionOverride = true;
-
-    this.wbsManuallyToggledGroups.add(groupId);
-
-    group.isExpanded = !group.isExpanded;
-    this.wbsExpandedState.set(groupId, group.isExpanded);
-    this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
-
-    const expandedStatePayload = this.getWbsExpandedStatePayload();
-    const manualGroupsPayload = Array.from(this.wbsManuallyToggledGroups);
-    this.host.persistProperties({
-        merge: [{
-            objectName: "persistedState",
-            properties: {
-                wbsExpandLevel: -2,
-                wbsExpandedState: JSON.stringify(expandedStatePayload),
-                wbsManualToggledGroups: JSON.stringify(manualGroupsPayload)
-            },
-            selector: null
-        }]
-    });
-
-    this.taskLabelLayer?.selectAll("*").remove();
-    this.labelGridLayer?.selectAll("*").remove();
-    this.wbsGroupLayer?.selectAll("*").remove();
-
-    if (this.lastUpdateOptions) {
-        this.forceFullUpdate = true;
-        this.preserveScrollOnUpdate = true;
-
-        this.scrollPreservationUntil = Date.now() + 2000;
-        this.updateInternal(this.lastUpdateOptions);
-    }
-}
-
-/**
- * SCROLL RESTORATION: Unified scroll position restoration for all update scenarios.
- * Handles two restoration modes:
- * 1. STRICT PRESERVATION: Exact scrollTop restoration (baseline/previous update toggles)
- * 2. WBS ANCHOR-BASED: Smart anchoring that keeps a WBS group at the same visual offset
- *
- * This must be called AFTER the scroll container height is set but BEFORE setupVirtualScroll().
- * The order is critical: container height → scroll restoration → virtual scroll setup
- *
- * This method removes the scroll listener before setting scrollTop to prevent
- * handleScroll() from firing. setupVirtualScroll() will create and attach a new listener,
- * so we don't need to re-attach the old one.
- *
- * @param totalSvgHeight - Total height of SVG content for calculating max scroll bounds
- */
-private restoreScrollPosition(totalSvgHeight: number): void {
-    if (!this.scrollableContainer?.node()) {
-
-        this.preservedScrollTop = null;
-        this.wbsToggleScrollAnchor = null;
-        return;
+    private getPreviousWbsExpandLevel(): number | null {
+        if (this.wbsAvailableLevels.length === 0) {
+            return null;
+        }
+        const levels = Array.from(new Set(this.wbsAvailableLevels)).sort((a, b) => a - b);
+        const sequence: Array<number> = [0, ...levels];
+        const current = this.getCurrentWbsExpandLevel();
+        const idx = sequence.findIndex(l => l === current);
+        if (idx === -1) {
+            return sequence[0];
+        }
+        const prevIdx = Math.max(idx - 1, 0);
+        return sequence[prevIdx];
     }
 
-    const containerNode = this.scrollableContainer.node();
-    const maxScroll = Math.max(0, totalSvgHeight - containerNode.clientHeight);
+    private applyWbsExpandLevel(targetLevel: number | null): void {
 
-    if (this.scrollListener) {
-        this.scrollableContainer.on("scroll", null);
-
-    }
-
-    if (this.preservedScrollTop !== null) {
-        const targetScrollTop = this.preservedScrollTop;
-        this.preservedScrollTop = null;
-
-        const clampedScrollTop = Math.max(0, Math.min(targetScrollTop, maxScroll));
-
-        this.debugLog(`Strict scroll restoration: target=${targetScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
-
-        containerNode.scrollTop = clampedScrollTop;
-
-        void containerNode.scrollTop;
-
-        return;
-    }
-
-    if (this.wbsToggleScrollAnchor) {
-        const { groupId, visualOffset } = this.wbsToggleScrollAnchor;
-        this.wbsToggleScrollAnchor = null;
-
-        const group = this.wbsGroupMap.get(groupId);
-        if (!group || group.yOrder === undefined) {
-            this.debugLog(`WBS scroll anchor: Group ${groupId} not found or no yOrder, skipping`);
+        if (!this.wbsGroups.length) {
+            this.wbsExpandToLevel = targetLevel;
+            this.wbsExpandedInternal = targetLevel !== 0;
             return;
         }
 
-        const newAbsoluteY = group.yOrder * this.taskElementHeight;
+        const maxLevel = this.getMaxWbsLevel();
+        const effectiveLevel = targetLevel === null
+            ? null
+            : Math.min(Math.max(targetLevel, 0), maxLevel);
 
-        const newScrollTop = newAbsoluteY - visualOffset;
-        const clampedScrollTop = Math.max(0, Math.min(newScrollTop, maxScroll));
+        this.wbsExpandToLevel = effectiveLevel;
+        this.wbsExpandedInternal = effectiveLevel !== 0;
 
-        this.debugLog(`WBS anchor restoration: group=${groupId}, yOrder=${group.yOrder}, ` +
-                     `newAbsoluteY=${newAbsoluteY}, visualOffset=${visualOffset}, ` +
-                     `newScrollTop=${newScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
+        for (const group of this.wbsGroups) {
 
-        containerNode.scrollTop = clampedScrollTop;
+            if (this.wbsManuallyToggledGroups.has(group.id)) {
 
-        void containerNode.scrollTop;
+                const existingState = this.wbsExpandedState.get(group.id);
+                if (existingState !== undefined) {
+                    group.isExpanded = existingState;
+                }
+            } else {
+
+                const expanded = effectiveLevel === null ? true : group.level <= effectiveLevel;
+                group.isExpanded = expanded;
+                this.wbsExpandedState.set(group.id, expanded);
+            }
+        }
+
+        this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
     }
-}
 
-/**
- * WBS GROUPING: Apply WBS ordering and filtering to tasks
- * Returns tasks sorted by WBS hierarchy with collapsed groups filtered out
- */
-private applyWbsOrdering(tasks: Task[]): Task[] {
-    const orderedTasks: Task[] = [];
-    const taskSet = new Set(tasks.map(t => t.internalId));
+    /**
+     * Capture a WBS anchor near the middle of the current viewport so global
+     * expand/collapse cycles keep the user roughly in place.
+     */
+    private captureWbsAnchorForGlobalToggle(): void {
+        if (!this.scrollableContainer?.node()) return;
+        if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) return;
 
-    const processGroup = (group: WBSGroup): void => {
-        if (group.isExpanded) {
+        const container = this.scrollableContainer.node();
+        const scrollTop = container.scrollTop;
+        const viewportHeight = container.clientHeight || 0;
+        const targetY = scrollTop + viewportHeight / 2;
+
+        let bestGroup: WBSGroup | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        for (const group of this.wbsGroups) {
+            if (group.yOrder === undefined) continue;
+            const rowY = group.yOrder * this.taskElementHeight;
+            const distance = Math.abs(rowY - targetY);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestGroup = group;
+            }
+        }
+
+        if (bestGroup && bestGroup.yOrder !== undefined) {
+            const groupAbsoluteY = bestGroup.yOrder * this.taskElementHeight;
+            const visualOffset = groupAbsoluteY - scrollTop;
+            this.wbsToggleScrollAnchor = { groupId: bestGroup.id, visualOffset };
+            this.preserveScrollOnUpdate = true;
+            this.scrollPreservationUntil = Date.now() + 2000;
+            this.debugLog(`Global WBS anchor captured: group=${bestGroup.id}, yOrder=${bestGroup.yOrder}, offset=${visualOffset}`);
+        } else {
+
+            this.preservedScrollTop = scrollTop;
+            this.preserveScrollOnUpdate = true;
+            this.scrollPreservationUntil = Date.now() + 2000;
+            this.debugLog("Global WBS anchor fallback: preserving current scrollTop");
+        }
+    }
+
+    /**
+     * WBS GROUPING: Toggle expansion state for a WBS group
+     */
+    private toggleWbsGroupExpansion(groupId: string): void {
+        const group = this.wbsGroupMap.get(groupId);
+        if (!group) return;
+        this.lastWbsToggleTimestamp = Date.now();
+        this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
+
+        if (this.scrollThrottleTimeout) {
+            clearTimeout(this.scrollThrottleTimeout);
+            this.scrollThrottleTimeout = null;
+        }
+
+        this.hideTooltip();
+
+        if (this.scrollableContainer?.node() && group.yOrder !== undefined) {
+            const scrollTop = this.scrollableContainer.node().scrollTop;
+            const groupAbsoluteY = group.yOrder * this.taskElementHeight;
+            const visualOffset = groupAbsoluteY - scrollTop;
+            this.wbsToggleScrollAnchor = { groupId, visualOffset };
+            this.debugLog(`WBS toggle: Capturing anchor for group ${groupId}, yOrder=${group.yOrder}, visualOffset=${visualOffset}`);
+        }
+
+        const priorExpandedInternal = this.wbsExpandedInternal;
+        if (this.wbsExpandToLevel === undefined) {
+            this.wbsExpandToLevel = priorExpandedInternal ? null : 0;
+        }
+        this.wbsManualExpansionOverride = true;
+
+        this.wbsManuallyToggledGroups.add(groupId);
+
+        group.isExpanded = !group.isExpanded;
+        this.wbsExpandedState.set(groupId, group.isExpanded);
+        this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
+
+        const expandedStatePayload = this.getWbsExpandedStatePayload();
+        const manualGroupsPayload = Array.from(this.wbsManuallyToggledGroups);
+        this.host.persistProperties({
+            merge: [{
+                objectName: "persistedState",
+                properties: {
+                    wbsExpandLevel: -2,
+                    wbsExpandedState: JSON.stringify(expandedStatePayload),
+                    wbsManualToggledGroups: JSON.stringify(manualGroupsPayload)
+                },
+                selector: null
+            }]
+        });
+
+        this.taskLabelLayer?.selectAll("*").remove();
+        this.labelGridLayer?.selectAll("*").remove();
+        this.wbsGroupLayer?.selectAll("*").remove();
+
+        if (this.lastUpdateOptions) {
+            this.forceFullUpdate = true;
+            this.preserveScrollOnUpdate = true;
+
+            this.scrollPreservationUntil = Date.now() + 2000;
+            this.updateInternal(this.lastUpdateOptions);
+        }
+    }
+
+    /**
+     * SCROLL RESTORATION: Unified scroll position restoration for all update scenarios.
+     * Handles two restoration modes:
+     * 1. STRICT PRESERVATION: Exact scrollTop restoration (baseline/previous update toggles)
+     * 2. WBS ANCHOR-BASED: Smart anchoring that keeps a WBS group at the same visual offset
+     *
+     * This must be called AFTER the scroll container height is set but BEFORE setupVirtualScroll().
+     * The order is critical: container height → scroll restoration → virtual scroll setup
+     *
+     * This method removes the scroll listener before setting scrollTop to prevent
+     * handleScroll() from firing. setupVirtualScroll() will create and attach a new listener,
+     * so we don't need to re-attach the old one.
+     *
+     * @param totalSvgHeight - Total height of SVG content for calculating max scroll bounds
+     */
+    private restoreScrollPosition(totalSvgHeight: number): void {
+        if (!this.scrollableContainer?.node()) {
+
+            this.preservedScrollTop = null;
+            this.wbsToggleScrollAnchor = null;
+            return;
+        }
+
+        const containerNode = this.scrollableContainer.node();
+        const maxScroll = Math.max(0, totalSvgHeight - containerNode.clientHeight);
+
+        if (this.scrollListener) {
+            this.scrollableContainer.on("scroll", null);
+
+        }
+
+        if (this.preservedScrollTop !== null) {
+            const targetScrollTop = this.preservedScrollTop;
+            this.preservedScrollTop = null;
+
+            const clampedScrollTop = Math.max(0, Math.min(targetScrollTop, maxScroll));
+
+            this.debugLog(`Strict scroll restoration: target=${targetScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
+
+            containerNode.scrollTop = clampedScrollTop;
+
+            void containerNode.scrollTop;
+
+            return;
+        }
+
+        if (this.wbsToggleScrollAnchor) {
+            const { groupId, visualOffset } = this.wbsToggleScrollAnchor;
+            this.wbsToggleScrollAnchor = null;
+
+            const group = this.wbsGroupMap.get(groupId);
+            if (!group || group.yOrder === undefined) {
+                this.debugLog(`WBS scroll anchor: Group ${groupId} not found or no yOrder, skipping`);
+                return;
+            }
+
+            const newAbsoluteY = group.yOrder * this.taskElementHeight;
+
+            const newScrollTop = newAbsoluteY - visualOffset;
+            const clampedScrollTop = Math.max(0, Math.min(newScrollTop, maxScroll));
+
+            this.debugLog(`WBS anchor restoration: group=${groupId}, yOrder=${group.yOrder}, ` +
+                `newAbsoluteY=${newAbsoluteY}, visualOffset=${visualOffset}, ` +
+                `newScrollTop=${newScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
+
+            containerNode.scrollTop = clampedScrollTop;
+
+            void containerNode.scrollTop;
+        }
+    }
+
+    /**
+     * WBS GROUPING: Apply WBS ordering and filtering to tasks
+     * Returns tasks sorted by WBS hierarchy with collapsed groups filtered out
+     */
+    private applyWbsOrdering(tasks: Task[]): Task[] {
+        const orderedTasks: Task[] = [];
+        const taskSet = new Set(tasks.map(t => t.internalId));
+
+        const processGroup = (group: WBSGroup): void => {
+            if (group.isExpanded) {
+
+                for (const child of group.children) {
+                    processGroup(child);
+                }
+
+                const directTasks = group.tasks
+                    .filter(t => taskSet.has(t.internalId))
+                    .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+                for (const task of directTasks) {
+                    orderedTasks.push(task);
+                }
+            }
+
+        };
+
+        for (const rootGroup of this.wbsRootGroups) {
+            processGroup(rootGroup);
+        }
+
+        const tasksWithoutWbs = tasks
+            .filter(t => !t.wbsGroupId)
+            .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+        for (const task of tasksWithoutWbs) {
+            orderedTasks.push(task);
+        }
+
+        return orderedTasks;
+    }
+
+    /**
+     * WBS GROUPING: Update filtered task counts for groups
+     * This must be called BEFORE applyWbsOrdering so that collapse state doesn't affect counts
+     *
+     * @param filteredTasks - Tasks after filtering (legend, etc.) but before collapse/expand ordering
+     */
+    private updateWbsFilteredCounts(filteredTasks: Task[]): void {
+
+        for (const group of this.wbsGroups) {
+            group.visibleTaskCount = 0;
+            group.summaryStartDate = null;
+            group.summaryFinishDate = null;
+            group.hasCriticalTasks = false;
+            group.criticalStartDate = null;
+            group.criticalFinishDate = null;
+            group.hasNearCriticalTasks = false;
+            group.nearCriticalStartDate = null;
+            group.nearCriticalFinishDate = null;
+            group.summaryBaselineStartDate = null;
+            group.summaryBaselineFinishDate = null;
+            group.summaryPreviousUpdateStartDate = null;
+            group.summaryPreviousUpdateFinishDate = null;
+        }
+
+        const filteredTaskIds = new Set(filteredTasks.map(t => t.internalId));
+
+        for (const task of filteredTasks) {
+            if (task.wbsGroupId) {
+                const group = this.wbsGroupMap.get(task.wbsGroupId);
+                if (group) {
+                    group.visibleTaskCount++;
+                }
+            }
+        }
+
+        const calculateFilteredSummary = (group: WBSGroup): void => {
+            let minStart: Date | null = null;
+            let maxFinish: Date | null = null;
+            let hasCritical = false;
+            let criticalMinStart: Date | null = null;
+            let criticalMaxFinish: Date | null = null;
+            let hasNearCritical = false;
+            let nearCriticalMinStart: Date | null = null;
+            let nearCriticalMaxFinish: Date | null = null;
+            let baselineMinStart: Date | null = null;
+            let baselineMaxFinish: Date | null = null;
+            let prevUpdateMinStart: Date | null = null;
+            let prevUpdateMaxFinish: Date | null = null;
+
+            for (const task of group.tasks) {
+
+                if (!filteredTaskIds.has(task.internalId)) continue;
+
+                if (task.startDate && (!minStart || task.startDate < minStart)) {
+                    minStart = task.startDate;
+                }
+                if (task.finishDate && (!maxFinish || task.finishDate > maxFinish)) {
+                    maxFinish = task.finishDate;
+                }
+
+                if (task.isCritical) {
+                    hasCritical = true;
+                    if (task.startDate && (!criticalMinStart || task.startDate < criticalMinStart)) {
+                        criticalMinStart = task.startDate;
+                    }
+                    if (task.finishDate && (!criticalMaxFinish || task.finishDate > criticalMaxFinish)) {
+                        criticalMaxFinish = task.finishDate;
+                    }
+                }
+
+                if (task.isNearCritical) {
+                    hasNearCritical = true;
+                    if (task.startDate && (!nearCriticalMinStart || task.startDate < nearCriticalMinStart)) {
+                        nearCriticalMinStart = task.startDate;
+                    }
+                    if (task.finishDate && (!nearCriticalMaxFinish || task.finishDate > nearCriticalMaxFinish)) {
+                        nearCriticalMaxFinish = task.finishDate;
+                    }
+                }
+
+                if (task.baselineStartDate) {
+                    if (!baselineMinStart || task.baselineStartDate < baselineMinStart) {
+                        baselineMinStart = task.baselineStartDate;
+                    }
+                }
+                if (task.baselineFinishDate) {
+                    if (!baselineMaxFinish || task.baselineFinishDate > baselineMaxFinish) {
+                        baselineMaxFinish = task.baselineFinishDate;
+                    }
+                }
+
+                if (task.previousUpdateStartDate) {
+                    if (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart) {
+                        prevUpdateMinStart = task.previousUpdateStartDate;
+                    }
+                }
+                if (task.previousUpdateFinishDate) {
+                    if (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish) {
+                        prevUpdateMaxFinish = task.previousUpdateFinishDate;
+                    }
+                }
+            }
 
             for (const child of group.children) {
-                processGroup(child);
+                calculateFilteredSummary(child);
+                if (child.hasCriticalTasks) hasCritical = true;
+                if (child.summaryStartDate && (!minStart || child.summaryStartDate < minStart)) {
+                    minStart = child.summaryStartDate;
+                }
+                if (child.summaryFinishDate && (!maxFinish || child.summaryFinishDate > maxFinish)) {
+                    maxFinish = child.summaryFinishDate;
+                }
+
+                if (child.criticalStartDate && (!criticalMinStart || child.criticalStartDate < criticalMinStart)) {
+                    criticalMinStart = child.criticalStartDate;
+                }
+                if (child.criticalFinishDate && (!criticalMaxFinish || child.criticalFinishDate > criticalMaxFinish)) {
+                    criticalMaxFinish = child.criticalFinishDate;
+                }
+
+                if (child.hasNearCriticalTasks) hasNearCritical = true;
+                if (child.nearCriticalStartDate && (!nearCriticalMinStart || child.nearCriticalStartDate < nearCriticalMinStart)) {
+                    nearCriticalMinStart = child.nearCriticalStartDate;
+                }
+                if (child.nearCriticalFinishDate && (!nearCriticalMaxFinish || child.nearCriticalFinishDate > nearCriticalMaxFinish)) {
+                    nearCriticalMaxFinish = child.nearCriticalFinishDate;
+                }
+
+                if (child.summaryBaselineStartDate && (!baselineMinStart || child.summaryBaselineStartDate < baselineMinStart)) {
+                    baselineMinStart = child.summaryBaselineStartDate;
+                }
+                if (child.summaryBaselineFinishDate && (!baselineMaxFinish || child.summaryBaselineFinishDate > baselineMaxFinish)) {
+                    baselineMaxFinish = child.summaryBaselineFinishDate;
+                }
+
+                if (child.summaryPreviousUpdateStartDate && (!prevUpdateMinStart || child.summaryPreviousUpdateStartDate < prevUpdateMinStart)) {
+                    prevUpdateMinStart = child.summaryPreviousUpdateStartDate;
+                }
+                if (child.summaryPreviousUpdateFinishDate && (!prevUpdateMaxFinish || child.summaryPreviousUpdateFinishDate > prevUpdateMaxFinish)) {
+                    prevUpdateMaxFinish = child.summaryPreviousUpdateFinishDate;
+                }
             }
 
-            const directTasks = group.tasks
-                .filter(t => taskSet.has(t.internalId))
-                .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+            group.summaryStartDate = minStart;
+            group.summaryFinishDate = maxFinish;
+            group.hasCriticalTasks = hasCritical;
+            group.criticalStartDate = criticalMinStart;
+            group.criticalFinishDate = criticalMaxFinish;
+            group.hasNearCriticalTasks = hasNearCritical;
+            group.nearCriticalStartDate = nearCriticalMinStart;
+            group.nearCriticalFinishDate = nearCriticalMaxFinish;
+            group.summaryBaselineStartDate = baselineMinStart;
+            group.summaryBaselineFinishDate = baselineMaxFinish;
+            group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
+            group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
+        };
 
-            for (const task of directTasks) {
-                orderedTasks.push(task);
-            }
+        for (const rootGroup of this.wbsRootGroups) {
+            calculateFilteredSummary(rootGroup);
         }
 
-    };
-
-    for (const rootGroup of this.wbsRootGroups) {
-        processGroup(rootGroup);
-    }
-
-    const tasksWithoutWbs = tasks
-        .filter(t => !t.wbsGroupId)
-        .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-
-    for (const task of tasksWithoutWbs) {
-        orderedTasks.push(task);
-    }
-
-    return orderedTasks;
-}
-
-/**
- * WBS GROUPING: Update filtered task counts for groups
- * This must be called BEFORE applyWbsOrdering so that collapse state doesn't affect counts
- *
- * @param filteredTasks - Tasks after filtering (legend, etc.) but before collapse/expand ordering
- */
-private updateWbsFilteredCounts(filteredTasks: Task[]): void {
-
-    for (const group of this.wbsGroups) {
-        group.visibleTaskCount = 0;
-        group.summaryStartDate = null;
-        group.summaryFinishDate = null;
-        group.hasCriticalTasks = false;
-        group.criticalStartDate = null;
-        group.criticalFinishDate = null;
-        group.hasNearCriticalTasks = false;
-        group.nearCriticalStartDate = null;
-        group.nearCriticalFinishDate = null;
-        group.summaryBaselineStartDate = null;
-        group.summaryBaselineFinishDate = null;
-        group.summaryPreviousUpdateStartDate = null;
-        group.summaryPreviousUpdateFinishDate = null;
-    }
-
-    const filteredTaskIds = new Set(filteredTasks.map(t => t.internalId));
-
-    for (const task of filteredTasks) {
-        if (task.wbsGroupId) {
-            const group = this.wbsGroupMap.get(task.wbsGroupId);
-            if (group) {
-                group.visibleTaskCount++;
-            }
-        }
-    }
-
-    const calculateFilteredSummary = (group: WBSGroup): void => {
-        let minStart: Date | null = null;
-        let maxFinish: Date | null = null;
-        let hasCritical = false;
-        let criticalMinStart: Date | null = null;
-        let criticalMaxFinish: Date | null = null;
-        let hasNearCritical = false;
-        let nearCriticalMinStart: Date | null = null;
-        let nearCriticalMaxFinish: Date | null = null;
-        let baselineMinStart: Date | null = null;
-        let baselineMaxFinish: Date | null = null;
-        let prevUpdateMinStart: Date | null = null;
-        let prevUpdateMaxFinish: Date | null = null;
-
-        for (const task of group.tasks) {
-
-            if (!filteredTaskIds.has(task.internalId)) continue;
-
-            if (task.startDate && (!minStart || task.startDate < minStart)) {
-                minStart = task.startDate;
-            }
-            if (task.finishDate && (!maxFinish || task.finishDate > maxFinish)) {
-                maxFinish = task.finishDate;
-            }
-
-            if (task.isCritical) {
-                hasCritical = true;
-                if (task.startDate && (!criticalMinStart || task.startDate < criticalMinStart)) {
-                    criticalMinStart = task.startDate;
-                }
-                if (task.finishDate && (!criticalMaxFinish || task.finishDate > criticalMaxFinish)) {
-                    criticalMaxFinish = task.finishDate;
-                }
-            }
-
-            if (task.isNearCritical) {
-                hasNearCritical = true;
-                if (task.startDate && (!nearCriticalMinStart || task.startDate < nearCriticalMinStart)) {
-                    nearCriticalMinStart = task.startDate;
-                }
-                if (task.finishDate && (!nearCriticalMaxFinish || task.finishDate > nearCriticalMaxFinish)) {
-                    nearCriticalMaxFinish = task.finishDate;
-                }
-            }
-
-            if (task.baselineStartDate) {
-                if (!baselineMinStart || task.baselineStartDate < baselineMinStart) {
-                    baselineMinStart = task.baselineStartDate;
-                }
-            }
-            if (task.baselineFinishDate) {
-                if (!baselineMaxFinish || task.baselineFinishDate > baselineMaxFinish) {
-                    baselineMaxFinish = task.baselineFinishDate;
-                }
-            }
-
-            if (task.previousUpdateStartDate) {
-                if (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart) {
-                    prevUpdateMinStart = task.previousUpdateStartDate;
-                }
-            }
-            if (task.previousUpdateFinishDate) {
-                if (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish) {
-                    prevUpdateMaxFinish = task.previousUpdateFinishDate;
-                }
-            }
-        }
-
-        for (const child of group.children) {
-            calculateFilteredSummary(child);
-            if (child.hasCriticalTasks) hasCritical = true;
-            if (child.summaryStartDate && (!minStart || child.summaryStartDate < minStart)) {
-                minStart = child.summaryStartDate;
-            }
-            if (child.summaryFinishDate && (!maxFinish || child.summaryFinishDate > maxFinish)) {
-                maxFinish = child.summaryFinishDate;
-            }
-
-            if (child.criticalStartDate && (!criticalMinStart || child.criticalStartDate < criticalMinStart)) {
-                criticalMinStart = child.criticalStartDate;
-            }
-            if (child.criticalFinishDate && (!criticalMaxFinish || child.criticalFinishDate > criticalMaxFinish)) {
-                criticalMaxFinish = child.criticalFinishDate;
-            }
-
-            if (child.hasNearCriticalTasks) hasNearCritical = true;
-            if (child.nearCriticalStartDate && (!nearCriticalMinStart || child.nearCriticalStartDate < nearCriticalMinStart)) {
-                nearCriticalMinStart = child.nearCriticalStartDate;
-            }
-            if (child.nearCriticalFinishDate && (!nearCriticalMaxFinish || child.nearCriticalFinishDate > nearCriticalMaxFinish)) {
-                nearCriticalMaxFinish = child.nearCriticalFinishDate;
-            }
-
-            if (child.summaryBaselineStartDate && (!baselineMinStart || child.summaryBaselineStartDate < baselineMinStart)) {
-                baselineMinStart = child.summaryBaselineStartDate;
-            }
-            if (child.summaryBaselineFinishDate && (!baselineMaxFinish || child.summaryBaselineFinishDate > baselineMaxFinish)) {
-                baselineMaxFinish = child.summaryBaselineFinishDate;
-            }
-
-            if (child.summaryPreviousUpdateStartDate && (!prevUpdateMinStart || child.summaryPreviousUpdateStartDate < prevUpdateMinStart)) {
-                prevUpdateMinStart = child.summaryPreviousUpdateStartDate;
-            }
-            if (child.summaryPreviousUpdateFinishDate && (!prevUpdateMaxFinish || child.summaryPreviousUpdateFinishDate > prevUpdateMaxFinish)) {
-                prevUpdateMaxFinish = child.summaryPreviousUpdateFinishDate;
-            }
-        }
-
-        group.summaryStartDate = minStart;
-        group.summaryFinishDate = maxFinish;
-        group.hasCriticalTasks = hasCritical;
-        group.criticalStartDate = criticalMinStart;
-        group.criticalFinishDate = criticalMaxFinish;
-        group.hasNearCriticalTasks = hasNearCritical;
-        group.nearCriticalStartDate = nearCriticalMinStart;
-        group.nearCriticalFinishDate = nearCriticalMaxFinish;
-        group.summaryBaselineStartDate = baselineMinStart;
-        group.summaryBaselineFinishDate = baselineMaxFinish;
-        group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
-        group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
-    };
-
-    for (const rootGroup of this.wbsRootGroups) {
-        calculateFilteredSummary(rootGroup);
-    }
-
-    const propagateCounts = (group: WBSGroup): void => {
-        for (const child of group.children) {
-            propagateCounts(child);
-            group.visibleTaskCount += child.visibleTaskCount;
-        }
-    };
-    for (const rootGroup of this.wbsRootGroups) {
-        propagateCounts(rootGroup);
-    }
-
-    const sortByFilteredStartDate = (a: WBSGroup, b: WBSGroup): number => {
-        const aStart = a.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
-        const bStart = b.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
-        if (aStart !== bStart) return aStart - bStart;
-
-        return a.fullPath.localeCompare(b.fullPath);
-    };
-
-    this.wbsRootGroups.sort(sortByFilteredStartDate);
-
-    for (const group of this.wbsGroups) {
-        group.children.sort(sortByFilteredStartDate);
-    }
-}
-
-/**
- * WBS GROUPING: Assign yOrder to both group headers and tasks after all filtering
- * This creates a unified layout where group headers reserve their own rows
- *
- * @param tasksToShow - Final filtered list of tasks to display (after collapse/expand)
- */
-private assignWbsYOrder(tasksToShow: Task[]): void {
-
-    for (const group of this.wbsGroups) {
-        group.yOrder = undefined;
-    }
-
-    for (const task of this.allTasksData) {
-        task.yOrder = undefined;
-    }
-
-    const visibleTaskIds = new Set(tasksToShow.map(t => t.internalId));
-
-    let currentYOrder = 0;
-
-    const hideEmptyGroups = this.settings?.wbsGrouping?.hideEmptyGroups?.value ?? true;
-    const isGroupVisible = (group: WBSGroup): boolean => {
-
-        if (hideEmptyGroups && group.visibleTaskCount === 0) return false;
-
-        if (group.taskCount === 0) return false;
-
-        if (!group.parentId) return true;
-
-        const parent = this.wbsGroupMap.get(group.parentId);
-        return parent ? parent.isExpanded && isGroupVisible(parent) : true;
-    };
-
-    const assignYOrderRecursive = (group: WBSGroup): void => {
-        if (!isGroupVisible(group)) return;
-
-        group.yOrder = currentYOrder++;
-
-        if (group.isExpanded) {
-
+        const propagateCounts = (group: WBSGroup): void => {
             for (const child of group.children) {
-                assignYOrderRecursive(child);
+                propagateCounts(child);
+                group.visibleTaskCount += child.visibleTaskCount;
             }
-
-            const directVisibleTasks = group.tasks
-                .filter(t => visibleTaskIds.has(t.internalId))
-                .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
-
-            for (const task of directVisibleTasks) {
-                task.yOrder = currentYOrder++;
-            }
+        };
+        for (const rootGroup of this.wbsRootGroups) {
+            propagateCounts(rootGroup);
         }
 
-    };
+        const sortByFilteredStartDate = (a: WBSGroup, b: WBSGroup): number => {
+            const aStart = a.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+            const bStart = b.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+            if (aStart !== bStart) return aStart - bStart;
 
-    for (const rootGroup of this.wbsRootGroups) {
-        assignYOrderRecursive(rootGroup);
+            return a.fullPath.localeCompare(b.fullPath);
+        };
+
+        this.wbsRootGroups.sort(sortByFilteredStartDate);
+
+        for (const group of this.wbsGroups) {
+            group.children.sort(sortByFilteredStartDate);
+        }
     }
 
-    const tasksWithoutWbs = tasksToShow
-        .filter(t => !t.wbsGroupId)
-        .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+    /**
+     * WBS GROUPING: Assign yOrder to both group headers and tasks after all filtering
+     * This creates a unified layout where group headers reserve their own rows
+     *
+     * @param tasksToShow - Final filtered list of tasks to display (after collapse/expand)
+     */
+    private assignWbsYOrder(tasksToShow: Task[]): void {
 
-    for (const task of tasksWithoutWbs) {
-        task.yOrder = currentYOrder++;
-    }
-
-    this.debugLog(`Assigned yOrder to ${currentYOrder} items (groups + tasks)`);
-}
-
-/**
- * WBS GROUPING: Draw WBS group headers in SVG mode
- * Renders group headers with expand/collapse controls and optional summary bars
- */
-private drawWbsGroupHeaders(
-    xScale: ScaleTime<number, number>,
-    yScale: ScaleBand<string>,
-    chartWidth: number,
-    taskHeight: number,
-    viewportStartIndex?: number,
-    viewportEndIndex?: number
-): void {
-
-    if (!xScale || !yScale) {
-        console.warn("drawWbsGroupHeaders: Skipping render - xScale or yScale is null");
-
-        this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
-        return;
-    }
-
-    if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
-
-        this.taskLayer?.selectAll('.wbs-group-header').remove();
-        return;
-    }
-
-    const showGroupSummary = this.settings.wbsGrouping.showGroupSummary.value;
-    const defaultGroupHeaderColor = this.settings.wbsGrouping.groupHeaderColor.value.value;
-    const groupSummaryColor = this.resolveColor(this.settings.wbsGrouping.groupSummaryColor.value.value, "foreground");
-    const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
-    const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
-    const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-    const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-
-    const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
-    const groupNameFontSize = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
-    const defaultGroupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? "#333333";
-    const criticalPathColor = this.resolveColor(this.settings.taskAppearance.criticalPathColor.value.value, "foreground");
-    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-    const showNearCriticalSummary = this.showNearCritical && this.floatThreshold > 0 && mode === 'floatBased';
-    const showBaseline = this.showBaselineInternal;
-    const showPreviousUpdate = this.showPreviousUpdateInternal;
-    const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
-    const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
-    const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
-    const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
-    const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
-    const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
-
-    if (!this.wbsGroupLayer) {
-        this.wbsGroupLayer = this.mainGroup.insert('g', '.arrow-layer')
-            .attr('class', 'wbs-group-layer');
-    }
-
-    this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
-
-    const self = this;
-
-    for (const group of this.wbsGroups) {
-
-        if (group.yOrder === undefined) continue;
-
-        if (viewportStartIndex !== undefined && viewportEndIndex !== undefined) {
-            if (group.yOrder < viewportStartIndex || group.yOrder > viewportEndIndex) {
-                continue;
-            }
+        for (const group of this.wbsGroups) {
+            group.yOrder = undefined;
         }
 
-        const domainKey = group.yOrder.toString();
-        const bandStart = yScale(domainKey);
+        for (const task of this.allTasksData) {
+            task.yOrder = undefined;
+        }
 
-        if (bandStart === undefined) continue;
+        const visibleTaskIds = new Set(tasksToShow.map(t => t.internalId));
 
-        const bandCenter = bandStart + taskHeight / 2;
+        let currentYOrder = 0;
 
-        const indent = Math.max(0, (group.level - 1) * indentPerLevel);
-        const levelStyle = this.getWbsLevelStyle(group.level, defaultGroupHeaderColor, defaultGroupNameColor);
-        const groupHeaderColor = this.resolveColor(levelStyle.background, "background");
-        const groupNameColor = this.resolveColor(levelStyle.text, "foreground");
-        const summaryFillColor = this.blendColors(groupHeaderColor, groupSummaryColor, 0.35);
-        const summaryStrokeColor = this.getContrastColor(summaryFillColor);
-        const headerGroup = this.wbsGroupLayer.append('g')
-            .attr('class', 'wbs-group-header')
-            .attr('data-group-id', group.id)
-            .style('cursor', 'pointer');
+        const hideEmptyGroups = this.settings?.wbsGrouping?.hideEmptyGroups?.value ?? true;
+        const isGroupVisible = (group: WBSGroup): boolean => {
 
-        const bgOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
+            if (hideEmptyGroups && group.visibleTaskCount === 0) return false;
 
-        const barsGroup = headerGroup.append('g')
-            .attr('class', 'wbs-summary-bars')
-            .attr('clip-path', 'url(#chart-area-clip)');
+            if (group.taskCount === 0) return false;
 
-        if (showGroupSummary && group.taskCount > 0 &&
-            group.summaryStartDate && group.summaryFinishDate) {
-            const isCollapsed = !group.isExpanded;
-            const startX = xScale(group.summaryStartDate);
-            const finishX = xScale(group.summaryFinishDate);
-            const barWidth = Math.max(2, finishX - startX);
-            const barHeight = Math.max(2, taskHeight * (isCollapsed ? 0.65 : 0.35));
-            const barY = bandCenter - barHeight / 2;
-            const barRadius = Math.min(3, Math.max(1, barHeight / 2));
+            if (!group.parentId) return true;
 
-            const baseOpacity = isCollapsed ? 0.78 : 0.25;
-            const barOpacity = (group.visibleTaskCount === 0)
-                ? baseOpacity * (isCollapsed ? 0.5 : 0.35)
-                : baseOpacity;
+            const parent = this.wbsGroupMap.get(group.parentId);
+            return parent ? parent.isExpanded && isGroupVisible(parent) : true;
+        };
 
-            const prevBarHeight = isCollapsed
-                ? previousUpdateHeight
-                : Math.max(1, Math.min(previousUpdateHeight, barHeight * 0.7));
-            const prevOffset = isCollapsed
-                ? previousUpdateOffset
-                : Math.max(1, Math.min(previousUpdateOffset, barHeight * 0.6));
-            const prevRadius = Math.min(3, prevBarHeight / 2);
-            const baselineBarHeight = isCollapsed
-                ? baselineHeight
-                : Math.max(1, Math.min(baselineHeight, barHeight * 0.7));
-            const baselineOffsetEff = isCollapsed
-                ? baselineOffset
-                : Math.max(1, Math.min(baselineOffset, barHeight * 0.6));
-            const baselineRadius = Math.min(3, baselineBarHeight / 2);
+        const assignYOrderRecursive = (group: WBSGroup): void => {
+            if (!isGroupVisible(group)) return;
 
-            if (showPreviousUpdate &&
-                group.summaryPreviousUpdateStartDate && group.summaryPreviousUpdateFinishDate &&
-                group.summaryPreviousUpdateFinishDate >= group.summaryPreviousUpdateStartDate) {
-                const prevStartX = xScale(group.summaryPreviousUpdateStartDate);
-                const prevFinishX = xScale(group.summaryPreviousUpdateFinishDate);
-                const prevWidth = Math.max(2, prevFinishX - prevStartX);
-                const prevY = barY + barHeight + prevOffset;
+            group.yOrder = currentYOrder++;
 
-                barsGroup.append('rect')
-                    .attr('class', 'wbs-summary-bar-previous-update')
-                    .attr('x', prevStartX)
-                    .attr('y', prevY)
-                    .attr('width', prevWidth)
-                    .attr('height', prevBarHeight)
-                    .attr('rx', prevRadius)
-                    .attr('ry', prevRadius)
-                    .style('fill', previousUpdateColor)
-                    .style('opacity', barOpacity);
+            if (group.isExpanded) {
+
+                for (const child of group.children) {
+                    assignYOrderRecursive(child);
+                }
+
+                const directVisibleTasks = group.tasks
+                    .filter(t => visibleTaskIds.has(t.internalId))
+                    .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+                for (const task of directVisibleTasks) {
+                    task.yOrder = currentYOrder++;
+                }
             }
 
-            if (showBaseline &&
-                group.summaryBaselineStartDate && group.summaryBaselineFinishDate &&
-                group.summaryBaselineFinishDate >= group.summaryBaselineStartDate) {
-                const baselineStartX = xScale(group.summaryBaselineStartDate);
-                const baselineFinishX = xScale(group.summaryBaselineFinishDate);
-                const baselineWidth = Math.max(2, baselineFinishX - baselineStartX);
-                const baselineY = barY + barHeight +
-                    (showPreviousUpdate ? prevBarHeight + prevOffset : 0) +
-                    baselineOffsetEff;
+        };
 
-                barsGroup.append('rect')
-                    .attr('class', 'wbs-summary-bar-baseline')
-                    .attr('x', baselineStartX)
-                    .attr('y', baselineY)
-                    .attr('width', baselineWidth)
-                    .attr('height', baselineBarHeight)
-                    .attr('rx', baselineRadius)
-                    .attr('ry', baselineRadius)
-                    .style('fill', baselineColor)
-                    .style('opacity', barOpacity);
+        for (const rootGroup of this.wbsRootGroups) {
+            assignYOrderRecursive(rootGroup);
+        }
+
+        const tasksWithoutWbs = tasksToShow
+            .filter(t => !t.wbsGroupId)
+            .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+        for (const task of tasksWithoutWbs) {
+            task.yOrder = currentYOrder++;
+        }
+
+        this.debugLog(`Assigned yOrder to ${currentYOrder} items (groups + tasks)`);
+    }
+
+    /**
+     * WBS GROUPING: Draw WBS group headers in SVG mode
+     * Renders group headers with expand/collapse controls and optional summary bars
+     */
+    private drawWbsGroupHeaders(
+        xScale: ScaleTime<number, number>,
+        yScale: ScaleBand<string>,
+        chartWidth: number,
+        taskHeight: number,
+        viewportStartIndex?: number,
+        viewportEndIndex?: number
+    ): void {
+
+        if (!xScale || !yScale) {
+            console.warn("drawWbsGroupHeaders: Skipping render - xScale or yScale is null");
+
+            this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
+            return;
+        }
+
+        if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+
+            this.taskLayer?.selectAll('.wbs-group-header').remove();
+            return;
+        }
+
+        const showGroupSummary = this.settings.wbsGrouping.showGroupSummary.value;
+        const defaultGroupHeaderColor = this.settings.wbsGrouping.groupHeaderColor.value.value;
+        const groupSummaryColor = this.resolveColor(this.settings.wbsGrouping.groupSummaryColor.value.value, "foreground");
+        const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
+        const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
+        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+
+        const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
+        const groupNameFontSize = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
+        const defaultGroupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? "#333333";
+        const criticalPathColor = this.resolveColor(this.settings.taskAppearance.criticalPathColor.value.value, "foreground");
+        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+        const showNearCriticalSummary = this.showNearCritical && this.floatThreshold > 0 && mode === 'floatBased';
+        const showBaseline = this.showBaselineInternal;
+        const showPreviousUpdate = this.showPreviousUpdateInternal;
+        const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
+        const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
+        const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
+        const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
+        const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
+        const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
+
+        if (!this.wbsGroupLayer) {
+            this.wbsGroupLayer = this.mainGroup.insert('g', '.arrow-layer')
+                .attr('class', 'wbs-group-layer');
+        }
+
+        this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
+
+        const self = this;
+
+        for (const group of this.wbsGroups) {
+
+            if (group.yOrder === undefined) continue;
+
+            if (viewportStartIndex !== undefined && viewportEndIndex !== undefined) {
+                if (group.yOrder < viewportStartIndex || group.yOrder > viewportEndIndex) {
+                    continue;
+                }
             }
 
-            barsGroup.append('rect')
-                .attr('class', 'wbs-summary-bar')
-                .attr('x', startX)
-                .attr('y', barY)
-                .attr('width', barWidth)
-                .attr('height', barHeight)
-                .attr('rx', barRadius)
-                .attr('ry', barRadius)
-                .style('fill', summaryFillColor)
-                .style('opacity', barOpacity)
-                .style('stroke', summaryStrokeColor)
-                .style('stroke-width', isCollapsed ? 0.8 : 0.4)
-                .style('stroke-opacity', 0.25);
+            const domainKey = group.yOrder.toString();
+            const bandStart = yScale(domainKey);
 
-            if (barWidth > 6) {
-                const capRadius = Math.min(3, Math.max(1.5, barHeight / 3));
-                const capOpacity = isCollapsed ? barOpacity : Math.min(0.35, barOpacity + 0.1);
+            if (bandStart === undefined) continue;
 
-                barsGroup.append('circle')
-                    .attr('class', 'wbs-summary-cap-start')
-                    .attr('cx', startX)
-                    .attr('cy', barY + barHeight / 2)
-                    .attr('r', capRadius)
-                    .style('fill', summaryStrokeColor)
-                    .style('opacity', capOpacity);
+            const bandCenter = bandStart + taskHeight / 2;
 
-                barsGroup.append('circle')
-                    .attr('class', 'wbs-summary-cap-end')
-                    .attr('cx', finishX)
-                    .attr('cy', barY + barHeight / 2)
-                    .attr('r', capRadius)
-                    .style('fill', summaryStrokeColor)
-                    .style('opacity', capOpacity);
-            }
+            const indent = Math.max(0, (group.level - 1) * indentPerLevel);
+            const levelStyle = this.getWbsLevelStyle(group.level, defaultGroupHeaderColor, defaultGroupNameColor);
+            const groupHeaderColor = this.resolveColor(levelStyle.background, "background");
+            const groupNameColor = this.resolveColor(levelStyle.text, "foreground");
+            const summaryFillColor = this.blendColors(groupHeaderColor, groupSummaryColor, 0.35);
+            const summaryStrokeColor = this.getContrastColor(summaryFillColor);
+            const headerGroup = this.wbsGroupLayer.append('g')
+                .attr('class', 'wbs-group-header')
+                .attr('data-group-id', group.id)
+                .style('cursor', 'pointer');
 
-            if (showNearCriticalSummary && group.hasNearCriticalTasks && group.nearCriticalStartDate && group.nearCriticalFinishDate) {
-                const clampedNearStartDate = group.summaryStartDate
-                    ? new Date(Math.max(group.nearCriticalStartDate.getTime(), group.summaryStartDate.getTime()))
-                    : group.nearCriticalStartDate;
-                const clampedNearFinishDate = group.summaryFinishDate
-                    ? new Date(Math.min(group.nearCriticalFinishDate.getTime(), group.summaryFinishDate.getTime()))
-                    : group.nearCriticalFinishDate;
+            const bgOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
 
-                if (clampedNearStartDate <= clampedNearFinishDate) {
-                    const nearStartX = xScale(clampedNearStartDate);
-                    const nearFinishX = xScale(clampedNearFinishDate);
-                    const nearWidth = Math.max(2, nearFinishX - nearStartX);
+            const barsGroup = headerGroup.append('g')
+                .attr('class', 'wbs-summary-bars')
+                .attr('clip-path', 'url(#chart-area-clip)');
 
-                    const nearStartsAtBeginning = nearStartX <= startX + 1;
-                    const nearEndsAtEnd = nearFinishX >= finishX - 1;
+            if (showGroupSummary && group.taskCount > 0 &&
+                group.summaryStartDate && group.summaryFinishDate) {
+                const isCollapsed = !group.isExpanded;
+                const startX = xScale(group.summaryStartDate);
+                const finishX = xScale(group.summaryFinishDate);
+                const barWidth = Math.max(2, finishX - startX);
+                const barHeight = Math.max(2, taskHeight * (isCollapsed ? 0.65 : 0.35));
+                const barY = bandCenter - barHeight / 2;
+                const barRadius = Math.min(3, Math.max(1, barHeight / 2));
+
+                const baseOpacity = isCollapsed ? 0.78 : 0.25;
+                const barOpacity = (group.visibleTaskCount === 0)
+                    ? baseOpacity * (isCollapsed ? 0.5 : 0.35)
+                    : baseOpacity;
+
+                const prevBarHeight = isCollapsed
+                    ? previousUpdateHeight
+                    : Math.max(1, Math.min(previousUpdateHeight, barHeight * 0.7));
+                const prevOffset = isCollapsed
+                    ? previousUpdateOffset
+                    : Math.max(1, Math.min(previousUpdateOffset, barHeight * 0.6));
+                const prevRadius = Math.min(3, prevBarHeight / 2);
+                const baselineBarHeight = isCollapsed
+                    ? baselineHeight
+                    : Math.max(1, Math.min(baselineHeight, barHeight * 0.7));
+                const baselineOffsetEff = isCollapsed
+                    ? baselineOffset
+                    : Math.max(1, Math.min(baselineOffset, barHeight * 0.6));
+                const baselineRadius = Math.min(3, baselineBarHeight / 2);
+
+                if (showPreviousUpdate &&
+                    group.summaryPreviousUpdateStartDate && group.summaryPreviousUpdateFinishDate &&
+                    group.summaryPreviousUpdateFinishDate >= group.summaryPreviousUpdateStartDate) {
+                    const prevStartX = xScale(group.summaryPreviousUpdateStartDate);
+                    const prevFinishX = xScale(group.summaryPreviousUpdateFinishDate);
+                    const prevWidth = Math.max(2, prevFinishX - prevStartX);
+                    const prevY = barY + barHeight + prevOffset;
 
                     barsGroup.append('rect')
-                        .attr('class', 'wbs-summary-bar-near-critical')
-                        .attr('x', nearStartX)
+                        .attr('class', 'wbs-summary-bar-previous-update')
+                        .attr('x', prevStartX)
+                        .attr('y', prevY)
+                        .attr('width', prevWidth)
+                        .attr('height', prevBarHeight)
+                        .attr('rx', prevRadius)
+                        .attr('ry', prevRadius)
+                        .style('fill', previousUpdateColor)
+                        .style('opacity', barOpacity);
+                }
+
+                if (showBaseline &&
+                    group.summaryBaselineStartDate && group.summaryBaselineFinishDate &&
+                    group.summaryBaselineFinishDate >= group.summaryBaselineStartDate) {
+                    const baselineStartX = xScale(group.summaryBaselineStartDate);
+                    const baselineFinishX = xScale(group.summaryBaselineFinishDate);
+                    const baselineWidth = Math.max(2, baselineFinishX - baselineStartX);
+                    const baselineY = barY + barHeight +
+                        (showPreviousUpdate ? prevBarHeight + prevOffset : 0) +
+                        baselineOffsetEff;
+
+                    barsGroup.append('rect')
+                        .attr('class', 'wbs-summary-bar-baseline')
+                        .attr('x', baselineStartX)
+                        .attr('y', baselineY)
+                        .attr('width', baselineWidth)
+                        .attr('height', baselineBarHeight)
+                        .attr('rx', baselineRadius)
+                        .attr('ry', baselineRadius)
+                        .style('fill', baselineColor)
+                        .style('opacity', barOpacity);
+                }
+
+                barsGroup.append('rect')
+                    .attr('class', 'wbs-summary-bar')
+                    .attr('x', startX)
+                    .attr('y', barY)
+                    .attr('width', barWidth)
+                    .attr('height', barHeight)
+                    .attr('rx', barRadius)
+                    .attr('ry', barRadius)
+                    .style('fill', summaryFillColor)
+                    .style('opacity', barOpacity)
+                    .style('stroke', summaryStrokeColor)
+                    .style('stroke-width', isCollapsed ? 0.8 : 0.4)
+                    .style('stroke-opacity', 0.25);
+
+                if (barWidth > 6) {
+                    const capRadius = Math.min(3, Math.max(1.5, barHeight / 3));
+                    const capOpacity = isCollapsed ? barOpacity : Math.min(0.35, barOpacity + 0.1);
+
+                    barsGroup.append('circle')
+                        .attr('class', 'wbs-summary-cap-start')
+                        .attr('cx', startX)
+                        .attr('cy', barY + barHeight / 2)
+                        .attr('r', capRadius)
+                        .style('fill', summaryStrokeColor)
+                        .style('opacity', capOpacity);
+
+                    barsGroup.append('circle')
+                        .attr('class', 'wbs-summary-cap-end')
+                        .attr('cx', finishX)
+                        .attr('cy', barY + barHeight / 2)
+                        .attr('r', capRadius)
+                        .style('fill', summaryStrokeColor)
+                        .style('opacity', capOpacity);
+                }
+
+                if (showNearCriticalSummary && group.hasNearCriticalTasks && group.nearCriticalStartDate && group.nearCriticalFinishDate) {
+                    const clampedNearStartDate = group.summaryStartDate
+                        ? new Date(Math.max(group.nearCriticalStartDate.getTime(), group.summaryStartDate.getTime()))
+                        : group.nearCriticalStartDate;
+                    const clampedNearFinishDate = group.summaryFinishDate
+                        ? new Date(Math.min(group.nearCriticalFinishDate.getTime(), group.summaryFinishDate.getTime()))
+                        : group.nearCriticalFinishDate;
+
+                    if (clampedNearStartDate <= clampedNearFinishDate) {
+                        const nearStartX = xScale(clampedNearStartDate);
+                        const nearFinishX = xScale(clampedNearFinishDate);
+                        const nearWidth = Math.max(2, nearFinishX - nearStartX);
+
+                        const nearStartsAtBeginning = nearStartX <= startX + 1;
+                        const nearEndsAtEnd = nearFinishX >= finishX - 1;
+
+                        barsGroup.append('rect')
+                            .attr('class', 'wbs-summary-bar-near-critical')
+                            .attr('x', nearStartX)
+                            .attr('y', barY)
+                            .attr('width', nearWidth)
+                            .attr('height', barHeight)
+                            .attr('rx', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
+                            .attr('ry', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
+                            .style('fill', nearCriticalColor)
+                            .style('opacity', barOpacity);
+                    }
+                }
+
+                if (group.hasCriticalTasks && group.criticalStartDate && group.criticalFinishDate) {
+                    const criticalStartX = xScale(group.criticalStartDate);
+                    const criticalFinishX = xScale(group.criticalFinishDate);
+                    const criticalWidth = Math.max(2, criticalFinishX - criticalStartX);
+
+                    const criticalStartsAtBeginning = criticalStartX <= startX + 1;
+                    const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
+
+                    barsGroup.append('rect')
+                        .attr('class', 'wbs-summary-bar-critical')
+                        .attr('x', criticalStartX)
                         .attr('y', barY)
-                        .attr('width', nearWidth)
+                        .attr('width', criticalWidth)
                         .attr('height', barHeight)
-                        .attr('rx', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
-                        .attr('ry', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
-                        .style('fill', nearCriticalColor)
+                        .attr('rx', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
+                        .attr('ry', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
+                        .style('fill', criticalPathColor)
                         .style('opacity', barOpacity);
                 }
             }
 
-            if (group.hasCriticalTasks && group.criticalStartDate && group.criticalFinishDate) {
-                const criticalStartX = xScale(group.criticalStartDate);
-                const criticalFinishX = xScale(group.criticalFinishDate);
-                const criticalWidth = Math.max(2, criticalFinishX - criticalStartX);
+            const expandIcon = group.isExpanded ? '\u25BC' : '\u25B6';
+            const mutedTextColor = this.resolveColor("#777777", "foreground");
+            const iconColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
 
-                const criticalStartsAtBeginning = criticalStartX <= startX + 1;
-                const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
+            headerGroup.append('text')
+                .attr('class', 'wbs-expand-icon')
+                .attr('x', -currentLeftMargin + indent + 8)
+                .attr('y', bandCenter - 2)
+                .style('font-size', `${taskNameFontSize}px`)
+                .style('font-family', 'Segoe UI, sans-serif')
+                .style('fill', iconColor)
+                .text(expandIcon);
 
-                barsGroup.append('rect')
-                    .attr('class', 'wbs-summary-bar-critical')
-                    .attr('x', criticalStartX)
-                    .attr('y', barY)
-                    .attr('width', criticalWidth)
-                    .attr('height', barHeight)
-                    .attr('rx', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
-                    .attr('ry', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
-                    .style('fill', criticalPathColor)
-                    .style('opacity', barOpacity);
-            }
-        }
-
-        const expandIcon = group.isExpanded ? '\u25BC' : '\u25B6';
-        const mutedTextColor = this.resolveColor("#777777", "foreground");
-        const iconColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
-
-        headerGroup.append('text')
-            .attr('class', 'wbs-expand-icon')
-            .attr('x', -currentLeftMargin + indent + 8)
-            .attr('y', bandCenter - 2)
-            .style('font-size', `${taskNameFontSize}px`)
-            .style('font-family', 'Segoe UI, sans-serif')
-            .style('fill', iconColor)
-            .text(expandIcon);
-
-        const baseName = group.name;
-        const tasksLabel = this.getLocalizedString("wbs.tasksLabel", "tasks");
-        const visibleLabel = this.getLocalizedString("wbs.visibleLabel", "visible");
-        let countSuffix = "";
-        if (group.taskCount > 0) {
-            if (group.visibleTaskCount < group.taskCount) {
-                countSuffix = `${group.visibleTaskCount}/${group.taskCount} ${visibleLabel}`;
-            } else if (!group.isExpanded) {
-                countSuffix = `${group.taskCount} ${tasksLabel}`;
-            }
-        }
-        const displayName = countSuffix ? `${baseName} - ${countSuffix}` : baseName;
-
-        const textColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
-        const textOpacity = (group.visibleTaskCount === 0) ? 0.65 : 1.0;
-
-        const textX = -currentLeftMargin + indent + 22;
-        const textY = bandCenter;
-        const availableWidth = currentLeftMargin - indent - 30;
-        const lineHeight = '1.1em';
-        const maxLines = 2;
-
-        const textElement = headerGroup.append('text')
-            .attr('class', 'wbs-group-name')
-            .attr('x', textX)
-            .attr('y', textY)
-            .attr('dominant-baseline', 'central')
-            .style('font-size', `${groupNameFontSize}px`)
-            .style('font-family', 'Segoe UI, sans-serif')
-            .style('font-weight', '600')
-            .style('fill', textColor)
-            .style('opacity', textOpacity);
-
-        const words = displayName.split(/\s+/).reverse();
-        let word: string | undefined;
-        let line: string[] = [];
-        let firstTspan = textElement.text(null).append('tspan')
-            .attr('x', textX)
-            .attr('y', textY)
-            .attr('dy', '0em');
-        let tspan = firstTspan;
-        let lineCount = 1;
-
-        while (word = words.pop()) {
-            line.push(word);
-            tspan.text(line.join(' '));
-            try {
-                const node = tspan.node();
-                if (node && node.getComputedTextLength() > availableWidth && line.length > 1) {
-                    line.pop();
-                    tspan.text(line.join(' '));
-
-                    if (lineCount < maxLines) {
-                        line = [word];
-                        tspan = textElement.append('tspan')
-                            .attr('x', textX)
-                            .attr('dy', lineHeight)
-                            .text(word);
-                        lineCount++;
-                    } else {
-
-                        const currentText = tspan.text();
-                        if (currentText.length > 3) {
-                            tspan.text(currentText.slice(0, -3) + '...');
-                        }
-                        break;
-                    }
+            const baseName = group.name;
+            const tasksLabel = this.getLocalizedString("wbs.tasksLabel", "tasks");
+            const visibleLabel = this.getLocalizedString("wbs.visibleLabel", "visible");
+            let countSuffix = "";
+            if (group.taskCount > 0) {
+                if (group.visibleTaskCount < group.taskCount) {
+                    countSuffix = `${group.visibleTaskCount}/${group.taskCount} ${visibleLabel}`;
+                } else if (!group.isExpanded) {
+                    countSuffix = `${group.taskCount} ${tasksLabel}`;
                 }
-            } catch (e) {
-
-                tspan.text(line.join(' '));
-                break;
             }
+            const displayName = countSuffix ? `${baseName} - ${countSuffix}` : baseName;
+
+            const textColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
+            const textOpacity = (group.visibleTaskCount === 0) ? 0.65 : 1.0;
+
+            const textX = -currentLeftMargin + indent + 22;
+            const textY = bandCenter;
+            const availableWidth = currentLeftMargin - indent - 30;
+            const lineHeight = '1.1em';
+            const maxLines = 2;
+
+            const textElement = headerGroup.append('text')
+                .attr('class', 'wbs-group-name')
+                .attr('x', textX)
+                .attr('y', textY)
+                .attr('dominant-baseline', 'central')
+                .style('font-size', `${groupNameFontSize}px`)
+                .style('font-family', 'Segoe UI, sans-serif')
+                .style('font-weight', '600')
+                .style('fill', textColor)
+                .style('opacity', textOpacity);
+
+            const words = displayName.split(/\s+/).reverse();
+            let word: string | undefined;
+            let line: string[] = [];
+            let firstTspan = textElement.text(null).append('tspan')
+                .attr('x', textX)
+                .attr('y', textY)
+                .attr('dy', '0em');
+            let tspan = firstTspan;
+            let lineCount = 1;
+
+            while (word = words.pop()) {
+                line.push(word);
+                tspan.text(line.join(' '));
+                try {
+                    const node = tspan.node();
+                    if (node && node.getComputedTextLength() > availableWidth && line.length > 1) {
+                        line.pop();
+                        tspan.text(line.join(' '));
+
+                        if (lineCount < maxLines) {
+                            line = [word];
+                            tspan = textElement.append('tspan')
+                                .attr('x', textX)
+                                .attr('dy', lineHeight)
+                                .text(word);
+                            lineCount++;
+                        } else {
+
+                            const currentText = tspan.text();
+                            if (currentText.length > 3) {
+                                tspan.text(currentText.slice(0, -3) + '...');
+                            }
+                            break;
+                        }
+                    }
+                } catch (e) {
+
+                    tspan.text(line.join(' '));
+                    break;
+                }
+            }
+
+            if (lineCount > 1) {
+                firstTspan.attr('dy', '-0.55em');
+            }
+
+            const lineHeightPx = groupNameFontSize * 1.1;
+            const bgHeight = lineCount > 1 ? taskHeight + lineHeightPx : taskHeight + 4;
+
+            const bgY = bandCenter - bgHeight / 2;
+
+            headerGroup.insert('rect', ':first-child')
+                .attr('class', 'wbs-header-bg')
+                .attr('x', -currentLeftMargin + indent)
+                .attr('y', bgY)
+                .attr('width', currentLeftMargin - indent - 5)
+                .attr('height', bgHeight)
+                .style('fill', groupHeaderColor)
+                .style('opacity', bgOpacity);
+
+            headerGroup.on('click', function () {
+                self.hideTooltip();
+                self.toggleWbsGroupExpansion(group.id);
+            });
         }
-
-        if (lineCount > 1) {
-            firstTspan.attr('dy', '-0.55em');
-        }
-
-        const lineHeightPx = groupNameFontSize * 1.1;
-        const bgHeight = lineCount > 1 ? taskHeight + lineHeightPx : taskHeight + 4;
-
-        const bgY = bandCenter - bgHeight / 2;
-
-        headerGroup.insert('rect', ':first-child')
-            .attr('class', 'wbs-header-bg')
-            .attr('x', -currentLeftMargin + indent)
-            .attr('y', bgY)
-            .attr('width', currentLeftMargin - indent - 5)
-            .attr('height', bgHeight)
-            .style('fill', groupHeaderColor)
-            .style('opacity', bgOpacity);
-
-        headerGroup.on('click', function() {
-            self.hideTooltip();
-            self.toggleWbsGroupExpansion(group.id);
-        });
     }
-}
 
     private mightBeDate(value: PrimitiveValue): boolean {
 
@@ -10993,52 +10993,52 @@ private drawWbsGroupHeaders(
         return false;
     }
 
-private validateDataView(dataView: DataView): boolean {
-    if (!dataView?.table?.rows || !dataView.metadata?.columns) {
-        console.warn("validateDataView: Missing table/rows or metadata/columns.");
-        return false;
-    }
+    private validateDataView(dataView: DataView): boolean {
+        if (!dataView?.table?.rows || !dataView.metadata?.columns) {
+            console.warn("validateDataView: Missing table/rows or metadata/columns.");
+            return false;
+        }
 
-    const hasId = this.hasDataRole(dataView, 'taskId');
-    const hasStartDate = this.hasDataRole(dataView, 'startDate');
-    const hasFinishDate = this.hasDataRole(dataView, 'finishDate');
+        const hasId = this.hasDataRole(dataView, 'taskId');
+        const hasStartDate = this.hasDataRole(dataView, 'startDate');
+        const hasFinishDate = this.hasDataRole(dataView, 'finishDate');
 
-    const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
-    const hasDuration = this.hasDataRole(dataView, 'duration');
-    const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
-    const hasTaskFreeFloat = this.hasDataRole(dataView, 'taskFreeFloat');
+        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+        const hasDuration = this.hasDataRole(dataView, 'duration');
+        const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
+        const hasTaskFreeFloat = this.hasDataRole(dataView, 'taskFreeFloat');
 
-    let isValid = true;
-    if (!hasId) {
-        console.warn("validateDataView: Missing 'taskId' data role.");
-        isValid = false;
-    }
-
-    if (mode === 'floatBased') {
-
-        if (!hasTotalFloat) {
-            console.warn("validateDataView: Float-Based mode requires 'taskTotalFloat' data role for criticality.");
+        let isValid = true;
+        if (!hasId) {
+            console.warn("validateDataView: Missing 'taskId' data role.");
             isValid = false;
         }
-    } else {
 
-        if (!hasDuration) {
-            console.warn("validateDataView: Longest Path mode requires 'duration' data role (needed for CPM).");
+        if (mode === 'floatBased') {
+
+            if (!hasTotalFloat) {
+                console.warn("validateDataView: Float-Based mode requires 'taskTotalFloat' data role for criticality.");
+                isValid = false;
+            }
+        } else {
+
+            if (!hasDuration) {
+                console.warn("validateDataView: Longest Path mode requires 'duration' data role (needed for CPM).");
+                isValid = false;
+            }
+        }
+
+        if (!hasStartDate) {
+            console.warn("validateDataView: Missing 'startDate' data role (needed for plotting).");
             isValid = false;
         }
-    }
+        if (!hasFinishDate) {
+            console.warn("validateDataView: Missing 'finishDate' data role (needed for plotting).");
+            isValid = false;
+        }
 
-    if (!hasStartDate) {
-        console.warn("validateDataView: Missing 'startDate' data role (needed for plotting).");
-        isValid = false;
+        return isValid;
     }
-    if (!hasFinishDate) {
-        console.warn("validateDataView: Missing 'finishDate' data role (needed for plotting).");
-        isValid = false;
-    }
-
-    return isValid;
-}
 
     private hasDataRole(dataView: DataView, roleName: string): boolean {
         if (!dataView?.metadata?.columns) return false;
@@ -11072,30 +11072,30 @@ private validateDataView(dataView: DataView): boolean {
                 }
             }
             else if (typeof dateValue === 'number') {
-                 const num = dateValue;
-                 if (!isNaN(num) && isFinite(num)) {
+                const num = dateValue;
+                if (!isNaN(num) && isFinite(num)) {
 
-                     if (num > 0 && num < 60) {
+                    if (num > 0 && num < 60) {
 
-                     } else if (num >= 61 && num < 2958466) {
+                    } else if (num >= 61 && num < 2958466) {
 
-                         date = new Date(Math.round((num - 25569) * 86400 * 1000));
-                     }
+                        date = new Date(Math.round((num - 25569) * 86400 * 1000));
+                    }
 
-                     else if (num > 631152000000 && num < Date.now() + 3153600000000 * 20) {
-                         date = new Date(num);
-                     }
+                    else if (num > 631152000000 && num < Date.now() + 3153600000000 * 20) {
+                        date = new Date(num);
+                    }
 
-                     else if (num > 631152000 && num < (Date.now() / 1000) + 31536000 * 20) {
-                         date = new Date(num * 1000);
-                     }
+                    else if (num > 631152000 && num < (Date.now() / 1000) + 31536000 * 20) {
+                        date = new Date(num * 1000);
+                    }
 
-                     if (date && isNaN(date.getTime())) date = null;
-                 }
+                    if (date && isNaN(date.getTime())) date = null;
+                }
             }
         } catch (e) {
-             date = null;
-             console.warn(`Error parsing date value: "${String(dateValue)}"`, e);
+            date = null;
+            console.warn(`Error parsing date value: "${String(dateValue)}"`, e);
         }
 
         if (!date) {
@@ -11208,15 +11208,15 @@ private validateDataView(dataView: DataView): boolean {
 
         slotsAvailable = effectiveMaxTasks - tasksToShow.length;
         if (slotsAvailable > 0) {
-             const milestones = remainingTasks.filter(task =>
-                 !shownTaskIds.has(task.internalId) &&
-                 (task.type === 'TT_Mile' || task.type === 'TT_FinMile')
-             );
-             const milestonesToAdd = milestones.slice(0, slotsAvailable);
-             milestonesToAdd.forEach(milestone => {
-                 tasksToShow.push(milestone);
-                 shownTaskIds.add(milestone.internalId);
-             });
+            const milestones = remainingTasks.filter(task =>
+                !shownTaskIds.has(task.internalId) &&
+                (task.type === 'TT_Mile' || task.type === 'TT_FinMile')
+            );
+            const milestonesToAdd = milestones.slice(0, slotsAvailable);
+            milestonesToAdd.forEach(milestone => {
+                tasksToShow.push(milestone);
+                shownTaskIds.add(milestone.internalId);
+            });
         }
 
         slotsAvailable = effectiveMaxTasks - tasksToShow.length;
@@ -11298,695 +11298,695 @@ private validateDataView(dataView: DataView): boolean {
         this.lastTaskFilterSignature = signature;
     }
 
-private displayMessage(message: string): void {
-    this.debugLog("Displaying Message:", message);
+    private displayMessage(message: string): void {
+        this.debugLog("Displaying Message:", message);
 
-    this.applyTaskFilter([]);
+        this.applyTaskFilter([]);
 
-    this.clearLandingPage();
+        this.clearLandingPage();
 
-    const containerNode = this.scrollableContainer?.node();
-    if (!containerNode || !this.mainSvg || !this.headerSvg) {
-        console.error("Cannot display message, containers or svgs not ready.");
-        return;
-    }
-    this.clearVisual();
+        const containerNode = this.scrollableContainer?.node();
+        if (!containerNode || !this.mainSvg || !this.headerSvg) {
+            console.error("Cannot display message, containers or svgs not ready.");
+            return;
+        }
+        this.clearVisual();
 
-    const width = containerNode?.clientWidth || 300;
-    const height = containerNode?.clientHeight || Math.max(100, this.target.clientHeight - this.headerHeight);
+        const width = containerNode?.clientWidth || 300;
+        const height = containerNode?.clientHeight || Math.max(100, this.target.clientHeight - this.headerHeight);
 
-    this.mainSvg.attr("width", width).attr("height", height);
-    this.mainGroup?.attr("transform", null);
+        this.mainSvg.attr("width", width).attr("height", height);
+        this.mainGroup?.attr("transform", null);
 
-    this.mainSvg.append("text")
-        .attr("class", "message-text")
-        .attr("x", width / 2)
-        .attr("y", height / 2)
-        .attr("text-anchor", "middle")
-        .attr("dominant-baseline", "middle")
-        .style("fill", this.resolveColor("#777777", "foreground"))
-        .style("font-size", "14px")
-        .style("font-weight", "bold")
-        .text(message);
+        this.mainSvg.append("text")
+            .attr("class", "message-text")
+            .attr("x", width / 2)
+            .attr("y", height / 2)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "middle")
+            .style("fill", this.resolveColor("#777777", "foreground"))
+            .style("font-size", "14px")
+            .style("font-weight", "bold")
+            .text(message);
 
-    const viewportWidth = this.lastUpdateOptions?.viewport.width || width;
-    this.createOrUpdateToggleButton(viewportWidth);
-    this.drawHeaderDivider(viewportWidth);
-}
-
-private createTaskSelectionDropdown(): void {
-    if (!this.dropdownContainer || !this.selectedTaskLabel) {
-        console.warn("Dropdown elements not ready.");
-        return;
+        const viewportWidth = this.lastUpdateOptions?.viewport.width || width;
+        this.createOrUpdateToggleButton(viewportWidth);
+        this.drawHeaderDivider(viewportWidth);
     }
 
-    const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
-    const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
-    const secondRowLayout = this.getSecondRowLayout(viewportWidth);
-    const dropdownWidth = secondRowLayout.dropdown.width;
-    const showSelectedTaskLabel = this.settings.taskSelection.showSelectedTaskLabel.value;
-    const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
-    const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
+    private createTaskSelectionDropdown(): void {
+        if (!this.dropdownContainer || !this.selectedTaskLabel) {
+            console.warn("Dropdown elements not ready.");
+            return;
+        }
 
-    this.dropdownContainer.style("display", enableTaskSelection ? "block" : "none");
-    if (!enableTaskSelection) {
-        this.selectedTaskLabel.style("display", "none");
-        return;
-    }
+        const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
+        const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
+        const secondRowLayout = this.getSecondRowLayout(viewportWidth);
+        const dropdownWidth = secondRowLayout.dropdown.width;
+        const showSelectedTaskLabel = this.settings.taskSelection.showSelectedTaskLabel.value;
+        const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
+        const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
 
-    this.dropdownContainer.selectAll("*").remove();
-
-    this.dropdownContainer
-        .style("position", "absolute")
-        .style("top", "44px")
-        .style("left", `${secondRowLayout.dropdown.left}px`)
-        .style("right", "auto")
-        .style("transform", "none")
-        .style("z-index", "20");
-
-    this.dropdownInput = this.dropdownContainer.append("input")
-        .attr("type", "text")
-        .attr("class", "task-selection-input")
-        .attr("placeholder", searchPlaceholder)
-        .attr("role", "combobox")
-        .attr("aria-autocomplete", "list")
-        .attr("aria-expanded", "false")
-        .attr("aria-controls", this.dropdownListId)
-        .attr("aria-haspopup", "listbox")
-        .attr("aria-activedescendant", null)
-        .attr("aria-label", searchPlaceholder)
-        .style("width", `${dropdownWidth}px`)
-        .style("height", `${this.UI_TOKENS.height.standard}px`)
-        .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
-        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-        .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
-        .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-        .style("font-size", `${this.UI_TOKENS.fontSize.lg}px`)
-        .style("color", this.UI_TOKENS.color.neutral.grey160)
-        .style("background", this.UI_TOKENS.color.neutral.white)
-        .style("box-sizing", "border-box")
-        .style("outline", "none")
-        .style("box-shadow", this.UI_TOKENS.shadow[2])
-        .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-    const selfRef = this;
-    this.dropdownInput
-        .on("focus", function() {
-            d3.select(this)
-                .style("border-color", selfRef.UI_TOKENS.color.primary.default)
-                .style("border-width", "2px")
-                .style("box-shadow", selfRef.UI_TOKENS.shadow[4]);
-        })
-        .on("blur", function() {
-            d3.select(this)
-                .style("border-color", selfRef.UI_TOKENS.color.neutral.grey60)
-                .style("border-width", "1.5px")
-                .style("box-shadow", selfRef.UI_TOKENS.shadow[2]);
-        });
-
-    this.dropdownList = this.dropdownContainer.append("div")
-        .attr("class", "task-selection-list")
-        .attr("id", this.dropdownListId)
-        .attr("role", "listbox")
-        .attr("aria-label", this.getLocalizedString("ui.taskListLabel", "Task results"))
-        .style("position", "absolute")
-        .style("top", "100%")
-        .style("left", "0")
-        .style("width", `${dropdownWidth}px`)
-        .style("max-height", "400px")
-        .style("margin-top", `${this.UI_TOKENS.spacing.xs}px`)
-        .style("overflow-y", "auto")
-        .style("background", this.UI_TOKENS.color.neutral.white)
-        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-        .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
-        .style("box-shadow", this.UI_TOKENS.shadow[8])
-        .style("display", "none")
-        .style("z-index", "1000")
-        .style("box-sizing", "border-box");
-    this.dropdownNeedsRefresh = true;
-
-    const self = this;
-
-    this.dropdownList
-        .on("mousedown", () => {
-            this.isDropdownInteracting = true;
-        })
-        .on("mouseup", () => {
-
-            setTimeout(() => {
-                this.isDropdownInteracting = false;
-            }, 50);
-        });
-
-    this.dropdownInput
-        .on("input", function() {
-            const inputValue = (this as HTMLInputElement).value.trim();
-            if (self.dropdownFilterTimeout) {
-                clearTimeout(self.dropdownFilterTimeout);
-            }
-            self.dropdownFilterTimeout = window.setTimeout(() => {
-                self.renderTaskDropdown(inputValue);
-                self.openDropdown();
-            }, 120);
-        })
-        .on("focus", function() {
-            self.renderTaskDropdown((this as HTMLInputElement).value.trim());
-            self.openDropdown();
-
-            self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
-                .style("pointer-events", "none");
-        })
-        .on("blur", function() {
-
-            setTimeout(() => {
-
-                if (!self.isDropdownInteracting) {
-                    self.closeDropdown(false);
-                }
-
-                self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
-                    .style("pointer-events", "auto");
-            }, 150);
-        })
-        .on("keydown", function(event: KeyboardEvent) {
-            if (event.key === "ArrowDown") {
-                event.preventDefault();
-                self.moveDropdownActive(1);
-            } else if (event.key === "ArrowUp") {
-                event.preventDefault();
-                self.moveDropdownActive(-1);
-            } else if (event.key === "Enter") {
-                event.preventDefault();
-                self.activateDropdownSelection();
-            } else if (event.key === "Escape") {
-                self.isDropdownInteracting = false;
-                self.closeDropdown(true);
-
-                self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
-                    .style("pointer-events", "auto");
-
-                event.preventDefault();
-            }
-        });
-
-    if (this.selectedTaskId && this.selectedTaskName) {
-        this.dropdownInput.property("value", this.selectedTaskName);
-    }
-
-    if (this.selectedTaskLabel) {
-
-        this.selectedTaskLabel
-            .style("position", "absolute")
-            .style("top", "10px")
-            .style("right", "15px")
-            .style("left", "auto");
-
-        if (this.selectedTaskId && this.selectedTaskName && showSelectedTaskLabel) {
-            this.selectedTaskLabel
-                .style("display", "block")
-                .text(`${selectedLabelPrefix}: ${this.selectedTaskName}`);
-        } else {
+        this.dropdownContainer.style("display", enableTaskSelection ? "block" : "none");
+        if (!enableTaskSelection) {
             this.selectedTaskLabel.style("display", "none");
+            return;
+        }
+
+        this.dropdownContainer.selectAll("*").remove();
+
+        this.dropdownContainer
+            .style("position", "absolute")
+            .style("top", "40px")
+            .style("left", `${secondRowLayout.dropdown.left}px`)
+            .style("right", "auto")
+            .style("transform", "none")
+            .style("z-index", "20");
+
+        this.dropdownInput = this.dropdownContainer.append("input")
+            .attr("type", "text")
+            .attr("class", "task-selection-input")
+            .attr("placeholder", searchPlaceholder)
+            .attr("role", "combobox")
+            .attr("aria-autocomplete", "list")
+            .attr("aria-expanded", "false")
+            .attr("aria-controls", this.dropdownListId)
+            .attr("aria-haspopup", "listbox")
+            .attr("aria-activedescendant", null)
+            .attr("aria-label", searchPlaceholder)
+            .style("width", `${dropdownWidth}px`)
+            .style("height", `${this.UI_TOKENS.height.compact}px`)
+            .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
+            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+            .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-size", `${this.UI_TOKENS.fontSize.lg}px`)
+            .style("color", this.UI_TOKENS.color.neutral.grey160)
+            .style("background", this.UI_TOKENS.color.neutral.white)
+            .style("box-sizing", "border-box")
+            .style("outline", "none")
+            .style("box-shadow", this.UI_TOKENS.shadow[2])
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        const selfRef = this;
+        this.dropdownInput
+            .on("focus", function () {
+                d3.select(this)
+                    .style("border-color", selfRef.UI_TOKENS.color.primary.default)
+                    .style("border-width", "2px")
+                    .style("box-shadow", selfRef.UI_TOKENS.shadow[4]);
+            })
+            .on("blur", function () {
+                d3.select(this)
+                    .style("border-color", selfRef.UI_TOKENS.color.neutral.grey60)
+                    .style("border-width", "1.5px")
+                    .style("box-shadow", selfRef.UI_TOKENS.shadow[2]);
+            });
+
+        this.dropdownList = this.dropdownContainer.append("div")
+            .attr("class", "task-selection-list")
+            .attr("id", this.dropdownListId)
+            .attr("role", "listbox")
+            .attr("aria-label", this.getLocalizedString("ui.taskListLabel", "Task results"))
+            .style("position", "absolute")
+            .style("top", "100%")
+            .style("left", "0")
+            .style("width", `${dropdownWidth}px`)
+            .style("max-height", "400px")
+            .style("margin-top", `${this.UI_TOKENS.spacing.xs}px`)
+            .style("overflow-y", "auto")
+            .style("background", this.UI_TOKENS.color.neutral.white)
+            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+            .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
+            .style("box-shadow", this.UI_TOKENS.shadow[8])
+            .style("display", "none")
+            .style("z-index", "1000")
+            .style("box-sizing", "border-box");
+        this.dropdownNeedsRefresh = true;
+
+        const self = this;
+
+        this.dropdownList
+            .on("mousedown", () => {
+                this.isDropdownInteracting = true;
+            })
+            .on("mouseup", () => {
+
+                setTimeout(() => {
+                    this.isDropdownInteracting = false;
+                }, 50);
+            });
+
+        this.dropdownInput
+            .on("input", function () {
+                const inputValue = (this as HTMLInputElement).value.trim();
+                if (self.dropdownFilterTimeout) {
+                    clearTimeout(self.dropdownFilterTimeout);
+                }
+                self.dropdownFilterTimeout = window.setTimeout(() => {
+                    self.renderTaskDropdown(inputValue);
+                    self.openDropdown();
+                }, 120);
+            })
+            .on("focus", function () {
+                self.renderTaskDropdown((this as HTMLInputElement).value.trim());
+                self.openDropdown();
+
+                self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+                    .style("pointer-events", "none");
+            })
+            .on("blur", function () {
+
+                setTimeout(() => {
+
+                    if (!self.isDropdownInteracting) {
+                        self.closeDropdown(false);
+                    }
+
+                    self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+                        .style("pointer-events", "auto");
+                }, 150);
+            })
+            .on("keydown", function (event: KeyboardEvent) {
+                if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    self.moveDropdownActive(1);
+                } else if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    self.moveDropdownActive(-1);
+                } else if (event.key === "Enter") {
+                    event.preventDefault();
+                    self.activateDropdownSelection();
+                } else if (event.key === "Escape") {
+                    self.isDropdownInteracting = false;
+                    self.closeDropdown(true);
+
+                    self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+                        .style("pointer-events", "auto");
+
+                    event.preventDefault();
+                }
+            });
+
+        if (this.selectedTaskId && this.selectedTaskName) {
+            this.dropdownInput.property("value", this.selectedTaskName);
+        }
+
+        if (this.selectedTaskLabel) {
+
+            this.selectedTaskLabel
+                .style("position", "absolute")
+                .style("top", "10px")
+                .style("right", "15px")
+                .style("left", "auto");
+
+            if (this.selectedTaskId && this.selectedTaskName && showSelectedTaskLabel) {
+                this.selectedTaskLabel
+                    .style("display", "block")
+                    .text(`${selectedLabelPrefix}: ${this.selectedTaskName}`);
+            } else {
+                this.selectedTaskLabel.style("display", "none");
+            }
         }
     }
-}
 
-private normalizeTraceMode(value: unknown): "backward" | "forward" {
-    return value === "forward" ? "forward" : "backward";
-}
-
-/**
- * Creates the trace mode toggle (Backward/Forward) positioned on the second header row.
- */
-private createTraceModeToggle(): void {
-    if (!this.stickyHeaderContainer || !this.settings?.taskSelection) return;
-
-    this.stickyHeaderContainer.selectAll(".trace-mode-toggle").remove();
-
-    if (!this.settings.taskSelection.enableTaskSelection.value) {
-        return;
-    }
-    if (!this.selectedTaskId) {
-        return;
+    private normalizeTraceMode(value: unknown): "backward" | "forward" {
+        return value === "forward" ? "forward" : "backward";
     }
 
-    const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
-    const secondRowLayout = this.getSecondRowLayout(viewportWidth);
-    const layoutMode = this.getLayoutMode(viewportWidth);
-    const isCompact = layoutMode === "narrow";
-    const isMedium = layoutMode === "medium";
+    /**
+     * Creates the trace mode toggle (Backward/Forward) positioned on the second header row.
+     */
+    private createTraceModeToggle(): void {
+        if (!this.stickyHeaderContainer || !this.settings?.taskSelection) return;
 
-    const labelBackward = isCompact ? "Back" : (isMedium ? "Backward" : "Trace Backward");
-    const labelForward = isCompact ? "Fwd" : (isMedium ? "Forward" : "Trace Forward");
-    const configuredMode = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
-    const currentMode = this.normalizeTraceMode(this.traceMode || configuredMode);
-    this.traceMode = currentMode;
+        this.stickyHeaderContainer.selectAll(".trace-mode-toggle").remove();
 
-    const container = this.stickyHeaderContainer.append("div")
-        .attr("class", "trace-mode-toggle")
-        .attr("role", "radiogroup")
-        .attr("aria-label", this.getLocalizedString("ui.traceModeLabel", "Trace Mode"))
-        .style("position", "absolute")
-        .style("top", "44px")
-        .style("left", `${secondRowLayout.traceModeToggle.left}px`)
-        .style("display", "inline-flex")
-        .style("align-items", "center")
-        .style("height", `${this.UI_TOKENS.height.standard}px`)
-        .style("padding", "2px")
-        .style("gap", "2px")
-        .style("background-color", this.UI_TOKENS.color.neutral.white)
-        .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-        .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
-        .style("box-shadow", this.UI_TOKENS.shadow[2])
-        .style("z-index", "25")
-        .style("user-select", "none");
+        if (!this.settings.taskSelection.enableTaskSelection.value) {
+            return;
+        }
+        if (!this.selectedTaskId) {
+            return;
+        }
 
-    const self = this;
-    const setMode = (mode: string): void => {
-        if (self.traceMode === mode) return;
-        self.traceMode = mode;
+        const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
+        const secondRowLayout = this.getSecondRowLayout(viewportWidth);
+        const layoutMode = this.getLayoutMode(viewportWidth);
+        const isCompact = layoutMode === "narrow";
+        const isMedium = layoutMode === "medium";
 
-        self.host.persistProperties({
+        const labelBackward = isCompact ? "Back" : (isMedium ? "Backward" : "Trace Backward");
+        const labelForward = isCompact ? "Fwd" : (isMedium ? "Forward" : "Trace Forward");
+        const configuredMode = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
+        const currentMode = this.normalizeTraceMode(this.traceMode || configuredMode);
+        this.traceMode = currentMode;
+
+        const container = this.stickyHeaderContainer.append("div")
+            .attr("class", "trace-mode-toggle")
+            .attr("role", "radiogroup")
+            .attr("aria-label", this.getLocalizedString("ui.traceModeLabel", "Trace Mode"))
+            .style("position", "absolute")
+            .style("top", "40px")
+            .style("left", `${secondRowLayout.traceModeToggle.left}px`)
+            .style("display", "inline-flex")
+            .style("align-items", "center")
+            .style("height", `${this.UI_TOKENS.height.compact}px`)
+            .style("padding", "2px")
+            .style("gap", "2px")
+            .style("background-color", this.UI_TOKENS.color.neutral.white)
+            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+            .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
+            .style("box-shadow", this.UI_TOKENS.shadow[2])
+            .style("z-index", "25")
+            .style("user-select", "none");
+
+        const self = this;
+        const setMode = (mode: string): void => {
+            if (self.traceMode === mode) return;
+            self.traceMode = mode;
+
+            self.host.persistProperties({
+                merge: [{
+                    objectName: "persistedState",
+                    properties: { traceMode: mode },
+                    selector: null
+                }]
+            });
+
+            self.captureScrollPosition();
+            self.forceFullUpdate = true;
+            if (self.lastUpdateOptions) {
+                self.update(self.lastUpdateOptions);
+            }
+        };
+
+        const options = [
+            { value: "backward", label: labelBackward, title: "Trace backward from the selected task" },
+            { value: "forward", label: labelForward, title: "Trace forward from the selected task" }
+        ];
+
+        for (const option of options) {
+            const isActive = option.value === currentMode;
+            const button = container.append("div")
+                .attr("class", `trace-mode-option ${option.value}`)
+                .attr("role", "radio")
+                .attr("aria-checked", isActive ? "true" : "false")
+                .attr("tabindex", isActive ? "0" : "-1")
+                .attr("aria-label", option.title)
+                .style("display", "flex")
+                .style("align-items", "center")
+                .style("justify-content", "center")
+                .style("height", `${this.UI_TOKENS.height.compact - 6}px`)
+                .style("padding", `0 ${isCompact ? this.UI_TOKENS.spacing.sm : this.UI_TOKENS.spacing.md}px`)
+                .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
+                .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+                .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+                .style("font-weight", isActive ? this.UI_TOKENS.fontWeight.semibold.toString() : this.UI_TOKENS.fontWeight.medium.toString())
+                .style("color", isActive ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
+                .style("background-color", isActive ? this.UI_TOKENS.color.primary.default : "transparent")
+                .style("cursor", "pointer")
+                .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+                .text(option.label);
+
+            button.append("title").text(option.title);
+
+            button
+                .on("mouseover", function () {
+                    if (option.value !== self.traceMode) {
+                        d3.select(this)
+                            .style("background-color", self.UI_TOKENS.color.primary.light)
+                            .style("color", self.UI_TOKENS.color.primary.default);
+                    }
+                })
+                .on("mouseout", function () {
+                    if (option.value !== self.traceMode) {
+                        d3.select(this)
+                            .style("background-color", "transparent")
+                            .style("color", self.UI_TOKENS.color.neutral.grey130);
+                    }
+                })
+                .on("click", function (event) {
+                    event.stopPropagation();
+                    setMode(option.value);
+                })
+                .on("keydown", function (event: KeyboardEvent) {
+                    if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setMode(option.value);
+                    }
+                });
+        }
+    }
+    /**
+     * Populates the task dropdown with tasks from the dataset
+     */
+    private populateTaskDropdown(): void {
+        if (!this.dropdownList || !this.settings?.taskSelection?.enableTaskSelection?.value) {
+            console.warn("Dropdown list not initialized");
+            return;
+        }
+
+        this.refreshDropdownCache();
+        const currentSearch = this.dropdownInput
+            ? String(this.dropdownInput.property("value") ?? "")
+            : "";
+        this.renderTaskDropdown(currentSearch.trim());
+    }
+
+    /**
+     * Filters the dropdown items based on input text
+     */
+    private filterTaskDropdown(searchText: string = ""): void {
+        this.renderTaskDropdown(searchText);
+    }
+
+    private refreshDropdownCache(): void {
+        if (!this.dropdownNeedsRefresh && this.dropdownTaskCache.length > 0) return;
+
+        const realTasks = this.allTasksData.filter(task => task.type !== "Synthetic");
+        this.dropdownTaskCache = [...realTasks].sort((a, b) =>
+            (a.name || "").localeCompare(b.name || ""));
+        this.dropdownNeedsRefresh = false;
+    }
+
+    private renderTaskDropdown(searchText: string): void {
+        if (!this.dropdownList) return;
+
+        this.refreshDropdownCache();
+
+        const searchLower = searchText.toLowerCase().trim();
+        const clearSelectionText = this.getLocalizedString("ui.clearSelection", "Clear Selection");
+        const noResultsText = this.getLocalizedString("ui.noTasksMatching", "No tasks matching");
+        const noTasksText = this.getLocalizedString("ui.noTasksAvailable", "No tasks available");
+        const moreResultsText = this.getLocalizedString("ui.moreResults", "Type to refine results");
+
+        if (this.dropdownTaskCache.length === 0) {
+            console.warn("No tasks available to populate dropdown");
+
+            this.dropdownList.selectAll("*").remove();
+            this.dropdownList.append("div")
+                .attr("class", "dropdown-item no-data")
+                .attr("role", "presentation")
+                .text(noTasksText)
+                .style("padding", "8px 10px")
+                .style("color", "#999")
+                .style("font-style", "italic")
+                .style("font-size", "11px")
+                .style("font-family", "Segoe UI, sans-serif");
+            this.dropdownFocusableItems = [];
+            this.dropdownActiveIndex = -1;
+            this.updateDropdownActiveState();
+            return;
+        }
+
+        const matches = searchLower
+            ? this.dropdownTaskCache.filter(task =>
+                (task.name || "").toLowerCase().includes(searchLower))
+            : this.dropdownTaskCache;
+
+        const limited = matches.slice(0, this.DROPDOWN_MAX_RESULTS);
+        const hasMore = matches.length > limited.length;
+
+        const items: DropdownItem[] = [];
+        items.push({ id: `${this.dropdownListId}-clear`, type: "clear", label: clearSelectionText, focusable: true });
+
+        if (limited.length === 0) {
+            items.push({
+                id: `${this.dropdownListId}-empty`,
+                type: "empty",
+                label: `${noResultsText} "${searchText}"`,
+                focusable: false
+            });
+        } else {
+            for (const task of limited) {
+                const label = task.name || `Task ${task.internalId}`;
+                items.push({
+                    id: `${this.dropdownListId}-task-${task.internalId}`,
+                    type: "task",
+                    label,
+                    task,
+                    focusable: true
+                });
+            }
+            if (hasMore) {
+                items.push({
+                    id: `${this.dropdownListId}-overflow`,
+                    type: "overflow",
+                    label: moreResultsText,
+                    focusable: false
+                });
+            }
+        }
+
+        this.dropdownFocusableItems = items.filter(item => item.focusable);
+
+        const selectedIndex = this.dropdownFocusableItems.findIndex(item =>
+            item.type === "task" && item.task?.internalId === this.selectedTaskId);
+        if (selectedIndex >= 0) {
+            this.dropdownActiveIndex = selectedIndex;
+        } else if (this.dropdownActiveIndex < 0 && this.dropdownFocusableItems.length > 0) {
+            this.dropdownActiveIndex = 0;
+        } else if (this.dropdownActiveIndex >= this.dropdownFocusableItems.length) {
+            this.dropdownActiveIndex = this.dropdownFocusableItems.length - 1;
+        }
+
+        this.dropdownList.selectAll("*").remove();
+
+        const self = this;
+        let focusIndex = -1;
+
+        for (const item of items) {
+            const isFocusable = item.focusable;
+            const thisFocusIndex = isFocusable ? ++focusIndex : -1;
+            const isActive = thisFocusIndex === this.dropdownActiveIndex;
+            const isSelected = item.type === "task" && item.task?.internalId === this.selectedTaskId;
+
+            const defaultBg = isSelected ? "#f0f0f0" : "white";
+            const row = this.dropdownList.append("div")
+                .attr("class", `dropdown-item ${item.type}`)
+                .attr("id", item.id)
+                .attr("role", isFocusable ? "option" : "presentation")
+                .attr("aria-selected", isFocusable ? (isSelected ? "true" : "false") : null)
+                .attr("data-selected", isSelected ? "true" : "false")
+                .attr("data-default-bg", defaultBg)
+                .style("padding", isFocusable ? "6px 10px" : "8px 10px")
+                .style("cursor", isFocusable ? "pointer" : "default")
+                .style("color", item.type === "clear" ? "#666" : (item.type === "empty" || item.type === "overflow" ? "#999" : "#333"))
+                .style("font-style", item.type === "clear" || item.type === "empty" || item.type === "overflow" ? "italic" : "normal")
+                .style("border-bottom", item.type === "task" ? "1px solid #f5f5f5" : "1px solid #eee")
+                .style("white-space", "normal")
+                .style("word-wrap", "break-word")
+                .style("overflow-wrap", "break-word")
+                .style("line-height", "1.4")
+                .style("font-size", item.type === "task" ? "11px" : "10px")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("background-color", isActive ? "#e6f7ff" : defaultBg)
+                .style("font-weight", isSelected ? "600" : "normal")
+                .text(item.label);
+
+            if (item.type === "task" && item.task) {
+                row.attr("data-task-id", item.task.internalId)
+                    .attr("data-task-name", item.label)
+                    .attr("title", item.label);
+            }
+
+            if (isFocusable) {
+                row.on("mouseover", function () {
+                    (this as HTMLDivElement).style.backgroundColor = "#e6f7ff";
+                })
+                    .on("mouseout", function () {
+                        self.updateDropdownActiveState();
+                    })
+                    .on("mousedown", function (event: MouseEvent) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        self.dropdownActiveIndex = thisFocusIndex;
+                        self.updateDropdownActiveState();
+                        self.activateDropdownSelection();
+                    });
+            }
+        }
+
+        this.updateDropdownActiveState();
+    }
+
+    private openDropdown(): void {
+        if (!this.dropdownList || !this.dropdownInput) return;
+        this.dropdownList.style("display", "block");
+        this.dropdownInput.attr("aria-expanded", "true");
+    }
+
+    private closeDropdown(clearSelection: boolean): void {
+        if (!this.dropdownList || !this.dropdownInput) return;
+
+        if (clearSelection) {
+            this.selectTask(null, null);
+            this.dropdownInput.property("value", "");
+        }
+
+        this.dropdownList.style("display", "none");
+        this.dropdownInput.attr("aria-expanded", "false");
+        this.dropdownActiveIndex = -1;
+        this.updateDropdownActiveState();
+        this.isDropdownInteracting = false;
+    }
+
+    private moveDropdownActive(delta: number): void {
+        const count = this.dropdownFocusableItems.length;
+        if (count === 0) return;
+
+        if (this.dropdownActiveIndex < 0) {
+            this.dropdownActiveIndex = 0;
+        } else {
+            this.dropdownActiveIndex = (this.dropdownActiveIndex + delta + count) % count;
+        }
+        this.updateDropdownActiveState();
+    }
+
+    private activateDropdownSelection(): void {
+        const item = this.dropdownFocusableItems[this.dropdownActiveIndex];
+        if (!item || !this.dropdownInput || !this.dropdownList) return;
+
+        if (item.type === "clear") {
+            this.selectTask(null, null);
+            this.dropdownInput.property("value", "");
+            this.closeDropdown(false);
+            this.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+                .style("pointer-events", "auto");
+            return;
+        }
+
+        if (item.type === "task" && item.task) {
+            this.selectTask(item.task.internalId, item.task.name);
+            this.dropdownInput.property("value", item.label);
+            this.closeDropdown(false);
+            this.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+                .style("pointer-events", "auto");
+        }
+    }
+
+    private updateDropdownActiveState(): void {
+        if (!this.dropdownList || !this.dropdownInput) return;
+
+        const activeItem = this.dropdownFocusableItems[this.dropdownActiveIndex];
+        const activeId = activeItem ? activeItem.id : "";
+
+        this.dropdownInput.attr("aria-activedescendant", activeId || null);
+
+        this.dropdownList.selectAll<HTMLDivElement, unknown>(".dropdown-item[role=\"option\"]")
+            .each(function () {
+                const node = this as HTMLDivElement;
+                const isActive = node.id === activeId;
+                const defaultBg = node.getAttribute("data-default-bg") || "white";
+                const isSelected = node.getAttribute("data-selected") === "true";
+                node.setAttribute("aria-selected", isSelected ? "true" : "false");
+                node.style.backgroundColor = isActive ? "#e6f7ff" : defaultBg;
+            });
+
+        if (activeId) {
+            const node = document.getElementById(activeId);
+            if (node) {
+                node.scrollIntoView({ block: "nearest" });
+            }
+        }
+    }
+
+    private selectTask(taskId: string | null, taskName: string | null): void {
+
+        if (this.selectedTaskId === taskId && taskId !== null) {
+            taskId = null;
+            taskName = null;
+        }
+
+        const taskChanged = this.selectedTaskId !== taskId;
+
+        if (!taskChanged) {
+            return;
+        }
+
+        this.selectedTaskId = taskId;
+        this.selectedTaskName = taskName;
+        const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
+
+        const selectionId = taskId ? this.taskIdToTask.get(taskId)?.selectionId : null;
+        if (this.allowInteractions && this.selectionManager) {
+            if (selectionId) {
+                this.selectionManager.select(selectionId as unknown as powerbi.extensibility.ISelectionId);
+            } else {
+                this.selectionManager.clear();
+            }
+        }
+
+        this.createTraceModeToggle();
+
+        if (this.dropdownInput) {
+            this.dropdownInput.property("value", taskName || "");
+        }
+
+        if (this.selectedTaskLabel) {
+            if (taskId && taskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
+                this.selectedTaskLabel
+                    .style("display", "block")
+                    .text(`${selectedLabelPrefix}: ${taskName}`);
+            } else {
+                this.selectedTaskLabel.style("display", "none");
+            }
+        }
+
+        this.host.persistProperties({
             merge: [{
                 objectName: "persistedState",
-                properties: { traceMode: mode },
+                properties: { selectedTaskId: this.selectedTaskId || "" },
                 selector: null
             }]
         });
 
-        self.captureScrollPosition();
-        self.forceFullUpdate = true;
-        if (self.lastUpdateOptions) {
-            self.update(self.lastUpdateOptions);
-        }
-    };
+        this.forceCanvasRefresh();
 
-    const options = [
-        { value: "backward", label: labelBackward, title: "Trace backward from the selected task" },
-        { value: "forward", label: labelForward, title: "Trace forward from the selected task" }
-    ];
-
-    for (const option of options) {
-        const isActive = option.value === currentMode;
-        const button = container.append("div")
-            .attr("class", `trace-mode-option ${option.value}`)
-            .attr("role", "radio")
-            .attr("aria-checked", isActive ? "true" : "false")
-            .attr("tabindex", isActive ? "0" : "-1")
-            .attr("aria-label", option.title)
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("height", `${this.UI_TOKENS.height.standard - 6}px`)
-            .style("padding", `0 ${isCompact ? this.UI_TOKENS.spacing.sm : this.UI_TOKENS.spacing.md}px`)
-            .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
-            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-            .style("font-weight", isActive ? this.UI_TOKENS.fontWeight.semibold.toString() : this.UI_TOKENS.fontWeight.medium.toString())
-            .style("color", isActive ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-            .style("background-color", isActive ? this.UI_TOKENS.color.primary.default : "transparent")
-            .style("cursor", "pointer")
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-            .text(option.label);
-
-        button.append("title").text(option.title);
-
-        button
-            .on("mouseover", function() {
-                if (option.value !== self.traceMode) {
-                    d3.select(this)
-                        .style("background-color", self.UI_TOKENS.color.primary.light)
-                        .style("color", self.UI_TOKENS.color.primary.default);
-                }
-            })
-            .on("mouseout", function() {
-                if (option.value !== self.traceMode) {
-                    d3.select(this)
-                        .style("background-color", "transparent")
-                        .style("color", self.UI_TOKENS.color.neutral.grey130);
-                }
-            })
-            .on("click", function(event) {
-                event.stopPropagation();
-                setMode(option.value);
-            })
-            .on("keydown", function(event: KeyboardEvent) {
-                if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    setMode(option.value);
-                }
-            });
-    }
-}
-/**
- * Populates the task dropdown with tasks from the dataset
- */
-private populateTaskDropdown(): void {
-    if (!this.dropdownList || !this.settings?.taskSelection?.enableTaskSelection?.value) {
-        console.warn("Dropdown list not initialized");
-        return;
-    }
-
-    this.refreshDropdownCache();
-    const currentSearch = this.dropdownInput
-        ? String(this.dropdownInput.property("value") ?? "")
-        : "";
-    this.renderTaskDropdown(currentSearch.trim());
-}
-
-/**
- * Filters the dropdown items based on input text
- */
-private filterTaskDropdown(searchText: string = ""): void {
-    this.renderTaskDropdown(searchText);
-}
-
-private refreshDropdownCache(): void {
-    if (!this.dropdownNeedsRefresh && this.dropdownTaskCache.length > 0) return;
-
-    const realTasks = this.allTasksData.filter(task => task.type !== "Synthetic");
-    this.dropdownTaskCache = [...realTasks].sort((a, b) =>
-        (a.name || "").localeCompare(b.name || ""));
-    this.dropdownNeedsRefresh = false;
-}
-
-private renderTaskDropdown(searchText: string): void {
-    if (!this.dropdownList) return;
-
-    this.refreshDropdownCache();
-
-    const searchLower = searchText.toLowerCase().trim();
-    const clearSelectionText = this.getLocalizedString("ui.clearSelection", "Clear Selection");
-    const noResultsText = this.getLocalizedString("ui.noTasksMatching", "No tasks matching");
-    const noTasksText = this.getLocalizedString("ui.noTasksAvailable", "No tasks available");
-    const moreResultsText = this.getLocalizedString("ui.moreResults", "Type to refine results");
-
-    if (this.dropdownTaskCache.length === 0) {
-        console.warn("No tasks available to populate dropdown");
-
-        this.dropdownList.selectAll("*").remove();
-        this.dropdownList.append("div")
-            .attr("class", "dropdown-item no-data")
-            .attr("role", "presentation")
-            .text(noTasksText)
-            .style("padding", "8px 10px")
-            .style("color", "#999")
-            .style("font-style", "italic")
-            .style("font-size", "11px")
-            .style("font-family", "Segoe UI, sans-serif");
-        this.dropdownFocusableItems = [];
-        this.dropdownActiveIndex = -1;
-        this.updateDropdownActiveState();
-        return;
-    }
-
-    const matches = searchLower
-        ? this.dropdownTaskCache.filter(task =>
-            (task.name || "").toLowerCase().includes(searchLower))
-        : this.dropdownTaskCache;
-
-    const limited = matches.slice(0, this.DROPDOWN_MAX_RESULTS);
-    const hasMore = matches.length > limited.length;
-
-    const items: DropdownItem[] = [];
-    items.push({ id: `${this.dropdownListId}-clear`, type: "clear", label: clearSelectionText, focusable: true });
-
-    if (limited.length === 0) {
-        items.push({
-            id: `${this.dropdownListId}-empty`,
-            type: "empty",
-            label: `${noResultsText} "${searchText}"`,
-            focusable: false
-        });
-    } else {
-        for (const task of limited) {
-            const label = task.name || `Task ${task.internalId}`;
-            items.push({
-                id: `${this.dropdownListId}-task-${task.internalId}`,
-                type: "task",
-                label,
-                task,
-                focusable: true
+        if (taskId) {
+            requestAnimationFrame(() => {
+                this.ensureTaskVisible(taskId);
             });
         }
-        if (hasMore) {
-            items.push({
-                id: `${this.dropdownListId}-overflow`,
-                type: "overflow",
-                label: moreResultsText,
-                focusable: false
-            });
+
+        this.forceFullUpdate = true;
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
         }
     }
 
-    this.dropdownFocusableItems = items.filter(item => item.focusable);
+    private ensureTaskVisible(taskId: string): void {
+        const task = this.taskIdToTask.get(taskId);
+        if (!task || task.yOrder === undefined) return;
 
-    const selectedIndex = this.dropdownFocusableItems.findIndex(item =>
-        item.type === "task" && item.task?.internalId === this.selectedTaskId);
-    if (selectedIndex >= 0) {
-        this.dropdownActiveIndex = selectedIndex;
-    } else if (this.dropdownActiveIndex < 0 && this.dropdownFocusableItems.length > 0) {
-        this.dropdownActiveIndex = 0;
-    } else if (this.dropdownActiveIndex >= this.dropdownFocusableItems.length) {
-        this.dropdownActiveIndex = this.dropdownFocusableItems.length - 1;
-    }
+        const taskIndex = task.yOrder;
 
-    this.dropdownList.selectAll("*").remove();
+        if (taskIndex < this.viewportStartIndex || taskIndex > this.viewportEndIndex) {
 
-    const self = this;
-    let focusIndex = -1;
+            const containerNode = this.scrollableContainer.node();
+            const viewportHeight = containerNode.clientHeight;
+            const targetScrollTop = (taskIndex * this.taskElementHeight) -
+                (viewportHeight / 2) + (this.taskElementHeight / 2);
 
-    for (const item of items) {
-        const isFocusable = item.focusable;
-        const thisFocusIndex = isFocusable ? ++focusIndex : -1;
-        const isActive = thisFocusIndex === this.dropdownActiveIndex;
-        const isSelected = item.type === "task" && item.task?.internalId === this.selectedTaskId;
+            containerNode.scrollTop = Math.max(0, targetScrollTop);
 
-        const defaultBg = isSelected ? "#f0f0f0" : "white";
-        const row = this.dropdownList.append("div")
-            .attr("class", `dropdown-item ${item.type}`)
-            .attr("id", item.id)
-            .attr("role", isFocusable ? "option" : "presentation")
-            .attr("aria-selected", isFocusable ? (isSelected ? "true" : "false") : null)
-            .attr("data-selected", isSelected ? "true" : "false")
-            .attr("data-default-bg", defaultBg)
-            .style("padding", isFocusable ? "6px 10px" : "8px 10px")
-            .style("cursor", isFocusable ? "pointer" : "default")
-            .style("color", item.type === "clear" ? "#666" : (item.type === "empty" || item.type === "overflow" ? "#999" : "#333"))
-            .style("font-style", item.type === "clear" || item.type === "empty" || item.type === "overflow" ? "italic" : "normal")
-            .style("border-bottom", item.type === "task" ? "1px solid #f5f5f5" : "1px solid #eee")
-            .style("white-space", "normal")
-            .style("word-wrap", "break-word")
-            .style("overflow-wrap", "break-word")
-            .style("line-height", "1.4")
-            .style("font-size", item.type === "task" ? "11px" : "10px")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("background-color", isActive ? "#e6f7ff" : defaultBg)
-            .style("font-weight", isSelected ? "600" : "normal")
-            .text(item.label);
-
-        if (item.type === "task" && item.task) {
-            row.attr("data-task-id", item.task.internalId)
-                .attr("data-task-name", item.label)
-                .attr("title", item.label);
-        }
-
-        if (isFocusable) {
-            row.on("mouseover", function() {
-                    (this as HTMLDivElement).style.backgroundColor = "#e6f7ff";
-                })
-                .on("mouseout", function() {
-                    self.updateDropdownActiveState();
-                })
-                .on("mousedown", function(event: MouseEvent) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    self.dropdownActiveIndex = thisFocusIndex;
-                    self.updateDropdownActiveState();
-                    self.activateDropdownSelection();
-                });
+            this.handleScroll();
         }
     }
-
-    this.updateDropdownActiveState();
-}
-
-private openDropdown(): void {
-    if (!this.dropdownList || !this.dropdownInput) return;
-    this.dropdownList.style("display", "block");
-    this.dropdownInput.attr("aria-expanded", "true");
-}
-
-private closeDropdown(clearSelection: boolean): void {
-    if (!this.dropdownList || !this.dropdownInput) return;
-
-    if (clearSelection) {
-        this.selectTask(null, null);
-        this.dropdownInput.property("value", "");
-    }
-
-    this.dropdownList.style("display", "none");
-    this.dropdownInput.attr("aria-expanded", "false");
-    this.dropdownActiveIndex = -1;
-    this.updateDropdownActiveState();
-    this.isDropdownInteracting = false;
-}
-
-private moveDropdownActive(delta: number): void {
-    const count = this.dropdownFocusableItems.length;
-    if (count === 0) return;
-
-    if (this.dropdownActiveIndex < 0) {
-        this.dropdownActiveIndex = 0;
-    } else {
-        this.dropdownActiveIndex = (this.dropdownActiveIndex + delta + count) % count;
-    }
-    this.updateDropdownActiveState();
-}
-
-private activateDropdownSelection(): void {
-    const item = this.dropdownFocusableItems[this.dropdownActiveIndex];
-    if (!item || !this.dropdownInput || !this.dropdownList) return;
-
-    if (item.type === "clear") {
-        this.selectTask(null, null);
-        this.dropdownInput.property("value", "");
-        this.closeDropdown(false);
-        this.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
-            .style("pointer-events", "auto");
-        return;
-    }
-
-    if (item.type === "task" && item.task) {
-        this.selectTask(item.task.internalId, item.task.name);
-        this.dropdownInput.property("value", item.label);
-        this.closeDropdown(false);
-        this.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
-            .style("pointer-events", "auto");
-    }
-}
-
-private updateDropdownActiveState(): void {
-    if (!this.dropdownList || !this.dropdownInput) return;
-
-    const activeItem = this.dropdownFocusableItems[this.dropdownActiveIndex];
-    const activeId = activeItem ? activeItem.id : "";
-
-    this.dropdownInput.attr("aria-activedescendant", activeId || null);
-
-    this.dropdownList.selectAll<HTMLDivElement, unknown>(".dropdown-item[role=\"option\"]")
-        .each(function() {
-            const node = this as HTMLDivElement;
-            const isActive = node.id === activeId;
-            const defaultBg = node.getAttribute("data-default-bg") || "white";
-            const isSelected = node.getAttribute("data-selected") === "true";
-            node.setAttribute("aria-selected", isSelected ? "true" : "false");
-            node.style.backgroundColor = isActive ? "#e6f7ff" : defaultBg;
-        });
-
-    if (activeId) {
-        const node = document.getElementById(activeId);
-        if (node) {
-            node.scrollIntoView({ block: "nearest" });
-        }
-    }
-}
-
-private selectTask(taskId: string | null, taskName: string | null): void {
-
-    if (this.selectedTaskId === taskId && taskId !== null) {
-        taskId = null;
-        taskName = null;
-    }
-
-    const taskChanged = this.selectedTaskId !== taskId;
-
-    if (!taskChanged) {
-        return;
-    }
-
-    this.selectedTaskId = taskId;
-    this.selectedTaskName = taskName;
-    const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
-
-    const selectionId = taskId ? this.taskIdToTask.get(taskId)?.selectionId : null;
-    if (this.allowInteractions && this.selectionManager) {
-        if (selectionId) {
-            this.selectionManager.select(selectionId as unknown as powerbi.extensibility.ISelectionId);
-        } else {
-            this.selectionManager.clear();
-        }
-    }
-
-    this.createTraceModeToggle();
-
-    if (this.dropdownInput) {
-        this.dropdownInput.property("value", taskName || "");
-    }
-
-    if (this.selectedTaskLabel) {
-        if (taskId && taskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
-            this.selectedTaskLabel
-                .style("display", "block")
-                .text(`${selectedLabelPrefix}: ${taskName}`);
-        } else {
-            this.selectedTaskLabel.style("display", "none");
-        }
-    }
-
-    this.host.persistProperties({
-        merge: [{
-            objectName: "persistedState",
-            properties: { selectedTaskId: this.selectedTaskId || "" },
-            selector: null
-        }]
-    });
-
-    this.forceCanvasRefresh();
-
-    if (taskId) {
-        requestAnimationFrame(() => {
-            this.ensureTaskVisible(taskId);
-        });
-    }
-
-    this.forceFullUpdate = true;
-    if (this.lastUpdateOptions) {
-        this.update(this.lastUpdateOptions);
-    }
-}
-
-private ensureTaskVisible(taskId: string): void {
-    const task = this.taskIdToTask.get(taskId);
-    if (!task || task.yOrder === undefined) return;
-
-    const taskIndex = task.yOrder;
-
-    if (taskIndex < this.viewportStartIndex || taskIndex > this.viewportEndIndex) {
-
-        const containerNode = this.scrollableContainer.node();
-        const viewportHeight = containerNode.clientHeight;
-        const targetScrollTop = (taskIndex * this.taskElementHeight) -
-                               (viewportHeight / 2) + (this.taskElementHeight / 2);
-
-        containerNode.scrollTop = Math.max(0, targetScrollTop);
-
-        this.handleScroll();
-    }
-}
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
         this.debugLog("getFormattingModel called");
         if (!this.formattingSettingsService) {
-             console.error("FormattingSettingsService not initialized before getFormattingModel call.");
-             return { cards: [] };
+            console.error("FormattingSettingsService not initialized before getFormattingModel call.");
+            return { cards: [] };
         }
 
         if (!this.settings && this.lastUpdateOptions?.dataViews?.[0]) {
-             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, this.lastUpdateOptions.dataViews[0]);
+            this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, this.lastUpdateOptions.dataViews[0]);
         } else if (!this.settings) {
 
-             this.settings = new VisualSettings();
+            this.settings = new VisualSettings();
         }
 
         if (this.legendDataExists && this.legendCategories.length > 0 && this.settings?.legendColors) {
