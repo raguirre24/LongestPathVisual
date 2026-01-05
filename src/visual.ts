@@ -3267,6 +3267,39 @@ export class Visual implements IVisual {
         this.zoomDragType = null;
         this.zoomSliderSelection.style("cursor", "grab");
         this.zoomSliderContainer.classed("dragging", false);
+
+        // Phase 1: Persist zoom range to settings
+        this.persistZoomRange();
+    }
+
+    /**
+     * Phase 1: Persists the current zoom range to settings for bookmark/refresh persistence
+     */
+    private persistZoomRange(): void {
+        this.host.persistProperties({
+            merge: [{
+                objectName: "persistedState",
+                properties: {
+                    zoomRangeStart: this.zoomRangeStart,
+                    zoomRangeEnd: this.zoomRangeEnd
+                },
+                selector: null
+            }]
+        });
+    }
+
+    /**
+     * Phase 1: Detects if user prefers reduced motion for accessibility
+     */
+    private prefersReducedMotion(): boolean {
+        return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    }
+
+    /**
+     * Phase 1: Gets animation duration respecting prefers-reduced-motion
+     */
+    private getAnimationDuration(normalDuration: number): number {
+        return this.prefersReducedMotion() ? 0 : normalDuration;
     }
 
     /**
@@ -3818,6 +3851,19 @@ export class Visual implements IVisual {
                             this.wbsExpandToLevel = resolvedLevel;
                             this.wbsExpandedInternal = resolvedLevel !== 0;
                         }
+                    }
+                }
+                // Phase 1: Restore persisted zoom range
+                if (this.settings?.persistedState?.zoomRangeStart !== undefined &&
+                    this.settings?.persistedState?.zoomRangeEnd !== undefined) {
+                    const persistedStart = this.settings.persistedState.zoomRangeStart.value;
+                    const persistedEnd = this.settings.persistedState.zoomRangeEnd.value;
+                    // Only restore if it's a valid non-default range
+                    if (typeof persistedStart === 'number' && typeof persistedEnd === 'number' &&
+                        persistedEnd > persistedStart && persistedStart >= 0 && persistedEnd <= 1) {
+                        this.zoomRangeStart = persistedStart;
+                        this.zoomRangeEnd = persistedEnd;
+                        this.debugLog(`Restored zoom range: ${persistedStart} - ${persistedEnd}`);
                     }
                 }
                 this.isInitialLoad = false;
@@ -4602,6 +4648,9 @@ export class Visual implements IVisual {
         const viewportWidth = this.lastViewport?.width || 0;
         const chartWidth = Math.max(10, viewportWidth - newLeftMargin - this.margin.right);
 
+        // Calculate chartHeight from yScale - this is needed for finish lines to render
+        const chartHeight = this.yScale.range()[1] || 0;
+
         this.xScale.range([0, chartWidth]);
 
         this.mainGroup?.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
@@ -4621,7 +4670,7 @@ export class Visual implements IVisual {
             this.xScale,
             this.yScale,
             chartWidth,
-            0
+            chartHeight
         );
 
         this.updateMarginResizerPosition();
@@ -6654,6 +6703,41 @@ export class Visual implements IVisual {
         taskLabels.on("contextmenu", (event: MouseEvent, d: Task) => {
             this.showContextMenu(event, d);
         });
+
+        // Phase 2: Add float column if enabled
+        const showFloatColumn = this.settings?.displayOptions?.showFloatColumn?.value ?? false;
+        if (showFloatColumn) {
+            const floatColumnWidth = this.settings?.displayOptions?.floatColumnWidth?.value ?? 40;
+            const criticalColor = this.settings?.taskAppearance?.criticalPathColor?.value?.value ?? '#FF0000';
+            const nearCriticalColor = this.settings?.taskAppearance?.nearCriticalColor?.value?.value ?? '#FF8C00';
+
+            // Remove existing float labels
+            mergedGroups.selectAll(".float-label").remove();
+
+            // Add float labels
+            mergedGroups.append("text")
+                .attr("class", "float-label")
+                .attr("x", -8) // Position at the right edge of the left margin
+                .attr("y", taskHeight / 2)
+                .attr("text-anchor", "end")
+                .attr("dominant-baseline", "central")
+                .style("font-size", `${taskNameFontSize * 0.9}pt`)
+                .style("font-weight", (d: Task) => d.isCritical ? "600" : "normal")
+                .style("fill", (d: Task) => {
+                    if (d.isCritical) return criticalColor;
+                    if (d.isNearCritical) return nearCriticalColor;
+                    return labelColor;
+                })
+                .style("opacity", (d: Task) => d.isCritical || d.isNearCritical ? 1 : 0.75)
+                .text((d: Task) => {
+                    const floatValue = d.userProvidedTotalFloat ?? d.totalFloat;
+                    if (floatValue === undefined || floatValue === null || !isFinite(floatValue)) {
+                        return "-";
+                    }
+                    return floatValue.toFixed(0);
+                })
+                .attr("title", (d: Task) => `Total Float: ${d.userProvidedTotalFloat ?? d.totalFloat ?? 'N/A'} days`);
+        }
     }
 
     private drawTasksCanvas(
@@ -7168,17 +7252,42 @@ export class Visual implements IVisual {
                 if (succIsMilestone && (relType === 'FF' || relType === 'SF')) effectiveEndX = endX + endGap - connectionEndPadding;
 
                 const isCritical = rel.isCritical;
+                const isDriving = rel.isDriving ?? isCritical; // Driving if marked or critical
                 const baseLineWidth = isCritical ? criticalConnectorWidth : connectorWidth;
                 const enhancedLineWidth = isCritical
                     ? Math.max(1.6, baseLineWidth)
                     : Math.max(1, baseLineWidth);
 
                 const previousAlpha = ctx.globalAlpha;
-                ctx.globalAlpha = this.getConnectorOpacity(rel);
+
+                // Phase 2: Differentiate driving vs non-driving connectors
+                const differentiateDrivers = this.settings?.connectorLines?.differentiateDrivers?.value ?? true;
+                const nonDrivingOpacity = (this.settings?.connectorLines?.nonDrivingOpacity?.value ?? 40) / 100;
+                const nonDrivingLineStyle = this.settings?.connectorLines?.nonDrivingLineStyle?.value?.value ?? 'dashed';
+
+                // Apply opacity - driving lines are full opacity, non-driving are reduced
+                const baseOpacity = this.getConnectorOpacity(rel);
+                ctx.globalAlpha = differentiateDrivers && !isDriving ? baseOpacity * nonDrivingOpacity : baseOpacity;
                 ctx.strokeStyle = isCritical ? criticalColor : connectorColor;
                 ctx.lineWidth = enhancedLineWidth;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
+
+                // Phase 2: Set dash pattern for non-driving lines
+                if (differentiateDrivers && !isDriving) {
+                    switch (nonDrivingLineStyle) {
+                        case 'dashed':
+                            ctx.setLineDash([6, 4]);
+                            break;
+                        case 'dotted':
+                            ctx.setLineDash([2, 3]);
+                            break;
+                        default: // solid
+                            ctx.setLineDash([]);
+                    }
+                } else {
+                    ctx.setLineDash([]); // Driving lines are always solid
+                }
 
                 (ctx as any).imageSmoothingEnabled = true;
                 (ctx as any).imageSmoothingQuality = 'high';
@@ -7280,6 +7389,7 @@ export class Visual implements IVisual {
                 }
 
                 ctx.stroke();
+                ctx.setLineDash([]); // Reset line dash for next connector
                 ctx.globalAlpha = previousAlpha;
             });
         } finally {
@@ -7369,21 +7479,44 @@ export class Visual implements IVisual {
                 }
             }
         }
+        // Phase 2: Get driving differentiation settings
+        const differentiateDrivers = this.settings?.connectorLines?.differentiateDrivers?.value ?? true;
+        const nonDrivingOpacity = (this.settings?.connectorLines?.nonDrivingOpacity?.value ?? 40) / 100;
+        const nonDrivingLineStyle = this.settings?.connectorLines?.nonDrivingLineStyle?.value?.value ?? 'dashed';
+
+        // Helper to get dash array for SVG
+        const getDashArray = (rel: Relationship): string => {
+            const isDriving = rel.isDriving ?? rel.isCritical;
+            if (!differentiateDrivers || isDriving) return 'none';
+            switch (nonDrivingLineStyle) {
+                case 'dashed': return '6,4';
+                case 'dotted': return '2,3';
+                default: return 'none';
+            }
+        };
 
         this.arrowLayer.selectAll(".relationship-arrow")
             .data(visibleRelationships, (d: Relationship) => `${d.predecessorId}-${d.successorId}`)
             .enter()
             .append("path")
-            .attr("class", (d: Relationship) => `relationship-arrow ${d.isCritical ? "critical" : "normal"}`)
+            .attr("class", (d: Relationship) => {
+                const isDriving = d.isDriving ?? d.isCritical;
+                return `relationship-arrow ${d.isCritical ? "critical" : "normal"} ${isDriving ? "driving" : "non-driving"}`;
+            })
             .attr("fill", "none")
             .attr("stroke", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
-            .attr("stroke-opacity", (d: Relationship) => this.getConnectorOpacity(d))
+            .attr("stroke-opacity", (d: Relationship) => {
+                const isDriving = d.isDriving ?? d.isCritical;
+                const baseOpacity = this.getConnectorOpacity(d);
+                return differentiateDrivers && !isDriving ? baseOpacity * nonDrivingOpacity : baseOpacity;
+            })
             .attr("stroke-width", (d: Relationship) => {
                 const baseWidth = d.isCritical ? criticalConnectorWidth : connectorWidth;
                 return d.isCritical ? Math.max(1.6, baseWidth) : Math.max(1, baseWidth);
             })
             .attr("stroke-linecap", "round")
             .attr("stroke-linejoin", "round")
+            .attr("stroke-dasharray", (d: Relationship) => getDashArray(d))
             .attr("marker-end", (d: Relationship) => d.isCritical ? "url(#arrowhead-critical)" : "url(#arrowhead)")
             .attr("d", (rel: Relationship): string | null => {
                 const pred = this.taskIdToTask.get(rel.predecessorId);
@@ -11456,17 +11589,26 @@ export class Visual implements IVisual {
                 self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                     .style("pointer-events", "none");
             })
-            .on("blur", function () {
+            .on("blur", function (event: FocusEvent) {
+                // Phase 1: Improved blur handling - check if focus moved within dropdown
+                const relatedTarget = event.relatedTarget as HTMLElement | null;
+                const dropdownNode = self.dropdownList?.node();
+                const inputNode = self.dropdownInput?.node();
 
+                // Don't close if focus moved to the dropdown list or stayed in input
+                if (relatedTarget && (dropdownNode?.contains(relatedTarget) || inputNode === relatedTarget)) {
+                    return;
+                }
+
+                // Use longer delay and smarter detection
                 setTimeout(() => {
-
                     if (!self.isDropdownInteracting) {
                         self.closeDropdown(false);
                     }
 
                     self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
                         .style("pointer-events", "auto");
-                }, 150);
+                }, 200);
             })
             .on("keydown", function (event: KeyboardEvent) {
                 if (event.key === "ArrowDown") {

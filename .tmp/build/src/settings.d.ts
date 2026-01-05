@@ -32,6 +32,9 @@ declare class ConnectorLinesCard extends Card {
     connectorWidth: formattingSettings.NumUpDown;
     criticalConnectorWidth: formattingSettings.NumUpDown;
     elbowOffset: formattingSettings.NumUpDown;
+    differentiateDrivers: formattingSettings.ToggleSwitch;
+    nonDrivingLineStyle: formattingSettings.ItemDropdown;
+    nonDrivingOpacity: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 declare class TextAndLabelsCard extends Card {
@@ -129,6 +132,8 @@ declare class DisplayOptionsCard extends Card {
     displayName: string;
     showTooltips: formattingSettings.ToggleSwitch;
     showNearCritical: formattingSettings.ToggleSwitch;
+    showFloatColumn: formattingSettings.ToggleSwitch;
+    floatColumnWidth: formattingSettings.NumUpDown;
     showAllTasks: formattingSettings.ToggleSwitch;
     slices: Slice[];
 }
@@ -254,6 +259,8 @@ declare class PersistedStateCard extends Card {
     wbsExpandLevel: formattingSettings.NumUpDown;
     wbsExpandedState: formattingSettings.TextInput;
     wbsManualToggledGroups: formattingSettings.TextInput;
+    zoomRangeStart: formattingSettings.NumUpDown;
+    zoomRangeEnd: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 export declare class VisualSettings extends Model {

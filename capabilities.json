@@ -126,35 +126,134 @@
         "taskAppearance": {
             "displayName": "Task Appearance",
             "properties": {
-                "taskColor": { "displayName": "Non-Critical Task Color", "type": { "fill": { "solid": { "color": true } } } },
-                "criticalPathColor": { "displayName": "Longest Path Color", "description": "Color for critical task borders and glow", "type": { "fill": { "solid": { "color": true } } } },
-                "nearCriticalColor": { "displayName": "Near-Critical Color", "description": "Color for near-critical task borders and glow", "type": { "fill": { "solid": { "color": true } } } },
-                "milestoneColor": { "displayName": "Milestone Color", "type": { "fill": { "solid": { "color": true } } } },
-                "taskHeight": { "displayName": "Task Height", "type": { "numeric": true } },
-                "milestoneSize": { "displayName": "Milestone Size", "description": "Size of milestone markers (px)", "type": { "numeric": true } },
-                "criticalBorderWidth": { "displayName": "Critical Border Width (px)", "description": "Border thickness for critical tasks", "type": { "numeric": true } },
-                "nearCriticalBorderWidth": { "displayName": "Near-Critical Border Width (px)", "description": "Border thickness for near-critical tasks", "type": { "numeric": true } },
-                "showBaseline": { "displayName": "Show Baseline", "description": "Display baseline bars below the main task bars", "type": { "bool": true } },
-                "baselineColor": { "displayName": "Baseline Color", "type": { "fill": { "solid": { "color": true } } } },
-                "baselineHeight": { "displayName": "Baseline Height (px)", "type": { "numeric": true } },
-                "baselineOffset": { "displayName": "Baseline Vertical Offset (px)", "description": "Distance between the main task bar and the baseline bar", "type": { "numeric": true } },
-                "showPreviousUpdate": { 
-                "displayName": "Show Previous Update", 
-                "description": "Display previous update bars below the baseline bars", 
-                "type": { "bool": true } 
+                "taskColor": {
+                    "displayName": "Non-Critical Task Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
                 },
-                "previousUpdateColor": { 
-                    "displayName": "Previous Update Color", 
-                    "type": { "fill": { "solid": { "color": true } } } 
+                "criticalPathColor": {
+                    "displayName": "Longest Path Color",
+                    "description": "Color for critical task borders and glow",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
                 },
-                "previousUpdateHeight": { 
-                    "displayName": "Previous Update Height (px)", 
-                    "type": { "numeric": true } 
+                "nearCriticalColor": {
+                    "displayName": "Near-Critical Color",
+                    "description": "Color for near-critical task borders and glow",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
                 },
-                "previousUpdateOffset": { 
-                    "displayName": "Previous Update Vertical Offset (px)", 
-                    "description": "Distance between the baseline bar and the previous update bar", 
-                    "type": { "numeric": true } 
+                "milestoneColor": {
+                    "displayName": "Milestone Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "taskHeight": {
+                    "displayName": "Task Height",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "milestoneSize": {
+                    "displayName": "Milestone Size",
+                    "description": "Size of milestone markers (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "criticalBorderWidth": {
+                    "displayName": "Critical Border Width (px)",
+                    "description": "Border thickness for critical tasks",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "nearCriticalBorderWidth": {
+                    "displayName": "Near-Critical Border Width (px)",
+                    "description": "Border thickness for near-critical tasks",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showBaseline": {
+                    "displayName": "Show Baseline",
+                    "description": "Display baseline bars below the main task bars",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "baselineColor": {
+                    "displayName": "Baseline Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "baselineHeight": {
+                    "displayName": "Baseline Height (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "baselineOffset": {
+                    "displayName": "Baseline Vertical Offset (px)",
+                    "description": "Distance between the main task bar and the baseline bar",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showPreviousUpdate": {
+                    "displayName": "Show Previous Update",
+                    "description": "Display previous update bars below the baseline bars",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "previousUpdateColor": {
+                    "displayName": "Previous Update Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "previousUpdateHeight": {
+                    "displayName": "Previous Update Height (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "previousUpdateOffset": {
+                    "displayName": "Previous Update Vertical Offset (px)",
+                    "description": "Distance between the baseline bar and the previous update bar",
+                    "type": {
+                        "numeric": true
+                    }
                 }
             }
         },
@@ -164,49 +263,137 @@
                 "showConnectorToggle": {
                     "displayName": "Show Connector Toggle Button",
                     "description": "Show or hide the connector lines toggle button in the header",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "showConnectorLines": {
                     "displayName": "Show Connector Lines",
                     "description": "Display connector lines between dependent tasks",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
-                "connectorColor": { "displayName": "Connector Color", "type": { "fill": { "solid": { "color": true } } } },
-                "connectorWidth": { "displayName": "Connector Width", "type": { "numeric": true } },
-                "criticalConnectorWidth": { "displayName": "Longest Path Width", "type": { "numeric": true } },
+                "connectorColor": {
+                    "displayName": "Connector Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "connectorWidth": {
+                    "displayName": "Connector Width",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "criticalConnectorWidth": {
+                    "displayName": "Longest Path Width",
+                    "type": {
+                        "numeric": true
+                    }
+                },
                 "elbowOffset": {
                     "displayName": "Elbow Offset",
                     "description": "Controls the distance of connector line bends",
-                    "type": { "numeric": true }
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "differentiateDrivers": {
+                    "displayName": "Differentiate Driving Lines",
+                    "description": "Use dashed lines and reduced opacity for non-driving relationships",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "nonDrivingLineStyle": {
+                    "displayName": "Non-Driving Line Style",
+                    "description": "Line style for non-driving relationships",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "solid",
+                                "displayName": "Solid"
+                            },
+                            {
+                                "value": "dashed",
+                                "displayName": "Dashed"
+                            },
+                            {
+                                "value": "dotted",
+                                "displayName": "Dotted"
+                            }
+                        ]
+                    }
+                },
+                "nonDrivingOpacity": {
+                    "displayName": "Non-Driving Opacity (%)",
+                    "description": "Opacity for non-driving relationship lines",
+                    "type": {
+                        "numeric": true
+                    }
                 }
             }
         },
         "taskSelection": {
             "displayName": "Task Selection",
             "properties": {
-                "enableTaskSelection": { "displayName": "Enable Task Selection", "type": { "bool": true } },
+                "enableTaskSelection": {
+                    "displayName": "Enable Task Selection",
+                    "type": {
+                        "bool": true
+                    }
+                },
                 "dropdownWidth": {
                     "displayName": "Dropdown Width (px)",
                     "description": "Width of the task selection dropdown",
-                    "type": { "numeric": true }
+                    "type": {
+                        "numeric": true
+                    }
                 },
                 "dropdownPosition": {
                     "displayName": "Dropdown Position",
                     "description": "Position of the task selection dropdown in the header",
-                    "type": { "enumeration": [
-                        { "value": "left", "displayName": "Left" },
-                        { "value": "center", "displayName": "Center" },
-                        { "value": "right", "displayName": "Right" }
-                    ] }
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "left",
+                                "displayName": "Left"
+                            },
+                            {
+                                "value": "center",
+                                "displayName": "Center"
+                            },
+                            {
+                                "value": "right",
+                                "displayName": "Right"
+                            }
+                        ]
+                    }
                 },
-                "showSelectedTaskLabel": { "displayName": "Show Selected Task Label", "type": { "bool": true } },
+                "showSelectedTaskLabel": {
+                    "displayName": "Show Selected Task Label",
+                    "type": {
+                        "bool": true
+                    }
+                },
                 "traceMode": {
                     "displayName": "Trace Mode",
                     "description": "Select whether to trace critical path backward to or forward from the selected task",
                     "type": {
                         "enumeration": [
-                            { "value": "backward", "displayName": "Trace Backward" },
-                            { "value": "forward", "displayName": "Trace Forward" }
+                            {
+                                "value": "backward",
+                                "displayName": "Trace Backward"
+                            },
+                            {
+                                "value": "forward",
+                                "displayName": "Trace Forward"
+                            }
                         ]
                     }
                 }
@@ -215,84 +402,501 @@
         "textAndLabels": {
             "displayName": "Text & Labels",
             "properties": {
-                "fontSize": { "displayName": "General Font Size (Dates/Duration)", "description": "Base font size for finish dates and duration text", "type": { "numeric": true } },
-                "taskNameFontSize": { "displayName": "Task Name Font Size (pt)", "description": "Font size for task names in the left margin", "type": { "numeric": true } },
-                "labelColor": { "displayName": "Label Color", "description": "Color for task name and date labels", "type": { "fill": { "solid": { "color": true } } } },
-                "showDuration": { "displayName": "Show Duration (CPM)", "description": "Display calculated CPM duration text inside task bars", "type": { "bool": true } },
-                "durationTextColor": { "displayName": "Duration Text Color", "description": "Color for duration text inside bars (use 'Auto' for automatic contrast)", "type": { "fill": { "solid": { "color": true } } } },
-                "showFinishDates": { "displayName": "Show Finish Dates", "description": "Display finish date labels next to tasks/milestones", "type": { "bool": true } },
-                "dateBackgroundColor": { "displayName": "Date Background Color", "description": "Set the background color for finish date labels", "type": { "fill": { "solid": { "color": true } } } },
-                "dateBackgroundTransparency": { "displayName": "Date Background Transparency (%)", "description": "Set the transparency (0=Opaque, 100=Invisible)", "type": { "numeric": true } }
+                "fontSize": {
+                    "displayName": "General Font Size (Dates/Duration)",
+                    "description": "Base font size for finish dates and duration text",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "taskNameFontSize": {
+                    "displayName": "Task Name Font Size (pt)",
+                    "description": "Font size for task names in the left margin",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "labelColor": {
+                    "displayName": "Label Color",
+                    "description": "Color for task name and date labels",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "showDuration": {
+                    "displayName": "Show Duration (CPM)",
+                    "description": "Display calculated CPM duration text inside task bars",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "durationTextColor": {
+                    "displayName": "Duration Text Color",
+                    "description": "Color for duration text inside bars (use 'Auto' for automatic contrast)",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "showFinishDates": {
+                    "displayName": "Show Finish Dates",
+                    "description": "Display finish date labels next to tasks/milestones",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "dateBackgroundColor": {
+                    "displayName": "Date Background Color",
+                    "description": "Set the background color for finish date labels",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "dateBackgroundTransparency": {
+                    "displayName": "Date Background Transparency (%)",
+                    "description": "Set the transparency (0=Opaque, 100=Invisible)",
+                    "type": {
+                        "numeric": true
+                    }
+                }
             }
         },
         "layoutSettings": {
             "displayName": "Layout",
             "properties": {
-                "leftMargin": { "displayName": "Left Margin", "type": { "numeric": true } },
-                "taskPadding": { "displayName": "Task Padding", "type": { "numeric": true } },
-                "maxTasksToShow": { "displayName": "Max Tasks To Show", "type": { "numeric": true } }
+                "leftMargin": {
+                    "displayName": "Left Margin",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "taskPadding": {
+                    "displayName": "Task Padding",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "maxTasksToShow": {
+                    "displayName": "Max Tasks To Show",
+                    "type": {
+                        "numeric": true
+                    }
+                }
             }
         },
         "gridLines": {
             "displayName": "Horizontal Grid Lines",
             "properties": {
-                "showGridLines": { "displayName": "Show Horizontal Lines", "type": { "bool": true } },
-                "gridLineColor": { "displayName": "Color", "type": { "fill": { "solid": { "color": true } } } },
-                "gridLineWidth": { "displayName": "Width (px)", "type": { "numeric": true } },
-                "gridLineStyle": { "displayName": "Style", "type": { "enumeration": [ { "value": "solid", "displayName": "Solid" }, { "value": "dashed", "displayName": "Dashed" }, { "value": "dotted", "displayName": "Dotted" } ] } }
+                "showGridLines": {
+                    "displayName": "Show Horizontal Lines",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "gridLineColor": {
+                    "displayName": "Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "gridLineWidth": {
+                    "displayName": "Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "gridLineStyle": {
+                    "displayName": "Style",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "solid",
+                                "displayName": "Solid"
+                            },
+                            {
+                                "value": "dashed",
+                                "displayName": "Dashed"
+                            },
+                            {
+                                "value": "dotted",
+                                "displayName": "Dotted"
+                            }
+                        ]
+                    }
+                }
             }
         },
         "verticalGridLines": {
             "displayName": "Vertical Grid Lines (Monthly)",
             "properties": {
-                "show": { "displayName": "Show Vertical Lines", "type": { "bool": true } },
-                "lineColor": { "displayName": "Color", "type": { "fill": { "solid": { "color": true } } } },
-                "lineWidth": { "displayName": "Width (px)", "type": { "numeric": true } },
-                "lineStyle": { "displayName": "Style", "type": { "enumeration": [ { "value": "solid", "displayName": "Solid" }, { "value": "dashed", "displayName": "Dashed" }, { "value": "dotted", "displayName": "Dotted" } ] } },
-                "showMonthLabels": { "displayName": "Show Month Labels", "type": { "bool": true } },
-                 "labelColor": { "displayName": "Label Color", "description": "Color for month labels (defaults to line color if unset)", "type": { "fill": { "solid": { "color": true } } } },
-                 "labelFontSize": { "displayName": "Label Font Size (pt)", "description": "Font size for month labels (defaults to general font size if 0)", "type": { "numeric": true } }
+                "show": {
+                    "displayName": "Show Vertical Lines",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "lineColor": {
+                    "displayName": "Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "lineWidth": {
+                    "displayName": "Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "lineStyle": {
+                    "displayName": "Style",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "solid",
+                                "displayName": "Solid"
+                            },
+                            {
+                                "value": "dashed",
+                                "displayName": "Dashed"
+                            },
+                            {
+                                "value": "dotted",
+                                "displayName": "Dotted"
+                            }
+                        ]
+                    }
+                },
+                "showMonthLabels": {
+                    "displayName": "Show Month Labels",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "labelColor": {
+                    "displayName": "Label Color",
+                    "description": "Color for month labels (defaults to line color if unset)",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "labelFontSize": {
+                    "displayName": "Label Font Size (pt)",
+                    "description": "Font size for month labels (defaults to general font size if 0)",
+                    "type": {
+                        "numeric": true
+                    }
+                }
             }
         },
         "projectEndLine": {
             "displayName": "Project End Line",
             "properties": {
-                "show": { "displayName": "Show Line", "description": "Show the vertical line indicating latest finish date", "type": { "bool": true } },
-                "lineColor": { "displayName": "Line Color", "description": "Color of the project end line", "type": { "fill": { "solid": { "color": true } } } },
-                "lineWidth": { "displayName": "Line Width (px)", "description": "Width of the project end line", "type": { "numeric": true } },
-                "lineStyle": { "displayName": "Line Style", "description": "Style of the project end line", "type": { "enumeration": [ { "value": "solid", "displayName": "Solid" }, { "value": "dashed", "displayName": "Dashed" }, { "value": "dotted", "displayName": "Dotted" } ] } },
-                "showLabel": { "displayName": "Show Label", "description": "Show the finish date label", "type": { "bool": true } },
-                "labelColor": { "displayName": "Label Color", "description": "Color of the finish date label text", "type": { "fill": { "solid": { "color": true } } } },
-                "labelFontSize": { "displayName": "Label Font Size (pt)", "description": "Font size for the finish date label", "type": { "numeric": true } },
-                "showLabelPrefix": { "displayName": "Show 'Finish:' Prefix", "description": "Include 'Finish:' before the date", "type": { "bool": true } },
-                "labelBackgroundColor": { "displayName": "Label Background", "description": "Background color for the label", "type": { "fill": { "solid": { "color": true } } } },
-                "labelBackgroundTransparency": { "displayName": "Label Background Transparency (%)", "description": "Transparency of the label background (0=Opaque, 100=Invisible)", "type": { "numeric": true } },
-                "baselineShow": { "displayName": "Show Baseline Finish Line", "description": "Show the vertical line indicating baseline latest finish date", "type": { "bool": true } },
-                "baselineLineWidth": { "displayName": "Baseline Line Width (px)", "type": { "numeric": true } },
-                "baselineLineStyle": { "displayName": "Baseline Line Style", "type": { "enumeration": [ { "value": "solid", "displayName": "Solid" }, { "value": "dashed", "displayName": "Dashed" }, { "value": "dotted", "displayName": "Dotted" } ] } },
-                "baselineShowLabel": { "displayName": "Show Baseline Label", "type": { "bool": true } },
-                "baselineLabelColor": { "displayName": "Baseline Label Color", "type": { "fill": { "solid": { "color": true } } } },
-                "baselineLabelFontSize": { "displayName": "Baseline Label Font Size (pt)", "type": { "numeric": true } },
-                "baselineShowLabelPrefix": { "displayName": "Show 'Finish:' Prefix (Baseline)", "type": { "bool": true } },
-                "baselineLabelBackgroundColor": { "displayName": "Baseline Label Background", "type": { "fill": { "solid": { "color": true } } } },
-                "baselineLabelBackgroundTransparency": { "displayName": "Baseline Label Background Transparency (%)", "type": { "numeric": true } },
-                "previousUpdateShow": { "displayName": "Show Previous Update Finish Line", "description": "Show the vertical line indicating previous update latest finish date", "type": { "bool": true } },
-                "previousUpdateLineWidth": { "displayName": "Previous Update Line Width (px)", "type": { "numeric": true } },
-                "previousUpdateLineStyle": { "displayName": "Previous Update Line Style", "type": { "enumeration": [ { "value": "solid", "displayName": "Solid" }, { "value": "dashed", "displayName": "Dashed" }, { "value": "dotted", "displayName": "Dotted" } ] } },
-                "previousUpdateShowLabel": { "displayName": "Show Previous Update Label", "type": { "bool": true } },
-                "previousUpdateLabelColor": { "displayName": "Previous Update Label Color", "type": { "fill": { "solid": { "color": true } } } },
-                "previousUpdateLabelFontSize": { "displayName": "Previous Update Label Font Size (pt)", "type": { "numeric": true } },
-                "previousUpdateShowLabelPrefix": { "displayName": "Show 'Finish:' Prefix (Previous Update)", "type": { "bool": true } },
-                "previousUpdateLabelBackgroundColor": { "displayName": "Previous Update Label Background", "type": { "fill": { "solid": { "color": true } } } },
-                "previousUpdateLabelBackgroundTransparency": { "displayName": "Previous Update Label Background Transparency (%)", "type": { "numeric": true } }
+                "show": {
+                    "displayName": "Show Line",
+                    "description": "Show the vertical line indicating latest finish date",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "lineColor": {
+                    "displayName": "Line Color",
+                    "description": "Color of the project end line",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "lineWidth": {
+                    "displayName": "Line Width (px)",
+                    "description": "Width of the project end line",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "lineStyle": {
+                    "displayName": "Line Style",
+                    "description": "Style of the project end line",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "solid",
+                                "displayName": "Solid"
+                            },
+                            {
+                                "value": "dashed",
+                                "displayName": "Dashed"
+                            },
+                            {
+                                "value": "dotted",
+                                "displayName": "Dotted"
+                            }
+                        ]
+                    }
+                },
+                "showLabel": {
+                    "displayName": "Show Label",
+                    "description": "Show the finish date label",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "labelColor": {
+                    "displayName": "Label Color",
+                    "description": "Color of the finish date label text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "labelFontSize": {
+                    "displayName": "Label Font Size (pt)",
+                    "description": "Font size for the finish date label",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showLabelPrefix": {
+                    "displayName": "Show 'Finish:' Prefix",
+                    "description": "Include 'Finish:' before the date",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "labelBackgroundColor": {
+                    "displayName": "Label Background",
+                    "description": "Background color for the label",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "labelBackgroundTransparency": {
+                    "displayName": "Label Background Transparency (%)",
+                    "description": "Transparency of the label background (0=Opaque, 100=Invisible)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "baselineShow": {
+                    "displayName": "Show Baseline Finish Line",
+                    "description": "Show the vertical line indicating baseline latest finish date",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "baselineLineWidth": {
+                    "displayName": "Baseline Line Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "baselineLineStyle": {
+                    "displayName": "Baseline Line Style",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "solid",
+                                "displayName": "Solid"
+                            },
+                            {
+                                "value": "dashed",
+                                "displayName": "Dashed"
+                            },
+                            {
+                                "value": "dotted",
+                                "displayName": "Dotted"
+                            }
+                        ]
+                    }
+                },
+                "baselineShowLabel": {
+                    "displayName": "Show Baseline Label",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "baselineLabelColor": {
+                    "displayName": "Baseline Label Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "baselineLabelFontSize": {
+                    "displayName": "Baseline Label Font Size (pt)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "baselineShowLabelPrefix": {
+                    "displayName": "Show 'Finish:' Prefix (Baseline)",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "baselineLabelBackgroundColor": {
+                    "displayName": "Baseline Label Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "baselineLabelBackgroundTransparency": {
+                    "displayName": "Baseline Label Background Transparency (%)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "previousUpdateShow": {
+                    "displayName": "Show Previous Update Finish Line",
+                    "description": "Show the vertical line indicating previous update latest finish date",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "previousUpdateLineWidth": {
+                    "displayName": "Previous Update Line Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "previousUpdateLineStyle": {
+                    "displayName": "Previous Update Line Style",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "solid",
+                                "displayName": "Solid"
+                            },
+                            {
+                                "value": "dashed",
+                                "displayName": "Dashed"
+                            },
+                            {
+                                "value": "dotted",
+                                "displayName": "Dotted"
+                            }
+                        ]
+                    }
+                },
+                "previousUpdateShowLabel": {
+                    "displayName": "Show Previous Update Label",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "previousUpdateLabelColor": {
+                    "displayName": "Previous Update Label Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "previousUpdateLabelFontSize": {
+                    "displayName": "Previous Update Label Font Size (pt)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "previousUpdateShowLabelPrefix": {
+                    "displayName": "Show 'Finish:' Prefix (Previous Update)",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "previousUpdateLabelBackgroundColor": {
+                    "displayName": "Previous Update Label Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "previousUpdateLabelBackgroundTransparency": {
+                    "displayName": "Previous Update Label Background Transparency (%)",
+                    "type": {
+                        "numeric": true
+                    }
+                }
             }
         },
         "displayOptions": {
             "displayName": "Display Options",
             "properties": {
-                "showTooltips": { "displayName": "Show Tooltips", "type": { "bool": true } },
-                "showNearCritical": { "displayName": "Highlight Near Longest Path", "type": { "bool": true } },
-                "showAllTasks": { "type": { "bool": true } }
+                "showTooltips": {
+                    "displayName": "Show Tooltips",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "showNearCritical": {
+                    "displayName": "Highlight Near Longest Path",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "showFloatColumn": {
+                    "displayName": "Show Float Column",
+                    "description": "Display total float value next to task names",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "floatColumnWidth": {
+                    "displayName": "Float Column Width (px)",
+                    "description": "Width of the float column",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showAllTasks": {
+                    "type": {
+                        "bool": true
+                    }
+                }
             }
         },
         "criticalityMode": {
@@ -303,8 +907,14 @@
                     "description": "Choose between Longest Path (CPM) or Float-Based criticality",
                     "type": {
                         "enumeration": [
-                            { "value": "longestPath", "displayName": "Longest Path (CPM)" },
-                            { "value": "floatBased", "displayName": "Float-Based" }
+                            {
+                                "value": "longestPath",
+                                "displayName": "Longest Path (CPM)"
+                            },
+                            {
+                                "value": "floatBased",
+                                "displayName": "Float-Based"
+                            }
                         ]
                     }
                 }
@@ -316,30 +926,74 @@
                 "enableMultiPathToggle": {
                     "displayName": "Enable Multi-Path Toggle",
                     "description": "Allow toggling between all driving paths of equal or near-equal duration",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "selectedPathIndex": {
                     "displayName": "Selected Path",
                     "description": "Index of the currently selected driving path (1-based)",
-                    "type": { "numeric": true }
+                    "type": {
+                        "numeric": true
+                    }
                 },
                 "showPathInfo": {
                     "displayName": "Show Path Information",
                     "description": "Display path count and duration in the visual",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 }
             }
         },
         "persistedState": {
             "displayName": "Persisted State",
             "properties": {
-                "selectedTaskId": { "type": { "text": true } },
-                "floatThreshold": { "type": { "numeric": true } },
-                "traceMode": { "type": { "text": true } },
-                "selectedLegendCategories": { "type": { "text": true } },
-                "wbsExpandLevel": { "type": { "numeric": true } },
-                "wbsExpandedState": { "type": { "text": true } },
-                "wbsManualToggledGroups": { "type": { "text": true } }
+                "selectedTaskId": {
+                    "type": {
+                        "text": true
+                    }
+                },
+                "floatThreshold": {
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "traceMode": {
+                    "type": {
+                        "text": true
+                    }
+                },
+                "selectedLegendCategories": {
+                    "type": {
+                        "text": true
+                    }
+                },
+                "wbsExpandLevel": {
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "wbsExpandedState": {
+                    "type": {
+                        "text": true
+                    }
+                },
+                "wbsManualToggledGroups": {
+                    "type": {
+                        "text": true
+                    }
+                },
+                "zoomRangeStart": {
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "zoomRangeEnd": {
+                    "type": {
+                        "numeric": true
+                    }
+                }
             }
         },
         "legend": {
@@ -348,31 +1002,48 @@
                 "show": {
                     "displayName": "Show Legend",
                     "description": "Display the legend when a legend field is added",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "fontSize": {
                     "displayName": "Font Size (pt)",
                     "description": "Font size for legend text",
-                    "type": { "numeric": true }
+                    "type": {
+                        "numeric": true
+                    }
                 },
                 "showTitle": {
                     "displayName": "Show Title",
                     "description": "Display the legend title (field name)",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "titleText": {
                     "displayName": "Title Text",
                     "description": "Custom title text (defaults to field name if empty)",
-                    "type": { "text": true }
+                    "type": {
+                        "text": true
+                    }
                 },
                 "sortOrder": {
                     "displayName": "Sort Order",
                     "description": "Sort legend items alphabetically",
                     "type": {
                         "enumeration": [
-                            { "value": "none", "displayName": "Data Order" },
-                            { "value": "ascending", "displayName": "Ascending (A-Z)" },
-                            { "value": "descending", "displayName": "Descending (Z-A)" }
+                            {
+                                "value": "none",
+                                "displayName": "Data Order"
+                            },
+                            {
+                                "value": "ascending",
+                                "displayName": "Ascending (A-Z)"
+                            },
+                            {
+                                "value": "descending",
+                                "displayName": "Descending (Z-A)"
+                            }
                         ]
                     }
                 }
@@ -385,57 +1056,91 @@
                 "enableWbsGrouping": {
                     "displayName": "Enable WBS Grouping",
                     "description": "Group tasks by WBS hierarchy",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "defaultExpanded": {
                     "displayName": "Default Expanded",
                     "description": "Expand all WBS groups by default",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "showGroupSummary": {
                     "displayName": "Show Group Summary Bar",
                     "description": "Display a summary bar for each WBS group",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "groupHeaderColor": {
                     "displayName": "Group Header Background",
                     "description": "Background color for WBS group headers",
-                    "type": { "fill": { "solid": { "color": true } } }
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
                 },
                 "groupSummaryColor": {
                     "displayName": "Group Summary Bar Color",
                     "description": "Color for WBS group summary bars",
-                    "type": { "fill": { "solid": { "color": true } } }
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
                 },
                 "indentPerLevel": {
                     "displayName": "Indent Per Level (px)",
                     "description": "Indentation for each WBS level",
-                    "type": { "numeric": true }
+                    "type": {
+                        "numeric": true
+                    }
                 },
                 "hideEmptyGroups": {
                     "displayName": "Hide Empty Groups",
                     "description": "Hide WBS groups that have no visible/filtered tasks",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "expandCollapseAll": {
                     "displayName": "Expand All Groups",
                     "description": "Toggle to expand or collapse all WBS groups at once",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "showWbsToggle": {
                     "displayName": "Show WBS Toggle Button",
                     "description": "Show or hide the Expand/Collapse WBS toggle button in the header",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "groupNameFontSize": {
                     "displayName": "Group Name Font Size (pt)",
                     "description": "Font size for WBS group names (0 = use Task Name Font Size)",
-                    "type": { "numeric": true }
+                    "type": {
+                        "numeric": true
+                    }
                 },
                 "groupNameColor": {
                     "displayName": "Group Name Color",
                     "description": "Text color for WBS group names",
-                    "type": { "fill": { "solid": { "color": true } } }
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -443,68 +1148,502 @@
             "displayName": "WBS Level Styles",
             "description": "Optional per-level overrides for WBS header background and text colors",
             "properties": {
-                "level1Background": { "displayName": "Level 1 Background", "type": { "fill": { "solid": { "color": true } } } },
-                "level1Text": { "displayName": "Level 1 Text", "type": { "fill": { "solid": { "color": true } } } },
-                "level2Background": { "displayName": "Level 2 Background", "type": { "fill": { "solid": { "color": true } } } },
-                "level2Text": { "displayName": "Level 2 Text", "type": { "fill": { "solid": { "color": true } } } },
-                "level3Background": { "displayName": "Level 3 Background", "type": { "fill": { "solid": { "color": true } } } },
-                "level3Text": { "displayName": "Level 3 Text", "type": { "fill": { "solid": { "color": true } } } },
-                "level4Background": { "displayName": "Level 4 Background", "type": { "fill": { "solid": { "color": true } } } },
-                "level4Text": { "displayName": "Level 4 Text", "type": { "fill": { "solid": { "color": true } } } },
-                "level5Background": { "displayName": "Level 5 Background", "type": { "fill": { "solid": { "color": true } } } },
-                "level5Text": { "displayName": "Level 5 Text", "type": { "fill": { "solid": { "color": true } } } },
-                "level6Background": { "displayName": "Level 6 Background", "type": { "fill": { "solid": { "color": true } } } },
-                "level6Text": { "displayName": "Level 6 Text", "type": { "fill": { "solid": { "color": true } } } },
-                "level7Background": { "displayName": "Level 7 Background", "type": { "fill": { "solid": { "color": true } } } },
-                "level7Text": { "displayName": "Level 7 Text", "type": { "fill": { "solid": { "color": true } } } },
-                "level8Background": { "displayName": "Level 8 Background", "type": { "fill": { "solid": { "color": true } } } },
-                "level8Text": { "displayName": "Level 8 Text", "type": { "fill": { "solid": { "color": true } } } },
-                "level9Background": { "displayName": "Level 9 Background", "type": { "fill": { "solid": { "color": true } } } },
-                "level9Text": { "displayName": "Level 9 Text", "type": { "fill": { "solid": { "color": true } } } },
-                "level10Background": { "displayName": "Level 10 Background", "type": { "fill": { "solid": { "color": true } } } },
-                "level10Text": { "displayName": "Level 10 Text", "type": { "fill": { "solid": { "color": true } } } }
+                "level1Background": {
+                    "displayName": "Level 1 Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level1Text": {
+                    "displayName": "Level 1 Text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level2Background": {
+                    "displayName": "Level 2 Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level2Text": {
+                    "displayName": "Level 2 Text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level3Background": {
+                    "displayName": "Level 3 Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level3Text": {
+                    "displayName": "Level 3 Text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level4Background": {
+                    "displayName": "Level 4 Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level4Text": {
+                    "displayName": "Level 4 Text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level5Background": {
+                    "displayName": "Level 5 Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level5Text": {
+                    "displayName": "Level 5 Text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level6Background": {
+                    "displayName": "Level 6 Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level6Text": {
+                    "displayName": "Level 6 Text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level7Background": {
+                    "displayName": "Level 7 Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level7Text": {
+                    "displayName": "Level 7 Text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level8Background": {
+                    "displayName": "Level 8 Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level8Text": {
+                    "displayName": "Level 8 Text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level9Background": {
+                    "displayName": "Level 9 Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level9Text": {
+                    "displayName": "Level 9 Text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level10Background": {
+                    "displayName": "Level 10 Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "level10Text": {
+                    "displayName": "Level 10 Text",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                }
             }
         },
         "legendColors": {
             "displayName": "Legend Colors",
             "description": "Customize colors for legend categories",
             "properties": {
-                "color1": { "displayName": "Color 1", "type": { "fill": { "solid": { "color": true } } } },
-                "color2": { "displayName": "Color 2", "type": { "fill": { "solid": { "color": true } } } },
-                "color3": { "displayName": "Color 3", "type": { "fill": { "solid": { "color": true } } } },
-                "color4": { "displayName": "Color 4", "type": { "fill": { "solid": { "color": true } } } },
-                "color5": { "displayName": "Color 5", "type": { "fill": { "solid": { "color": true } } } },
-                "color6": { "displayName": "Color 6", "type": { "fill": { "solid": { "color": true } } } },
-                "color7": { "displayName": "Color 7", "type": { "fill": { "solid": { "color": true } } } },
-                "color8": { "displayName": "Color 8", "type": { "fill": { "solid": { "color": true } } } },
-                "color9": { "displayName": "Color 9", "type": { "fill": { "solid": { "color": true } } } },
-                "color10": { "displayName": "Color 10", "type": { "fill": { "solid": { "color": true } } } },
-                "color11": { "displayName": "Color 11", "type": { "fill": { "solid": { "color": true } } } },
-                "color12": { "displayName": "Color 12", "type": { "fill": { "solid": { "color": true } } } },
-                "color13": { "displayName": "Color 13", "type": { "fill": { "solid": { "color": true } } } },
-                "color14": { "displayName": "Color 14", "type": { "fill": { "solid": { "color": true } } } },
-                "color15": { "displayName": "Color 15", "type": { "fill": { "solid": { "color": true } } } },
-                "color16": { "displayName": "Color 16", "type": { "fill": { "solid": { "color": true } } } },
-                "color17": { "displayName": "Color 17", "type": { "fill": { "solid": { "color": true } } } },
-                "color18": { "displayName": "Color 18", "type": { "fill": { "solid": { "color": true } } } },
-                "color19": { "displayName": "Color 19", "type": { "fill": { "solid": { "color": true } } } },
-                "color20": { "displayName": "Color 20", "type": { "fill": { "solid": { "color": true } } } }
+                "color1": {
+                    "displayName": "Color 1",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color2": {
+                    "displayName": "Color 2",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color3": {
+                    "displayName": "Color 3",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color4": {
+                    "displayName": "Color 4",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color5": {
+                    "displayName": "Color 5",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color6": {
+                    "displayName": "Color 6",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color7": {
+                    "displayName": "Color 7",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color8": {
+                    "displayName": "Color 8",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color9": {
+                    "displayName": "Color 9",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color10": {
+                    "displayName": "Color 10",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color11": {
+                    "displayName": "Color 11",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color12": {
+                    "displayName": "Color 12",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color13": {
+                    "displayName": "Color 13",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color14": {
+                    "displayName": "Color 14",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color15": {
+                    "displayName": "Color 15",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color16": {
+                    "displayName": "Color 16",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color17": {
+                    "displayName": "Color 17",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color18": {
+                    "displayName": "Color 18",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color19": {
+                    "displayName": "Color 19",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "color20": {
+                    "displayName": "Color 20",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                }
             }
-        }
-        ,
+        },
         "dataDateLine": {
             "displayName": "Data Date Line",
             "properties": {
-                "show": { "displayName": "Show Line", "type": { "bool": true } },
-                "lineColor": { "displayName": "Line Color", "type": { "fill": { "solid": { "color": true } } } },
-                "lineWidth": { "displayName": "Line Width (px)", "type": { "numeric": true } },
-                "lineStyle": { "displayName": "Line Style", "type": { "enumeration": [ { "displayName": "Solid", "value": "solid" }, { "displayName": "Dashed", "value": "dashed" }, { "displayName": "Dotted", "value": "dotted" } ] } },
-                "showLabel": { "displayName": "Show Label", "type": { "bool": true } },
-                "labelColor": { "displayName": "Label Color", "type": { "fill": { "solid": { "color": true } } } },
-                "labelFontSize": { "displayName": "Label Font Size (pt)", "type": { "numeric": true } },
-                "showLabelPrefix": { "displayName": "Show 'Data Date:' Prefix", "type": { "bool": true } },
-                "labelBackgroundColor": { "displayName": "Label Background", "type": { "fill": { "solid": { "color": true } } } },
-                "labelBackgroundTransparency": { "displayName": "Label Background Transparency (%)", "type": { "numeric": true } }
+                "show": {
+                    "displayName": "Show Line",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "lineColor": {
+                    "displayName": "Line Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "lineWidth": {
+                    "displayName": "Line Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "lineStyle": {
+                    "displayName": "Line Style",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "displayName": "Solid",
+                                "value": "solid"
+                            },
+                            {
+                                "displayName": "Dashed",
+                                "value": "dashed"
+                            },
+                            {
+                                "displayName": "Dotted",
+                                "value": "dotted"
+                            }
+                        ]
+                    }
+                },
+                "showLabel": {
+                    "displayName": "Show Label",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "labelColor": {
+                    "displayName": "Label Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "labelFontSize": {
+                    "displayName": "Label Font Size (pt)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showLabelPrefix": {
+                    "displayName": "Show 'Data Date:' Prefix",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "labelBackgroundColor": {
+                    "displayName": "Label Background",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "labelBackgroundTransparency": {
+                    "displayName": "Label Background Transparency (%)",
+                    "type": {
+                        "numeric": true
+                    }
+                }
             }
         },
         "timelineZoom": {
@@ -514,32 +1653,56 @@
                 "enableZoomSlider": {
                     "displayName": "Enable Zoom Slider",
                     "description": "Show zoom slider below the timeline for adjusting visible date range",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 },
                 "sliderHeight": {
                     "displayName": "Slider Height (px)",
                     "description": "Height of the zoom slider control",
-                    "type": { "numeric": true }
+                    "type": {
+                        "numeric": true
+                    }
                 },
                 "sliderTrackColor": {
                     "displayName": "Track Color",
                     "description": "Background color of the slider track",
-                    "type": { "fill": { "solid": { "color": true } } }
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
                 },
                 "sliderSelectedColor": {
                     "displayName": "Selected Range Color",
                     "description": "Color of the selected/visible range area",
-                    "type": { "fill": { "solid": { "color": true } } }
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
                 },
                 "sliderHandleColor": {
                     "displayName": "Handle Color",
                     "description": "Color of the drag handles",
-                    "type": { "fill": { "solid": { "color": true } } }
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
                 },
                 "showMiniChart": {
                     "displayName": "Show Mini Preview",
                     "description": "Show a miniature preview of task distribution in the slider",
-                    "type": { "bool": true }
+                    "type": {
+                        "bool": true
+                    }
                 }
             }
         }
@@ -549,28 +1712,112 @@
             "table": {
                 "rows": {
                     "select": [
-                        { "bind": { "to": "taskId" } },
-                        { "bind": { "to": "duration" } },
-                        { "bind": { "to": "taskTotalFloat" } },
-                        { "bind": { "to": "taskFreeFloat" } },
-                        { "bind": { "to": "startDate" } },
-                        { "bind": { "to": "finishDate" } },
-                        { "bind": { "to": "baselineStartDate" } },
-                        { "bind": { "to": "baselineFinishDate" } },
-                        { "bind": { "to": "previousUpdateStartDate" } },
-                        { "bind": { "to": "previousUpdateFinishDate" } },
-                        { "bind": { "to": "dataDate" } },
-                        { "bind": { "to": "taskName" } },
-                        { "bind": { "to": "taskType" } },
-                        { "bind": { "to": "predecessorId" } },
-                        { "bind": { "to": "relationshipType" } },
-                        { "bind": { "to": "relationshipLag" } },
-                        { "bind": { "to": "relationshipFreeFloat" } },
-                        { "bind": { "to": "tooltip" } },
-                        { "bind": { "to": "legend" } },
-                        { "for": { "in": "wbsLevels" } }
+                        {
+                            "bind": {
+                                "to": "taskId"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "duration"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "taskTotalFloat"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "taskFreeFloat"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "startDate"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "finishDate"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "baselineStartDate"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "baselineFinishDate"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "previousUpdateStartDate"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "previousUpdateFinishDate"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "dataDate"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "taskName"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "taskType"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "predecessorId"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "relationshipType"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "relationshipLag"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "relationshipFreeFloat"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "tooltip"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "legend"
+                            }
+                        },
+                        {
+                            "for": {
+                                "in": "wbsLevels"
+                            }
+                        }
                     ],
-                    "dataReductionAlgorithm": { "top": { "count": 30000 } }
+                    "dataReductionAlgorithm": {
+                        "top": {
+                            "count": 30000
+                        }
+                    }
                 }
             }
         }
@@ -578,7 +1825,10 @@
     "sorting": {
         "implicit": {
             "clauses": [
-                { "role": "taskTotalFloat", "direction": 1 }
+                {
+                    "role": "taskTotalFloat",
+                    "direction": 1
+                }
             ]
         }
     },
@@ -593,6 +1843,8 @@
             "default": true,
             "canvas": true
         },
-        "roles": ["tooltip"]
+        "roles": [
+            "tooltip"
+        ]
     }
 }

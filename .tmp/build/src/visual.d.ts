@@ -280,6 +280,18 @@ export declare class Visual implements IVisual {
      */
     private endZoomDrag;
     /**
+     * Phase 1: Persists the current zoom range to settings for bookmark/refresh persistence
+     */
+    private persistZoomRange;
+    /**
+     * Phase 1: Detects if user prefers reduced motion for accessibility
+     */
+    private prefersReducedMotion;
+    /**
+     * Phase 1: Gets animation duration respecting prefers-reduced-motion
+     */
+    private getAnimationDuration;
+    /**
      * Resets zoom to show full timeline
      */
     private resetZoom;

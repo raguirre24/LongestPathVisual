@@ -300,3 +300,133 @@
     font-weight: 500;
     text-decoration: none;
 }
+
+// ============================================================================
+// PHASE 1 & 2 UI/UX IMPROVEMENTS
+// ============================================================================
+
+// Phase 1: Reduced motion support - disable animations for users who prefer it
+@media (prefers-reduced-motion: reduce) {
+    .timeline-zoom-slider-container,
+    .timeline-zoom-slider-selection,
+    .legend-scroll-content,
+    .legend-item,
+    .legend-swatch,
+    .legend-scroll-arrow {
+        transition: none !important;
+        animation: none !important;
+    }
+    
+    // Keep loading bar static for reduced motion
+    .loading-overlay .loading-bar {
+        animation: none !important;
+        transform: none !important;
+        width: 50% !important;
+    }
+}
+
+// Phase 1: Task label ellipsis for proper truncation indication
+.task-label-truncated {
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+// Phase 2: Float column styling
+.float-label {
+    font-family: 'Segoe UI Semibold', 'Segoe UI', sans-serif;
+    pointer-events: none;
+}
+
+// Phase 2: Float column header styling
+.float-column-header {
+    font-size: 9px;
+    font-weight: 600;
+    fill: #666;
+    text-anchor: end;
+    dominant-baseline: hanging;
+}
+
+// Phase 2: Loading skeleton styles
+.skeleton-loading {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.skeleton-task-bar {
+    height: 20px;
+    border-radius: 4px;
+    margin: 4px 0;
+}
+
+.skeleton-task-label {
+    height: 12px;
+    border-radius: 2px;
+    width: 60%;
+}
+
+// Phase 2: Enhanced driving vs non-driving connector visual distinction
+.driving-connector {
+    stroke-dasharray: none;
+}
+
+.non-driving-connector {
+    stroke-dasharray: 6, 4;
+    opacity: 0.4;
+}
+
+// Phase 2: Improved focus states for accessibility
+.toggle-button:focus-visible,
+.header-button:focus-visible {
+    outline: 2px solid #0078D4;
+    outline-offset: 2px;
+}
+
+// Phase 2: Enhanced hover states for interactive elements
+.task-label:hover {
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.float-label:hover {
+    opacity: 1 !important;
+}
+
+// Phase 1: Improved dropdown item hover states
+.task-selection-item:hover {
+    background-color: #f3f2f1;
+}
+
+.task-selection-item.active {
+    background-color: #edebe9;
+}
+
+// Phase 2: Path info label compact styling
+.path-info-compact {
+    font-size: 11px;
+    padding: 2px 4px;
+}
+
+// Phase 1: Theme-aware backgrounds (high contrast support)
+@media (forced-colors: active) {
+    .legend-swatch {
+        forced-color-adjust: none;
+    }
+    
+    .timeline-zoom-slider-selection {
+        border: 2px solid CanvasText;
+    }
+    
+    .task-bar,
+    .milestone-shape {
+        stroke: CanvasText;
+    }
+}

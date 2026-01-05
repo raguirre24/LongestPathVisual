@@ -38,7 +38,7 @@ class TaskAppearanceCard extends Card {
         name: "showBaseline",
         displayName: "Show Baseline",
         description: "Display baseline bars below the main task bars",
-        value: true 
+        value: true
     });
     baselineColor = new ColorPicker({
         name: "baselineColor",
@@ -48,7 +48,7 @@ class TaskAppearanceCard extends Card {
     baselineHeight = new NumUpDown({
         name: "baselineHeight",
         displayName: "Baseline Height (px)",
-        value: 4, 
+        value: 4,
         options: {
             minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
             maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
@@ -65,10 +65,10 @@ class TaskAppearanceCard extends Card {
         }
     });
     showPreviousUpdate = new ToggleSwitch({
-    name: "showPreviousUpdate",
-    displayName: "Show Previous Update",
-    description: "Display previous update bars below the baseline bars",
-    value: true 
+        name: "showPreviousUpdate",
+        displayName: "Show Previous Update",
+        description: "Display previous update bars below the baseline bars",
+        value: true
     });
     previousUpdateColor = new ColorPicker({
         name: "previousUpdateColor",
@@ -78,7 +78,7 @@ class TaskAppearanceCard extends Card {
     previousUpdateHeight = new NumUpDown({
         name: "previousUpdateHeight",
         displayName: "Previous Update Height (px)",
-        value: 3, 
+        value: 3,
         options: {
             minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
             maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
@@ -102,9 +102,9 @@ class TaskAppearanceCard extends Card {
         this.showBaseline, this.baselineColor, this.baselineHeight, this.baselineOffset,
         this.showPreviousUpdate, this.previousUpdateColor, this.previousUpdateHeight, this.previousUpdateOffset
     ];
- }
+}
 
- class ConnectorLinesCard extends Card {
+class ConnectorLinesCard extends Card {
     name: string = "connectorLines"; displayName: string = "Connector Lines";
     showConnectorToggle = new ToggleSwitch({
         name: "showConnectorToggle",
@@ -131,8 +131,33 @@ class TaskAppearanceCard extends Card {
             maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 }
         }
     });
-    slices: Slice[] = [ this.showConnectorToggle, this.showConnectorLines, this.connectorColor, this.connectorWidth, this.criticalConnectorWidth, this.elbowOffset ];
+    // Phase 2: Differentiate driving vs non-driving connectors
+    differentiateDrivers = new ToggleSwitch({
+        name: "differentiateDrivers",
+        displayName: "Differentiate Driving Lines",
+        description: "Use dashed lines for non-driving relationships",
+        value: true
+    });
+    nonDrivingLineStyle = new ItemDropdown({
+        name: "nonDrivingLineStyle",
+        displayName: "Non-Driving Line Style",
+        description: "Line style for non-driving (non-critical) relationships",
+        items: lineStyleItems,
+        value: lineStyleItems.find(item => item.value === "dashed")
+    });
+    nonDrivingOpacity = new NumUpDown({
+        name: "nonDrivingOpacity",
+        displayName: "Non-Driving Opacity (%)",
+        description: "Opacity for non-driving relationship lines",
+        value: 40,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 10 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
+        }
+    });
+    slices: Slice[] = [this.showConnectorToggle, this.showConnectorLines, this.connectorColor, this.connectorWidth, this.criticalConnectorWidth, this.elbowOffset, this.differentiateDrivers, this.nonDrivingLineStyle, this.nonDrivingOpacity];
 }
+
 
 class TextAndLabelsCard extends Card {
     name: string = "textAndLabels"; displayName: string = "Text & Labels";
@@ -144,7 +169,7 @@ class TextAndLabelsCard extends Card {
     showFinishDates = new ToggleSwitch({ name: "showFinishDates", displayName: "Show Finish Dates", description: "Display finish date labels next to tasks/milestones", value: true });
     dateBackgroundColor = new ColorPicker({ name: "dateBackgroundColor", displayName: "Date Background Color", value: { value: "#FFFFFF" } });
     dateBackgroundTransparency = new NumUpDown({ name: "dateBackgroundTransparency", displayName: "Date Background Transparency (%)", value: 20, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
-    slices: Slice[] = [ this.fontSize, this.taskNameFontSize, this.labelColor, this.showDuration, this.durationTextColor, this.showFinishDates, this.dateBackgroundColor, this.dateBackgroundTransparency ];
+    slices: Slice[] = [this.fontSize, this.taskNameFontSize, this.labelColor, this.showDuration, this.durationTextColor, this.showFinishDates, this.dateBackgroundColor, this.dateBackgroundTransparency];
 }
 
 class LayoutSettingsCard extends Card {
@@ -152,7 +177,7 @@ class LayoutSettingsCard extends Card {
     leftMargin = new NumUpDown({ name: "leftMargin", displayName: "Left Margin (px)", value: 300, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 50 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 600 } } });
     taskPadding = new NumUpDown({ name: "taskPadding", displayName: "Task Padding (px)", value: 12, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 30 } } });
     maxTasksToShow = new NumUpDown({ name: "maxTasksToShow", displayName: "Max Tasks To Show", description: "Maximum tasks to display (prioritizes critical path)", value: 1000, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 20000 } } });
-    slices: Slice[] = [ this.leftMargin, this.taskPadding, this.maxTasksToShow ];
+    slices: Slice[] = [this.leftMargin, this.taskPadding, this.maxTasksToShow];
 }
 
 // Renamed existing gridlines card
@@ -164,7 +189,7 @@ class HorizontalGridLinesCard extends Card {
     gridLineColor = new ColorPicker({ name: "gridLineColor", displayName: "Color", value: { value: "#e0e0e0" } });
     gridLineWidth = new NumUpDown({ name: "gridLineWidth", displayName: "Width (px)", value: 1, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
     gridLineStyle = new ItemDropdown({ name: "gridLineStyle", displayName: "Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
-    slices: Slice[] = [ this.showGridLines, this.gridLineColor, this.gridLineWidth, this.gridLineStyle ];
+    slices: Slice[] = [this.showGridLines, this.gridLineColor, this.gridLineWidth, this.gridLineStyle];
 }
 
 // *** NEW CARD for Vertical Grid Lines ***
@@ -194,24 +219,24 @@ class VerticalGridLinesCard extends Card {
         items: lineStyleItems, // Reuse the same items array
         value: lineStyleItems.find(item => item.value === "dotted") // Default style
     });
-     showMonthLabels = new ToggleSwitch({
-         name: "showMonthLabels",
-         displayName: "Show Month Labels",
-         value: true // Default to show labels
-     });
-     labelColor = new ColorPicker({
-         name: "labelColor",
-         displayName: "Label Color",
-          description: "Color for month labels (uses line color if blank)",
-         value: { value: "#888888" } // Default label color (darker gray)
-     });
-     labelFontSize = new NumUpDown({
-         name: "labelFontSize",
-         displayName: "Label Font Size (pt)",
-         description: "Font size for month labels (uses General Font Size if 0)",
-         value: 9, // Default font size
-         options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } }
-     });
+    showMonthLabels = new ToggleSwitch({
+        name: "showMonthLabels",
+        displayName: "Show Month Labels",
+        value: true // Default to show labels
+    });
+    labelColor = new ColorPicker({
+        name: "labelColor",
+        displayName: "Label Color",
+        description: "Color for month labels (uses line color if blank)",
+        value: { value: "#888888" } // Default label color (darker gray)
+    });
+    labelFontSize = new NumUpDown({
+        name: "labelFontSize",
+        displayName: "Label Font Size (pt)",
+        description: "Font size for month labels (uses General Font Size if 0)",
+        value: 9, // Default font size
+        options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } }
+    });
 
     // Define the slices for this card
     slices: Slice[] = [
@@ -288,6 +313,24 @@ class DisplayOptionsCard extends Card {
         value: true
     });
 
+    // Phase 2: Show float column in task label area
+    showFloatColumn = new ToggleSwitch({
+        name: "showFloatColumn",
+        displayName: "Show Float Column",
+        description: "Display total float value next to task names",
+        value: false
+    });
+    floatColumnWidth = new NumUpDown({
+        name: "floatColumnWidth",
+        displayName: "Float Column Width (px)",
+        description: "Width of the float column",
+        value: 40,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 25 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 80 }
+        }
+    });
+
     // Hidden property used only for persisting the toggle state
     showAllTasks = new ToggleSwitch({
         name: "showAllTasks",
@@ -298,13 +341,13 @@ class DisplayOptionsCard extends Card {
     });
 
     // Include hidden slice so formatting service reads persisted value
-    slices: Slice[] = [this.showTooltips, this.showNearCritical, this.showAllTasks];
+    slices: Slice[] = [this.showTooltips, this.showNearCritical, this.showFloatColumn, this.floatColumnWidth, this.showAllTasks];
 }
 
 class CriticalityModeCard extends Card {
     name: string = "criticalityMode";
     displayName: string = "Criticality Mode";
-    
+
     calculationMode = new ItemDropdown({
         name: "calculationMode",
         displayName: "Calculation Mode",
@@ -315,7 +358,7 @@ class CriticalityModeCard extends Card {
         ],
         value: { value: "longestPath", displayName: "Longest Path (CPM)" }
     });
-    
+
     slices: Slice[] = [this.calculationMode];
 }
 class TaskSelectionCard extends Card {
@@ -748,6 +791,19 @@ class PersistedStateCard extends Card {
         placeholder: "",
         visible: false
     });
+    // Phase 1: Persist zoom range for timeline slider
+    zoomRangeStart = new NumUpDown({
+        name: "zoomRangeStart",
+        displayName: "",
+        value: 0,
+        visible: false
+    });
+    zoomRangeEnd = new NumUpDown({
+        name: "zoomRangeEnd",
+        displayName: "",
+        value: 1,
+        visible: false
+    });
     slices: Slice[] = [
         this.selectedTaskId,
         this.floatThreshold,
@@ -755,7 +811,9 @@ class PersistedStateCard extends Card {
         this.selectedLegendCategories,
         this.wbsExpandLevel,
         this.wbsExpandedState,
-        this.wbsManualToggledGroups
+        this.wbsManualToggledGroups,
+        this.zoomRangeStart,
+        this.zoomRangeEnd
     ];
 }
 
