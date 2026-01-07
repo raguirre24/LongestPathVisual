@@ -11284,8 +11284,13 @@ export class Visual implements IVisual {
     private formatLineDate(date: Date | null | undefined): string {
         if (!date || !(date instanceof Date) || isNaN(date.getTime())) return "";
         try {
-            this.refreshDateFormatters();
-            return this.lineDateFormatter.format(date);
+            // Format as DD-Mon-YY (e.g., "05-Aug-27")
+            const day = String(date.getDate()).padStart(2, '0');
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const month = monthNames[date.getMonth()];
+            const year = String(date.getFullYear()).slice(-2);
+            return `${day}-${month}-${year}`;
         } catch (e) {
             console.error("Error formatting line date:", e);
             return this.formatDate(date);
