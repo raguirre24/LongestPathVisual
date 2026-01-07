@@ -1,5 +1,5 @@
 import * as d3 from "d3";
-import { timeMonth } from "d3-time";
+import { timeMonth, timeMonday, timeDay } from "d3-time";
 import { Selection, BaseType } from "d3-selection";
 import { ScaleTime, ScaleBand } from "d3-scale";
 
@@ -5920,36 +5920,125 @@ export class Visual implements IVisual {
         let lineDashArray = "none";
         switch (lineStyle) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; }
 
-        const typicalLabel = "Sep-27";
-        const estimatedLabelWidthPx = typicalLabel.length * labelFontSize * 0.6 + 10;
-        let tickInterval = 1;
-        let monthTicks: Date[] = [];
-        const maxInterval = 12;
-        while (tickInterval <= maxInterval) {
-            try { monthTicks = xScale.ticks(timeMonth.every(tickInterval)); }
-            catch (e) { console.error("Error generating ticks:", e); monthTicks = []; break; }
-            if (monthTicks.length < 2) break;
-            let minSpacingPx = Infinity;
-            for (let i = 1; i < monthTicks.length; i++) {
-                const spacing = xScale(monthTicks[i]) - xScale(monthTicks[i - 1]);
-                if (!isNaN(spacing)) minSpacingPx = Math.min(minSpacingPx, spacing);
+        // Calculate the visible time range to determine appropriate granularity
+        const domain = xScale.domain();
+        const range = xScale.range();
+        const visibleDaysSpan = (domain[1].getTime() - domain[0].getTime()) / (1000 * 60 * 60 * 24);
+        const pixelsPerDay = (range[1] - range[0]) / visibleDaysSpan;
+
+        // Determine granularity based on pixel density
+        // Granularity levels: monthly → bi-weekly → weekly → daily
+        type GranularityLevel = 'day' | 'week' | 'biweek' | 'month';
+        let granularity: GranularityLevel = 'month';
+        let ticks: Date[] = [];
+
+        // Estimate label widths for different formats
+        const weekLabelWidth = "02-May-26".length * labelFontSize * 0.55 + 10; // ~70px for DD-Mon-YY
+        const monthLabelWidth = "Sep-26".length * labelFontSize * 0.55 + 10; // ~50px for Mon-YY
+        const dayLabelWidth = "02-May".length * labelFontSize * 0.55 + 10; // ~55px for DD-Mon
+
+        // Calculate approximate spacing for each granularity
+        const pixelsPerWeek = pixelsPerDay * 7;
+        const pixelsPerBiWeek = pixelsPerDay * 14;
+
+        // Choose granularity: prefer finer detail when zoomed in
+        // The thresholds determine when we switch between granularity levels
+        if (pixelsPerDay >= dayLabelWidth * 1.2 && visibleDaysSpan <= 45) {
+            // Show days when very zoomed in (less than ~45 days visible and enough space)
+            granularity = 'day';
+        } else if (pixelsPerWeek >= weekLabelWidth * 1.1 && visibleDaysSpan <= 90) {
+            // Show weeks when zoomed in (less than ~3 months visible and enough space)
+            granularity = 'week';
+        } else if (pixelsPerBiWeek >= weekLabelWidth * 1.1 && visibleDaysSpan <= 180) {
+            // Show bi-weekly when moderately zoomed (less than ~6 months visible and enough space)
+            granularity = 'biweek';
+        } else {
+            // Default to months
+            granularity = 'month';
+        }
+
+        // Generate ticks based on granularity
+        if (granularity === 'day') {
+            // Daily ticks - try every day, then every 2, 3, 5 days
+            const dayIntervals = [1, 2, 3, 5, 7];
+            for (const interval of dayIntervals) {
+                try { ticks = xScale.ticks(timeDay.every(interval)); }
+                catch (e) { ticks = []; break; }
+                if (ticks.length < 2) continue;
+                let minSpacing = Infinity;
+                for (let i = 1; i < ticks.length; i++) {
+                    const spacing = xScale(ticks[i]) - xScale(ticks[i - 1]);
+                    if (!isNaN(spacing)) minSpacing = Math.min(minSpacing, spacing);
+                }
+                if (minSpacing >= dayLabelWidth) break;
             }
-            if (minSpacingPx === Infinity) { console.warn("Could not determine valid spacing for interval:", tickInterval); break; }
-            if (minSpacingPx >= estimatedLabelWidthPx) break;
-            tickInterval++;
-            if (tickInterval > maxInterval) {
-                console.warn(`Month label spacing tight even at max interval ${maxInterval}.`);
-                try { monthTicks = xScale.ticks(timeMonth.every(maxInterval)); }
-                catch (e) { console.error("Error generating final ticks:", e); monthTicks = []; }
-                break;
+            // If days don't fit well, fall back to weeks
+            if (ticks.length < 2) granularity = 'week';
+        }
+
+        if (granularity === 'week') {
+            // Weekly ticks starting on Mondays
+            try { ticks = xScale.ticks(timeMonday.every(1)); }
+            catch (e) { ticks = []; }
+            if (ticks.length >= 2) {
+                let minSpacing = Infinity;
+                for (let i = 1; i < ticks.length; i++) {
+                    const spacing = xScale(ticks[i]) - xScale(ticks[i - 1]);
+                    if (!isNaN(spacing)) minSpacing = Math.min(minSpacing, spacing);
+                }
+                // If weekly doesn't fit, fall back to bi-weekly
+                if (minSpacing < weekLabelWidth) granularity = 'biweek';
+            } else {
+                granularity = 'biweek';
             }
         }
 
+        if (granularity === 'biweek') {
+            // Bi-weekly ticks starting on Mondays (every 2 weeks)
+            try { ticks = xScale.ticks(timeMonday.every(2)); }
+            catch (e) { ticks = []; }
+            if (ticks.length >= 2) {
+                let minSpacing = Infinity;
+                for (let i = 1; i < ticks.length; i++) {
+                    const spacing = xScale(ticks[i]) - xScale(ticks[i - 1]);
+                    if (!isNaN(spacing)) minSpacing = Math.min(minSpacing, spacing);
+                }
+                // If bi-weekly doesn't fit, fall back to monthly
+                if (minSpacing < weekLabelWidth) granularity = 'month';
+            } else {
+                granularity = 'month';
+            }
+        }
+
+        if (granularity === 'month') {
+            // Monthly ticks - existing logic with interval scaling
+            let tickInterval = 1;
+            const maxInterval = 12;
+            while (tickInterval <= maxInterval) {
+                try { ticks = xScale.ticks(timeMonth.every(tickInterval)); }
+                catch (e) { ticks = []; break; }
+                if (ticks.length < 2) break;
+                let minSpacing = Infinity;
+                for (let i = 1; i < ticks.length; i++) {
+                    const spacing = xScale(ticks[i]) - xScale(ticks[i - 1]);
+                    if (!isNaN(spacing)) minSpacing = Math.min(minSpacing, spacing);
+                }
+                if (minSpacing === Infinity) break;
+                if (minSpacing >= monthLabelWidth) break;
+                tickInterval++;
+                if (tickInterval > maxInterval) {
+                    try { ticks = xScale.ticks(timeMonth.every(maxInterval)); }
+                    catch (e) { ticks = []; }
+                    break;
+                }
+            }
+        }
+
+        // Draw grid lines
         mainGridLayer.selectAll(".vertical-grid-line")
-            .data(monthTicks)
+            .data(ticks)
             .enter()
             .append("line")
-
             .attr("class", "vertical-grid-line")
             .attr("x1", (d: Date) => xScale(d))
             .attr("x2", (d: Date) => xScale(d))
@@ -5960,12 +6049,33 @@ export class Visual implements IVisual {
             .style("stroke-dasharray", lineDashArray)
             .style("pointer-events", "none");
 
+        // Draw labels with appropriate formatting based on granularity
         if (showMonthLabels) {
+            const formatLabel = (d: Date): string => {
+                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+                if (granularity === 'day') {
+                    // Format: "02-May" for daily (no year to save space)
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const month = monthNames[d.getMonth()];
+                    return `${day}-${month}`;
+                } else if (granularity === 'week' || granularity === 'biweek') {
+                    // Format: "02-May-26" for weekly/bi-weekly (DD-Mon-YY)
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const month = monthNames[d.getMonth()];
+                    const year = String(d.getFullYear()).slice(-2);
+                    return `${day}-${month}-${year}`;
+                } else {
+                    // Format: "May-26" for monthly (Mon-YY)
+                    return this.monthYearFormatter.format(d);
+                }
+            };
+
             headerLayer.selectAll(".vertical-grid-label")
-                .data(monthTicks)
+                .data(ticks)
                 .enter()
                 .append("text")
-
                 .attr("class", "vertical-grid-label")
                 .attr("x", (d: Date) => xScale(d))
                 .attr("y", this.headerHeight - 15)
@@ -5973,7 +6083,7 @@ export class Visual implements IVisual {
                 .style("font-size", `${labelFontSize}pt`)
                 .style("fill", labelColor)
                 .style("pointer-events", "none")
-                .text((d: Date) => this.monthYearFormatter.format(d));
+                .text((d: Date) => formatLabel(d));
         }
     }
 
