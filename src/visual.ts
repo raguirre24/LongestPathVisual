@@ -4229,6 +4229,13 @@ export class Visual implements IVisual {
         this.xScale = scaleResult.xScale;
         this.yScale = scaleResult.yScale;
 
+        // Redraw the vertical grid lines (x-axis timeline) to update in real-time during zoom
+        const showVertGridLines = this.settings.verticalGridLines.show.value;
+        if (showVertGridLines && this.xScale && this.yScale) {
+            this.drawVerticalGridLines(this.xScale, this.yScale.range()[1],
+                this.gridLayer, this.headerGridLayer);
+        }
+
         this.calculateVisibleTasks();
 
         this.redrawVisibleTasks();
