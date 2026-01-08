@@ -251,7 +251,7 @@ export declare class Visual implements IVisual {
      * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
      */
     private createModeToggleButton;
-    private toggleCriticalityMode;
+    private togglecriticalPath;
     /**
      * Creates the Float Threshold control with premium input design and enhanced UX
      */
@@ -391,7 +391,7 @@ export declare class Visual implements IVisual {
     private createScales;
     private drawVisualElements;
     private drawHorizontalGridLines;
-    private drawVerticalGridLines;
+    private drawgridLines;
     /** Draws task bars, milestones, and associated labels */
     private drawTasks;
     /**
@@ -624,7 +624,7 @@ export declare class Visual implements IVisual {
     private buildTaskFilterSignature;
     private applyTaskFilter;
     private displayMessage;
-    private createTaskSelectionDropdown;
+    private createpathSelectionDropdown;
     private normalizeTraceMode;
     /**
      * Creates the trace mode toggle (Backward/Forward) positioned on the second header row.

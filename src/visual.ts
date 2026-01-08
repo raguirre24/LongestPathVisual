@@ -533,12 +533,12 @@ export class Visual implements IVisual {
         const mode = this.getLayoutMode(viewportWidth);
 
         const defaultWidth = mode === 'wide' ? 350 : (mode === 'medium' ? 280 : 200);
-        const configuredWidth = this.settings?.taskSelection?.dropdownWidth?.value ?? defaultWidth;
+        const configuredWidth = this.settings?.pathSelection?.dropdownWidth?.value ?? defaultWidth;
         const minWidth = 150;
         const maxWidth = Math.max(minWidth, viewportWidth - 20);
         const dropdownWidth = Math.min(Math.max(configuredWidth, minWidth), maxWidth);
 
-        const position = this.settings?.taskSelection?.dropdownPosition?.value?.value || "left";
+        const position = this.settings?.pathSelection?.dropdownPosition?.value?.value || "left";
         const horizontalPadding = 10;
         const maxLeft = Math.max(horizontalPadding, viewportWidth - dropdownWidth - horizontalPadding);
         let dropdownLeft = horizontalPadding;
@@ -924,7 +924,7 @@ export class Visual implements IVisual {
         d3.select(this.canvasElement).on("mousemove", (event: MouseEvent) => {
             if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
 
-            const showTooltips = this.settings.displayOptions.showTooltips.value;
+            const showTooltips = this.settings.generalSettings.showTooltips.value;
             const coords = this.getCanvasMouseCoordinates(event);
             const hoveredTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
             const previousHoveredId = this.hoveredTaskId;
@@ -1297,7 +1297,7 @@ export class Visual implements IVisual {
 
             this.host.persistProperties({
                 merge: [{
-                    objectName: "displayOptions",
+                    objectName: "criticalPath",
                     properties: { showAllTasks: this.showAllTasksInternal },
                     selector: null
                 }]
@@ -1330,7 +1330,7 @@ export class Visual implements IVisual {
 
             this.host.persistProperties({
                 merge: [{
-                    objectName: "taskAppearance",
+                    objectName: "comparisonBars",
                     properties: { showBaseline: this.showBaselineInternal },
                     selector: null
                 }]
@@ -1371,7 +1371,7 @@ export class Visual implements IVisual {
 
             this.host.persistProperties({
                 merge: [{
-                    objectName: "taskAppearance",
+                    objectName: "comparisonBars",
                     properties: { showPreviousUpdate: this.showPreviousUpdateInternal },
                     selector: null
                 }]
@@ -1547,10 +1547,10 @@ export class Visual implements IVisual {
         const hasBaselineFinish = dataView ? this.hasDataRole(dataView, 'baselineFinishDate') : false;
         const isAvailable = hasBaselineStart && hasBaselineFinish;
 
-        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineColor = this.settings.comparisonBars.baselineColor.value.value;
         const lightBaselineColor = this.lightenColor(baselineColor, 0.93);
         const hoverBaselineColor = this.lightenColor(baselineColor, 0.85);
-        const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+        const previousUpdateColor = this.settings.comparisonBars.previousUpdateColor.value.value;
 
         const layout = this.getHeaderButtonLayout(viewportWidth);
         const { x: buttonX, width: buttonWidth, iconOnly } = layout.baseline;
@@ -1701,10 +1701,10 @@ export class Visual implements IVisual {
         const hasPreviousUpdateFinish = dataView ? this.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
         const isAvailable = hasPreviousUpdateStart && hasPreviousUpdateFinish;
 
-        const previousUpdateColor = this.settings.taskAppearance.previousUpdateColor.value.value;
+        const previousUpdateColor = this.settings.comparisonBars.previousUpdateColor.value.value;
         const lightPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.90);
         const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.80);
-        const baselineColor = this.settings.taskAppearance.baselineColor.value.value;
+        const baselineColor = this.settings.comparisonBars.baselineColor.value.value;
 
         const layout = this.getHeaderButtonLayout(viewportWidth);
         const { x: buttonX, width: buttonWidth, iconOnly } = layout.previousUpdate;
@@ -2570,7 +2570,7 @@ export class Visual implements IVisual {
 
         this.headerSvg.selectAll(".mode-toggle-group").remove();
 
-        const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+        const currentMode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
         const isFloatBased = currentMode === 'floatBased';
         const dataView = this.lastUpdateOptions?.dataViews?.[0];
         const hasTotalFloat = dataView ? this.hasDataRole(dataView, 'taskTotalFloat') : false;
@@ -2707,21 +2707,21 @@ export class Visual implements IVisual {
 
             modeToggleGroup.on("click", function (event) {
                 if (event) event.stopPropagation();
-                self.toggleCriticalityMode();
+                self.togglecriticalPath();
             });
 
             modeToggleGroup.on("keydown", function (event) {
                 if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    self.toggleCriticalityMode();
+                    self.togglecriticalPath();
                 }
             });
         }
     }
 
-    private toggleCriticalityMode(): void {
+    private togglecriticalPath(): void {
         try {
-            const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+            const currentMode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
             const newMode = currentMode === 'longestPath' ? 'floatBased' : 'longestPath';
 
             this.debugLog(`Toggling criticality mode from ${currentMode} to ${newMode}`);
@@ -2743,15 +2743,15 @@ export class Visual implements IVisual {
                 }
             });
 
-            if (this.settings?.criticalityMode?.calculationMode) {
-                this.settings.criticalityMode.calculationMode.value = {
+            if (this.settings?.criticalPath?.calculationMode) {
+                this.settings.criticalPath.calculationMode.value = {
                     value: newMode,
                     displayName: newMode === 'longestPath' ? 'Longest Path' : 'Float-Based'
                 };
             }
 
             const properties: any[] = [{
-                objectName: "criticalityMode",
+                objectName: "criticalPath",
                 properties: { calculationMode: newMode },
                 selector: null
             }];
@@ -2797,7 +2797,7 @@ export class Visual implements IVisual {
     private createFloatThresholdControl(): void {
         this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
 
-        const currentMode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+        const currentMode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
         const isFloatBased = currentMode === 'floatBased';
 
         if (!this.showNearCritical || !isFloatBased) {
@@ -3448,8 +3448,8 @@ export class Visual implements IVisual {
         if (timeRange <= 0) return;
 
         const barHeight = Math.max(1, rect.height / Math.max(tasksToShow.length, 50));
-        const criticalColor = this.settings?.taskAppearance?.criticalPathColor?.value?.value ?? "#E81123";
-        const taskColor = this.settings?.taskAppearance?.taskColor?.value?.value ?? "#0078D4";
+        const criticalColor = this.settings?.criticalPath?.criticalPathColor?.value?.value ?? "#E81123";
+        const taskColor = this.settings?.taskBars?.taskColor?.value?.value ?? "#0078D4";
 
         ctx.globalAlpha = 0.5;
 
@@ -3745,12 +3745,12 @@ export class Visual implements IVisual {
 
             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
 
-            if (this.settings?.taskAppearance?.showBaseline !== undefined) {
-                this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
+            if (this.settings?.comparisonBars?.showBaseline !== undefined) {
+                this.showBaselineInternal = this.settings.comparisonBars.showBaseline.value;
             }
 
-            if (this.settings?.taskAppearance?.showPreviousUpdate !== undefined) {
-                this.showPreviousUpdateInternal = this.settings.taskAppearance.showPreviousUpdate.value;
+            if (this.settings?.comparisonBars?.showPreviousUpdate !== undefined) {
+                this.showPreviousUpdateInternal = this.settings.comparisonBars.showPreviousUpdate.value;
             }
 
             if (this.settings?.connectorLines?.showConnectorLines !== undefined) {
@@ -3765,15 +3765,15 @@ export class Visual implements IVisual {
                 }
             }
 
-            this.showNearCritical = this.settings.displayOptions.showNearCritical.value;
+            this.showNearCritical = this.settings.criticalPath.showNearCritical.value;
 
             this.applyPublishModeOptimizations();
 
             this.updateZoomSliderVisibility();
 
             if (this.isInitialLoad) {
-                if (this.settings?.displayOptions?.showAllTasks !== undefined) {
-                    this.showAllTasksInternal = this.settings.displayOptions.showAllTasks.value;
+                if (this.settings?.criticalPath?.showAllTasks !== undefined) {
+                    this.showAllTasksInternal = this.settings.criticalPath.showAllTasks.value;
                 }
 
                 if (this.settings?.persistedState?.selectedTaskId !== undefined) {
@@ -3869,7 +3869,7 @@ export class Visual implements IVisual {
                 this.isInitialLoad = false;
             }
 
-            const criticalColor = this.settings.taskAppearance.criticalPathColor.value.value;
+            const criticalColor = this.settings.criticalPath.criticalPathColor.value.value;
             const connectorColor = this.settings.connectorLines.connectorColor.value.value;
 
             this.margin.left = this.settings.layoutSettings.leftMargin.value;
@@ -3878,7 +3878,7 @@ export class Visual implements IVisual {
             this.clearVisual();
             this.updateHeaderElements(viewportWidth);
             this.createFloatThresholdControl();
-            this.createTaskSelectionDropdown();
+            this.createpathSelectionDropdown();
             this.createTraceModeToggle();
 
             if (!this.validateDataView(dataView)) {
@@ -3923,7 +3923,7 @@ export class Visual implements IVisual {
                 this.selectedTaskName = (selectedTask && selectedTask.name) || null;
             }
 
-            this.createTaskSelectionDropdown();
+            this.createpathSelectionDropdown();
             if (this.dropdownInput) {
                 if (this.selectedTaskId) {
                     this.dropdownInput.property("value", this.selectedTaskName || "");
@@ -3933,7 +3933,7 @@ export class Visual implements IVisual {
             }
 
             if (this.selectedTaskLabel) {
-                if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
+                if (this.selectedTaskId && this.selectedTaskName && this.settings.pathSelection.showSelectedTaskLabel.value) {
                     this.selectedTaskLabel
                         .style("display", "block")
                         .text(`${this.getLocalizedString("ui.selectedLabel", "Selected")}: ${this.selectedTaskName}`);
@@ -3948,14 +3948,14 @@ export class Visual implements IVisual {
             this.createTraceModeToggle();
             this.applyHighContrastStyling();
 
-            const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
-            const mode = this.settings.criticalityMode.calculationMode.value.value;
+            const enableTaskSelection = this.settings.pathSelection.enableTaskSelection.value;
+            const mode = this.settings.criticalPath.calculationMode.value.value;
 
             let predecessorTaskSet = new Set<string>();
             let successorTaskSet = new Set<string>();
 
             if (enableTaskSelection && this.selectedTaskId) {
-                const traceModeSetting = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
+                const traceModeSetting = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
                 const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
 
                 if (mode === 'floatBased') {
@@ -4008,7 +4008,7 @@ export class Visual implements IVisual {
             let tasksToConsider: Task[] = [];
 
             if (enableTaskSelection && this.selectedTaskId) {
-                const traceModeSetting = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
+                const traceModeSetting = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
                 const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
                 const relevantTaskSet = effectiveTraceMode === 'forward' ? successorTaskSet : predecessorTaskSet;
                 const relevantPlottableTasks = plottableTasksSorted.filter(task => relevantTaskSet.has(task.internalId));
@@ -4121,7 +4121,7 @@ export class Visual implements IVisual {
 
             this.applyTaskFilter(tasksToShow.map(t => t.id));
 
-            const taskHeight = this.settings.taskAppearance.taskHeight.value;
+            const taskHeight = this.settings.taskBars.taskHeight.value;
             const taskPadding = this.settings.layoutSettings.taskPadding.value;
 
             let totalRows = tasksWithYOrder.length;
@@ -4230,9 +4230,9 @@ export class Visual implements IVisual {
         this.yScale = scaleResult.yScale;
 
         // Redraw the vertical grid lines (x-axis timeline) to update in real-time during zoom
-        const showVertGridLines = this.settings.verticalGridLines.show.value;
+        const showVertGridLines = this.settings.gridLines.showVerticalLines.value;
         if (showVertGridLines && this.xScale && this.yScale) {
-            this.drawVerticalGridLines(this.xScale, this.yScale.range()[1],
+            this.drawgridLines(this.xScale, this.yScale.range()[1],
                 this.gridLayer, this.headerGridLayer);
         }
 
@@ -4276,8 +4276,8 @@ export class Visual implements IVisual {
 
         this.clearVisual();
 
-        const showHorzGridLines = this.settings.gridLines.showGridLines.value;
-        const showVertGridLines = this.settings.verticalGridLines.show.value;
+        const showHorzGridLines = this.settings.gridLines.showHorizontalLines.value;
+        const showVertGridLines = this.settings.gridLines.showVerticalLines.value;
 
         const visibleTasks = this.getVisibleTasks();
         const renderableTasks = visibleTasks.filter(t => t.yOrder !== undefined);
@@ -4289,7 +4289,7 @@ export class Visual implements IVisual {
         }
 
         if (showVertGridLines && this.xScale && this.yScale) {
-            this.drawVerticalGridLines(this.xScale, this.yScale.range()[1],
+            this.drawgridLines(this.xScale, this.yScale.range()[1],
                 this.gridLayer, this.headerGridLayer);
         }
 
@@ -4317,9 +4317,9 @@ export class Visual implements IVisual {
     private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing settings-only update");
 
-        const oldSelectedPathIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value;
-        const oldMultiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value;
-        const oldShowPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value;
+        const oldSelectedPathIndex = this.settings?.pathSelection?.selectedPathIndex?.value;
+        const oldMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
+        const oldShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
 
         if (options.dataViews?.[0]) {
             this.processLegendData(options.dataViews[0]);
@@ -4328,9 +4328,9 @@ export class Visual implements IVisual {
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(
             VisualSettings, options.dataViews[0]);
 
-        const newSelectedPathIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value;
-        const newMultiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value;
-        const newShowPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value;
+        const newSelectedPathIndex = this.settings?.pathSelection?.selectedPathIndex?.value;
+        const newMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
+        const newShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
 
         this.debugLog(`[Settings Update] Old path index: ${oldSelectedPathIndex}, New: ${newSelectedPathIndex}`);
         this.debugLog(`[Settings Update] Old multi-path: ${oldMultiPathEnabled}, New: ${newMultiPathEnabled}`);
@@ -4340,13 +4340,13 @@ export class Visual implements IVisual {
             oldMultiPathEnabled !== newMultiPathEnabled ||
             oldShowPathInfo !== newShowPathInfo;
 
-        if (this.settings?.taskAppearance?.showBaseline !== undefined) {
-            this.showBaselineInternal = this.settings.taskAppearance.showBaseline.value;
+        if (this.settings?.comparisonBars?.showBaseline !== undefined) {
+            this.showBaselineInternal = this.settings.comparisonBars.showBaseline.value;
         }
 
         if (drivingPathChanged) {
             this.debugLog("Driving path selection changed, recalculating...");
-            const mode = this.settings?.criticalityMode?.calculationMode?.value?.value ?? 'longestPath';
+            const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'longestPath';
             if (mode === 'longestPath') {
                 this.identifyLongestPathFromP6();
             } else {
@@ -4359,7 +4359,7 @@ export class Visual implements IVisual {
 
         this.updateHeaderElements(options.viewport.width);
         this.createFloatThresholdControl();
-        this.createTaskSelectionDropdown();
+        this.createpathSelectionDropdown();
 
         if (this.dropdownInput) {
             if (this.selectedTaskId) {
@@ -4370,7 +4370,7 @@ export class Visual implements IVisual {
         }
 
         if (this.selectedTaskLabel) {
-            if (this.selectedTaskId && this.selectedTaskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
+            if (this.selectedTaskId && this.selectedTaskName && this.settings.pathSelection.showSelectedTaskLabel.value) {
                 this.selectedTaskLabel
                     .style("display", "block")
                     .text(`${this.getLocalizedString("ui.selectedLabel", "Selected")}: ${this.selectedTaskName}`);
@@ -4386,7 +4386,7 @@ export class Visual implements IVisual {
 
         if (this.xScale && this.yScale) {
 
-            const taskHeight = this.settings.taskAppearance.taskHeight.value;
+            const taskHeight = this.settings.taskBars.taskHeight.value;
             const taskPadding = this.settings.layoutSettings.taskPadding.value;
             const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
@@ -4740,7 +4740,7 @@ export class Visual implements IVisual {
         chartWidth: number,
         calculatedChartHeight: number
     } {
-        const taskHeight = this.settings.taskAppearance.taskHeight.value;
+        const taskHeight = this.settings.taskBars.taskHeight.value;
         const taskPadding = this.settings.layoutSettings.taskPadding.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         const svgWidth = effectiveViewport.width;
@@ -4971,8 +4971,8 @@ export class Visual implements IVisual {
     private getTaskAtCanvasPoint(x: number, y: number): Task | null {
         if (!this.xScale || !this.yScale) return null;
 
-        const taskHeight = this.settings.taskAppearance.taskHeight.value;
-        const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
+        const taskHeight = this.settings.taskBars.taskHeight.value;
+        const milestoneSizeSetting = this.settings.taskBars.milestoneSize.value;
         const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
 
         for (const task of visibleTasks) {
@@ -5028,7 +5028,7 @@ export class Visual implements IVisual {
     }
 
     private showTaskTooltip(task: Task, event: MouseEvent): void {
-        const showTooltips = this.settings?.displayOptions?.showTooltips?.value;
+        const showTooltips = this.settings?.generalSettings?.showTooltips?.value;
         if (!showTooltips || !task) return;
 
         const dataItems = this.buildTooltipDataItems(task);
@@ -5243,7 +5243,7 @@ export class Visual implements IVisual {
             this.taskLabelLayer.selectAll("*").remove();
         }
 
-        const showHorzGridLines = this.settings.gridLines.showGridLines.value;
+        const showHorzGridLines = this.settings.gridLines.showHorizontalLines.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         const chartWidth = xScale.range()[1];
         const chartHeight = yScale.range()[1];
@@ -5289,12 +5289,12 @@ export class Visual implements IVisual {
                     renderableTasks,
                     xScale,
                     yScale,
-                    this.settings.taskAppearance.taskColor.value.value,
-                    this.settings.taskAppearance.milestoneColor.value.value,
-                    this.settings.taskAppearance.criticalPathColor.value.value,
+                    this.settings.taskBars.taskColor.value.value,
+                    this.settings.taskBars.milestoneColor.value.value,
+                    this.settings.criticalPath.criticalPathColor.value.value,
                     this.settings.textAndLabels.labelColor.value.value,
                     this.settings.textAndLabels.showDuration.value,
-                    this.settings.taskAppearance.taskHeight.value,
+                    this.settings.taskBars.taskHeight.value,
                     this.settings.textAndLabels.dateBackgroundColor.value.value,
                     1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
                 );
@@ -5307,19 +5307,19 @@ export class Visual implements IVisual {
                         renderableTasks,
                         xScale,
                         yScale,
-                        this.settings.taskAppearance.criticalPathColor.value.value,
+                        this.settings.criticalPath.criticalPathColor.value.value,
                         this.settings.connectorLines.connectorColor.value.value,
                         this.settings.connectorLines.connectorWidth.value,
                         this.settings.connectorLines.criticalConnectorWidth.value,
-                        this.settings.taskAppearance.taskHeight.value,
-                        this.settings.taskAppearance.milestoneSize.value,
+                        this.settings.taskBars.taskHeight.value,
+                        this.settings.taskBars.milestoneSize.value,
                     );
                 }
 
                 this.drawTaskLabelsLayer(
                     renderableTasks,
                     yScale,
-                    this.settings.taskAppearance.taskHeight.value,
+                    this.settings.taskBars.taskHeight.value,
                     currentLeftMargin,
                     labelAvailableWidth,
                     taskNameFontSize,
@@ -5400,12 +5400,12 @@ export class Visual implements IVisual {
                     renderableTasks,
                     xScale,
                     yScale,
-                    this.settings.taskAppearance.criticalPathColor.value.value,
+                    this.settings.criticalPath.criticalPathColor.value.value,
                     this.settings.connectorLines.connectorColor.value.value,
                     this.settings.connectorLines.connectorWidth.value,
                     this.settings.connectorLines.criticalConnectorWidth.value,
-                    this.settings.taskAppearance.taskHeight.value,
-                    this.settings.taskAppearance.milestoneSize.value,
+                    this.settings.taskBars.taskHeight.value,
+                    this.settings.taskBars.milestoneSize.value,
                 );
             }
 
@@ -5413,12 +5413,12 @@ export class Visual implements IVisual {
                 renderableTasks,
                 xScale,
                 yScale,
-                this.settings.taskAppearance.taskColor.value.value,
-                this.settings.taskAppearance.milestoneColor.value.value,
-                this.settings.taskAppearance.criticalPathColor.value.value,
+                this.settings.taskBars.taskColor.value.value,
+                this.settings.taskBars.milestoneColor.value.value,
+                this.settings.criticalPath.criticalPathColor.value.value,
                 this.settings.textAndLabels.labelColor.value.value,
                 this.settings.textAndLabels.showDuration.value,
-                this.settings.taskAppearance.taskHeight.value,
+                this.settings.taskBars.taskHeight.value,
                 this.settings.textAndLabels.dateBackgroundColor.value.value,
                 1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
             );
@@ -5427,7 +5427,7 @@ export class Visual implements IVisual {
                 xScale,
                 yScale,
                 chartWidth,
-                this.settings.taskAppearance.taskHeight.value,
+                this.settings.taskBars.taskHeight.value,
                 this.viewportStartIndex,
                 this.viewportEndIndex
             );
@@ -5473,7 +5473,7 @@ export class Visual implements IVisual {
                 xScale,
                 yScale,
                 chartWidth,
-                this.settings.taskAppearance.taskHeight.value,
+                this.settings.taskBars.taskHeight.value,
                 this.viewportStartIndex,
                 this.viewportEndIndex
             );
@@ -5512,9 +5512,9 @@ export class Visual implements IVisual {
         ctx.save();
 
         const settings = this.settings.gridLines;
-        const lineColor = this.resolveColor(settings.gridLineColor.value.value, "foreground");
-        const lineWidth = settings.gridLineWidth.value;
-        const style = settings.gridLineStyle.value.value;
+        const lineColor = this.resolveColor(settings.horizontalLineColor.value.value, "foreground");
+        const lineWidth = settings.horizontalLineWidth.value;
+        const style = settings.horizontalLineStyle.value.value;
 
         ctx.strokeStyle = lineColor;
         ctx.lineWidth = lineWidth;
@@ -5563,9 +5563,9 @@ export class Visual implements IVisual {
         this.labelGridLayer.selectAll(".label-grid-line").remove();
 
         const settings = this.settings.gridLines;
-        const lineColor = this.resolveColor(settings.gridLineColor.value.value, "foreground");
-        const lineWidth = settings.gridLineWidth.value;
-        const style = settings.gridLineStyle.value.value;
+        const lineColor = this.resolveColor(settings.horizontalLineColor.value.value, "foreground");
+        const lineWidth = settings.horizontalLineWidth.value;
+        const style = settings.horizontalLineStyle.value.value;
         let lineDashArray: string | undefined;
         switch (style) {
             case "dashed": lineDashArray = "4,3"; break;
@@ -5687,19 +5687,19 @@ export class Visual implements IVisual {
 
         this.updateChartClipRect(chartWidth, chartHeight);
 
-        const taskColor = this.resolveColor(this.settings.taskAppearance.taskColor.value.value, "foreground");
-        const criticalColor = this.resolveColor(this.settings.taskAppearance.criticalPathColor.value.value, "foreground");
-        const milestoneColor = this.resolveColor(this.settings.taskAppearance.milestoneColor.value.value, "foreground");
+        const taskColor = this.resolveColor(this.settings.taskBars.taskColor.value.value, "foreground");
+        const criticalColor = this.resolveColor(this.settings.criticalPath.criticalPathColor.value.value, "foreground");
+        const milestoneColor = this.resolveColor(this.settings.taskBars.milestoneColor.value.value, "foreground");
         const labelColor = this.resolveColor(this.settings.textAndLabels.labelColor.value.value, "foreground");
-        const taskHeight = this.settings.taskAppearance.taskHeight.value;
+        const taskHeight = this.settings.taskBars.taskHeight.value;
         const connectorColor = this.resolveColor(this.settings.connectorLines.connectorColor.value.value, "foreground");
         const connectorWidth = this.settings.connectorLines.connectorWidth.value;
         const criticalConnectorWidth = this.settings.connectorLines.criticalConnectorWidth.value;
         const dateBgColor = this.resolveColor(this.settings.textAndLabels.dateBackgroundColor.value.value, "background");
         const dateBgTransparency = this.settings.textAndLabels.dateBackgroundTransparency.value;
         const dateBgOpacity = 1 - (dateBgTransparency / 100);
-        const showHorzGridLines = this.settings.gridLines.showGridLines.value;
-        const showVertGridLines = this.settings.verticalGridLines.show.value;
+        const showHorzGridLines = this.settings.gridLines.showHorizontalLines.value;
+        const showVertGridLines = this.settings.gridLines.showVerticalLines.value;
         const showDuration = this.settings.textAndLabels.showDuration.value;
 
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
@@ -5727,7 +5727,7 @@ export class Visual implements IVisual {
 
         if (showVertGridLines) {
 
-            this.drawVerticalGridLines(xScale, chartHeight, this.gridLayer, this.headerGridLayer);
+            this.drawgridLines(xScale, chartHeight, this.gridLayer, this.headerGridLayer);
         }
 
         if (this.useCanvasRendering) {
@@ -5761,7 +5761,7 @@ export class Visual implements IVisual {
                     this.drawArrowsCanvas(
                         renderableTasks, xScale, yScale,
                         criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
-                        taskHeight, this.settings.taskAppearance.milestoneSize.value
+                        taskHeight, this.settings.taskBars.milestoneSize.value
                     );
                 }
 
@@ -5800,7 +5800,7 @@ export class Visual implements IVisual {
                 this.drawArrows(
                     renderableTasks, xScale, yScale,
                     criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
-                    taskHeight, this.settings.taskAppearance.milestoneSize.value
+                    taskHeight, this.settings.taskBars.milestoneSize.value
                 );
             }
 
@@ -5840,9 +5840,9 @@ export class Visual implements IVisual {
         this.labelGridLayer?.selectAll(".label-grid-line").remove();
 
         const settings = this.settings.gridLines;
-        const lineColor = settings.gridLineColor.value.value;
-        const lineWidth = settings.gridLineWidth.value;
-        const style = settings.gridLineStyle.value.value;
+        const lineColor = settings.horizontalLineColor.value.value;
+        const lineWidth = settings.horizontalLineWidth.value;
+        const style = settings.horizontalLineStyle.value.value;
         let lineDashArray = "none";
         switch (style) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; break; }
 
@@ -5891,7 +5891,7 @@ export class Visual implements IVisual {
         }
     }
 
-    private drawVerticalGridLines(
+    private drawgridLines(
         xScale: ScaleTime<number, number>,
         chartHeight: number,
         mainGridLayer: Selection<SVGGElement, unknown, null, undefined>,
@@ -5905,17 +5905,17 @@ export class Visual implements IVisual {
         mainGridLayer.selectAll(".vertical-grid-line").remove();
         headerLayer.selectAll(".vertical-grid-label").remove();
 
-        const settings = this.settings.verticalGridLines;
-        if (!settings.show.value) return;
+        const settings = this.settings.gridLines;
+        if (!settings.showVerticalLines.value) return;
 
-        const lineColor = this.resolveColor(settings.lineColor.value.value, "foreground");
-        const lineWidth = settings.lineWidth.value;
-        const lineStyle = settings.lineStyle.value.value as string;
-        const showMonthLabels = settings.showMonthLabels.value;
-        const labelColorSetting = settings.labelColor.value.value;
+        const lineColor = this.resolveColor(settings.verticalLineColor.value.value, "foreground");
+        const lineWidth = settings.verticalLineWidth.value;
+        const lineStyle = settings.verticalLineStyle.value.value as string;
+        const showMonthLabels = settings.showTimelineLabels.value;
+        const labelColorSetting = settings.timelineLabelColor.value.value;
         const labelColor = this.resolveColor(labelColorSetting || lineColor, "foreground");
         const baseFontSize = this.settings.textAndLabels.fontSize.value;
-        const labelFontSizeSetting = settings.labelFontSize.value;
+        const labelFontSizeSetting = settings.timelineLabelFontSize.value;
         const labelFontSize = labelFontSizeSetting > 0 ? labelFontSizeSetting : Math.max(8, baseFontSize * 0.8);
         let lineDashArray = "none";
         switch (lineStyle) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; }
@@ -6106,12 +6106,12 @@ export class Visual implements IVisual {
             return;
         }
 
-        const showTooltips = this.settings.displayOptions.showTooltips.value;
+        const showTooltips = this.settings.generalSettings.showTooltips.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
         const generalFontSize = this.settings.textAndLabels.fontSize.value;
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-        const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
+        const milestoneSizeSetting = this.settings.taskBars.milestoneSize.value;
         const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
         const viewportWidth = this.lastUpdateOptions?.viewport?.width ?? 0;
         const reduceLabelDensity = this.getLayoutMode(viewportWidth) === 'narrow';
@@ -6125,7 +6125,7 @@ export class Visual implements IVisual {
         const lineHeight = this.taskLabelLineHeight;
         const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
         const dateBgPaddingV = this.dateBackgroundPadding.vertical;
-        const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
+        const nearCriticalColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
         const self = this;
         const minInlineDurationWidth = 28;
         const minBarWidthForStrongStroke = 8;
@@ -6192,9 +6192,9 @@ export class Visual implements IVisual {
 
         const showPreviousUpdate = this.showPreviousUpdateInternal;
         if (showPreviousUpdate) {
-            const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
-            const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
-            const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
+            const previousUpdateColor = this.resolveColor(this.settings.comparisonBars.previousUpdateColor.value.value, "foreground");
+            const previousUpdateHeight = this.settings.comparisonBars.previousUpdateHeight.value;
+            const previousUpdateOffset = this.settings.comparisonBars.previousUpdateOffset.value;
             const previousUpdateRadius = Math.min(3, previousUpdateHeight / 2);
             const previousUpdateOutline = this.getContrastColor(previousUpdateColor);
 
@@ -6227,16 +6227,16 @@ export class Visual implements IVisual {
 
         const showBaseline = this.showBaselineInternal;
         if (showBaseline) {
-            const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
-            const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
-            const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
+            const baselineColor = this.resolveColor(this.settings.comparisonBars.baselineColor.value.value, "foreground");
+            const baselineHeight = this.settings.comparisonBars.baselineHeight.value;
+            const baselineOffset = this.settings.comparisonBars.baselineOffset.value;
             const baselineRadius = Math.min(3, baselineHeight / 2);
             const baselineOutline = this.getContrastColor(baselineColor);
 
             let baselineY = taskHeight;
             if (showPreviousUpdate) {
-                const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
-                const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
+                const previousUpdateHeight = this.settings.comparisonBars.previousUpdateHeight.value;
+                const previousUpdateOffset = this.settings.comparisonBars.previousUpdateOffset.value;
                 baselineY = taskHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset;
             } else {
                 baselineY = taskHeight + baselineOffset;
@@ -6318,8 +6318,8 @@ export class Visual implements IVisual {
                 if (d.internalId === this.selectedTaskId) {
                     baseWidth = 3;
                 } else if (this.legendDataExists) {
-                    if (d.isCritical) baseWidth = this.settings.taskAppearance.criticalBorderWidth.value;
-                    else if (d.isNearCritical) baseWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
+                    if (d.isCritical) baseWidth = this.settings.criticalPath.criticalBorderWidth.value;
+                    else if (d.isNearCritical) baseWidth = this.settings.criticalPath.nearCriticalBorderWidth.value;
                 } else if (d.isCritical) {
                     baseWidth = 1;
                 }
@@ -6397,8 +6397,8 @@ export class Visual implements IVisual {
                 if (d.internalId === this.selectedTaskId) return 3;
 
                 if (this.legendDataExists) {
-                    if (d.isCritical) return this.settings.taskAppearance.criticalBorderWidth.value;
-                    if (d.isNearCritical) return this.settings.taskAppearance.nearCriticalBorderWidth.value;
+                    if (d.isCritical) return this.settings.criticalPath.criticalBorderWidth.value;
+                    if (d.isNearCritical) return this.settings.criticalPath.nearCriticalBorderWidth.value;
                 }
 
                 return 1.5;
@@ -6561,10 +6561,10 @@ export class Visual implements IVisual {
 
                             if (d.isCritical) {
                                 hoverStrokeColor = criticalColor;
-                                hoverStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
+                                hoverStrokeWidth = String(self.settings.criticalPath.criticalBorderWidth.value);
                             } else if (d.isNearCritical) {
                                 hoverStrokeColor = nearCriticalColor;
-                                hoverStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
+                                hoverStrokeWidth = String(self.settings.criticalPath.nearCriticalBorderWidth.value);
                             }
                         } else {
 
@@ -6600,10 +6600,10 @@ export class Visual implements IVisual {
 
                             if (d.isCritical) {
                                 defaultStrokeColor = criticalColor;
-                                defaultStrokeWidth = String(self.settings.taskAppearance.criticalBorderWidth.value);
+                                defaultStrokeWidth = String(self.settings.criticalPath.criticalBorderWidth.value);
                             } else if (d.isNearCritical) {
                                 defaultStrokeColor = nearCriticalColor;
-                                defaultStrokeWidth = String(self.settings.taskAppearance.nearCriticalBorderWidth.value);
+                                defaultStrokeWidth = String(self.settings.criticalPath.nearCriticalBorderWidth.value);
                             }
                         } else {
 
@@ -6822,11 +6822,11 @@ export class Visual implements IVisual {
         });
 
         // Phase 2: Add float column if enabled
-        const showFloatColumn = this.settings?.displayOptions?.showFloatColumn?.value ?? false;
+        const showFloatColumn = this.settings?.criticalPath?.showFloatColumn?.value ?? false;
         if (showFloatColumn) {
-            const floatColumnWidth = this.settings?.displayOptions?.floatColumnWidth?.value ?? 40;
-            const criticalColor = this.settings?.taskAppearance?.criticalPathColor?.value?.value ?? '#FF0000';
-            const nearCriticalColor = this.settings?.taskAppearance?.nearCriticalColor?.value?.value ?? '#FF8C00';
+            const floatColumnWidth = this.settings?.criticalPath?.floatColumnWidth?.value ?? 40;
+            const criticalColor = this.settings?.criticalPath?.criticalPathColor?.value?.value ?? '#FF0000';
+            const nearCriticalColor = this.settings?.criticalPath?.nearCriticalColor?.value?.value ?? '#FF8C00';
 
             // Remove existing float labels
             mergedGroups.selectAll(".float-label").remove();
@@ -6879,7 +6879,7 @@ export class Visual implements IVisual {
         const dpr = window.devicePixelRatio || 1;
         ctx.lineWidth = 1;
 
-        const milestoneSizeSetting = this.settings.taskAppearance.milestoneSize.value;
+        const milestoneSizeSetting = this.settings.taskBars.milestoneSize.value;
         const minBarWidthForGlow = 10;
 
         const showPreviousUpdate = this.showPreviousUpdateInternal;
@@ -6904,8 +6904,8 @@ export class Visual implements IVisual {
             if (showPreviousUpdate && task.previousUpdateStartDate && task.previousUpdateFinishDate && task.previousUpdateFinishDate >= task.previousUpdateStartDate) {
                 const x = Math.round(xScale(task.previousUpdateStartDate));
                 const w = Math.round(Math.max(1, xScale(task.previousUpdateFinishDate) - x));
-                const h = Math.round(this.settings.taskAppearance.previousUpdateHeight.value);
-                const y = Math.round(yPos + taskHeight + this.settings.taskAppearance.previousUpdateOffset.value);
+                const h = Math.round(this.settings.comparisonBars.previousUpdateHeight.value);
+                const y = Math.round(yPos + taskHeight + this.settings.comparisonBars.previousUpdateOffset.value);
                 const r = Math.min(3, h / 2);
                 prevUpdateBatch.push({ x, y, w, h, r });
             }
@@ -6913,13 +6913,13 @@ export class Visual implements IVisual {
             if (showBaseline && task.baselineStartDate && task.baselineFinishDate && task.baselineFinishDate >= task.baselineStartDate) {
                 let yBase: number;
                 if (showPreviousUpdate) {
-                    yBase = yPos + taskHeight + this.settings.taskAppearance.previousUpdateOffset.value + this.settings.taskAppearance.previousUpdateHeight.value + this.settings.taskAppearance.baselineOffset.value;
+                    yBase = yPos + taskHeight + this.settings.comparisonBars.previousUpdateOffset.value + this.settings.comparisonBars.previousUpdateHeight.value + this.settings.comparisonBars.baselineOffset.value;
                 } else {
-                    yBase = yPos + taskHeight + this.settings.taskAppearance.baselineOffset.value;
+                    yBase = yPos + taskHeight + this.settings.comparisonBars.baselineOffset.value;
                 }
                 const x = Math.round(xScale(task.baselineStartDate));
                 const w = Math.round(Math.max(1, xScale(task.baselineFinishDate) - x));
-                const h = Math.round(this.settings.taskAppearance.baselineHeight.value);
+                const h = Math.round(this.settings.comparisonBars.baselineHeight.value);
                 const y = Math.round(yBase);
                 const r = Math.min(3, h / 2);
                 baselineBatch.push({ x, y, w, h, r });
@@ -6947,16 +6947,16 @@ export class Visual implements IVisual {
                     fillColor = task.legendColor;
                 } else if (!this.legendDataExists) {
                     if (task.isCritical) fillColor = criticalColor;
-                    else if (task.isNearCritical) fillColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
+                    else if (task.isNearCritical) fillColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
                 }
 
                 if (this.legendDataExists) {
                     if (task.isCritical) {
                         strokeColor = criticalColor;
-                        strokeWidth = this.settings.taskAppearance.criticalBorderWidth.value;
+                        strokeWidth = this.settings.criticalPath.criticalBorderWidth.value;
                     } else if (task.isNearCritical) {
-                        strokeColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
-                        strokeWidth = this.settings.taskAppearance.nearCriticalBorderWidth.value;
+                        strokeColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
+                        strokeWidth = this.settings.criticalPath.nearCriticalBorderWidth.value;
                     }
                 } else {
                     if (task.isCritical) strokeWidth = 1;
@@ -6970,7 +6970,7 @@ export class Visual implements IVisual {
                             shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35)`;
                             shadowBlur = 3;
                         } else if (task.isNearCritical) {
-                            const ncColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
+                            const ncColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
                             const rgb = this.hexToRgb(ncColor);
                             shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25)`;
                             shadowBlur = 2;
@@ -7011,7 +7011,7 @@ export class Visual implements IVisual {
         }
 
         if (prevUpdateBatch.length > 0) {
-            const pColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
+            const pColor = this.resolveColor(this.settings.comparisonBars.previousUpdateColor.value.value, "foreground");
             const pStroke = this.getContrastColor(pColor);
 
             ctx.fillStyle = pColor;
@@ -7030,7 +7030,7 @@ export class Visual implements IVisual {
         }
 
         if (baselineBatch.length > 0) {
-            const bColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
+            const bColor = this.resolveColor(this.settings.comparisonBars.baselineColor.value.value, "foreground");
             const bStroke = this.getContrastColor(bColor);
 
             ctx.fillStyle = bColor;
@@ -7178,7 +7178,7 @@ export class Visual implements IVisual {
             .attr("x", 0)
             .attr("y", 0)
             .attr("width", "100%")
-            .attr("height", this.settings.taskAppearance.taskHeight.value)
+            .attr("height", this.settings.taskBars.taskHeight.value)
             .style("fill", "transparent")
             .on("keydown", (event: KeyboardEvent, d: Task) => {
                 if (event.key === "Enter" || event.key === " ") {
@@ -8121,23 +8121,24 @@ export class Visual implements IVisual {
     ): void {
         if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
 
-        const lineSettings = this.settings.projectEndLine;
+        // Use the new separate baselineFinishLine card
+        const baselineSettings = this.settings.baselineFinishLine;
 
         const baselineToggleOn = this.showBaselineInternal;
-        const baselineShowSetting = lineSettings.baselineShow?.value ?? false;
+        const baselineShowSetting = baselineSettings.show?.value ?? false;
         const baselineTargetDate = (baselineToggleOn && baselineShowSetting)
             ? this.getLatestFinishDate(allTasks, (t: Task) => t.baselineFinishDate)
             : null;
 
-        const baselineLineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
-        const baselineLineWidth = lineSettings.baselineLineWidth?.value ?? lineSettings.lineWidth.value;
-        const baselineLineStyle = (lineSettings.baselineLineStyle?.value?.value as string | undefined) ?? lineSettings.lineStyle.value.value as string;
-        const baselineShowLabel = (lineSettings.baselineShowLabel?.value ?? true) && baselineToggleOn && baselineShowSetting;
-        const baselineLabelColor = this.resolveColor(lineSettings.baselineLabelColor?.value?.value ?? baselineLineColor, "foreground");
-        const baselineLabelFontSize = lineSettings.baselineLabelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
-        const baselineShowLabelPrefix = lineSettings.baselineShowLabelPrefix?.value ?? true;
-        const baselineLabelBackgroundColor = this.resolveColor(lineSettings.baselineLabelBackgroundColor?.value?.value ?? "#FFFFFF", "background");
-        const baselineLabelBackgroundTransparency = lineSettings.baselineLabelBackgroundTransparency?.value ?? 0;
+        const baselineLineColor = this.resolveColor(this.settings.comparisonBars.baselineColor.value.value, "foreground");
+        const baselineLineWidth = baselineSettings.lineWidth?.value ?? 1.5;
+        const baselineLineStyle = (baselineSettings.lineStyle?.value?.value as string | undefined) ?? "dashed";
+        const baselineShowLabel = (baselineSettings.showLabel?.value ?? true) && baselineToggleOn && baselineShowSetting;
+        const baselineLabelColor = this.resolveColor(baselineSettings.labelColor?.value?.value ?? baselineLineColor, "foreground");
+        const baselineLabelFontSize = baselineSettings.labelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
+        const baselineShowLabelPrefix = baselineSettings.showLabelPrefix?.value ?? true;
+        const baselineLabelBackgroundColor = this.resolveColor(baselineSettings.labelBackgroundColor?.value?.value ?? "#FFFFFF", "background");
+        const baselineLabelBackgroundTransparency = baselineSettings.labelBackgroundTransparency?.value ?? 0;
         const baselineLabelBackgroundOpacity = 1 - (baselineLabelBackgroundTransparency / 100);
 
         this.drawFinishLine({
@@ -8159,21 +8160,24 @@ export class Visual implements IVisual {
             headerLayer
         });
 
+        // Use the new separate previousUpdateFinishLine card
+        const prevSettings = this.settings.previousUpdateFinishLine;
+
         const prevToggleOn = this.showPreviousUpdateInternal;
-        const prevShowSetting = lineSettings.previousUpdateShow?.value ?? false;
+        const prevShowSetting = prevSettings.show?.value ?? false;
         const prevTargetDate = (prevToggleOn && prevShowSetting)
             ? this.getLatestFinishDate(allTasks, (t: Task) => t.previousUpdateFinishDate)
             : null;
 
-        const prevLineColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
-        const prevLineWidth = lineSettings.previousUpdateLineWidth?.value ?? lineSettings.lineWidth.value;
-        const prevLineStyle = (lineSettings.previousUpdateLineStyle?.value?.value as string | undefined) ?? lineSettings.lineStyle.value.value as string;
-        const prevShowLabel = (lineSettings.previousUpdateShowLabel?.value ?? true) && prevToggleOn && prevShowSetting;
-        const prevLabelColor = this.resolveColor(lineSettings.previousUpdateLabelColor?.value?.value ?? prevLineColor, "foreground");
-        const prevLabelFontSize = lineSettings.previousUpdateLabelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
-        const prevShowLabelPrefix = lineSettings.previousUpdateShowLabelPrefix?.value ?? true;
-        const prevLabelBackgroundColor = this.resolveColor(lineSettings.previousUpdateLabelBackgroundColor?.value?.value ?? "#FFFFFF", "background");
-        const prevLabelBackgroundTransparency = lineSettings.previousUpdateLabelBackgroundTransparency?.value ?? 0;
+        const prevLineColor = this.resolveColor(this.settings.comparisonBars.previousUpdateColor.value.value, "foreground");
+        const prevLineWidth = prevSettings.lineWidth?.value ?? 1.5;
+        const prevLineStyle = (prevSettings.lineStyle?.value?.value as string | undefined) ?? "dashed";
+        const prevShowLabel = (prevSettings.showLabel?.value ?? true) && prevToggleOn && prevShowSetting;
+        const prevLabelColor = this.resolveColor(prevSettings.labelColor?.value?.value ?? prevLineColor, "foreground");
+        const prevLabelFontSize = prevSettings.labelFontSize?.value ?? this.settings.textAndLabels.fontSize.value;
+        const prevShowLabelPrefix = prevSettings.showLabelPrefix?.value ?? true;
+        const prevLabelBackgroundColor = this.resolveColor(prevSettings.labelBackgroundColor?.value?.value ?? "#FFFFFF", "background");
+        const prevLabelBackgroundTransparency = prevSettings.labelBackgroundTransparency?.value ?? 0;
         const prevLabelBackgroundOpacity = 1 - (prevLabelBackgroundTransparency / 100);
 
         this.drawFinishLine({
@@ -8588,11 +8592,11 @@ export class Visual implements IVisual {
     } | null {
         if (this.allDrivingChains.length === 0) return null;
 
-        const settingsIndex = this.settings?.drivingPathSelection?.selectedPathIndex?.value ?? 1;
+        const settingsIndex = this.settings?.pathSelection?.selectedPathIndex?.value ?? 1;
 
         this.selectedPathIndex = Math.max(0, Math.min(settingsIndex - 1, this.allDrivingChains.length - 1));
 
-        const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
+        const multiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value ?? true;
 
         if (!multiPathEnabled) {
             this.selectedPathIndex = 0;
@@ -8612,10 +8616,10 @@ export class Visual implements IVisual {
     private updatePathInfoLabel(): void {
         if (!this.pathInfoLabel) return;
 
-        const showPathInfo = this.settings?.drivingPathSelection?.showPathInfo?.value ?? true;
-        const multiPathEnabled = this.settings?.drivingPathSelection?.enableMultiPathToggle?.value ?? true;
+        const showPathInfo = this.settings?.pathSelection?.showPathInfo?.value ?? true;
+        const multiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value ?? true;
 
-        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value ?? 'longestPath';
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'longestPath';
         const hasMultiplePaths = this.allDrivingChains.length > 1;
         const hasAnyPaths = this.allDrivingChains.length > 0;
 
@@ -8891,13 +8895,13 @@ export class Visual implements IVisual {
         try {
             const pathIndex1Based = this.selectedPathIndex + 1;
 
-            if (this.settings?.drivingPathSelection?.selectedPathIndex) {
-                this.settings.drivingPathSelection.selectedPathIndex.value = pathIndex1Based;
+            if (this.settings?.pathSelection?.selectedPathIndex) {
+                this.settings.pathSelection.selectedPathIndex.value = pathIndex1Based;
             }
 
             this.host.persistProperties({
                 merge: [{
-                    objectName: "drivingPathSelection",
+                    objectName: "pathSelection",
                     properties: { selectedPathIndex: pathIndex1Based },
                     selector: null
                 }]
@@ -10893,7 +10897,7 @@ export class Visual implements IVisual {
         const showGroupSummary = this.settings.wbsGrouping.showGroupSummary.value;
         const defaultGroupHeaderColor = this.settings.wbsGrouping.groupHeaderColor.value.value;
         const groupSummaryColor = this.resolveColor(this.settings.wbsGrouping.groupSummaryColor.value.value, "foreground");
-        const nearCriticalColor = this.resolveColor(this.settings.taskAppearance.nearCriticalColor.value.value, "foreground");
+        const nearCriticalColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
         const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
@@ -10901,17 +10905,17 @@ export class Visual implements IVisual {
         const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
         const groupNameFontSize = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
         const defaultGroupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? "#333333";
-        const criticalPathColor = this.resolveColor(this.settings.taskAppearance.criticalPathColor.value.value, "foreground");
-        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+        const criticalPathColor = this.resolveColor(this.settings.criticalPath.criticalPathColor.value.value, "foreground");
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
         const showNearCriticalSummary = this.showNearCritical && this.floatThreshold > 0 && mode === 'floatBased';
         const showBaseline = this.showBaselineInternal;
         const showPreviousUpdate = this.showPreviousUpdateInternal;
-        const baselineColor = this.resolveColor(this.settings.taskAppearance.baselineColor.value.value, "foreground");
-        const baselineHeight = this.settings.taskAppearance.baselineHeight.value;
-        const baselineOffset = this.settings.taskAppearance.baselineOffset.value;
-        const previousUpdateColor = this.resolveColor(this.settings.taskAppearance.previousUpdateColor.value.value, "foreground");
-        const previousUpdateHeight = this.settings.taskAppearance.previousUpdateHeight.value;
-        const previousUpdateOffset = this.settings.taskAppearance.previousUpdateOffset.value;
+        const baselineColor = this.resolveColor(this.settings.comparisonBars.baselineColor.value.value, "foreground");
+        const baselineHeight = this.settings.comparisonBars.baselineHeight.value;
+        const baselineOffset = this.settings.comparisonBars.baselineOffset.value;
+        const previousUpdateColor = this.resolveColor(this.settings.comparisonBars.previousUpdateColor.value.value, "foreground");
+        const previousUpdateHeight = this.settings.comparisonBars.previousUpdateHeight.value;
+        const previousUpdateOffset = this.settings.comparisonBars.previousUpdateOffset.value;
 
         if (!this.wbsGroupLayer) {
             this.wbsGroupLayer = this.mainGroup.insert('g', '.arrow-layer')
@@ -11253,7 +11257,7 @@ export class Visual implements IVisual {
         const hasStartDate = this.hasDataRole(dataView, 'startDate');
         const hasFinishDate = this.hasDataRole(dataView, 'finishDate');
 
-        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || 'longestPath';
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
         const hasDuration = this.hasDataRole(dataView, 'duration');
         const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
         const hasTaskFreeFloat = this.hasDataRole(dataView, 'taskFreeFloat');
@@ -11589,17 +11593,17 @@ export class Visual implements IVisual {
         this.drawHeaderDivider(viewportWidth);
     }
 
-    private createTaskSelectionDropdown(): void {
+    private createpathSelectionDropdown(): void {
         if (!this.dropdownContainer || !this.selectedTaskLabel) {
             console.warn("Dropdown elements not ready.");
             return;
         }
 
-        const enableTaskSelection = this.settings.taskSelection.enableTaskSelection.value;
+        const enableTaskSelection = this.settings.pathSelection.enableTaskSelection.value;
         const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
         const secondRowLayout = this.getSecondRowLayout(viewportWidth);
         const dropdownWidth = secondRowLayout.dropdown.width;
-        const showSelectedTaskLabel = this.settings.taskSelection.showSelectedTaskLabel.value;
+        const showSelectedTaskLabel = this.settings.pathSelection.showSelectedTaskLabel.value;
         const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
         const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
 
@@ -11783,11 +11787,11 @@ export class Visual implements IVisual {
      * Creates the trace mode toggle (Backward/Forward) positioned on the second header row.
      */
     private createTraceModeToggle(): void {
-        if (!this.stickyHeaderContainer || !this.settings?.taskSelection) return;
+        if (!this.stickyHeaderContainer || !this.settings?.pathSelection) return;
 
         this.stickyHeaderContainer.selectAll(".trace-mode-toggle").remove();
 
-        if (!this.settings.taskSelection.enableTaskSelection.value) {
+        if (!this.settings.pathSelection.enableTaskSelection.value) {
             return;
         }
         if (!this.selectedTaskId) {
@@ -11802,7 +11806,7 @@ export class Visual implements IVisual {
 
         const labelBackward = isCompact ? "Back" : (isMedium ? "Backward" : "Trace Backward");
         const labelForward = isCompact ? "Fwd" : (isMedium ? "Forward" : "Trace Forward");
-        const configuredMode = this.normalizeTraceMode(this.settings.taskSelection.traceMode.value.value);
+        const configuredMode = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
         const currentMode = this.normalizeTraceMode(this.traceMode || configuredMode);
         this.traceMode = currentMode;
 
@@ -11906,7 +11910,7 @@ export class Visual implements IVisual {
      * Populates the task dropdown with tasks from the dataset
      */
     private populateTaskDropdown(): void {
-        if (!this.dropdownList || !this.settings?.taskSelection?.enableTaskSelection?.value) {
+        if (!this.dropdownList || !this.settings?.pathSelection?.enableTaskSelection?.value) {
             console.warn("Dropdown list not initialized");
             return;
         }
@@ -12189,7 +12193,7 @@ export class Visual implements IVisual {
         }
 
         if (this.selectedTaskLabel) {
-            if (taskId && taskName && this.settings.taskSelection.showSelectedTaskLabel.value) {
+            if (taskId && taskName && this.settings.pathSelection.showSelectedTaskLabel.value) {
                 this.selectedTaskLabel
                     .style("display", "block")
                     .text(`${selectedLabelPrefix}: ${taskName}`);
@@ -12443,21 +12447,31 @@ export class Visual implements IVisual {
                 .style("gap", "6px")
                 .style("flex-shrink", "0")
                 .style("cursor", "pointer")
-                .style("user-select", "none");
+                .style("user-select", "none")
+                // Enhanced contrast: reduce opacity for unselected items
+                .style("opacity", isSelected ? "1" : "0.4")
+                .style("transition", "opacity 0.2s ease, transform 0.15s ease");
 
             item.append("div")
                 .attr("class", "legend-swatch")
                 .style("width", "16px")
                 .style("height", "16px")
-                .style("background-color", color)
-                .style("border", `2px solid ${isSelected ? color : '#ccc'}`)
+                // Enhanced contrast: show hollow swatch for unselected items
+                .style("background-color", isSelected ? color : "transparent")
+                .style("border", `2px solid ${color}`)
                 .style("border-radius", "3px")
-                .style("flex-shrink", "0");
+                .style("flex-shrink", "0")
+                .style("box-shadow", isSelected ? `0 0 4px ${color}40` : "none")
+                .style("transition", "all 0.2s ease");
 
             item.append("span")
                 .attr("class", "legend-label")
                 .style("font-size", `${fontSize}px`)
                 .style("white-space", "nowrap")
+                // Enhanced contrast: strikethrough and color fade for unselected
+                .style("text-decoration", isSelected ? "none" : "line-through")
+                .style("color", isSelected ? "inherit" : "#999")
+                .style("font-weight", isSelected ? "500" : "400")
                 .text(category);
 
             item.on("click", () => {
@@ -12469,6 +12483,19 @@ export class Visual implements IVisual {
                     event.preventDefault();
                     this.toggleLegendCategory(category);
                 }
+            });
+
+            // Add hover effect for better interactivity feedback
+            item.on("mouseenter", function () {
+                d3.select(this)
+                    .style("opacity", isSelected ? "0.85" : "0.7")
+                    .style("transform", "scale(1.02)");
+            });
+
+            item.on("mouseleave", function () {
+                d3.select(this)
+                    .style("opacity", isSelected ? "1" : "0.4")
+                    .style("transform", "scale(1)");
             });
 
         });
@@ -12725,7 +12752,7 @@ export class Visual implements IVisual {
 
     private buildTooltipDataItems(task: Task): VisualTooltipDataItem[] {
         const items: VisualTooltipDataItem[] = [];
-        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || "longestPath";
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "longestPath";
 
         const taskLabel = this.getLocalizedString("tooltip.task", "Task");
         const startLabel = this.getLocalizedString("tooltip.startDate", "Start Date");
@@ -12888,7 +12915,7 @@ export class Visual implements IVisual {
     }
 
     private getMissingRequiredRoles(dataView: DataView): string[] {
-        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || "longestPath";
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "longestPath";
         const requiredRoles = ["taskId", "startDate", "finishDate"];
         requiredRoles.push(mode === "floatBased" ? "taskTotalFloat" : "duration");
         return requiredRoles.filter(role => !this.hasDataRole(dataView, role));
@@ -12907,7 +12934,7 @@ export class Visual implements IVisual {
         const optionalTitle = this.getLocalizedString("landing.optionalFields", "Optional fields");
         const missingSuffix = this.getLocalizedString("landing.missingSuffix", "(missing)");
 
-        const mode = this.settings?.criticalityMode?.calculationMode?.value?.value || "longestPath";
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "longestPath";
         const requiredRoles = ["taskId", "startDate", "finishDate", mode === "floatBased" ? "taskTotalFloat" : "duration"];
         const optionalRoles = [
             "taskName",

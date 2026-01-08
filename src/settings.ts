@@ -1,9 +1,8 @@
-// settings.ts
+// settings.ts - Reorganized Professional Grade Settings
 
 import { formattingSettings } from "powerbi-visuals-utils-formattingmodel";
-import powerbi from "powerbi-visuals-api"; // For ValidatorType and IEnumMember
+import powerbi from "powerbi-visuals-api";
 
-// Use aliases
 import Model = formattingSettings.Model;
 import Card = formattingSettings.SimpleCard;
 import Slice = formattingSettings.Slice;
@@ -13,340 +12,167 @@ import ToggleSwitch = formattingSettings.ToggleSwitch;
 import ItemDropdown = formattingSettings.ItemDropdown;
 import TextInput = formattingSettings.TextInput;
 
-// Shared line style options
+// Shared options
 const lineStyleItems: powerbi.IEnumMember[] = [
     { value: "solid", displayName: "Solid" },
     { value: "dashed", displayName: "Dashed" },
     { value: "dotted", displayName: "Dotted" }
 ];
 
-// --- Formatting Card Definitions ---
+const fontFamilyItems: powerbi.IEnumMember[] = [
+    { value: "Segoe UI", displayName: "Segoe UI" },
+    { value: "Arial", displayName: "Arial" },
+    { value: "Calibri", displayName: "Calibri" },
+    { value: "Verdana", displayName: "Verdana" },
+    { value: "Tahoma", displayName: "Tahoma" }
+];
 
-class TaskAppearanceCard extends Card {
-    name: string = "taskAppearance"; displayName: string = "Task Appearance";
-    taskColor = new ColorPicker({ name: "taskColor", displayName: "Non-Critical Task Color", value: { value: "#0078D4" } }); // Blue color for non-critical tasks
-    criticalPathColor = new ColorPicker({ name: "criticalPathColor", displayName: "Longest Path Color", description: "Color for critical task borders and glow", value: { value: "#E81123" } });
-    nearCriticalColor = new ColorPicker({ name: "nearCriticalColor", displayName: "Near-Critical Color", description: "Color for near-critical task borders and glow", value: { value: "#F7941F" } });
-    milestoneColor = new ColorPicker({ name: "milestoneColor", displayName: "Milestone Color", value: { value: "#555555" } });
-    taskHeight = new NumUpDown({ name: "taskHeight", displayName: "Task Height (px)", value: 18, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 40 } } });
-    milestoneSize = new NumUpDown({ name: "milestoneSize", displayName: "Milestone Size (px)", description: "Size of milestone markers (px)", value: 12, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 4 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 30 } } });
-    criticalBorderWidth = new NumUpDown({ name: "criticalBorderWidth", displayName: "Critical Border Width (px)", description: "Border thickness for critical tasks", value: 2.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 } } });
-    nearCriticalBorderWidth = new NumUpDown({ name: "nearCriticalBorderWidth", displayName: "Near-Critical Border Width (px)", description: "Border thickness for near-critical tasks", value: 2, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 } } });
+// ============================================================================
+// 1. GENERAL SETTINGS - Theme and performance
+// ============================================================================
+class GeneralSettingsCard extends Card {
+    name: string = "generalSettings";
+    displayName: string = "General";
 
-    // --- NEW: Baseline Settings ---
-    showBaseline = new ToggleSwitch({
-        name: "showBaseline",
-        displayName: "Show Baseline",
-        description: "Display baseline bars below the main task bars",
-        value: true
-    });
-    baselineColor = new ColorPicker({
-        name: "baselineColor",
-        displayName: "Baseline Color",
-        value: { value: "#2E8B57" } // A neutral gray
-    });
-    baselineHeight = new NumUpDown({
-        name: "baselineHeight",
-        displayName: "Baseline Height (px)",
-        value: 4,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
-        }
-    });
-    baselineOffset = new NumUpDown({
-        name: "baselineOffset",
-        displayName: "Baseline Vertical Offset (px)",
-        description: "Distance between the main task bar and the baseline bar",
-        value: 2,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
-        }
-    });
-    showPreviousUpdate = new ToggleSwitch({
-        name: "showPreviousUpdate",
-        displayName: "Show Previous Update",
-        description: "Display previous update bars below the baseline bars",
-        value: true
-    });
-    previousUpdateColor = new ColorPicker({
-        name: "previousUpdateColor",
-        displayName: "Previous Update Color",
-        value: { value: "#9400D3" } // A golden/amber color to differentiate from baseline
-    });
-    previousUpdateHeight = new NumUpDown({
-        name: "previousUpdateHeight",
-        displayName: "Previous Update Height (px)",
-        value: 3,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
-        }
-    });
-    previousUpdateOffset = new NumUpDown({
-        name: "previousUpdateOffset",
-        displayName: "Previous Update Vertical Offset (px)",
-        description: "Distance between the baseline bar and the previous update bar",
-        value: 2,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
-        }
+    visualBackgroundColor = new ColorPicker({
+        name: "visualBackgroundColor",
+        displayName: "Background Color",
+        description: "Background color of the visual",
+        value: { value: "#FFFFFF" }
     });
 
-    slices: Slice[] = [
-        this.taskColor, this.criticalPathColor, this.nearCriticalColor, this.milestoneColor,
-        this.taskHeight, this.milestoneSize,
-        this.criticalBorderWidth, this.nearCriticalBorderWidth,
-        this.showBaseline, this.baselineColor, this.baselineHeight, this.baselineOffset,
-        this.showPreviousUpdate, this.previousUpdateColor, this.previousUpdateHeight, this.previousUpdateOffset
-    ];
-}
-
-class ConnectorLinesCard extends Card {
-    name: string = "connectorLines"; displayName: string = "Connector Lines";
-    showConnectorToggle = new ToggleSwitch({
-        name: "showConnectorToggle",
-        displayName: "Show Connector Toggle Button",
-        description: "Show or hide the connector lines toggle button in the header",
-        value: false // Default to hidden
-    });
-    showConnectorLines = new ToggleSwitch({
-        name: "showConnectorLines",
-        displayName: "Show Connector Lines",
-        description: "Display connector lines between dependent tasks",
-        value: true // Default to showing connector lines
-    });
-    connectorColor = new ColorPicker({ name: "connectorColor", displayName: "Connector Color", value: { value: "#555555" } });
-    connectorWidth = new NumUpDown({ name: "connectorWidth", displayName: "Connector Width (px)", value: 0.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
-    criticalConnectorWidth = new NumUpDown({ name: "criticalConnectorWidth", displayName: "Longest Path Width (px)", value: 0.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 8 } } });
-    elbowOffset = new NumUpDown({
-        name: "elbowOffset",
-        displayName: "Elbow Offset (px)",
-        description: "Controls the distance of connector line bends",
-        value: 15,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 }
-        }
-    });
-    // Phase 2: Differentiate driving vs non-driving connectors
-    differentiateDrivers = new ToggleSwitch({
-        name: "differentiateDrivers",
-        displayName: "Differentiate Driving Lines",
-        description: "Use dashed lines for non-driving relationships",
-        value: true
-    });
-    nonDrivingLineStyle = new ItemDropdown({
-        name: "nonDrivingLineStyle",
-        displayName: "Non-Driving Line Style",
-        description: "Line style for non-driving (non-critical) relationships",
-        items: lineStyleItems,
-        value: lineStyleItems.find(item => item.value === "dashed")
-    });
-    nonDrivingOpacity = new NumUpDown({
-        name: "nonDrivingOpacity",
-        displayName: "Non-Driving Opacity (%)",
-        description: "Opacity for non-driving relationship lines",
-        value: 40,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 10 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
-        }
-    });
-    slices: Slice[] = [this.showConnectorToggle, this.showConnectorLines, this.connectorColor, this.connectorWidth, this.criticalConnectorWidth, this.elbowOffset, this.differentiateDrivers, this.nonDrivingLineStyle, this.nonDrivingOpacity];
-}
-
-
-class TextAndLabelsCard extends Card {
-    name: string = "textAndLabels"; displayName: string = "Text & Labels";
-    fontSize = new NumUpDown({ name: "fontSize", displayName: "General Font Size (pt)", description: "Base font size for date labels and duration text", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
-    taskNameFontSize = new NumUpDown({ name: "taskNameFontSize", displayName: "Task Name Font Size (pt)", description: "Font size for task names in the left margin", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
-    labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", value: { value: "#252525" } });
-    showDuration = new ToggleSwitch({ name: "showDuration", displayName: "Show Duration (CPM)", description: "Display calculated CPM duration text inside task bars", value: true });
-    durationTextColor = new ColorPicker({ name: "durationTextColor", displayName: "Duration Text Color", description: "Color for duration text inside bars (use 'Auto' for automatic contrast)", value: { value: "Auto" } });
-    showFinishDates = new ToggleSwitch({ name: "showFinishDates", displayName: "Show Finish Dates", description: "Display finish date labels next to tasks/milestones", value: true });
-    dateBackgroundColor = new ColorPicker({ name: "dateBackgroundColor", displayName: "Date Background Color", value: { value: "#FFFFFF" } });
-    dateBackgroundTransparency = new NumUpDown({ name: "dateBackgroundTransparency", displayName: "Date Background Transparency (%)", value: 20, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
-    slices: Slice[] = [this.fontSize, this.taskNameFontSize, this.labelColor, this.showDuration, this.durationTextColor, this.showFinishDates, this.dateBackgroundColor, this.dateBackgroundTransparency];
-}
-
-class LayoutSettingsCard extends Card {
-    name: string = "layoutSettings"; displayName: string = "Layout";
-    leftMargin = new NumUpDown({ name: "leftMargin", displayName: "Left Margin (px)", value: 300, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 50 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 600 } } });
-    taskPadding = new NumUpDown({ name: "taskPadding", displayName: "Task Padding (px)", value: 12, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 30 } } });
-    maxTasksToShow = new NumUpDown({ name: "maxTasksToShow", displayName: "Max Tasks To Show", description: "Maximum tasks to display (prioritizes critical path)", value: 1000, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 30000 } } });
-    slices: Slice[] = [this.leftMargin, this.taskPadding, this.maxTasksToShow];
-}
-
-// Renamed existing gridlines card
-class HorizontalGridLinesCard extends Card {
-    name: string = "gridLines"; // Keep original name for compatibility
-    displayName: string = "Horizontal Grid Lines"; // Updated display name
-
-    showGridLines = new ToggleSwitch({ name: "showGridLines", displayName: "Show Horizontal Lines", value: true });
-    gridLineColor = new ColorPicker({ name: "gridLineColor", displayName: "Color", value: { value: "#e0e0e0" } });
-    gridLineWidth = new NumUpDown({ name: "gridLineWidth", displayName: "Width (px)", value: 1, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
-    gridLineStyle = new ItemDropdown({ name: "gridLineStyle", displayName: "Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
-    slices: Slice[] = [this.showGridLines, this.gridLineColor, this.gridLineWidth, this.gridLineStyle];
-}
-
-// *** NEW CARD for Vertical Grid Lines ***
-class VerticalGridLinesCard extends Card {
-    name: string = "verticalGridLines"; // Matches capabilities object name
-    displayName: string = "Vertical Grid Lines (Monthly)";
-
-    show = new ToggleSwitch({
-        name: "show", // Matches capabilities property name
-        displayName: "Show Vertical Lines",
-        value: true // Default to show
-    });
-    lineColor = new ColorPicker({
-        name: "lineColor",
-        displayName: "Color",
-        value: { value: "#EAEAEA" } // Default color (light gray)
-    });
-    lineWidth = new NumUpDown({
-        name: "lineWidth",
-        displayName: "Width (px)",
-        value: 1, // Default width
-        options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } }
-    });
-    lineStyle = new ItemDropdown({
-        name: "lineStyle",
-        displayName: "Style",
-        items: lineStyleItems, // Reuse the same items array
-        value: lineStyleItems.find(item => item.value === "dotted") // Default style
-    });
-    showMonthLabels = new ToggleSwitch({
-        name: "showMonthLabels",
-        displayName: "Show Month Labels",
-        value: true // Default to show labels
-    });
-    labelColor = new ColorPicker({
-        name: "labelColor",
-        displayName: "Label Color",
-        description: "Color for month labels (uses line color if blank)",
-        value: { value: "#888888" } // Default label color (darker gray)
-    });
-    labelFontSize = new NumUpDown({
-        name: "labelFontSize",
-        displayName: "Label Font Size (pt)",
-        description: "Font size for month labels (uses General Font Size if 0)",
-        value: 9, // Default font size
-        options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } }
-    });
-
-    // Define the slices for this card
-    slices: Slice[] = [
-        this.show, this.lineColor, this.lineWidth, this.lineStyle,
-        this.showMonthLabels, this.labelColor, this.labelFontSize
-    ];
-}
-// *** END NEW CARD ***
-
-class ProjectEndLineCard extends Card {
-    name: string = "projectEndLine"; displayName: string = "Project End Line";
-    show = new ToggleSwitch({ name: "show", displayName: "Show Line", value: true });
-    lineColor = new ColorPicker({ name: "lineColor", displayName: "Line Color", value: { value: "#4CAF50" } });
-    lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
-    lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
-    showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", description: "Show the finish date label", value: true });
-    labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", description: "Color of the finish date label text", value: { value: "#333333" } });
-    labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
-    showLabelPrefix = new ToggleSwitch({ name: "showLabelPrefix", displayName: "Show 'Finish:' Prefix", description: "Include 'Finish:' before the date", value: true });
-    labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", description: "Background color for the label", value: { value: "#FFFFFF" } });
-    labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
-
-    // Baseline Finish Line settings (inherits project end line UI, color comes from baseline color)
-    baselineShow = new ToggleSwitch({ name: "baselineShow", displayName: "Show Baseline Finish Line", value: true });
-    baselineLineWidth = new NumUpDown({ name: "baselineLineWidth", displayName: "Baseline Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
-    baselineLineStyle = new ItemDropdown({ name: "baselineLineStyle", displayName: "Baseline Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
-    baselineShowLabel = new ToggleSwitch({ name: "baselineShowLabel", displayName: "Show Baseline Label", value: true });
-    baselineLabelColor = new ColorPicker({ name: "baselineLabelColor", displayName: "Baseline Label Color", value: { value: "#2E8B57" } });
-    baselineLabelFontSize = new NumUpDown({ name: "baselineLabelFontSize", displayName: "Baseline Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
-    baselineShowLabelPrefix = new ToggleSwitch({ name: "baselineShowLabelPrefix", displayName: "Show 'Finish:' Prefix (Baseline)", value: true });
-    baselineLabelBackgroundColor = new ColorPicker({ name: "baselineLabelBackgroundColor", displayName: "Baseline Label Background", value: { value: "#FFFFFF" } });
-    baselineLabelBackgroundTransparency = new NumUpDown({ name: "baselineLabelBackgroundTransparency", displayName: "Baseline Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
-
-    // Previous Update Finish Line settings (color comes from previous update color)
-    previousUpdateShow = new ToggleSwitch({ name: "previousUpdateShow", displayName: "Show Previous Update Finish Line", value: true });
-    previousUpdateLineWidth = new NumUpDown({ name: "previousUpdateLineWidth", displayName: "Previous Update Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
-    previousUpdateLineStyle = new ItemDropdown({ name: "previousUpdateLineStyle", displayName: "Previous Update Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
-    previousUpdateShowLabel = new ToggleSwitch({ name: "previousUpdateShowLabel", displayName: "Show Previous Update Label", value: true });
-    previousUpdateLabelColor = new ColorPicker({ name: "previousUpdateLabelColor", displayName: "Previous Update Label Color", value: { value: "#9400D3" } });
-    previousUpdateLabelFontSize = new NumUpDown({ name: "previousUpdateLabelFontSize", displayName: "Previous Update Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
-    previousUpdateShowLabelPrefix = new ToggleSwitch({ name: "previousUpdateShowLabelPrefix", displayName: "Show 'Finish:' Prefix (Previous Update)", value: true });
-    previousUpdateLabelBackgroundColor = new ColorPicker({ name: "previousUpdateLabelBackgroundColor", displayName: "Previous Update Label Background", value: { value: "#FFFFFF" } });
-    previousUpdateLabelBackgroundTransparency = new NumUpDown({ name: "previousUpdateLabelBackgroundTransparency", displayName: "Previous Update Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
-
-    slices: Slice[] = [
-        this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency,
-        this.baselineShow, this.baselineLineWidth, this.baselineLineStyle, this.baselineShowLabel, this.baselineLabelColor, this.baselineLabelFontSize, this.baselineShowLabelPrefix, this.baselineLabelBackgroundColor, this.baselineLabelBackgroundTransparency,
-        this.previousUpdateShow, this.previousUpdateLineWidth, this.previousUpdateLineStyle, this.previousUpdateShowLabel, this.previousUpdateLabelColor, this.previousUpdateLabelFontSize, this.previousUpdateShowLabelPrefix, this.previousUpdateLabelBackgroundColor, this.previousUpdateLabelBackgroundTransparency
-    ];
-}
-
-class DataDateLineCard extends Card {
-    name: string = "dataDateLine"; displayName: string = "Data Date Line";
-    show = new ToggleSwitch({ name: "show", displayName: "Show Line", value: true });
-    lineColor = new ColorPicker({ name: "lineColor", displayName: "Line Color", value: { value: "#7C3AED" } });
-    lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
-    lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dotted") });
-    showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", description: "Show the data date label", value: true });
-    labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", description: "Color of the data date label text", value: { value: "#333333" } });
-    labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
-    showLabelPrefix = new ToggleSwitch({ name: "showLabelPrefix", displayName: "Show 'Data Date:' Prefix", description: "Include 'Data Date:' before the date", value: true });
-    labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", description: "Background color for the label", value: { value: "#FFFFFF" } });
-    labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
-    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
-}
-
-class DisplayOptionsCard extends Card {
-    name: string = "displayOptions"; displayName: string = "Display Options";
-    showTooltips = new ToggleSwitch({ name: "showTooltips", displayName: "Show Tooltips", value: true });
-
-    showNearCritical = new ToggleSwitch({
-        name: "showNearCritical",
-        displayName: "Highlight Near Longest Path",
-        value: true
-    });
-
-    // Phase 2: Show float column in task label area
-    showFloatColumn = new ToggleSwitch({
-        name: "showFloatColumn",
-        displayName: "Show Float Column",
-        description: "Display total float value next to task names",
+    alternatingRowColors = new ToggleSwitch({
+        name: "alternatingRowColors",
+        displayName: "Alternating Row Colors",
+        description: "Use alternating background colors for rows",
         value: false
     });
-    floatColumnWidth = new NumUpDown({
-        name: "floatColumnWidth",
-        displayName: "Float Column Width (px)",
-        description: "Width of the float column",
-        value: 40,
+
+    alternatingRowColor = new ColorPicker({
+        name: "alternatingRowColor",
+        displayName: "Alternate Row Color",
+        description: "Background color for alternate rows",
+        value: { value: "#FAFAFA" }
+    });
+
+    selectionHighlightColor = new ColorPicker({
+        name: "selectionHighlightColor",
+        displayName: "Selection Highlight Color",
+        description: "Color used to highlight selected tasks",
+        value: { value: "#0078D4" }
+    });
+
+    showTooltips = new ToggleSwitch({
+        name: "showTooltips",
+        displayName: "Show Tooltips",
+        value: true
+    });
+
+    slices: Slice[] = [
+        this.visualBackgroundColor,
+        this.alternatingRowColors,
+        this.alternatingRowColor,
+        this.selectionHighlightColor,
+        this.showTooltips
+    ];
+}
+
+// ============================================================================
+// 2. TASK BARS - Core task and milestone appearance
+// ============================================================================
+class TaskBarsCard extends Card {
+    name: string = "taskBars";
+    displayName: string = "Task Bars";
+
+    taskColor = new ColorPicker({
+        name: "taskColor",
+        displayName: "Non-Critical Task Color",
+        value: { value: "#0078D4" }
+    });
+
+    milestoneColor = new ColorPicker({
+        name: "milestoneColor",
+        displayName: "Milestone Color",
+        value: { value: "#555555" }
+    });
+
+    taskHeight = new NumUpDown({
+        name: "taskHeight",
+        displayName: "Task Height (px)",
+        value: 18,
         options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 25 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 80 }
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 40 }
         }
     });
 
-    // Hidden property used only for persisting the toggle state
-    showAllTasks = new ToggleSwitch({
-        name: "showAllTasks",
-        displayName: "",
-        description: "",
-        value: false,
-        visible: false
+    taskBarCornerRadius = new NumUpDown({
+        name: "taskBarCornerRadius",
+        displayName: "Corner Radius (px)",
+        description: "Roundness of task bar corners",
+        value: 3,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
     });
 
-    // Include hidden slice so formatting service reads persisted value
-    slices: Slice[] = [this.showTooltips, this.showNearCritical, this.showFloatColumn, this.floatColumnWidth, this.showAllTasks];
+    taskBarStrokeColor = new ColorPicker({
+        name: "taskBarStrokeColor",
+        displayName: "Bar Outline Color",
+        description: "Border color for task bars (leave empty for no outline)",
+        value: { value: "" }
+    });
+
+    taskBarStrokeWidth = new NumUpDown({
+        name: "taskBarStrokeWidth",
+        displayName: "Bar Outline Width (px)",
+        value: 0,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 3 }
+        }
+    });
+
+    milestoneSize = new NumUpDown({
+        name: "milestoneSize",
+        displayName: "Milestone Size (px)",
+        value: 12,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 4 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 30 }
+        }
+    });
+
+    milestoneShape = new ItemDropdown({
+        name: "milestoneShape",
+        displayName: "Milestone Shape",
+        items: [
+            { value: "diamond", displayName: "Diamond" },
+            { value: "circle", displayName: "Circle" },
+            { value: "square", displayName: "Square" }
+        ],
+        value: { value: "diamond", displayName: "Diamond" }
+    });
+
+    slices: Slice[] = [
+        this.taskColor,
+        this.milestoneColor,
+        this.taskHeight,
+        this.taskBarCornerRadius,
+        this.taskBarStrokeColor,
+        this.taskBarStrokeWidth,
+        this.milestoneSize,
+        this.milestoneShape
+    ];
 }
 
-class CriticalityModeCard extends Card {
-    name: string = "criticalityMode";
-    displayName: string = "Criticality Mode";
+// ============================================================================
+// 3. CRITICAL PATH - Criticality settings
+// ============================================================================
+class CriticalPathCard extends Card {
+    name: string = "criticalPath";
+    displayName: string = "Critical Path";
 
     calculationMode = new ItemDropdown({
         name: "calculationMode",
@@ -359,10 +185,613 @@ class CriticalityModeCard extends Card {
         value: { value: "longestPath", displayName: "Longest Path (CPM)" }
     });
 
-    slices: Slice[] = [this.calculationMode];
+    criticalPathColor = new ColorPicker({
+        name: "criticalPathColor",
+        displayName: "Critical Path Color",
+        description: "Color for critical task borders and glow",
+        value: { value: "#E81123" }
+    });
+
+    criticalBorderWidth = new NumUpDown({
+        name: "criticalBorderWidth",
+        displayName: "Critical Border Width (px)",
+        value: 2.5,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
+    });
+
+    showNearCritical = new ToggleSwitch({
+        name: "showNearCritical",
+        displayName: "Highlight Near-Critical",
+        value: true
+    });
+
+    nearCriticalColor = new ColorPicker({
+        name: "nearCriticalColor",
+        displayName: "Near-Critical Color",
+        value: { value: "#F7941F" }
+    });
+
+    nearCriticalBorderWidth = new NumUpDown({
+        name: "nearCriticalBorderWidth",
+        displayName: "Near-Critical Border Width (px)",
+        value: 2,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
+    });
+
+    showFloatColumn = new ToggleSwitch({
+        name: "showFloatColumn",
+        displayName: "Show Float Column",
+        description: "Display total float value next to task names",
+        value: false
+    });
+
+    floatColumnWidth = new NumUpDown({
+        name: "floatColumnWidth",
+        displayName: "Float Column Width (px)",
+        value: 40,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 25 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 80 }
+        }
+    });
+
+    // Hidden property for persisting toggle state
+    showAllTasks = new ToggleSwitch({
+        name: "showAllTasks",
+        displayName: "",
+        value: false,
+        visible: false
+    });
+
+    slices: Slice[] = [
+        this.calculationMode,
+        this.criticalPathColor,
+        this.criticalBorderWidth,
+        this.showNearCritical,
+        this.nearCriticalColor,
+        this.nearCriticalBorderWidth,
+        this.showFloatColumn,
+        this.floatColumnWidth,
+        this.showAllTasks
+    ];
 }
-class TaskSelectionCard extends Card {
-    name: string = "taskSelection"; displayName: string = "Task Selection";
+
+// ============================================================================
+// 4. COMPARISON BARS - Baseline and Previous Update
+// ============================================================================
+class ComparisonBarsCard extends Card {
+    name: string = "comparisonBars";
+    displayName: string = "Comparison Bars";
+
+    showBaseline = new ToggleSwitch({
+        name: "showBaseline",
+        displayName: "Show Baseline",
+        description: "Display baseline bars below the main task bars",
+        value: true
+    });
+
+    baselineColor = new ColorPicker({
+        name: "baselineColor",
+        displayName: "Baseline Color",
+        value: { value: "#2E8B57" }
+    });
+
+    baselineHeight = new NumUpDown({
+        name: "baselineHeight",
+        displayName: "Baseline Height (px)",
+        value: 4,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
+    });
+
+    baselineOffset = new NumUpDown({
+        name: "baselineOffset",
+        displayName: "Baseline Offset (px)",
+        description: "Distance between task bar and baseline bar",
+        value: 2,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
+    });
+
+    showPreviousUpdate = new ToggleSwitch({
+        name: "showPreviousUpdate",
+        displayName: "Show Previous Update",
+        description: "Display previous update bars below baseline bars",
+        value: true
+    });
+
+    previousUpdateColor = new ColorPicker({
+        name: "previousUpdateColor",
+        displayName: "Previous Update Color",
+        value: { value: "#9400D3" }
+    });
+
+    previousUpdateHeight = new NumUpDown({
+        name: "previousUpdateHeight",
+        displayName: "Previous Update Height (px)",
+        value: 3,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
+    });
+
+    previousUpdateOffset = new NumUpDown({
+        name: "previousUpdateOffset",
+        displayName: "Previous Update Offset (px)",
+        value: 2,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
+        }
+    });
+
+    slices: Slice[] = [
+        this.showBaseline,
+        this.baselineColor,
+        this.baselineHeight,
+        this.baselineOffset,
+        this.showPreviousUpdate,
+        this.previousUpdateColor,
+        this.previousUpdateHeight,
+        this.previousUpdateOffset
+    ];
+}
+
+// ============================================================================
+// 5. CONNECTOR LINES
+// ============================================================================
+class ConnectorLinesCard extends Card {
+    name: string = "connectorLines";
+    displayName: string = "Connector Lines";
+
+    showConnectorToggle = new ToggleSwitch({
+        name: "showConnectorToggle",
+        displayName: "Show Toggle Button",
+        description: "Show connector lines toggle in header",
+        value: false
+    });
+
+    showConnectorLines = new ToggleSwitch({
+        name: "showConnectorLines",
+        displayName: "Show Connector Lines",
+        value: true
+    });
+
+    connectorColor = new ColorPicker({
+        name: "connectorColor",
+        displayName: "Connector Color",
+        value: { value: "#555555" }
+    });
+
+    connectorWidth = new NumUpDown({
+        name: "connectorWidth",
+        displayName: "Connector Width (px)",
+        value: 0.5,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 }
+        }
+    });
+
+    criticalConnectorWidth = new NumUpDown({
+        name: "criticalConnectorWidth",
+        displayName: "Critical Path Width (px)",
+        value: 0.5,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 8 }
+        }
+    });
+
+    elbowOffset = new NumUpDown({
+        name: "elbowOffset",
+        displayName: "Elbow Offset (px)",
+        value: 15,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 }
+        }
+    });
+
+    arrowHeadSize = new NumUpDown({
+        name: "arrowHeadSize",
+        displayName: "Arrow Head Size",
+        description: "Size of arrow heads on connector lines",
+        value: 6,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 3 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 15 }
+        }
+    });
+
+    differentiateDrivers = new ToggleSwitch({
+        name: "differentiateDrivers",
+        displayName: "Differentiate Driving Lines",
+        description: "Use different style for non-driving relationships",
+        value: true
+    });
+
+    nonDrivingLineStyle = new ItemDropdown({
+        name: "nonDrivingLineStyle",
+        displayName: "Non-Driving Line Style",
+        items: lineStyleItems,
+        value: lineStyleItems.find(item => item.value === "dashed")
+    });
+
+    nonDrivingOpacity = new NumUpDown({
+        name: "nonDrivingOpacity",
+        displayName: "Non-Driving Opacity (%)",
+        value: 40,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 10 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
+        }
+    });
+
+    slices: Slice[] = [
+        this.showConnectorToggle,
+        this.showConnectorLines,
+        this.connectorColor,
+        this.connectorWidth,
+        this.criticalConnectorWidth,
+        this.elbowOffset,
+        this.arrowHeadSize,
+        this.differentiateDrivers,
+        this.nonDrivingLineStyle,
+        this.nonDrivingOpacity
+    ];
+}
+
+// ============================================================================
+// 6. TEXT & LABELS
+// ============================================================================
+class TextAndLabelsCard extends Card {
+    name: string = "textAndLabels";
+    displayName: string = "Text & Labels";
+
+    fontFamily = new ItemDropdown({
+        name: "fontFamily",
+        displayName: "Font Family",
+        items: fontFamilyItems,
+        value: fontFamilyItems.find(item => item.value === "Segoe UI")
+    });
+
+    fontSize = new NumUpDown({
+        name: "fontSize",
+        displayName: "General Font Size (pt)",
+        description: "Base font size for date labels and duration text",
+        value: 9,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 }
+        }
+    });
+
+    taskNameFontSize = new NumUpDown({
+        name: "taskNameFontSize",
+        displayName: "Task Name Font Size (pt)",
+        value: 9,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 }
+        }
+    });
+
+    labelColor = new ColorPicker({
+        name: "labelColor",
+        displayName: "Label Color",
+        value: { value: "#252525" }
+    });
+
+    showDuration = new ToggleSwitch({
+        name: "showDuration",
+        displayName: "Show Duration",
+        description: "Display duration text inside task bars",
+        value: true
+    });
+
+    durationTextColor = new ColorPicker({
+        name: "durationTextColor",
+        displayName: "Duration Text Color",
+        description: "Color for duration text (use 'Auto' for automatic contrast)",
+        value: { value: "Auto" }
+    });
+
+    showFinishDates = new ToggleSwitch({
+        name: "showFinishDates",
+        displayName: "Show Finish Dates",
+        value: true
+    });
+
+    dateBackgroundColor = new ColorPicker({
+        name: "dateBackgroundColor",
+        displayName: "Date Background Color",
+        value: { value: "#FFFFFF" }
+    });
+
+    dateBackgroundTransparency = new NumUpDown({
+        name: "dateBackgroundTransparency",
+        displayName: "Date Background Transparency (%)",
+        value: 20,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
+        }
+    });
+
+    slices: Slice[] = [
+        this.fontFamily,
+        this.fontSize,
+        this.taskNameFontSize,
+        this.labelColor,
+        this.showDuration,
+        this.durationTextColor,
+        this.showFinishDates,
+        this.dateBackgroundColor,
+        this.dateBackgroundTransparency
+    ];
+}
+
+// ============================================================================
+// 7. LAYOUT
+// ============================================================================
+class LayoutSettingsCard extends Card {
+    name: string = "layoutSettings";
+    displayName: string = "Layout";
+
+    leftMargin = new NumUpDown({
+        name: "leftMargin",
+        displayName: "Left Margin (px)",
+        value: 300,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 50 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 600 }
+        }
+    });
+
+    taskPadding = new NumUpDown({
+        name: "taskPadding",
+        displayName: "Task Padding (px)",
+        value: 12,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 30 }
+        }
+    });
+
+    maxTasksToShow = new NumUpDown({
+        name: "maxTasksToShow",
+        displayName: "Max Tasks To Show",
+        description: "Maximum tasks to display (prioritizes critical path)",
+        value: 1000,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 30000 }
+        }
+    });
+
+    headerHeight = new NumUpDown({
+        name: "headerHeight",
+        displayName: "Header Height (px)",
+        description: "Height of the control header area",
+        value: 110,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 80 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 150 }
+        }
+    });
+
+    slices: Slice[] = [
+        this.leftMargin,
+        this.taskPadding,
+        this.maxTasksToShow,
+        this.headerHeight
+    ];
+}
+
+// ============================================================================
+// 8. GRID LINES - Combined horizontal and vertical
+// ============================================================================
+class GridLinesCard extends Card {
+    name: string = "gridLines";
+    displayName: string = "Grid Lines";
+
+    // Horizontal
+    showHorizontalLines = new ToggleSwitch({
+        name: "showGridLines",
+        displayName: "Show Horizontal Lines",
+        value: true
+    });
+
+    horizontalLineColor = new ColorPicker({
+        name: "gridLineColor",
+        displayName: "Horizontal Line Color",
+        value: { value: "#e0e0e0" }
+    });
+
+    horizontalLineWidth = new NumUpDown({
+        name: "gridLineWidth",
+        displayName: "Horizontal Line Width (px)",
+        value: 1,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 }
+        }
+    });
+
+    horizontalLineStyle = new ItemDropdown({
+        name: "gridLineStyle",
+        displayName: "Horizontal Line Style",
+        items: lineStyleItems,
+        value: lineStyleItems.find(item => item.value === "dashed")
+    });
+
+    // Vertical
+    showVerticalLines = new ToggleSwitch({
+        name: "showVerticalLines",
+        displayName: "Show Vertical Lines",
+        value: true
+    });
+
+    verticalLineColor = new ColorPicker({
+        name: "verticalLineColor",
+        displayName: "Vertical Line Color",
+        value: { value: "#EAEAEA" }
+    });
+
+    verticalLineWidth = new NumUpDown({
+        name: "verticalLineWidth",
+        displayName: "Vertical Line Width (px)",
+        value: 1,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 }
+        }
+    });
+
+    verticalLineStyle = new ItemDropdown({
+        name: "verticalLineStyle",
+        displayName: "Vertical Line Style",
+        items: lineStyleItems,
+        value: lineStyleItems.find(item => item.value === "dotted")
+    });
+
+    showTimelineLabels = new ToggleSwitch({
+        name: "showMonthLabels",
+        displayName: "Show Timeline Labels",
+        value: true
+    });
+
+    timelineLabelColor = new ColorPicker({
+        name: "timelineLabelColor",
+        displayName: "Timeline Label Color",
+        value: { value: "#888888" }
+    });
+
+    timelineLabelFontSize = new NumUpDown({
+        name: "timelineLabelFontSize",
+        displayName: "Timeline Label Font Size (pt)",
+        value: 9,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 }
+        }
+    });
+
+    slices: Slice[] = [
+        this.showHorizontalLines,
+        this.horizontalLineColor,
+        this.horizontalLineWidth,
+        this.horizontalLineStyle,
+        this.showVerticalLines,
+        this.verticalLineColor,
+        this.verticalLineWidth,
+        this.verticalLineStyle,
+        this.showTimelineLabels,
+        this.timelineLabelColor,
+        this.timelineLabelFontSize
+    ];
+}
+
+// ============================================================================
+// 9. PROJECT FINISH LINE
+// ============================================================================
+class ProjectFinishLineCard extends Card {
+    name: string = "projectEndLine";
+    displayName: string = "Project Finish Line";
+
+    show = new ToggleSwitch({ name: "show", displayName: "Show Line", value: true });
+    lineColor = new ColorPicker({ name: "lineColor", displayName: "Line Color", value: { value: "#4CAF50" } });
+    lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
+    lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
+    showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", value: true });
+    labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", value: { value: "#333333" } });
+    labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
+    showLabelPrefix = new ToggleSwitch({ name: "showLabelPrefix", displayName: "Show 'Finish:' Prefix", value: true });
+    labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", value: { value: "#FFFFFF" } });
+    labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
+
+    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+}
+
+// ============================================================================
+// 10. BASELINE FINISH LINE
+// ============================================================================
+class BaselineFinishLineCard extends Card {
+    name: string = "baselineFinishLine";
+    displayName: string = "Baseline Finish Line";
+
+    show = new ToggleSwitch({ name: "show", displayName: "Show Line", value: true });
+    lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
+    lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
+    showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", value: true });
+    labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", value: { value: "#2E8B57" } });
+    labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
+    showLabelPrefix = new ToggleSwitch({ name: "showLabelPrefix", displayName: "Show 'Baseline Finish:' Prefix", value: true });
+    labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", value: { value: "#FFFFFF" } });
+    labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
+
+    slices: Slice[] = [this.show, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+}
+
+// ============================================================================
+// 11. PREVIOUS UPDATE FINISH LINE
+// ============================================================================
+class PreviousUpdateFinishLineCard extends Card {
+    name: string = "previousUpdateFinishLine";
+    displayName: string = "Previous Update Finish Line";
+
+    show = new ToggleSwitch({ name: "show", displayName: "Show Line", value: true });
+    lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
+    lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
+    showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", value: true });
+    labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", value: { value: "#9400D3" } });
+    labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
+    showLabelPrefix = new ToggleSwitch({ name: "showLabelPrefix", displayName: "Show 'Previous Finish:' Prefix", value: true });
+    labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", value: { value: "#FFFFFF" } });
+    labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
+
+    slices: Slice[] = [this.show, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+}
+
+// ============================================================================
+// 12. DATA DATE LINE
+// ============================================================================
+class DataDateLineCard extends Card {
+    name: string = "dataDateLine";
+    displayName: string = "Data Date Line";
+
+    show = new ToggleSwitch({ name: "show", displayName: "Show Line", value: true });
+    lineColor = new ColorPicker({ name: "lineColor", displayName: "Line Color", value: { value: "#7C3AED" } });
+    lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
+    lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dotted") });
+    showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", value: true });
+    labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", value: { value: "#333333" } });
+    labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
+    showLabelPrefix = new ToggleSwitch({ name: "showLabelPrefix", displayName: "Show 'Data Date:' Prefix", value: true });
+    labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", value: { value: "#FFFFFF" } });
+    labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
+
+    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+}
+
+// ============================================================================
+// 13. PATH SELECTION - Task selection and multi-path
+// ============================================================================
+class PathSelectionCard extends Card {
+    name: string = "pathSelection";
+    displayName: string = "Path Selection";
 
     enableTaskSelection = new ToggleSwitch({
         name: "enableTaskSelection",
@@ -373,7 +802,6 @@ class TaskSelectionCard extends Card {
     dropdownWidth = new NumUpDown({
         name: "dropdownWidth",
         displayName: "Dropdown Width (px)",
-        description: "Width of the task selection dropdown",
         value: 280,
         options: {
             minValue: { type: powerbi.visuals.ValidatorType.Min, value: 150 },
@@ -384,7 +812,6 @@ class TaskSelectionCard extends Card {
     dropdownPosition = new ItemDropdown({
         name: "dropdownPosition",
         displayName: "Dropdown Position",
-        description: "Position of the task selection dropdown in the header",
         items: [
             { value: "left", displayName: "Left" },
             { value: "center", displayName: "Center" },
@@ -402,7 +829,7 @@ class TaskSelectionCard extends Card {
     traceMode = new ItemDropdown({
         name: "traceMode",
         displayName: "Trace Mode",
-        description: "Select whether to trace the critical path backward to or forward from the selected task",
+        description: "Trace critical path backward to or forward from selected task",
         items: [
             { value: "backward", displayName: "Trace Backward" },
             { value: "forward", displayName: "Trace Forward" }
@@ -410,29 +837,16 @@ class TaskSelectionCard extends Card {
         value: { value: "backward", displayName: "Trace Backward" }
     });
 
-    slices: Slice[] = [
-        this.enableTaskSelection,
-        this.dropdownWidth,
-        this.dropdownPosition,
-        this.showSelectedTaskLabel,
-        this.traceMode
-    ];
-}
-class DrivingPathSelectionCard extends Card {
-    name: string = "drivingPathSelection";
-    displayName: string = "Driving Path Selection";
-
     enableMultiPathToggle = new ToggleSwitch({
         name: "enableMultiPathToggle",
         displayName: "Enable Multi-Path Toggle",
-        description: "Allow toggling between all driving paths of equal or near-equal duration",
+        description: "Toggle between driving paths of equal duration",
         value: true
     });
 
     selectedPathIndex = new NumUpDown({
         name: "selectedPathIndex",
         displayName: "Selected Path",
-        description: "Index of the currently selected driving path (1-based)",
         value: 1,
         options: {
             minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
@@ -443,169 +857,46 @@ class DrivingPathSelectionCard extends Card {
     showPathInfo = new ToggleSwitch({
         name: "showPathInfo",
         displayName: "Show Path Information",
-        description: "Display path count and duration in the visual",
         value: true
     });
 
-    slices: Slice[] = [this.enableMultiPathToggle, this.selectedPathIndex, this.showPathInfo];
+    slices: Slice[] = [
+        this.enableTaskSelection,
+        this.dropdownWidth,
+        this.dropdownPosition,
+        this.showSelectedTaskLabel,
+        this.traceMode,
+        this.enableMultiPathToggle,
+        this.selectedPathIndex,
+        this.showPathInfo
+    ];
 }
 
-class LegendCard extends Card {
-    name: string = "legend";
-    displayName: string = "Legend";
-
-    show = new ToggleSwitch({
-        name: "show",
-        displayName: "Show Legend",
-        description: "Display the legend when a legend field is added",
-        value: true
-    });
-
-    fontSize = new NumUpDown({
-        name: "fontSize",
-        displayName: "Font Size (pt)",
-        description: "Font size for legend text",
-        value: 10,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 8 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 20 }
-        }
-    });
-
-    showTitle = new ToggleSwitch({
-        name: "showTitle",
-        displayName: "Show Title",
-        description: "Display the legend title (field name)",
-        value: true
-    });
-
-    titleText = new TextInput({
-        name: "titleText",
-        displayName: "Title Text",
-        description: "Custom title text (defaults to field name if empty)",
-        value: "",
-        placeholder: "Legend title..."
-    });
-
-    sortOrder = new ItemDropdown({
-        name: "sortOrder",
-        displayName: "Sort Order",
-        description: "Sort legend items alphabetically",
-        items: [
-            { value: "none", displayName: "Data Order" },
-            { value: "ascending", displayName: "Ascending (A-Z)" },
-            { value: "descending", displayName: "Descending (Z-A)" }
-        ],
-        value: { value: "none", displayName: "Data Order" }
-    });
-
-    slices: Slice[] = [this.show, this.fontSize, this.showTitle, this.titleText, this.sortOrder];
-}
-
+// ============================================================================
+// 14. WBS GROUPING
+// ============================================================================
 class WBSGroupingCard extends Card {
     name: string = "wbsGrouping";
     displayName: string = "WBS Grouping";
 
-    enableWbsGrouping = new ToggleSwitch({
-        name: "enableWbsGrouping",
-        displayName: "Enable WBS Grouping",
-        description: "Group tasks by WBS hierarchy",
-        value: false
-    });
+    enableWbsGrouping = new ToggleSwitch({ name: "enableWbsGrouping", displayName: "Enable WBS Grouping", value: false });
+    defaultExpanded = new ToggleSwitch({ name: "defaultExpanded", displayName: "Default Expanded", value: true });
+    expandCollapseAll = new ToggleSwitch({ name: "expandCollapseAll", displayName: "Expand All Groups", value: true });
+    showWbsToggle = new ToggleSwitch({ name: "showWbsToggle", displayName: "Show WBS Toggle Button", value: true });
+    hideEmptyGroups = new ToggleSwitch({ name: "hideEmptyGroups", displayName: "Hide Empty Groups", value: true });
+    showGroupSummary = new ToggleSwitch({ name: "showGroupSummary", displayName: "Show Group Summary Bar", value: true });
+    groupHeaderColor = new ColorPicker({ name: "groupHeaderColor", displayName: "Group Header Background", value: { value: "#F0F0F0" } });
+    groupSummaryColor = new ColorPicker({ name: "groupSummaryColor", displayName: "Group Summary Bar Color", value: { value: "#808080" } });
+    groupNameFontSize = new NumUpDown({ name: "groupNameFontSize", displayName: "Group Name Font Size (pt)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 24 } } });
+    groupNameColor = new ColorPicker({ name: "groupNameColor", displayName: "Group Name Color", value: { value: "#333333" } });
+    indentPerLevel = new NumUpDown({ name: "indentPerLevel", displayName: "Indent Per Level (px)", value: 20, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 } } });
 
-    defaultExpanded = new ToggleSwitch({
-        name: "defaultExpanded",
-        displayName: "Default Expanded",
-        description: "Expand all WBS groups by default",
-        value: true
-    });
-
-    showGroupSummary = new ToggleSwitch({
-        name: "showGroupSummary",
-        displayName: "Show Group Summary Bar",
-        description: "Display a summary bar for each WBS group",
-        value: true
-    });
-
-    groupHeaderColor = new ColorPicker({
-        name: "groupHeaderColor",
-        displayName: "Group Header Background",
-        description: "Background color for WBS group headers",
-        value: { value: "#F0F0F0" }
-    });
-
-    groupSummaryColor = new ColorPicker({
-        name: "groupSummaryColor",
-        displayName: "Group Summary Bar Color",
-        description: "Color for WBS group summary bars",
-        value: { value: "#808080" }
-    });
-
-    indentPerLevel = new NumUpDown({
-        name: "indentPerLevel",
-        displayName: "Indent Per Level (px)",
-        description: "Indentation for each WBS level",
-        value: 20,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 }
-        }
-    });
-
-    hideEmptyGroups = new ToggleSwitch({
-        name: "hideEmptyGroups",
-        displayName: "Hide Empty Groups",
-        description: "Hide WBS groups that have no visible/filtered tasks",
-        value: true
-    });
-
-    expandCollapseAll = new ToggleSwitch({
-        name: "expandCollapseAll",
-        displayName: "Expand All Groups",
-        description: "Toggle to expand or collapse all WBS groups at once",
-        value: true
-    });
-
-    showWbsToggle = new ToggleSwitch({
-        name: "showWbsToggle",
-        displayName: "Show WBS Toggle Button",
-        description: "Show or hide the Expand/Collapse WBS toggle button in the header",
-        value: true
-    });
-
-    groupNameFontSize = new NumUpDown({
-        name: "groupNameFontSize",
-        displayName: "Group Name Font Size (pt)",
-        description: "Font size for WBS group names (0 = use Task Name Font Size)",
-        value: 0,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 24 }
-        }
-    });
-
-    groupNameColor = new ColorPicker({
-        name: "groupNameColor",
-        displayName: "Group Name Color",
-        description: "Text color for WBS group names",
-        value: { value: "#333333" }
-    });
-
-    slices: Slice[] = [
-        this.enableWbsGrouping,
-        this.defaultExpanded,
-        this.expandCollapseAll,
-        this.showWbsToggle,
-        this.hideEmptyGroups,
-        this.showGroupSummary,
-        this.groupHeaderColor,
-        this.groupSummaryColor,
-        this.groupNameFontSize,
-        this.groupNameColor,
-        this.indentPerLevel
-    ];
+    slices: Slice[] = [this.enableWbsGrouping, this.defaultExpanded, this.expandCollapseAll, this.showWbsToggle, this.hideEmptyGroups, this.showGroupSummary, this.groupHeaderColor, this.groupSummaryColor, this.groupNameFontSize, this.groupNameColor, this.indentPerLevel];
 }
 
+// ============================================================================
+// 15. WBS LEVEL STYLES
+// ============================================================================
 class WbsLevelStylesCard extends Card {
     name: string = "wbsLevelStyles";
     displayName: string = "WBS Level Styles";
@@ -632,19 +923,42 @@ class WbsLevelStylesCard extends Card {
     level10Text = new ColorPicker({ name: "level10Text", displayName: "Level 10 Text", value: { value: "" } });
 
     slices: Slice[] = [
-        this.level1Background, this.level1Text,
-        this.level2Background, this.level2Text,
-        this.level3Background, this.level3Text,
-        this.level4Background, this.level4Text,
-        this.level5Background, this.level5Text,
-        this.level6Background, this.level6Text,
-        this.level7Background, this.level7Text,
-        this.level8Background, this.level8Text,
-        this.level9Background, this.level9Text,
-        this.level10Background, this.level10Text
+        this.level1Background, this.level1Text, this.level2Background, this.level2Text,
+        this.level3Background, this.level3Text, this.level4Background, this.level4Text,
+        this.level5Background, this.level5Text, this.level6Background, this.level6Text,
+        this.level7Background, this.level7Text, this.level8Background, this.level8Text,
+        this.level9Background, this.level9Text, this.level10Background, this.level10Text
     ];
 }
 
+// ============================================================================
+// 16. LEGEND
+// ============================================================================
+class LegendCard extends Card {
+    name: string = "legend";
+    displayName: string = "Legend";
+
+    show = new ToggleSwitch({ name: "show", displayName: "Show Legend", value: true });
+    fontSize = new NumUpDown({ name: "fontSize", displayName: "Font Size (pt)", value: 10, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 8 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 20 } } });
+    showTitle = new ToggleSwitch({ name: "showTitle", displayName: "Show Title", value: true });
+    titleText = new TextInput({ name: "titleText", displayName: "Title Text", value: "", placeholder: "Legend title..." });
+    sortOrder = new ItemDropdown({
+        name: "sortOrder",
+        displayName: "Sort Order",
+        items: [
+            { value: "none", displayName: "Data Order" },
+            { value: "ascending", displayName: "Ascending (A-Z)" },
+            { value: "descending", displayName: "Descending (Z-A)" }
+        ],
+        value: { value: "none", displayName: "Data Order" }
+    });
+
+    slices: Slice[] = [this.show, this.fontSize, this.showTitle, this.titleText, this.sortOrder];
+}
+
+// ============================================================================
+// 17. LEGEND COLORS
+// ============================================================================
 class LegendColorsCard extends Card {
     name: string = "legendColors";
     displayName: string = "Legend Colors";
@@ -678,159 +992,61 @@ class LegendColorsCard extends Card {
     ];
 }
 
-// Timeline Zoom Slider Card - Microsoft Power BI standard style
+// ============================================================================
+// 18. TIMELINE ZOOM SLIDER
+// ============================================================================
 class TimelineZoomCard extends Card {
     name: string = "timelineZoom";
-    displayName: string = "Timeline Zoom Slider";
+    displayName: string = "Timeline Zoom";
 
-    enableZoomSlider = new ToggleSwitch({
-        name: "enableZoomSlider",
-        displayName: "Enable Zoom Slider",
-        description: "Show zoom slider below the timeline for adjusting visible date range",
-        value: true
-    });
+    enableZoomSlider = new ToggleSwitch({ name: "enableZoomSlider", displayName: "Enable Zoom Slider", value: true });
+    sliderHeight = new NumUpDown({ name: "sliderHeight", displayName: "Slider Height (px)", value: 32, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 24 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 60 } } });
+    sliderTrackColor = new ColorPicker({ name: "sliderTrackColor", displayName: "Track Color", value: { value: "#E1DFDD" } });
+    sliderSelectedColor = new ColorPicker({ name: "sliderSelectedColor", displayName: "Selected Range Color", value: { value: "#C8C6C4" } });
+    sliderHandleColor = new ColorPicker({ name: "sliderHandleColor", displayName: "Handle Color", value: { value: "#605E5C" } });
+    showMiniChart = new ToggleSwitch({ name: "showMiniChart", displayName: "Show Mini Preview", value: false });
 
-    sliderHeight = new NumUpDown({
-        name: "sliderHeight",
-        displayName: "Slider Height (px)",
-        description: "Height of the zoom slider control",
-        value: 32,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 24 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 60 }
-        }
-    });
-
-    sliderTrackColor = new ColorPicker({
-        name: "sliderTrackColor",
-        displayName: "Track Color",
-        description: "Background color of the slider track",
-        value: { value: "#E1DFDD" }
-    });
-
-    sliderSelectedColor = new ColorPicker({
-        name: "sliderSelectedColor",
-        displayName: "Selected Range Color",
-        description: "Color of the selected/visible range area",
-        value: { value: "#C8C6C4" }
-    });
-
-    sliderHandleColor = new ColorPicker({
-        name: "sliderHandleColor",
-        displayName: "Handle Color",
-        description: "Color of the circular drag handles",
-        value: { value: "#605E5C" }
-    });
-
-    showMiniChart = new ToggleSwitch({
-        name: "showMiniChart",
-        displayName: "Show Mini Preview",
-        description: "Show a miniature preview of task distribution in the slider",
-        value: false
-    });
-
-    slices: Slice[] = [
-        this.enableZoomSlider,
-        this.sliderHeight,
-        this.showMiniChart,
-        this.sliderTrackColor,
-        this.sliderSelectedColor,
-        this.sliderHandleColor
-    ];
+    slices: Slice[] = [this.enableZoomSlider, this.sliderHeight, this.showMiniChart, this.sliderTrackColor, this.sliderSelectedColor, this.sliderHandleColor];
 }
 
+// ============================================================================
+// 19. PERSISTED STATE (Hidden)
+// ============================================================================
 class PersistedStateCard extends Card {
     name: string = "persistedState";
     displayName: string = "Persisted State";
     visible: boolean = false;
-    selectedTaskId = new TextInput({
-        name: "selectedTaskId",
-        displayName: "",
-        value: "",
-        placeholder: "",
-        visible: false
-    });
-    floatThreshold = new NumUpDown({
-        name: "floatThreshold",
-        displayName: "",
-        value: 0,
-        visible: false
-    });
-    traceMode = new TextInput({
-        name: "traceMode",
-        displayName: "",
-        value: "backward",
-        placeholder: "",
-        visible: false
-    });
-    // BUG-006 FIX: Store selected legend categories as comma-separated string
-    selectedLegendCategories = new TextInput({
-        name: "selectedLegendCategories",
-        displayName: "",
-        value: "",
-        placeholder: "",
-        visible: false
-    });
-    wbsExpandLevel = new NumUpDown({
-        name: "wbsExpandLevel",
-        displayName: "",
-        value: -2,
-        visible: false
-    });
-    wbsExpandedState = new TextInput({
-        name: "wbsExpandedState",
-        displayName: "",
-        value: "",
-        placeholder: "",
-        visible: false
-    });
-    wbsManualToggledGroups = new TextInput({
-        name: "wbsManualToggledGroups",
-        displayName: "",
-        value: "",
-        placeholder: "",
-        visible: false
-    });
-    // Phase 1: Persist zoom range for timeline slider
-    zoomRangeStart = new NumUpDown({
-        name: "zoomRangeStart",
-        displayName: "",
-        value: 0,
-        visible: false
-    });
-    zoomRangeEnd = new NumUpDown({
-        name: "zoomRangeEnd",
-        displayName: "",
-        value: 1,
-        visible: false
-    });
-    slices: Slice[] = [
-        this.selectedTaskId,
-        this.floatThreshold,
-        this.traceMode,
-        this.selectedLegendCategories,
-        this.wbsExpandLevel,
-        this.wbsExpandedState,
-        this.wbsManualToggledGroups,
-        this.zoomRangeStart,
-        this.zoomRangeEnd
-    ];
+
+    selectedTaskId = new TextInput({ name: "selectedTaskId", displayName: "", value: "", placeholder: "", visible: false });
+    floatThreshold = new NumUpDown({ name: "floatThreshold", displayName: "", value: 0, visible: false });
+    traceMode = new TextInput({ name: "traceMode", displayName: "", value: "backward", placeholder: "", visible: false });
+    selectedLegendCategories = new TextInput({ name: "selectedLegendCategories", displayName: "", value: "", placeholder: "", visible: false });
+    wbsExpandLevel = new NumUpDown({ name: "wbsExpandLevel", displayName: "", value: -2, visible: false });
+    wbsExpandedState = new TextInput({ name: "wbsExpandedState", displayName: "", value: "", placeholder: "", visible: false });
+    wbsManualToggledGroups = new TextInput({ name: "wbsManualToggledGroups", displayName: "", value: "", placeholder: "", visible: false });
+    zoomRangeStart = new NumUpDown({ name: "zoomRangeStart", displayName: "", value: 0, visible: false });
+    zoomRangeEnd = new NumUpDown({ name: "zoomRangeEnd", displayName: "", value: 1, visible: false });
+
+    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories, this.wbsExpandLevel, this.wbsExpandedState, this.wbsManualToggledGroups, this.zoomRangeStart, this.zoomRangeEnd];
 }
 
+// ============================================================================
+// VISUAL SETTINGS EXPORT
+// ============================================================================
 export class VisualSettings extends Model {
-    // Keep existing cards
-    taskAppearance = new TaskAppearanceCard();
+    generalSettings = new GeneralSettingsCard();
+    taskBars = new TaskBarsCard();
+    criticalPath = new CriticalPathCard();
+    comparisonBars = new ComparisonBarsCard();
     connectorLines = new ConnectorLinesCard();
     textAndLabels = new TextAndLabelsCard();
     layoutSettings = new LayoutSettingsCard();
-    gridLines = new HorizontalGridLinesCard();
-    verticalGridLines = new VerticalGridLinesCard();
-    projectEndLine = new ProjectEndLineCard();
+    gridLines = new GridLinesCard();
+    projectEndLine = new ProjectFinishLineCard();
+    baselineFinishLine = new BaselineFinishLineCard();
+    previousUpdateFinishLine = new PreviousUpdateFinishLineCard();
     dataDateLine = new DataDateLineCard();
-    displayOptions = new DisplayOptionsCard();
-    criticalityMode = new CriticalityModeCard();
-    drivingPathSelection = new DrivingPathSelectionCard();
-    taskSelection = new TaskSelectionCard();
+    pathSelection = new PathSelectionCard();
     wbsGrouping = new WBSGroupingCard();
     wbsLevelStyles = new WbsLevelStylesCard();
     legend = new LegendCard();
@@ -838,20 +1054,20 @@ export class VisualSettings extends Model {
     timelineZoom = new TimelineZoomCard();
     persistedState = new PersistedStateCard();
 
-    // Update the cards array
     cards: Card[] = [
-        this.taskAppearance,
+        this.generalSettings,
+        this.taskBars,
+        this.criticalPath,
+        this.comparisonBars,
         this.connectorLines,
         this.textAndLabels,
         this.layoutSettings,
         this.gridLines,
-        this.verticalGridLines,
         this.projectEndLine,
+        this.baselineFinishLine,
+        this.previousUpdateFinishLine,
         this.dataDateLine,
-        this.displayOptions,
-        this.criticalityMode,
-        this.drivingPathSelection,
-        this.taskSelection,
+        this.pathSelection,
         this.wbsGrouping,
         this.wbsLevelStyles,
         this.legend,

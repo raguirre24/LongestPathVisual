@@ -2,17 +2,46 @@ import { formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 import Model = formattingSettings.Model;
 import Card = formattingSettings.SimpleCard;
 import Slice = formattingSettings.Slice;
-declare class TaskAppearanceCard extends Card {
+declare class GeneralSettingsCard extends Card {
+    name: string;
+    displayName: string;
+    visualBackgroundColor: formattingSettings.ColorPicker;
+    alternatingRowColors: formattingSettings.ToggleSwitch;
+    alternatingRowColor: formattingSettings.ColorPicker;
+    selectionHighlightColor: formattingSettings.ColorPicker;
+    showTooltips: formattingSettings.ToggleSwitch;
+    slices: Slice[];
+}
+declare class TaskBarsCard extends Card {
     name: string;
     displayName: string;
     taskColor: formattingSettings.ColorPicker;
-    criticalPathColor: formattingSettings.ColorPicker;
-    nearCriticalColor: formattingSettings.ColorPicker;
     milestoneColor: formattingSettings.ColorPicker;
     taskHeight: formattingSettings.NumUpDown;
+    taskBarCornerRadius: formattingSettings.NumUpDown;
+    taskBarStrokeColor: formattingSettings.ColorPicker;
+    taskBarStrokeWidth: formattingSettings.NumUpDown;
     milestoneSize: formattingSettings.NumUpDown;
+    milestoneShape: formattingSettings.ItemDropdown;
+    slices: Slice[];
+}
+declare class CriticalPathCard extends Card {
+    name: string;
+    displayName: string;
+    calculationMode: formattingSettings.ItemDropdown;
+    criticalPathColor: formattingSettings.ColorPicker;
     criticalBorderWidth: formattingSettings.NumUpDown;
+    showNearCritical: formattingSettings.ToggleSwitch;
+    nearCriticalColor: formattingSettings.ColorPicker;
     nearCriticalBorderWidth: formattingSettings.NumUpDown;
+    showFloatColumn: formattingSettings.ToggleSwitch;
+    floatColumnWidth: formattingSettings.NumUpDown;
+    showAllTasks: formattingSettings.ToggleSwitch;
+    slices: Slice[];
+}
+declare class ComparisonBarsCard extends Card {
+    name: string;
+    displayName: string;
     showBaseline: formattingSettings.ToggleSwitch;
     baselineColor: formattingSettings.ColorPicker;
     baselineHeight: formattingSettings.NumUpDown;
@@ -32,6 +61,7 @@ declare class ConnectorLinesCard extends Card {
     connectorWidth: formattingSettings.NumUpDown;
     criticalConnectorWidth: formattingSettings.NumUpDown;
     elbowOffset: formattingSettings.NumUpDown;
+    arrowHeadSize: formattingSettings.NumUpDown;
     differentiateDrivers: formattingSettings.ToggleSwitch;
     nonDrivingLineStyle: formattingSettings.ItemDropdown;
     nonDrivingOpacity: formattingSettings.NumUpDown;
@@ -40,6 +70,7 @@ declare class ConnectorLinesCard extends Card {
 declare class TextAndLabelsCard extends Card {
     name: string;
     displayName: string;
+    fontFamily: formattingSettings.ItemDropdown;
     fontSize: formattingSettings.NumUpDown;
     taskNameFontSize: formattingSettings.NumUpDown;
     labelColor: formattingSettings.ColorPicker;
@@ -56,30 +87,26 @@ declare class LayoutSettingsCard extends Card {
     leftMargin: formattingSettings.NumUpDown;
     taskPadding: formattingSettings.NumUpDown;
     maxTasksToShow: formattingSettings.NumUpDown;
+    headerHeight: formattingSettings.NumUpDown;
     slices: Slice[];
 }
-declare class HorizontalGridLinesCard extends Card {
+declare class GridLinesCard extends Card {
     name: string;
     displayName: string;
-    showGridLines: formattingSettings.ToggleSwitch;
-    gridLineColor: formattingSettings.ColorPicker;
-    gridLineWidth: formattingSettings.NumUpDown;
-    gridLineStyle: formattingSettings.ItemDropdown;
+    showHorizontalLines: formattingSettings.ToggleSwitch;
+    horizontalLineColor: formattingSettings.ColorPicker;
+    horizontalLineWidth: formattingSettings.NumUpDown;
+    horizontalLineStyle: formattingSettings.ItemDropdown;
+    showVerticalLines: formattingSettings.ToggleSwitch;
+    verticalLineColor: formattingSettings.ColorPicker;
+    verticalLineWidth: formattingSettings.NumUpDown;
+    verticalLineStyle: formattingSettings.ItemDropdown;
+    showTimelineLabels: formattingSettings.ToggleSwitch;
+    timelineLabelColor: formattingSettings.ColorPicker;
+    timelineLabelFontSize: formattingSettings.NumUpDown;
     slices: Slice[];
 }
-declare class VerticalGridLinesCard extends Card {
-    name: string;
-    displayName: string;
-    show: formattingSettings.ToggleSwitch;
-    lineColor: formattingSettings.ColorPicker;
-    lineWidth: formattingSettings.NumUpDown;
-    lineStyle: formattingSettings.ItemDropdown;
-    showMonthLabels: formattingSettings.ToggleSwitch;
-    labelColor: formattingSettings.ColorPicker;
-    labelFontSize: formattingSettings.NumUpDown;
-    slices: Slice[];
-}
-declare class ProjectEndLineCard extends Card {
+declare class ProjectFinishLineCard extends Card {
     name: string;
     displayName: string;
     show: formattingSettings.ToggleSwitch;
@@ -92,24 +119,34 @@ declare class ProjectEndLineCard extends Card {
     showLabelPrefix: formattingSettings.ToggleSwitch;
     labelBackgroundColor: formattingSettings.ColorPicker;
     labelBackgroundTransparency: formattingSettings.NumUpDown;
-    baselineShow: formattingSettings.ToggleSwitch;
-    baselineLineWidth: formattingSettings.NumUpDown;
-    baselineLineStyle: formattingSettings.ItemDropdown;
-    baselineShowLabel: formattingSettings.ToggleSwitch;
-    baselineLabelColor: formattingSettings.ColorPicker;
-    baselineLabelFontSize: formattingSettings.NumUpDown;
-    baselineShowLabelPrefix: formattingSettings.ToggleSwitch;
-    baselineLabelBackgroundColor: formattingSettings.ColorPicker;
-    baselineLabelBackgroundTransparency: formattingSettings.NumUpDown;
-    previousUpdateShow: formattingSettings.ToggleSwitch;
-    previousUpdateLineWidth: formattingSettings.NumUpDown;
-    previousUpdateLineStyle: formattingSettings.ItemDropdown;
-    previousUpdateShowLabel: formattingSettings.ToggleSwitch;
-    previousUpdateLabelColor: formattingSettings.ColorPicker;
-    previousUpdateLabelFontSize: formattingSettings.NumUpDown;
-    previousUpdateShowLabelPrefix: formattingSettings.ToggleSwitch;
-    previousUpdateLabelBackgroundColor: formattingSettings.ColorPicker;
-    previousUpdateLabelBackgroundTransparency: formattingSettings.NumUpDown;
+    slices: Slice[];
+}
+declare class BaselineFinishLineCard extends Card {
+    name: string;
+    displayName: string;
+    show: formattingSettings.ToggleSwitch;
+    lineWidth: formattingSettings.NumUpDown;
+    lineStyle: formattingSettings.ItemDropdown;
+    showLabel: formattingSettings.ToggleSwitch;
+    labelColor: formattingSettings.ColorPicker;
+    labelFontSize: formattingSettings.NumUpDown;
+    showLabelPrefix: formattingSettings.ToggleSwitch;
+    labelBackgroundColor: formattingSettings.ColorPicker;
+    labelBackgroundTransparency: formattingSettings.NumUpDown;
+    slices: Slice[];
+}
+declare class PreviousUpdateFinishLineCard extends Card {
+    name: string;
+    displayName: string;
+    show: formattingSettings.ToggleSwitch;
+    lineWidth: formattingSettings.NumUpDown;
+    lineStyle: formattingSettings.ItemDropdown;
+    showLabel: formattingSettings.ToggleSwitch;
+    labelColor: formattingSettings.ColorPicker;
+    labelFontSize: formattingSettings.NumUpDown;
+    showLabelPrefix: formattingSettings.ToggleSwitch;
+    labelBackgroundColor: formattingSettings.ColorPicker;
+    labelBackgroundTransparency: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 declare class DataDateLineCard extends Card {
@@ -127,23 +164,7 @@ declare class DataDateLineCard extends Card {
     labelBackgroundTransparency: formattingSettings.NumUpDown;
     slices: Slice[];
 }
-declare class DisplayOptionsCard extends Card {
-    name: string;
-    displayName: string;
-    showTooltips: formattingSettings.ToggleSwitch;
-    showNearCritical: formattingSettings.ToggleSwitch;
-    showFloatColumn: formattingSettings.ToggleSwitch;
-    floatColumnWidth: formattingSettings.NumUpDown;
-    showAllTasks: formattingSettings.ToggleSwitch;
-    slices: Slice[];
-}
-declare class CriticalityModeCard extends Card {
-    name: string;
-    displayName: string;
-    calculationMode: formattingSettings.ItemDropdown;
-    slices: Slice[];
-}
-declare class TaskSelectionCard extends Card {
+declare class PathSelectionCard extends Card {
     name: string;
     displayName: string;
     enableTaskSelection: formattingSettings.ToggleSwitch;
@@ -151,24 +172,9 @@ declare class TaskSelectionCard extends Card {
     dropdownPosition: formattingSettings.ItemDropdown;
     showSelectedTaskLabel: formattingSettings.ToggleSwitch;
     traceMode: formattingSettings.ItemDropdown;
-    slices: Slice[];
-}
-declare class DrivingPathSelectionCard extends Card {
-    name: string;
-    displayName: string;
     enableMultiPathToggle: formattingSettings.ToggleSwitch;
     selectedPathIndex: formattingSettings.NumUpDown;
     showPathInfo: formattingSettings.ToggleSwitch;
-    slices: Slice[];
-}
-declare class LegendCard extends Card {
-    name: string;
-    displayName: string;
-    show: formattingSettings.ToggleSwitch;
-    fontSize: formattingSettings.NumUpDown;
-    showTitle: formattingSettings.ToggleSwitch;
-    titleText: formattingSettings.TextInput;
-    sortOrder: formattingSettings.ItemDropdown;
     slices: Slice[];
 }
 declare class WBSGroupingCard extends Card {
@@ -176,15 +182,15 @@ declare class WBSGroupingCard extends Card {
     displayName: string;
     enableWbsGrouping: formattingSettings.ToggleSwitch;
     defaultExpanded: formattingSettings.ToggleSwitch;
+    expandCollapseAll: formattingSettings.ToggleSwitch;
+    showWbsToggle: formattingSettings.ToggleSwitch;
+    hideEmptyGroups: formattingSettings.ToggleSwitch;
     showGroupSummary: formattingSettings.ToggleSwitch;
     groupHeaderColor: formattingSettings.ColorPicker;
     groupSummaryColor: formattingSettings.ColorPicker;
-    indentPerLevel: formattingSettings.NumUpDown;
-    hideEmptyGroups: formattingSettings.ToggleSwitch;
-    expandCollapseAll: formattingSettings.ToggleSwitch;
-    showWbsToggle: formattingSettings.ToggleSwitch;
     groupNameFontSize: formattingSettings.NumUpDown;
     groupNameColor: formattingSettings.ColorPicker;
+    indentPerLevel: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 declare class WbsLevelStylesCard extends Card {
@@ -210,6 +216,16 @@ declare class WbsLevelStylesCard extends Card {
     level9Text: formattingSettings.ColorPicker;
     level10Background: formattingSettings.ColorPicker;
     level10Text: formattingSettings.ColorPicker;
+    slices: Slice[];
+}
+declare class LegendCard extends Card {
+    name: string;
+    displayName: string;
+    show: formattingSettings.ToggleSwitch;
+    fontSize: formattingSettings.NumUpDown;
+    showTitle: formattingSettings.ToggleSwitch;
+    titleText: formattingSettings.TextInput;
+    sortOrder: formattingSettings.ItemDropdown;
     slices: Slice[];
 }
 declare class LegendColorsCard extends Card {
@@ -264,18 +280,19 @@ declare class PersistedStateCard extends Card {
     slices: Slice[];
 }
 export declare class VisualSettings extends Model {
-    taskAppearance: TaskAppearanceCard;
+    generalSettings: GeneralSettingsCard;
+    taskBars: TaskBarsCard;
+    criticalPath: CriticalPathCard;
+    comparisonBars: ComparisonBarsCard;
     connectorLines: ConnectorLinesCard;
     textAndLabels: TextAndLabelsCard;
     layoutSettings: LayoutSettingsCard;
-    gridLines: HorizontalGridLinesCard;
-    verticalGridLines: VerticalGridLinesCard;
-    projectEndLine: ProjectEndLineCard;
+    gridLines: GridLinesCard;
+    projectEndLine: ProjectFinishLineCard;
+    baselineFinishLine: BaselineFinishLineCard;
+    previousUpdateFinishLine: PreviousUpdateFinishLineCard;
     dataDateLine: DataDateLineCard;
-    displayOptions: DisplayOptionsCard;
-    criticalityMode: CriticalityModeCard;
-    drivingPathSelection: DrivingPathSelectionCard;
-    taskSelection: TaskSelectionCard;
+    pathSelection: PathSelectionCard;
     wbsGrouping: WBSGroupingCard;
     wbsLevelStyles: WbsLevelStylesCard;
     legend: LegendCard;
