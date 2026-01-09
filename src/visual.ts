@@ -5730,6 +5730,24 @@ export class Visual implements IVisual {
         const showDuration = this.settings.textAndLabels.showDuration.value;
 
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+
+        // Fix: Clip labels to left margin
+        const leftClipId = "clip-left-margin";
+        let defs = this.mainSvg.select("defs");
+        if (defs.empty()) defs = this.mainSvg.append("defs");
+
+        const clipSelection = defs.selectAll(`#${leftClipId}`).data([0]);
+        const clipEnter = clipSelection.enter().append("clipPath").attr("id", leftClipId);
+        clipEnter.append("rect");
+
+        const clipRect = clipSelection.merge(clipEnter as any).select("rect");
+        clipRect
+            .attr("x", -currentLeftMargin)
+            .attr("y", -50)
+            .attr("width", currentLeftMargin)
+            .attr("height", chartHeight + 100);
+
+        this.taskLabelLayer?.attr("clip-path", `url(#${leftClipId})`);
         const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
         const selectionHighlightColor = this.getSelectionColor();
@@ -11198,6 +11216,7 @@ export class Visual implements IVisual {
 
             const textElement = headerGroup.append('text')
                 .attr('class', 'wbs-group-name')
+                .attr('clip-path', 'url(#clip-left-margin)')
                 .attr('x', textX)
                 .attr('y', textY)
                 .attr('dominant-baseline', 'central')
