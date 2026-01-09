@@ -4513,17 +4513,39 @@ export class Visual implements IVisual {
             return Math.min(Math.max(value, bounds.min), bounds.max);
         };
 
+        let latestClientX = 0;
+        let rafId: number | null = null;
+
+        const performDragUpdate = (): void => {
+            try {
+                const delta = latestClientX - startX;
+                const nextMargin = clampMargin(startMargin + delta);
+                if (nextMargin !== self.margin.left) {
+                    self.handleMarginDragUpdate(nextMargin);
+                    self.updateZoomSliderTrackMargins();
+                }
+            } catch (e) {
+                console.error("Drag update error:", e);
+            } finally {
+                rafId = null;
+            }
+        };
+
         const updateMargin = (clientX: number): void => {
-            const delta = clientX - startX;
-            const nextMargin = clampMargin(startMargin + delta);
-            if (nextMargin === this.margin.left) return;
-            this.handleMarginDragUpdate(nextMargin);
-            this.updateZoomSliderTrackMargins();
+            latestClientX = clientX;
+            if (rafId === null) {
+                rafId = requestAnimationFrame(performDragUpdate);
+            }
         };
 
         const endDrag = (): void => {
             if (!self.isMarginDragging) return;
             self.isMarginDragging = false;
+
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId);
+                rafId = null;
+            }
 
             document.removeEventListener("mousemove", onMouseMove);
             document.removeEventListener("mouseup", endDrag);
@@ -4545,7 +4567,12 @@ export class Visual implements IVisual {
                 }]
             });
 
-            self.requestUpdate(true);
+            // Issue 2 Fix: Preserve scroll position when update triggers
+            if (self.scrollableContainer?.node()) {
+                self.preservedScrollTop = self.scrollableContainer.node().scrollTop;
+            }
+            self.preserveScrollOnUpdate = true;
+            // Note: We do NOT call self.requestUpdate(true) here to avoid double-update race conditions for scroll
         };
 
         const onMouseMove = (event: MouseEvent): void => {
@@ -4663,7 +4690,7 @@ export class Visual implements IVisual {
         this.mainGroup?.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
         this.headerGridLayer?.attr("transform", `translate(${this.margin.left}, 0)`);
 
-        const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+        const visibleTasks = this.getVisibleTasks();
 
         this.gridLayer?.selectAll("*").remove();
         this.labelGridLayer?.selectAll("*").remove();
@@ -6698,9 +6725,18 @@ export class Visual implements IVisual {
         selectionHighlightColor: string,
         selectionLabelColor: string,
         selectionLabelWeight: string,
+
         lineHeight: string
     ): void {
         if (!this.taskLabelLayer || !yScale) return;
+
+        // Phase 2: Prepare for float column overlap prevention
+        const showFloatColumn = this.settings?.criticalPath?.showFloatColumn?.value ?? false;
+        const floatColumnWidth = this.settings?.criticalPath?.floatColumnWidth?.value ?? 40;
+        let effectiveAvailableWidth = Math.max(10, labelAvailableWidth);
+        if (showFloatColumn) {
+            effectiveAvailableWidth = Math.max(10, effectiveAvailableWidth - (floatColumnWidth + 5));
+        }
 
         const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
         const wbsIndentPerLevel = wbsGroupingEnabled ? (this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20) : 0;
@@ -6766,8 +6802,11 @@ export class Visual implements IVisual {
                 const y = parseFloat(textElement.attr("y"));
                 const dy = 0;
                 const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
-                const adjustedLabelWidth = labelAvailableWidth - indent;
-                let tspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", dy + "em");
+                const adjustedLabelWidth = effectiveAvailableWidth - indent;
+
+                // Keep reference to first tspan for vertical alignment adjustment
+                let firstTspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", "0em");
+                let tspan = firstTspan;
                 let lineCount = 1;
                 const maxLines = 2;
 
@@ -6801,6 +6840,11 @@ export class Visual implements IVisual {
                         break;
                     }
                 }
+
+                // Fix vertical alignment for multi-line text
+                if (lineCount > 1) {
+                    firstTspan.attr("dy", "-0.55em");
+                }
             });
 
         taskLabels.on("click", (event: MouseEvent, d: Task) => {
@@ -6821,10 +6865,10 @@ export class Visual implements IVisual {
             this.showContextMenu(event, d);
         });
 
+
         // Phase 2: Add float column if enabled
-        const showFloatColumn = this.settings?.criticalPath?.showFloatColumn?.value ?? false;
         if (showFloatColumn) {
-            const floatColumnWidth = this.settings?.criticalPath?.floatColumnWidth?.value ?? 40;
+
             const criticalColor = this.settings?.criticalPath?.criticalPathColor?.value?.value ?? '#FF0000';
             const nearCriticalColor = this.settings?.criticalPath?.nearCriticalColor?.value?.value ?? '#FF8C00';
 
@@ -11210,7 +11254,10 @@ export class Visual implements IVisual {
             }
 
             const lineHeightPx = groupNameFontSize * 1.1;
-            const bgHeight = lineCount > 1 ? taskHeight + lineHeightPx : taskHeight + 4;
+
+            // Constrain background height to available row height to prevent overlap
+            const taskPadding = this.settings.layoutSettings.taskPadding.value || 5;
+            const bgHeight = taskHeight + taskPadding - 1; // -1 for a tiny visual gap
 
             const bgY = bandCenter - bgHeight / 2;
 
