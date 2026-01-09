@@ -11278,7 +11278,7 @@ export class Visual implements IVisual {
             const taskPadding = this.settings.layoutSettings.taskPadding.value || 5;
             const bgHeight = taskHeight + taskPadding - 1; // -1 for a tiny visual gap
 
-            const bgY = bandCenter - bgHeight / 2;
+            const bgY = bandStart;
 
             headerGroup.insert('rect', ':first-child')
                 .attr('class', 'wbs-header-bg')
