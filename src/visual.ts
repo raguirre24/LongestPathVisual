@@ -12515,8 +12515,9 @@ export class Visual implements IVisual {
                 .style("cursor", "pointer")
                 .style("user-select", "none")
                 // Enhanced contrast: reduce opacity for unselected items
-                .style("opacity", isSelected ? "1" : "0.4")
-                .style("transition", "opacity 0.2s ease, transform 0.15s ease");
+                .style("opacity", isSelected ? "1" : "0.3")
+                .style("filter", isSelected ? "none" : "grayscale(50%)")
+                .style("transition", "opacity 0.2s ease, transform 0.15s ease, filter 0.2s ease");
 
             item.append("div")
                 .attr("class", "legend-swatch")
@@ -12527,17 +12528,18 @@ export class Visual implements IVisual {
                 .style("border", `2px solid ${color}`)
                 .style("border-radius", "3px")
                 .style("flex-shrink", "0")
-                .style("box-shadow", isSelected ? `0 0 4px ${color}40` : "none")
+                .style("box-shadow", isSelected ? `0 2px 5px rgba(0,0,0,0.2)` : "none")
+                .style("transform", isSelected ? "scale(1.1)" : "scale(1)")
                 .style("transition", "all 0.2s ease");
 
             item.append("span")
                 .attr("class", "legend-label")
                 .style("font-size", `${fontSize}px`)
                 .style("white-space", "nowrap")
-                // Enhanced contrast: strikethrough and color fade for unselected
-                .style("text-decoration", isSelected ? "none" : "line-through")
-                .style("color", isSelected ? "inherit" : "#999")
-                .style("font-weight", isSelected ? "500" : "400")
+                // Enhanced contrast: color fade for unselected
+                .style("text-decoration", "none")
+                .style("color", isSelected ? "inherit" : "#aaa")
+                .style("font-weight", isSelected ? "600" : "400")
                 .text(category);
 
             item.on("click", () => {
