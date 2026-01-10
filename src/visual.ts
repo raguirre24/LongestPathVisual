@@ -6805,7 +6805,7 @@ export class Visual implements IVisual {
             })
             .attr("y", taskHeight / 2)
             .attr("text-anchor", "start")
-            .attr("dominant-baseline", "central")
+            // vertical alignment handled via dy to support iOS
             .style("font-size", `${taskNameFontSize}pt`)
             .style("fill", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelColor : labelColor)
             .style("font-weight", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelWeight : "normal")
@@ -6823,7 +6823,8 @@ export class Visual implements IVisual {
                 const adjustedLabelWidth = effectiveAvailableWidth - indent;
 
                 // Keep reference to first tspan for vertical alignment adjustment
-                let firstTspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", "0em");
+                // Using 0.35em for standard centered text (fixes iOS vertical drift)
+                let firstTspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", "0.35em");
                 let tspan = firstTspan;
                 let lineCount = 1;
                 const maxLines = 2;
@@ -6859,10 +6860,8 @@ export class Visual implements IVisual {
                     }
                 }
 
-                // Fix vertical alignment for multi-line text
-                if (lineCount > 1) {
-                    firstTspan.attr("dy", "-0.55em");
-                }
+                // Keep first line position consistent regardless of wrapping
+                // if (lineCount > 1) { firstTspan.attr("dy", "-0.2em"); }
             });
 
         taskLabels.on("click", (event: MouseEvent, d: Task) => {
@@ -11219,7 +11218,7 @@ export class Visual implements IVisual {
                 .attr('clip-path', 'url(#clip-left-margin)')
                 .attr('x', textX)
                 .attr('y', textY)
-                .attr('dominant-baseline', 'central')
+                // vertical alignment handled via dy to support iOS
                 .style('font-size', `${groupNameFontSize}px`)
                 .style('font-family', 'Segoe UI, sans-serif')
                 .style('font-weight', '600')
@@ -11232,7 +11231,7 @@ export class Visual implements IVisual {
             let firstTspan = textElement.text(null).append('tspan')
                 .attr('x', textX)
                 .attr('y', textY)
-                .attr('dy', '0em');
+                .attr('dy', '0.35em');
             let tspan = firstTspan;
             let lineCount = 1;
 
@@ -11268,9 +11267,8 @@ export class Visual implements IVisual {
                 }
             }
 
-            if (lineCount > 1) {
-                firstTspan.attr('dy', '-0.55em');
-            }
+            // Keep first line position consistent
+            // if (lineCount > 1) { firstTspan.attr('dy', '-0.2em'); }
 
             const lineHeightPx = groupNameFontSize * 1.1;
 
