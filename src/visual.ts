@@ -1489,7 +1489,6 @@ export class Visual implements IVisual {
                     .style("fill", self.UI_TOKENS.color.neutral.grey10)
                     .style("stroke", self.UI_TOKENS.color.neutral.grey90)
                     .style("stroke-width", 2)
-                    .style("transform", "translateY(-2px)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
             })
             .on("mouseout", function () {
@@ -1497,17 +1496,16 @@ export class Visual implements IVisual {
                     .style("fill", self.UI_TOKENS.color.neutral.white)
                     .style("stroke", self.UI_TOKENS.color.neutral.grey60)
                     .style("stroke-width", 1.5)
-                    .style("transform", "translateY(0)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
             })
             .on("mousedown", function () {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(0) scale(0.96)")
+                    .style("transform", "scale(0.96)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
             })
             .on("mouseup", function () {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(-2px) scale(1)")
+                    .style("transform", "scale(1)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
             });
 
@@ -1584,18 +1582,14 @@ export class Visual implements IVisual {
         const iconX = iconOnly ? (buttonWidth / 2 - 8) : (this.UI_TOKENS.spacing.lg + 2);
         const iconY = buttonHeight / 2;
 
-        baselineToggleGroup.append("circle")
-            .attr("cx", iconX + 8)
-            .attr("cy", iconY)
-            .attr("r", 11)
-            .style("fill", this.showBaselineInternal ? this.lightenColor(baselineColor, 0.95) : this.UI_TOKENS.color.neutral.grey10)
-            .style("opacity", 0.6)
-            .style("pointer-events", "none")
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+        const iconG = baselineToggleGroup.append("g")
+            .attr("class", "icon-group")
+            .attr("transform", `translate(${iconX}, ${iconY})`);
 
-        baselineToggleGroup.append("rect")
-            .attr("x", iconX)
-            .attr("y", iconY - 8)
+        iconG.append("rect")
+            .attr("class", "icon-rect-1")
+            .attr("x", 0)
+            .attr("y", -8)
             .attr("width", 16)
             .attr("height", 4.5)
             .attr("rx", 2)
@@ -1604,9 +1598,10 @@ export class Visual implements IVisual {
             .style("pointer-events", "none")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-        baselineToggleGroup.append("rect")
-            .attr("x", iconX)
-            .attr("y", iconY - 1.5)
+        iconG.append("rect")
+            .attr("class", "icon-rect-2")
+            .attr("x", 0)
+            .attr("y", -1.5)
             .attr("width", 16)
             .attr("height", 3.5)
             .attr("rx", 1.5)
@@ -1616,9 +1611,10 @@ export class Visual implements IVisual {
             .style("pointer-events", "none")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-        baselineToggleGroup.append("rect")
-            .attr("x", iconX)
-            .attr("y", iconY + 4)
+        iconG.append("rect")
+            .attr("class", "icon-rect-3")
+            .attr("x", 0)
+            .attr("y", 4)
             .attr("width", 16)
             .attr("height", 3.5)
             .attr("rx", 1.5)
@@ -1630,6 +1626,7 @@ export class Visual implements IVisual {
 
         if (!iconOnly) {
             baselineToggleGroup.append("text")
+                .attr("class", "toggle-text")
                 .attr("x", iconX + 26)
                 .attr("y", buttonHeight / 2)
                 .attr("dominant-baseline", "central")
@@ -1656,24 +1653,35 @@ export class Visual implements IVisual {
                     d3.select(this).select("rect")
                         .style("fill", self.showBaselineInternal ? hoverBaselineColor : self.UI_TOKENS.color.neutral.grey10)
                         .style("stroke-width", 2.5)
-                        .style("transform", "translateY(-2px)")
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+
+                    if (self.showBaselineInternal) {
+                        d3.select(this).selectAll(".icon-rect-1, .icon-rect-2, .icon-rect-3, .toggle-text")
+                            .style("fill", self.UI_TOKENS.color.neutral.white);
+                    }
                 })
                 .on("mouseout", function () {
                     d3.select(this).select("rect")
                         .style("fill", self.showBaselineInternal ? lightBaselineColor : self.UI_TOKENS.color.neutral.white)
                         .style("stroke-width", self.showBaselineInternal ? 2 : 1.5)
-                        .style("transform", "translateY(0)")
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+                    if (self.showBaselineInternal) {
+                        const group = d3.select(this);
+                        group.select(".icon-rect-1").style("fill", self.UI_TOKENS.color.primary.default);
+                        group.select(".icon-rect-2").style("fill", previousUpdateColor);
+                        group.select(".icon-rect-3").style("fill", baselineColor);
+                        group.select(".toggle-text").style("fill", self.UI_TOKENS.color.neutral.grey160);
+                    }
                 })
                 .on("mousedown", function () {
                     d3.select(this).select("rect")
-                        .style("transform", "translateY(0) scale(0.96)")
+                        .style("transform", "scale(0.96)")
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
                 })
                 .on("mouseup", function () {
                     d3.select(this).select("rect")
-                        .style("transform", "translateY(-2px) scale(1)")
+                        .style("transform", "scale(1)")
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
                 });
 
@@ -1738,17 +1746,14 @@ export class Visual implements IVisual {
         const iconX = iconOnly ? (buttonWidth / 2 - 8) : this.UI_TOKENS.spacing.lg;
         const iconY = buttonHeight / 2;
 
-        previousUpdateToggleGroup.append("circle")
-            .attr("cx", iconX + 8)
-            .attr("cy", iconY)
-            .attr("r", iconOnly ? 11 : 14)
-            .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey20)
-            .attr("opacity", this.showPreviousUpdateInternal ? 0.15 : 0.5)
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+        const iconG = previousUpdateToggleGroup.append("g")
+            .attr("class", "icon-group")
+            .attr("transform", `translate(${iconX}, ${iconY})`);
 
-        previousUpdateToggleGroup.append("rect")
-            .attr("x", iconX)
-            .attr("y", iconY - 7)
+        iconG.append("rect")
+            .attr("class", "icon-rect-1")
+            .attr("x", 0)
+            .attr("y", -7)
             .attr("width", 16)
             .attr("height", 4)
             .attr("rx", 1.5)
@@ -1756,9 +1761,10 @@ export class Visual implements IVisual {
             .attr("fill", this.showPreviousUpdateInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90)
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-        previousUpdateToggleGroup.append("rect")
-            .attr("x", iconX)
-            .attr("y", iconY - 1)
+        iconG.append("rect")
+            .attr("class", "icon-rect-2")
+            .attr("x", 0)
+            .attr("y", -1)
             .attr("width", 16)
             .attr("height", 3)
             .attr("rx", 1)
@@ -1767,9 +1773,10 @@ export class Visual implements IVisual {
             .style("opacity", this.showPreviousUpdateInternal ? 1 : 0.6)
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-        previousUpdateToggleGroup.append("rect")
-            .attr("x", iconX)
-            .attr("y", iconY + 4)
+        iconG.append("rect")
+            .attr("class", "icon-rect-3")
+            .attr("x", 0)
+            .attr("y", 4)
             .attr("width", 16)
             .attr("height", 3)
             .attr("rx", 1)
@@ -1780,6 +1787,7 @@ export class Visual implements IVisual {
 
         if (!iconOnly) {
             previousUpdateToggleGroup.append("text")
+                .attr("class", "toggle-text")
                 .attr("x", iconX + 24)
                 .attr("y", buttonHeight / 2)
                 .attr("dominant-baseline", "central")
@@ -1805,22 +1813,37 @@ export class Visual implements IVisual {
                 .on("mouseover", function () {
                     d3.select(this).select("rect")
                         .style("fill", self.showPreviousUpdateInternal ? hoverPreviousUpdateColor : self.UI_TOKENS.color.neutral.grey20)
-                        .style("transform", "translateY(-2px)")
+                        .style("stroke-width", 2.5)
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+
+                    if (self.showPreviousUpdateInternal) {
+                        d3.select(this).selectAll(".icon-rect-1, .icon-rect-2, .icon-rect-3, .toggle-text")
+                            .style("fill", self.UI_TOKENS.color.neutral.white);
+                    }
                 })
                 .on("mouseout", function () {
                     d3.select(this).select("rect")
                         .style("fill", self.showPreviousUpdateInternal ? lightPreviousUpdateColor : self.UI_TOKENS.color.neutral.white)
-                        .style("transform", "translateY(0)")
+                        .style("stroke-width", self.showPreviousUpdateInternal ? 2 : 1.5)
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+                    if (self.showPreviousUpdateInternal) {
+                        const group = d3.select(this);
+                        group.select(".icon-rect-1").style("fill", self.UI_TOKENS.color.primary.default);
+                        group.select(".icon-rect-2").style("fill", previousUpdateColor);
+                        group.select(".icon-rect-3").style("fill", baselineColor);
+                        group.select(".toggle-text").style("fill", self.UI_TOKENS.color.neutral.grey160);
+                    }
                 })
                 .on("mousedown", function () {
                     d3.select(this).select("rect")
-                        .style("transform", "translateY(0) scale(0.98)");
+                        .style("transform", "scale(0.98)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
                 })
                 .on("mouseup", function () {
                     d3.select(this).select("rect")
-                        .style("transform", "translateY(-2px) scale(1)");
+                        .style("transform", "scale(1)")
+                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
                 });
 
             previousUpdateToggleGroup.on("click", function (event) {
@@ -1931,7 +1954,6 @@ export class Visual implements IVisual {
                     .style("fill", self.showConnectorLinesInternal
                         ? self.UI_TOKENS.color.success.default
                         : self.UI_TOKENS.color.neutral.grey20)
-                    .style("transform", "translateY(-2px)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
 
                 if (self.showConnectorLinesInternal) {
@@ -1944,7 +1966,6 @@ export class Visual implements IVisual {
                     .style("fill", self.showConnectorLinesInternal
                         ? self.UI_TOKENS.color.success.light
                         : self.UI_TOKENS.color.neutral.white)
-                    .style("transform", "translateY(0)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
 
                 if (self.showConnectorLinesInternal) {
@@ -1954,11 +1975,11 @@ export class Visual implements IVisual {
             })
             .on("mousedown", function () {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(0) scale(0.95)");
+                    .style("transform", "scale(0.95)");
             })
             .on("mouseup", function () {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(-2px) scale(1)");
+                    .style("transform", "scale(1)");
             });
 
         connectorToggleGroup.on("click", function (event) {
@@ -2016,6 +2037,7 @@ export class Visual implements IVisual {
 
         const textY = buttonHeight / 2;
         group.append("text")
+            .attr("class", "toggle-text")
             .attr("x", buttonWidth / 2 + 6)
             .attr("y", textY)
             .attr("text-anchor", "middle")
@@ -2027,6 +2049,7 @@ export class Visual implements IVisual {
             .text("WBS");
 
         group.append("circle")
+            .attr("class", "toggle-circle")
             .attr("cx", 10)
             .attr("cy", textY)
             .attr("r", 4)
@@ -2037,10 +2060,20 @@ export class Visual implements IVisual {
             d3.select(this).select("rect")
                 .style("fill", isEnabled ? self.UI_TOKENS.color.primary.default : self.UI_TOKENS.color.neutral.grey20)
                 .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[6]})`);
+
+            if (isEnabled) {
+                d3.select(this).selectAll(".toggle-text, .toggle-circle")
+                    .style("fill", self.UI_TOKENS.color.neutral.white);
+            }
         }).on("mouseout", function () {
             d3.select(this).select("rect")
                 .style("fill", fill)
                 .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+            if (isEnabled) {
+                d3.select(this).select(".toggle-text").style("fill", textColor);
+                d3.select(this).select(".toggle-circle").style("fill", self.UI_TOKENS.color.primary.default);
+            }
         });
 
         group.on("click", function (event) {
@@ -2192,11 +2225,6 @@ export class Visual implements IVisual {
             ? this.UI_TOKENS.color.primary.default
             : this.UI_TOKENS.color.neutral.grey130;
 
-        iconG.append("circle")
-            .attr("r", 11)
-            .attr("fill", this.wbsExpandedInternal ? this.UI_TOKENS.color.primary.subtle : this.UI_TOKENS.color.neutral.grey10)
-            .attr("opacity", 0.7);
-
         iconG.append("path")
             .attr("d", "M-4,0 L4,0 M0,-4 L0,4")
             .attr("stroke", iconColor)
@@ -2218,6 +2246,7 @@ export class Visual implements IVisual {
                 ? "0"
                 : `L${currentLevel}`;
         wbsToggleGroup.append("text")
+            .attr("class", "toggle-text")
             .attr("x", buttonSize / 2)
             .attr("y", buttonSize - 10)
             .attr("text-anchor", "middle")
@@ -2244,11 +2273,11 @@ export class Visual implements IVisual {
                     .style("fill", self.wbsExpandedInternal
                         ? self.UI_TOKENS.color.primary.default
                         : self.UI_TOKENS.color.neutral.grey20)
-                    .style("transform", "translateY(-2px)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
 
                 if (self.wbsExpandedInternal) {
                     d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+                    d3.select(this).selectAll(".toggle-text").style("fill", self.UI_TOKENS.color.neutral.white);
                 }
             })
             .on("mouseout", function () {
@@ -2256,20 +2285,20 @@ export class Visual implements IVisual {
                     .style("fill", self.wbsExpandedInternal
                         ? self.UI_TOKENS.color.primary.light
                         : self.UI_TOKENS.color.neutral.white)
-                    .style("transform", "translateY(0)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
 
                 if (self.wbsExpandedInternal) {
                     d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
+                    d3.select(this).selectAll(".toggle-text").style("fill", iconColor);
                 }
             })
             .on("mousedown", function () {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(0) scale(0.95)");
+                    .style("transform", "scale(0.95)");
             })
             .on("mouseup", function () {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(-2px) scale(1)");
+                    .style("transform", "scale(1)");
             });
 
         wbsToggleGroup.on("click", function (event) {
@@ -2355,11 +2384,6 @@ export class Visual implements IVisual {
             ? this.UI_TOKENS.color.primary.default
             : this.UI_TOKENS.color.neutral.grey130;
 
-        iconG.append("circle")
-            .attr("r", 11)
-            .attr("fill", isCollapsed ? this.UI_TOKENS.color.primary.subtle : this.UI_TOKENS.color.neutral.grey10)
-            .attr("opacity", 0.7);
-
         iconG.append("path")
             .attr("d", "M-5,0 L5,0")
             .attr("stroke", iconColor)
@@ -2381,6 +2405,7 @@ export class Visual implements IVisual {
                 ? "0"
                 : `L${currentLevel}`;
         wbsCollapseGroup.append("text")
+            .attr("class", "toggle-text")
             .attr("x", buttonSize / 2)
             .attr("y", buttonSize - 10)
             .attr("text-anchor", "middle")
@@ -2407,11 +2432,11 @@ export class Visual implements IVisual {
                     .style("fill", isCollapsed
                         ? self.UI_TOKENS.color.primary.default
                         : self.UI_TOKENS.color.neutral.grey20)
-                    .style("transform", "translateY(-2px)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
 
                 if (isCollapsed) {
                     d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+                    d3.select(this).selectAll(".toggle-text").style("fill", self.UI_TOKENS.color.neutral.white);
                 }
             })
             .on("mouseout", function () {
@@ -2419,20 +2444,20 @@ export class Visual implements IVisual {
                     .style("fill", isCollapsed
                         ? self.UI_TOKENS.color.primary.light
                         : self.UI_TOKENS.color.neutral.white)
-                    .style("transform", "translateY(0)")
                     .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
 
                 if (isCollapsed) {
                     d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
+                    d3.select(this).selectAll(".toggle-text").style("fill", iconColor);
                 }
             })
             .on("mousedown", function () {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(0) scale(0.95)");
+                    .style("transform", "scale(0.95)");
             })
             .on("mouseup", function () {
                 d3.select(this).select("rect")
-                    .style("transform", "translateY(-2px) scale(1)");
+                    .style("transform", "scale(1)");
             });
 
         wbsCollapseGroup.on("click", function (event) {
@@ -2606,7 +2631,7 @@ export class Visual implements IVisual {
             .attr("ry", this.UI_TOKENS.radius.pill)
             .style("fill", bgColor)
             .style("stroke", borderColor)
-            .style("stroke-width", 2)
+            .style("stroke-width", 1.5)
             .style("filter", hasTotalFloat ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
             .style("opacity", hasTotalFloat ? 1 : 0.4)
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
@@ -2682,26 +2707,24 @@ export class Visual implements IVisual {
             modeToggleGroup
                 .on("mouseover", function () {
                     d3.select(this).select(".mode-button-container rect")
-                        .style("fill", hoverBgColor)
-                        .style("stroke-width", 2.5)
-                        .style("transform", "translateY(-2px)")
+                        .style("fill", hoverBgColor) // already lighter
+                        .style("stroke-width", 2.5) // Increase border width only
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
                 })
                 .on("mouseout", function () {
                     d3.select(this).select(".mode-button-container rect")
                         .style("fill", bgColor)
-                        .style("stroke-width", 2)
-                        .style("transform", "translateY(0)")
+                        .style("stroke-width", 1.5)
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
                 })
                 .on("mousedown", function () {
                     d3.select(this).select(".mode-button-container rect")
-                        .style("transform", "translateY(0) scale(0.96)")
+                        .style("transform", "scale(0.96)")
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
                 })
                 .on("mouseup", function () {
                     d3.select(this).select(".mode-button-container rect")
-                        .style("transform", "translateY(-2px) scale(1)")
+                        .style("transform", "scale(1)")
                         .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
                 });
 
@@ -2986,13 +3009,11 @@ export class Visual implements IVisual {
         controlContainer
             .on("mouseover", function () {
                 d3.select(this)
-                    .style("box-shadow", self.UI_TOKENS.shadow[8])
-                    .style("transform", "translateY(-1px)");
+                    .style("box-shadow", self.UI_TOKENS.shadow[8]);
             })
             .on("mouseout", function () {
                 d3.select(this)
-                    .style("box-shadow", self.UI_TOKENS.shadow[4])
-                    .style("transform", "translateY(0)");
+                    .style("box-shadow", self.UI_TOKENS.shadow[4]);
             });
     }
 
