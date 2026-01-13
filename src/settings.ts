@@ -24,7 +24,8 @@ const fontFamilyItems: powerbi.IEnumMember[] = [
     { value: "Arial", displayName: "Arial" },
     { value: "Calibri", displayName: "Calibri" },
     { value: "Verdana", displayName: "Verdana" },
-    { value: "Tahoma", displayName: "Tahoma" }
+    { value: "Tahoma", displayName: "Tahoma" },
+    { value: "DIN", displayName: "DIN" }
 ];
 
 // ============================================================================

@@ -331,6 +331,11 @@ export declare class Visual implements IVisual {
      */
     private ensureChartClipPath;
     /**
+     * Creates or updates SVG arrowhead marker definitions for connector lines.
+     * Uses the arrowHeadSize setting to control marker size.
+     */
+    private ensureArrowMarkers;
+    /**
      * Updates the SVG clip rect to match the current chart dimensions.
      * This prevents bars from rendering past the left margin when zoomed.
      */
@@ -681,8 +686,21 @@ export declare class Visual implements IVisual {
     private resolveColor;
     private getSelectionColor;
     private getForegroundColor;
+    /**
+     * Gets the visual background color from settings or returns white as default.
+     */
+    private getVisualBackgroundColor;
+    /**
+     * Gets the font family from settings or returns the default system font stack.
+     */
+    private getFontFamily;
     private getBackgroundColor;
     private applyHighContrastStyling;
+    /**
+     * Applies font family settings to all key UI components that display text.
+     * Called during update to ensure fonts reflect settings changes.
+     */
+    private applyFontFamilySettings;
     private formatTooltipValue;
     private buildTooltipDataItems;
     private getTooltipIdentities;

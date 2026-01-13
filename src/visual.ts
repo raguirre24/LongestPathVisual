@@ -3527,6 +3527,57 @@ export class Visual implements IVisual {
             clipRect = clipPath.append("rect").attr("x", 0).attr("y", 0).attr("width", 0).attr("height", 0);
         }
         this.chartClipRect = clipRect;
+
+        // Ensure arrowhead markers exist
+        this.ensureArrowMarkers(defs);
+    }
+
+    /**
+     * Creates or updates SVG arrowhead marker definitions for connector lines.
+     * Uses the arrowHeadSize setting to control marker size.
+     */
+    private ensureArrowMarkers(defs: d3.Selection<any, unknown, null, undefined>): void {
+        const arrowSize = this.settings?.connectorLines?.arrowHeadSize?.value ?? 6;
+        const connectorColor = this.settings?.connectorLines?.connectorColor?.value?.value ?? "#555555";
+        const criticalColor = this.settings?.criticalPath?.criticalPathColor?.value?.value ?? "#E81123";
+
+        // Create or update normal arrowhead marker
+        let normalMarker = defs.select<SVGMarkerElement>("marker#arrowhead");
+        if (normalMarker.empty()) {
+            normalMarker = defs.append("marker")
+                .attr("id", "arrowhead")
+                .attr("orient", "auto")
+                .attr("markerUnits", "strokeWidth");
+            normalMarker.append("path");
+        }
+        normalMarker
+            .attr("viewBox", `0 0 ${arrowSize} ${arrowSize}`)
+            .attr("refX", arrowSize - 1)
+            .attr("refY", arrowSize / 2)
+            .attr("markerWidth", arrowSize)
+            .attr("markerHeight", arrowSize);
+        normalMarker.select("path")
+            .attr("d", `M 0,0 L ${arrowSize},${arrowSize / 2} L 0,${arrowSize} Z`)
+            .attr("fill", connectorColor);
+
+        // Create or update critical arrowhead marker
+        let criticalMarker = defs.select<SVGMarkerElement>("marker#arrowhead-critical");
+        if (criticalMarker.empty()) {
+            criticalMarker = defs.append("marker")
+                .attr("id", "arrowhead-critical")
+                .attr("orient", "auto")
+                .attr("markerUnits", "strokeWidth");
+            criticalMarker.append("path");
+        }
+        criticalMarker
+            .attr("viewBox", `0 0 ${arrowSize} ${arrowSize}`)
+            .attr("refX", arrowSize - 1)
+            .attr("refY", arrowSize / 2)
+            .attr("markerWidth", arrowSize)
+            .attr("markerHeight", arrowSize);
+        criticalMarker.select("path")
+            .attr("d", `M 0,0 L ${arrowSize},${arrowSize / 2} L 0,${arrowSize} Z`)
+            .attr("fill", criticalColor);
     }
 
     /**
@@ -5903,7 +5954,9 @@ export class Visual implements IVisual {
     private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
         if (!this.gridLayer?.node() || !yScale) { console.warn("Skipping horizontal grid lines: Missing layer or Y scale."); return; }
         this.gridLayer.selectAll(".grid-line.horizontal").remove();
+        this.gridLayer.selectAll(".alternating-row-bg").remove();
         this.labelGridLayer?.selectAll(".label-grid-line").remove();
+        this.labelGridLayer?.selectAll(".alternating-row-bg-label").remove();
 
         const settings = this.settings.gridLines;
         const lineColor = settings.horizontalLineColor.value.value;
@@ -5911,6 +5964,11 @@ export class Visual implements IVisual {
         const style = settings.horizontalLineStyle.value.value;
         let lineDashArray = "none";
         switch (style) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; break; }
+
+        // Alternating row colors from settings
+        const showAlternating = this.settings?.generalSettings?.alternatingRowColors?.value ?? false;
+        const alternatingColor = this.settings?.generalSettings?.alternatingRowColor?.value?.value ?? "#F5F5F5";
+        const rowHeight = yScale.bandwidth();
 
         const taskYOrders = tasks
             .filter(t => t.yOrder !== undefined && t.yOrder > 0)
@@ -5925,6 +5983,43 @@ export class Visual implements IVisual {
         }
 
         const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
+
+        // Draw alternating row backgrounds if enabled
+        if (showAlternating && rowHeight > 0) {
+            // Build a list of all row indices to fill (0 to max yOrder)
+            const maxYOrder = Math.max(...uniqueYOrders, 0);
+            const rowIndices: number[] = [];
+            for (let i = 0; i <= maxYOrder; i++) {
+                rowIndices.push(i);
+            }
+
+            this.gridLayer.selectAll(".alternating-row-bg")
+                .data(rowIndices.filter(i => i % 2 === 1)) // Odd rows get background
+                .enter()
+                .append("rect")
+                .attr("class", "alternating-row-bg")
+                .attr("x", 0)
+                .attr("y", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
+                .attr("width", chartWidth)
+                .attr("height", rowHeight)
+                .style("fill", alternatingColor)
+                .style("pointer-events", "none");
+
+            // Extend alternating to label area
+            if (this.labelGridLayer) {
+                this.labelGridLayer.selectAll(".alternating-row-bg-label")
+                    .data(rowIndices.filter(i => i % 2 === 1))
+                    .enter()
+                    .append("rect")
+                    .attr("class", "alternating-row-bg-label")
+                    .attr("x", -currentLeftMargin)
+                    .attr("y", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
+                    .attr("width", currentLeftMargin)
+                    .attr("height", rowHeight)
+                    .style("fill", alternatingColor)
+                    .style("pointer-events", "none");
+            }
+        }
 
         this.gridLayer.selectAll(".grid-line.horizontal")
             .data(uniqueYOrders)
@@ -6146,6 +6241,7 @@ export class Visual implements IVisual {
                 .attr("x", (d: Date) => xScale(d))
                 .attr("y", this.headerHeight - 15)
                 .attr("text-anchor", "middle")
+                .style("font-family", this.getFontFamily())
                 .style("font-size", `${labelFontSize}pt`)
                 .style("fill", labelColor)
                 .style("pointer-events", "none")
@@ -6196,6 +6292,12 @@ export class Visual implements IVisual {
         const minInlineDurationWidth = 28;
         const minBarWidthForStrongStroke = 8;
         const minBarWidthForGlow = 10;
+
+        // Task bar styling from settings
+        const taskBarCornerRadius = this.settings.taskBars.taskBarCornerRadius.value;
+        const taskBarStrokeColor = this.settings.taskBars.taskBarStrokeColor.value.value;
+        const taskBarStrokeWidth = this.settings.taskBars.taskBarStrokeWidth.value;
+        const milestoneShape = this.settings.taskBars.milestoneShape.value?.value ?? "diamond";
 
         const getTaskBarWidth = (d: Task): number => {
             if (!(d.startDate instanceof Date) || !(d.finishDate instanceof Date)) {
@@ -6363,8 +6465,8 @@ export class Visual implements IVisual {
             .attr("width", (d: Task) => getTaskBarWidth(d))
             .attr("height", taskHeight)
 
-            .attr("rx", (d: Task) => Math.min(5, taskHeight * 0.15, getTaskBarWidth(d) / 2))
-            .attr("ry", (d: Task) => Math.min(5, taskHeight * 0.15, getTaskBarWidth(d) / 2))
+            .attr("rx", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
+            .attr("ry", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
             .style("fill", (d: Task) => getTaskFillColor(d, taskColor))
 
             .style("stroke", (d: Task) => {
@@ -6375,11 +6477,13 @@ export class Visual implements IVisual {
                     if (d.isNearCritical) return nearCriticalColor;
                 }
 
-                return this.getForegroundColor();
+                // Use custom stroke color if set, otherwise use foreground color
+                return taskBarStrokeColor || this.getForegroundColor();
             })
             .style("stroke-width", (d: Task) => {
                 const barWidth = getTaskBarWidth(d);
-                let baseWidth = 0.5;
+                // Use custom stroke width setting as base
+                let baseWidth = taskBarStrokeWidth > 0 ? taskBarStrokeWidth : 0.5;
 
                 if (d.internalId === this.selectedTaskId) {
                     baseWidth = 3;
@@ -6387,7 +6491,7 @@ export class Visual implements IVisual {
                     if (d.isCritical) baseWidth = this.settings.criticalPath.criticalBorderWidth.value;
                     else if (d.isNearCritical) baseWidth = this.settings.criticalPath.nearCriticalBorderWidth.value;
                 } else if (d.isCritical) {
-                    baseWidth = 1;
+                    baseWidth = this.settings.criticalPath.criticalBorderWidth.value;
                 }
 
                 if (barWidth < minBarWidthForStrongStroke) {
@@ -6445,7 +6549,19 @@ export class Visual implements IVisual {
             })
             .attr("d", () => {
                 const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-                return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
+                // Support different milestone shapes from settings
+                switch (milestoneShape) {
+                    case "circle":
+                        // Approximate circle with SVG path (8-point circle approximation)
+                        const r = size / 2;
+                        return `M ${r},0 A ${r},${r} 0 1,1 -${r},0 A ${r},${r} 0 1,1 ${r},0`;
+                    case "square":
+                        const halfSize = size / 2;
+                        return `M -${halfSize},-${halfSize} L ${halfSize},-${halfSize} L ${halfSize},${halfSize} L -${halfSize},${halfSize} Z`;
+                    case "diamond":
+                    default:
+                        return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
+                }
             })
             .style("fill", (d: Task) => getTaskFillColor(d, milestoneColor))
 
@@ -6827,6 +6943,7 @@ export class Visual implements IVisual {
             .attr("y", taskHeight / 2)
             .attr("text-anchor", "start")
             // vertical alignment handled via dy to support iOS
+            .style("font-family", this.getFontFamily())
             .style("font-size", `${taskNameFontSize}pt`)
             .style("fill", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelColor : labelColor)
             .style("font-weight", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelWeight : "normal")
@@ -11208,7 +11325,7 @@ export class Visual implements IVisual {
                 .attr('x', -currentLeftMargin + indent + 8)
                 .attr('y', bandCenter - 2)
                 .style('font-size', `${taskNameFontSize}px`)
-                .style('font-family', 'Segoe UI, sans-serif')
+                .style('font-family', this.getFontFamily())
                 .style('fill', iconColor)
                 .text(expandIcon);
 
@@ -11241,7 +11358,7 @@ export class Visual implements IVisual {
                 .attr('y', textY)
                 // vertical alignment handled via dy to support iOS
                 .style('font-size', `${groupNameFontSize}px`)
-                .style('font-family', 'Segoe UI, sans-serif')
+                .style('font-family', this.getFontFamily())
                 .style('font-weight', '600')
                 .style('fill', textColor)
                 .style('opacity', textOpacity);
@@ -12769,11 +12886,29 @@ export class Visual implements IVisual {
     }
 
     private getSelectionColor(): string {
-        return this.resolveColor("#8A2BE2", "selected");
+        const settingColor = this.settings?.generalSettings?.selectionHighlightColor?.value?.value;
+        return this.resolveColor(settingColor || "#0078D4", "selected");
     }
 
     private getForegroundColor(): string {
         return this.resolveColor("#000000", "foreground");
+    }
+
+    /**
+     * Gets the visual background color from settings or returns white as default.
+     */
+    private getVisualBackgroundColor(): string {
+        const settingColor = this.settings?.generalSettings?.visualBackgroundColor?.value?.value;
+        return this.resolveColor(settingColor || "#FFFFFF", "background");
+    }
+
+    /**
+     * Gets the font family from settings or returns the default system font stack.
+     */
+    private getFontFamily(): string {
+        const settingFont = this.settings?.textAndLabels?.fontFamily?.value?.value;
+        const defaultFont = "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif";
+        return (typeof settingFont === "string" && settingFont) ? settingFont : defaultFont;
     }
 
     private getBackgroundColor(): string {
@@ -12782,11 +12917,16 @@ export class Visual implements IVisual {
 
     private applyHighContrastStyling(): void {
         if (!this.highContrastMode) {
-            this.stickyHeaderContainer?.style("background-color", "white");
-            this.legendContainer?.style("background-color", "white");
+            // Use background color from settings
+            const bgColor = this.getVisualBackgroundColor();
+            this.stickyHeaderContainer?.style("background-color", bgColor);
+            this.legendContainer?.style("background-color", bgColor);
+            if (this.scrollableContainer) {
+                this.scrollableContainer.style("background-color", bgColor);
+            }
             if (this.tooltipDiv) {
                 this.tooltipDiv
-                    .style("background-color", "white")
+                    .style("background-color", bgColor)
                     .style("color", "#333")
                     .style("border", "1px solid #ddd");
             }
@@ -12828,6 +12968,46 @@ export class Visual implements IVisual {
                 .style("color", foreground)
                 .style("border", `1px solid ${foreground}`);
         }
+
+        // Apply font family in high contrast mode too
+        this.applyFontFamilySettings();
+    }
+
+    /**
+     * Applies font family settings to all key UI components that display text.
+     * Called during update to ensure fonts reflect settings changes.
+     */
+    private applyFontFamilySettings(): void {
+        const fontFamily = this.getFontFamily();
+
+        // Apply to dropdown input
+        this.dropdownInput?.style("font-family", fontFamily);
+
+        // Apply to dropdown list
+        this.dropdownList?.style("font-family", fontFamily);
+
+        // Apply to selected task label
+        this.selectedTaskLabel?.style("font-family", fontFamily);
+
+        // Apply to path info label
+        this.pathInfoLabel?.style("font-family", fontFamily);
+
+        // Apply to tooltip
+        this.tooltipDiv?.style("font-family", fontFamily);
+
+        // Apply to loading text elements
+        this.loadingText?.style("font-family", fontFamily);
+        this.loadingRowsText?.style("font-family", fontFamily);
+        this.loadingProgressText?.style("font-family", fontFamily);
+
+        // Apply to legend
+        this.legendContainer?.style("font-family", fontFamily);
+
+        // Apply to float threshold input
+        this.floatThresholdInput?.style("font-family", fontFamily);
+
+        // Apply to any other header text elements (like "Visible Tasks" label)
+        this.headerSvg?.selectAll("text").style("font-family", fontFamily);
     }
 
     private formatTooltipValue(value: PrimitiveValue): string {
