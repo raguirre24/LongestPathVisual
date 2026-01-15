@@ -665,6 +665,7 @@ export declare class Visual implements IVisual {
     private getColumnIndex;
     private parseDate;
     private refreshDateFormatters;
+    private formatColumnDate;
     private formatDate;
     private formatLineDate;
     private limitTasks;

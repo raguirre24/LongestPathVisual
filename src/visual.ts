@@ -7745,12 +7745,12 @@ export class Visual implements IVisual {
 
             // Render Start Date
             if (showStart) {
-                appendColumnText(mergedGroups, startOffset, startWidth, (d: Task) => d.startDate ? this.formatDate(d.startDate) : "", "middle");
+                appendColumnText(mergedGroups, startOffset, startWidth, (d: Task) => d.startDate ? this.formatColumnDate(d.startDate) : "", "middle");
             }
 
             // Render Finish Date
             if (showFinish) {
-                appendColumnText(mergedGroups, finishOffset, finishWidth, (d: Task) => d.finishDate ? this.formatDate(d.finishDate) : "", "middle");
+                appendColumnText(mergedGroups, finishOffset, finishWidth, (d: Task) => d.finishDate ? this.formatColumnDate(d.finishDate) : "", "middle");
             }
 
             // Render Duration
@@ -12469,6 +12469,14 @@ export class Visual implements IVisual {
             month: "short",
             year: "2-digit"
         });
+    }
+
+    private formatColumnDate(date: Date): string {
+        if (!date || isNaN(date.getTime())) return "";
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
     }
 
     private formatDate(date: Date | null | undefined): string {
