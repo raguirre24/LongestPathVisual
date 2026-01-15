@@ -626,6 +626,12 @@
                         "numeric": true
                     }
                 },
+                "rightMargin": {
+                    "displayName": "Right Margin (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
                 "taskPadding": {
                     "displayName": "Task Padding (px)",
                     "type": {
@@ -799,6 +805,21 @@
                         ]
                     }
                 },
+                "labelPosition": {
+                    "displayName": "Label Position",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "right",
+                                "displayName": "Right"
+                            },
+                            {
+                                "value": "left",
+                                "displayName": "Left"
+                            }
+                        ]
+                    }
+                },
                 "showLabel": {
                     "displayName": "Show Label",
                     "type": {
@@ -879,6 +900,21 @@
                         ]
                     }
                 },
+                "labelPosition": {
+                    "displayName": "Label Position",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "right",
+                                "displayName": "Right"
+                            },
+                            {
+                                "value": "left",
+                                "displayName": "Left"
+                            }
+                        ]
+                    }
+                },
                 "showLabel": {
                     "displayName": "Show Label",
                     "type": {
@@ -955,6 +991,21 @@
                             {
                                 "value": "dotted",
                                 "displayName": "Dotted"
+                            }
+                        ]
+                    }
+                },
+                "labelPosition": {
+                    "displayName": "Label Position",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "right",
+                                "displayName": "Right"
+                            },
+                            {
+                                "value": "left",
+                                "displayName": "Left"
                             }
                         ]
                     }
@@ -1045,6 +1096,21 @@
                             {
                                 "value": "dotted",
                                 "displayName": "Dotted"
+                            }
+                        ]
+                    }
+                },
+                "labelPosition": {
+                    "displayName": "Label Position",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "right",
+                                "displayName": "Right"
+                            },
+                            {
+                                "value": "left",
+                                "displayName": "Left"
                             }
                         ]
                     }

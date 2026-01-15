@@ -19,6 +19,11 @@ const lineStyleItems: powerbi.IEnumMember[] = [
     { value: "dotted", displayName: "Dotted" }
 ];
 
+const labelPositionItems: powerbi.IEnumMember[] = [
+    { value: "right", displayName: "Right" },
+    { value: "left", displayName: "Left" }
+];
+
 const fontFamilyItems: powerbi.IEnumMember[] = [
     { value: "Segoe UI", displayName: "Segoe UI" },
     { value: "Arial", displayName: "Arial" },
@@ -584,6 +589,16 @@ class LayoutSettingsCard extends Card {
         }
     });
 
+    rightMargin = new NumUpDown({
+        name: "rightMargin",
+        displayName: "Right Margin (px)",
+        value: 100,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 10 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 500 }
+        }
+    });
+
     taskPadding = new NumUpDown({
         name: "taskPadding",
         displayName: "Task Padding (px)",
@@ -618,6 +633,7 @@ class LayoutSettingsCard extends Card {
 
     slices: Slice[] = [
         this.leftMargin,
+        this.rightMargin,
         this.taskPadding,
         this.maxTasksToShow,
         this.headerHeight
@@ -739,6 +755,7 @@ class ProjectFinishLineCard extends Card {
     lineColor = new ColorPicker({ name: "lineColor", displayName: "Line Color", value: { value: "#4CAF50" } });
     lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
     lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
+    labelPosition = new ItemDropdown({ name: "labelPosition", displayName: "Label Position", items: labelPositionItems, value: labelPositionItems.find(item => item.value === "right") });
     showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", value: true });
     labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", value: { value: "#333333" } });
     labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
@@ -746,7 +763,7 @@ class ProjectFinishLineCard extends Card {
     labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", value: { value: "#FFFFFF" } });
     labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
 
-    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.labelPosition, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
 }
 
 // ============================================================================
@@ -759,6 +776,7 @@ class BaselineFinishLineCard extends Card {
     show = new ToggleSwitch({ name: "show", displayName: "Show Line", value: true });
     lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
     lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
+    labelPosition = new ItemDropdown({ name: "labelPosition", displayName: "Label Position", items: labelPositionItems, value: labelPositionItems.find(item => item.value === "right") });
     showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", value: true });
     labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", value: { value: "#2E8B57" } });
     labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
@@ -766,7 +784,7 @@ class BaselineFinishLineCard extends Card {
     labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", value: { value: "#FFFFFF" } });
     labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
 
-    slices: Slice[] = [this.show, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+    slices: Slice[] = [this.show, this.lineWidth, this.lineStyle, this.labelPosition, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
 }
 
 // ============================================================================
@@ -779,6 +797,7 @@ class PreviousUpdateFinishLineCard extends Card {
     show = new ToggleSwitch({ name: "show", displayName: "Show Line", value: true });
     lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
     lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dashed") });
+    labelPosition = new ItemDropdown({ name: "labelPosition", displayName: "Label Position", items: labelPositionItems, value: labelPositionItems.find(item => item.value === "right") });
     showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", value: true });
     labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", value: { value: "#9400D3" } });
     labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
@@ -786,7 +805,7 @@ class PreviousUpdateFinishLineCard extends Card {
     labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", value: { value: "#FFFFFF" } });
     labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
 
-    slices: Slice[] = [this.show, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+    slices: Slice[] = [this.show, this.lineWidth, this.lineStyle, this.labelPosition, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
 }
 
 // ============================================================================
@@ -800,6 +819,7 @@ class DataDateLineCard extends Card {
     lineColor = new ColorPicker({ name: "lineColor", displayName: "Line Color", value: { value: "#7C3AED" } });
     lineWidth = new NumUpDown({ name: "lineWidth", displayName: "Line Width (px)", value: 1.5, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 } } });
     lineStyle = new ItemDropdown({ name: "lineStyle", displayName: "Line Style", items: lineStyleItems, value: lineStyleItems.find(item => item.value === "dotted") });
+    labelPosition = new ItemDropdown({ name: "labelPosition", displayName: "Label Position", items: labelPositionItems, value: labelPositionItems.find(item => item.value === "right") });
     showLabel = new ToggleSwitch({ name: "showLabel", displayName: "Show Label", value: true });
     labelColor = new ColorPicker({ name: "labelColor", displayName: "Label Color", value: { value: "#333333" } });
     labelFontSize = new NumUpDown({ name: "labelFontSize", displayName: "Label Font Size (pt)", value: 9, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 6 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 16 } } });
@@ -807,7 +827,7 @@ class DataDateLineCard extends Card {
     labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", value: { value: "#FFFFFF" } });
     labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
 
-    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.labelPosition, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
 }
 
 // ============================================================================

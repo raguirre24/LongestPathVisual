@@ -4594,6 +4594,7 @@ export class Visual implements IVisual {
             const connectorColor = this.settings.connectorLines.connectorColor.value.value;
 
             this.margin.left = this.settings.layoutSettings.leftMargin.value;
+            this.margin.right = this.settings.layoutSettings.rightMargin.value;
             this.updateMarginResizerPosition();
 
             this.clearVisual();
@@ -8962,6 +8963,7 @@ export class Visual implements IVisual {
         labelBackgroundOpacity: number;
         labelY: number;
         labelXOffset?: number;
+        labelPosition?: string;
         labelFormatter?: (date: Date) => string;
         xScale: ScaleTime<number, number>;
         chartHeight: number;
@@ -8971,7 +8973,7 @@ export class Visual implements IVisual {
         const {
             className, targetDate, lineColor, lineWidth, lineStyle, showLabel,
             labelColor, labelFontSize, labelBackgroundColor, labelBackgroundOpacity,
-            labelY, labelXOffset = 5, labelFormatter,
+            labelY, labelXOffset = 5, labelPosition = "right", labelFormatter,
             xScale, chartHeight, mainGridLayer, headerLayer
         } = config;
 
@@ -8999,7 +9001,9 @@ export class Visual implements IVisual {
 
         if (showLabel) {
             const labelText = labelFormatter ? labelFormatter(targetDate) : this.formatDate(targetDate);
-            const labelX = endX + labelXOffset;
+            const sign = labelPosition === "left" ? -1 : 1;
+            const anchor = labelPosition === "left" ? "end" : "start";
+            const labelX = endX + (labelXOffset * sign);
 
             const labelGroup = headerLayer.append("g")
                 .attr("class", `${className}-label-group`)
@@ -9009,7 +9013,7 @@ export class Visual implements IVisual {
                 .attr("class", `${className}-label`)
                 .attr("x", labelX)
                 .attr("y", labelY)
-                .attr("text-anchor", "start")
+                .attr("text-anchor", anchor)
                 .style("fill", labelColor)
                 .style("font-size", `${labelFontSize}pt`)
                 .style("font-weight", "600")
@@ -9073,6 +9077,7 @@ export class Visual implements IVisual {
             labelFontSize,
             labelBackgroundColor,
             labelBackgroundOpacity,
+            labelPosition: settings.labelPosition?.value?.value as string,
             labelY: this.headerHeight - 12,
             labelFormatter: (d: Date) => showLabelPrefix ? `Finish: ${this.formatLineDate(d)}` : this.formatLineDate(d),
             xScale,
@@ -9152,7 +9157,10 @@ export class Visual implements IVisual {
                 : this.formatLineDate(this.dataDate);
 
             const labelY = this.headerHeight - 26;
-            const labelX = dataDateX + 5;
+            const labelPosition = settings.labelPosition?.value?.value as string || "right";
+            const sign = labelPosition === "left" ? -1 : 1;
+            const anchor = labelPosition === "left" ? "end" : "start";
+            const labelX = dataDateX + (5 * sign);
 
             const labelGroup = headerLayer.append("g")
                 .attr("class", "data-date-label-group")
@@ -9162,7 +9170,7 @@ export class Visual implements IVisual {
                 .attr("class", "data-date-label")
                 .attr("x", labelX)
                 .attr("y", labelY)
-                .attr("text-anchor", "start")
+                .attr("text-anchor", anchor)
                 .style("fill", labelColor)
                 .style("font-size", labelFontSize + "pt")
                 .style("font-weight", "600")
@@ -9226,6 +9234,7 @@ export class Visual implements IVisual {
             labelFontSize: baselineLabelFontSize,
             labelBackgroundColor: baselineLabelBackgroundColor,
             labelBackgroundOpacity: baselineLabelBackgroundOpacity,
+            labelPosition: baselineSettings.labelPosition?.value?.value as string,
             labelY: this.headerHeight - 36,
             labelFormatter: (d: Date) => baselineShowLabelPrefix ? `Baseline Finish: ${this.formatLineDate(d)}` : `Baseline: ${this.formatLineDate(d)}`,
             xScale,
@@ -9265,6 +9274,7 @@ export class Visual implements IVisual {
             labelFontSize: prevLabelFontSize,
             labelBackgroundColor: prevLabelBackgroundColor,
             labelBackgroundOpacity: prevLabelBackgroundOpacity,
+            labelPosition: prevSettings.labelPosition?.value?.value as string,
             labelY: this.headerHeight - 50,
             labelFormatter: (d: Date) => prevShowLabelPrefix ? `Previous Finish: ${this.formatLineDate(d)}` : `Previous: ${this.formatLineDate(d)}`,
             xScale,

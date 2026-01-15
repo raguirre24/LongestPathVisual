@@ -98,6 +98,7 @@ declare class LayoutSettingsCard extends Card {
     name: string;
     displayName: string;
     leftMargin: formattingSettings.NumUpDown;
+    rightMargin: formattingSettings.NumUpDown;
     taskPadding: formattingSettings.NumUpDown;
     maxTasksToShow: formattingSettings.NumUpDown;
     headerHeight: formattingSettings.NumUpDown;
@@ -126,6 +127,7 @@ declare class ProjectFinishLineCard extends Card {
     lineColor: formattingSettings.ColorPicker;
     lineWidth: formattingSettings.NumUpDown;
     lineStyle: formattingSettings.ItemDropdown;
+    labelPosition: formattingSettings.ItemDropdown;
     showLabel: formattingSettings.ToggleSwitch;
     labelColor: formattingSettings.ColorPicker;
     labelFontSize: formattingSettings.NumUpDown;
@@ -140,6 +142,7 @@ declare class BaselineFinishLineCard extends Card {
     show: formattingSettings.ToggleSwitch;
     lineWidth: formattingSettings.NumUpDown;
     lineStyle: formattingSettings.ItemDropdown;
+    labelPosition: formattingSettings.ItemDropdown;
     showLabel: formattingSettings.ToggleSwitch;
     labelColor: formattingSettings.ColorPicker;
     labelFontSize: formattingSettings.NumUpDown;
@@ -154,6 +157,7 @@ declare class PreviousUpdateFinishLineCard extends Card {
     show: formattingSettings.ToggleSwitch;
     lineWidth: formattingSettings.NumUpDown;
     lineStyle: formattingSettings.ItemDropdown;
+    labelPosition: formattingSettings.ItemDropdown;
     showLabel: formattingSettings.ToggleSwitch;
     labelColor: formattingSettings.ColorPicker;
     labelFontSize: formattingSettings.NumUpDown;
@@ -169,6 +173,7 @@ declare class DataDateLineCard extends Card {
     lineColor: formattingSettings.ColorPicker;
     lineWidth: formattingSettings.NumUpDown;
     lineStyle: formattingSettings.ItemDropdown;
+    labelPosition: formattingSettings.ItemDropdown;
     showLabel: formattingSettings.ToggleSwitch;
     labelColor: formattingSettings.ColorPicker;
     labelFontSize: formattingSettings.NumUpDown;
