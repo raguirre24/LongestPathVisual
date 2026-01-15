@@ -430,3 +430,31 @@
         stroke: CanvasText;
     }
 }
+
+// ============================================================================
+// EXPORT BUTTON - PDF export functionality
+// ============================================================================
+
+@keyframes export-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.export-button-group {
+    transition: opacity 0.2s ease;
+
+    &.is-exporting {
+        cursor: wait !important;
+        pointer-events: none;
+    }
+
+    .export-spinner {
+        transform-origin: center;
+        animation: export-spin 1s linear infinite;
+    }
+
+    &:focus-visible {
+        outline: 2px solid #0078D4;
+        outline-offset: 2px;
+    }
+}

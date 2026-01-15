@@ -69,12 +69,20 @@ class GeneralSettingsCard extends Card {
         value: true
     });
 
+    showExportButton = new ToggleSwitch({
+        name: "showExportButton",
+        displayName: "Show Export Button",
+        description: "Show or hide the PDF export button in the header",
+        value: true
+    });
+
     slices: Slice[] = [
         this.visualBackgroundColor,
         this.alternatingRowColors,
         this.alternatingRowColor,
         this.selectionHighlightColor,
-        this.showTooltips
+        this.showTooltips,
+        this.showExportButton
     ];
 }
 
@@ -225,22 +233,7 @@ class CriticalPathCard extends Card {
         }
     });
 
-    showFloatColumn = new ToggleSwitch({
-        name: "showFloatColumn",
-        displayName: "Show Float Column",
-        description: "Display total float value next to task names",
-        value: false
-    });
 
-    floatColumnWidth = new NumUpDown({
-        name: "floatColumnWidth",
-        displayName: "Float Column Width (px)",
-        value: 40,
-        options: {
-            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 25 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 80 }
-        }
-    });
 
     // Hidden property for persisting toggle state
     showAllTasks = new ToggleSwitch({
@@ -257,8 +250,6 @@ class CriticalPathCard extends Card {
         this.showNearCritical,
         this.nearCriticalColor,
         this.nearCriticalBorderWidth,
-        this.showFloatColumn,
-        this.floatColumnWidth,
         this.showAllTasks
     ];
 }
@@ -547,6 +538,38 @@ class TextAndLabelsCard extends Card {
 // ============================================================================
 // 7. LAYOUT
 // ============================================================================
+// ============================================================================
+// 6.5. COLUMNS
+// ============================================================================
+class ColumnsCard extends Card {
+    name: string = "columns";
+    displayName: string = "Columns";
+
+    enableColumnDisplay = new ToggleSwitch({ name: "enableColumnDisplay", displayName: "Show Columns Toggle", value: true });
+    showStartDate = new ToggleSwitch({ name: "showStartDate", displayName: "Show Start Date", value: false });
+    startDateWidth = new NumUpDown({ name: "startDateWidth", displayName: "Start Date Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+
+    showFinishDate = new ToggleSwitch({ name: "showFinishDate", displayName: "Show Finish Date", value: false });
+    finishDateWidth = new NumUpDown({ name: "finishDateWidth", displayName: "Finish Date Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+
+    showDuration = new ToggleSwitch({ name: "showDuration", displayName: "Show Duration", value: false });
+    durationWidth = new NumUpDown({ name: "durationWidth", displayName: "Duration Width (px)", value: 60, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+
+    showTotalFloat = new ToggleSwitch({ name: "showTotalFloat", displayName: "Show Total Float", value: false });
+    totalFloatWidth = new NumUpDown({ name: "totalFloatWidth", displayName: "Total Float Width (px)", value: 50, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+
+    slices: Slice[] = [
+        this.enableColumnDisplay,
+        this.showStartDate, this.startDateWidth,
+        this.showFinishDate, this.finishDateWidth,
+        this.showDuration, this.durationWidth,
+        this.showTotalFloat, this.totalFloatWidth
+    ];
+}
+
+// ============================================================================
+// 7. LAYOUT
+// ============================================================================
 class LayoutSettingsCard extends Card {
     name: string = "layoutSettings";
     displayName: string = "Layout";
@@ -557,7 +580,7 @@ class LayoutSettingsCard extends Card {
         value: 300,
         options: {
             minValue: { type: powerbi.visuals.ValidatorType.Min, value: 50 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 600 }
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 1000 }
         }
     });
 
@@ -1041,6 +1064,7 @@ export class VisualSettings extends Model {
     comparisonBars = new ComparisonBarsCard();
     connectorLines = new ConnectorLinesCard();
     textAndLabels = new TextAndLabelsCard();
+    columns = new ColumnsCard();
     layoutSettings = new LayoutSettingsCard();
     gridLines = new GridLinesCard();
     projectEndLine = new ProjectFinishLineCard();
@@ -1062,6 +1086,7 @@ export class VisualSettings extends Model {
         this.comparisonBars,
         this.connectorLines,
         this.textAndLabels,
+        this.columns,
         this.layoutSettings,
         this.gridLines,
         this.projectEndLine,

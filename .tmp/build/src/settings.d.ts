@@ -10,6 +10,7 @@ declare class GeneralSettingsCard extends Card {
     alternatingRowColor: formattingSettings.ColorPicker;
     selectionHighlightColor: formattingSettings.ColorPicker;
     showTooltips: formattingSettings.ToggleSwitch;
+    showExportButton: formattingSettings.ToggleSwitch;
     slices: Slice[];
 }
 declare class TaskBarsCard extends Card {
@@ -34,8 +35,6 @@ declare class CriticalPathCard extends Card {
     showNearCritical: formattingSettings.ToggleSwitch;
     nearCriticalColor: formattingSettings.ColorPicker;
     nearCriticalBorderWidth: formattingSettings.NumUpDown;
-    showFloatColumn: formattingSettings.ToggleSwitch;
-    floatColumnWidth: formattingSettings.NumUpDown;
     showAllTasks: formattingSettings.ToggleSwitch;
     slices: Slice[];
 }
@@ -79,6 +78,20 @@ declare class TextAndLabelsCard extends Card {
     showFinishDates: formattingSettings.ToggleSwitch;
     dateBackgroundColor: formattingSettings.ColorPicker;
     dateBackgroundTransparency: formattingSettings.NumUpDown;
+    slices: Slice[];
+}
+declare class ColumnsCard extends Card {
+    name: string;
+    displayName: string;
+    enableColumnDisplay: formattingSettings.ToggleSwitch;
+    showStartDate: formattingSettings.ToggleSwitch;
+    startDateWidth: formattingSettings.NumUpDown;
+    showFinishDate: formattingSettings.ToggleSwitch;
+    finishDateWidth: formattingSettings.NumUpDown;
+    showDuration: formattingSettings.ToggleSwitch;
+    durationWidth: formattingSettings.NumUpDown;
+    showTotalFloat: formattingSettings.ToggleSwitch;
+    totalFloatWidth: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 declare class LayoutSettingsCard extends Card {
@@ -286,6 +299,7 @@ export declare class VisualSettings extends Model {
     comparisonBars: ComparisonBarsCard;
     connectorLines: ConnectorLinesCard;
     textAndLabels: TextAndLabelsCard;
+    columns: ColumnsCard;
     layoutSettings: LayoutSettingsCard;
     gridLines: GridLinesCard;
     projectEndLine: ProjectFinishLineCard;

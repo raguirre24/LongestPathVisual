@@ -11,6 +11,9 @@ export declare class Visual implements IVisual {
     private tooltipService;
     private localizationManager;
     private eventService;
+    private downloadService;
+    private isExporting;
+    private exportButtonGroup;
     private allowInteractions;
     private highContrastMode;
     private highContrastForeground;
@@ -54,6 +57,7 @@ export declare class Visual implements IVisual {
     private lastUpdateOptions;
     private lastTaskFilterSignature;
     private showConnectorLinesInternal;
+    private showExtraColumnsInternal;
     private wbsExpandedInternal;
     private showAllTasksInternal;
     private showBaselineInternal;
@@ -217,6 +221,8 @@ export declare class Visual implements IVisual {
     private createOrUpdatePreviousUpdateToggleButton;
     private lightenColor;
     private createConnectorLinesToggleButton;
+    private toggleColumnDisplayInternal;
+    private createColumnDisplayToggleButton;
     private createOrUpdateWbsEnableToggleButton;
     /**
      * Creates both WBS expand (forward cycle) and collapse (reverse cycle) buttons
@@ -342,6 +348,37 @@ export declare class Visual implements IVisual {
     private updateChartClipRect;
     private toggleConnectorLinesDisplay;
     /**
+     * Creates the export button in the header area
+     */
+    private createExportButton;
+    /**
+     * Updates the export button visual state
+     */
+    private updateExportButtonState;
+    /**
+     * Exports the visual as a PDF file using Power BI Download Service API
+     * Falls back to direct download if the service is unavailable
+     */
+    private exportToPDF;
+    /**
+     * Fallback download method using blob URL
+     * This works when the Power BI Download Service is unavailable
+     */
+    private fallbackDownload;
+    /**
+     * Handle cases where export is not allowed
+     */
+    private handleExportNotAllowed;
+    /**
+     * Generates PDF content by compositing all visual layers onto a single canvas
+     * @returns Base64 encoded PDF content
+     */
+    private generatePDFContent;
+    /**
+     * Converts an SVG element to a canvas
+     */
+    private svgToCanvas;
+    /**
      * Log data loading info. With 'top' algorithm, data arrives in one batch.
      */
     private logDataLoadInfo;
@@ -403,6 +440,7 @@ export declare class Visual implements IVisual {
      * Draws task name labels in an unclipped layer so they stay visible in the left margin.
      */
     private drawTaskLabelsLayer;
+    private drawColumnHeaders;
     private drawTasksCanvas;
     /**
      * Helper to add a rounded rect to the current path

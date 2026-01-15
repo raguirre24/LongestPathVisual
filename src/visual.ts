@@ -17,6 +17,10 @@ import ITooltipService = powerbi.extensibility.ITooltipService;
 import ILocalizationManager = powerbi.extensibility.ILocalizationManager;
 import IVisualEventService = powerbi.extensibility.IVisualEventService;
 import VisualTooltipDataItem = powerbi.extensibility.VisualTooltipDataItem;
+import IDownloadService = powerbi.extensibility.IDownloadService;
+import PrivilegeStatus = powerbi.PrivilegeStatus;
+
+import { jsPDF } from "jspdf";
 
 import { VisualSettings } from "./settings";
 import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
@@ -127,6 +131,9 @@ export class Visual implements IVisual {
     private tooltipService: ITooltipService | null = null;
     private localizationManager: ILocalizationManager;
     private eventService: IVisualEventService | null = null;
+    private downloadService: IDownloadService | null = null;
+    private isExporting: boolean = false;
+    private exportButtonGroup: Selection<SVGGElement, unknown, null, undefined> | null = null;
     private allowInteractions: boolean = true;
     private highContrastMode: boolean = false;
     private highContrastForeground: string = "#000000";
@@ -174,6 +181,7 @@ export class Visual implements IVisual {
     private lastTaskFilterSignature: string | null = null;
 
     private showConnectorLinesInternal: boolean = true;
+    private showExtraColumnsInternal: boolean = true;
 
     private wbsExpandedInternal: boolean = true;
 
@@ -466,12 +474,14 @@ export class Visual implements IVisual {
         mode: 'wide' | 'medium' | 'narrow';
         showAllCritical: { x: number; width: number; showText: boolean };
         modeToggle: { x: number; width: number; showFullLabels: boolean };
+        colToggle: { x: number; size: number };
         baseline: { x: number; width: number; iconOnly: boolean };
         previousUpdate: { x: number; width: number; iconOnly: boolean };
         connectorLines: { x: number; size: number };
         wbsEnable: { x: number; width: number };
         wbsExpandToggle: { x: number; size: number };
         wbsCollapseToggle: { x: number; size: number };
+        exportButton: { x: number; size: number };
         gap: number;
     } {
         const mode = this.getLayoutMode(viewportWidth);
@@ -500,6 +510,10 @@ export class Visual implements IVisual {
         const connectorLines = { x, size: iconButtonSize };
         x += iconButtonSize + gap;
 
+        // Column toggle moved here - after connector lines, before WBS
+        const colToggle = { x, size: iconButtonSize };
+        x += iconButtonSize + gap;
+
         const wbsEnableWidth = mode === 'narrow' ? 60 : 70;
         const wbsEnable = { x, width: wbsEnableWidth };
         x += wbsEnableWidth + gap;
@@ -507,17 +521,24 @@ export class Visual implements IVisual {
         const wbsExpandToggle = { x, size: iconButtonSize };
         x += iconButtonSize + gap;
         const wbsCollapseToggle = { x, size: iconButtonSize };
+        x += iconButtonSize + gap;
+
+        // Export button - smaller icon button (28px)
+        const exportButtonSize = 28;
+        const exportButton = { x, size: exportButtonSize };
 
         return {
             mode,
             showAllCritical,
             modeToggle,
+            colToggle,
             baseline,
             previousUpdate,
             connectorLines,
             wbsEnable,
             wbsExpandToggle,
             wbsCollapseToggle,
+            exportButton,
             gap
         };
     }
@@ -551,10 +572,9 @@ export class Visual implements IVisual {
 
         dropdownLeft = Math.max(horizontalPadding, Math.min(dropdownLeft, maxLeft));
 
-        const traceGap = 20;
-        const approxTraceWidth = 180;
-        const maxTraceLeft = Math.max(horizontalPadding, viewportWidth - approxTraceWidth);
-        const traceModeLeft = Math.min(dropdownLeft + dropdownWidth + traceGap, maxTraceLeft);
+        // Position Trace Mode Toggle right after the dropdown with a small gap
+        const traceGap = 15;
+        const traceModeLeft = dropdownLeft + dropdownWidth + traceGap;
 
         const floatThresholdMaxWidth = mode === 'narrow' ? 180 : 250;
 
@@ -574,6 +594,7 @@ export class Visual implements IVisual {
         this.selectionManager = this.host.createSelectionManager();
         this.tooltipService = this.host.tooltipService;
         this.eventService = this.host.eventService;
+        this.downloadService = this.host.downloadService;
         this.zoomMouseMoveHandler = (event: MouseEvent) => this.handleZoomDrag(event);
         this.zoomMouseUpHandler = () => this.endZoomDrag();
         this.zoomTouchMoveHandler = (event: TouchEvent) => {
@@ -1995,6 +2016,155 @@ export class Visual implements IVisual {
         });
     }
 
+    private toggleColumnDisplayInternal(): void {
+        this.showExtraColumnsInternal = !this.showExtraColumnsInternal;
+        this.debugLog(`Toggled extra columns display. New state: ${this.showExtraColumnsInternal}`);
+
+        // Persist the change so it survives reload
+        if (this.settings?.columns) {
+            this.settings.columns.enableColumnDisplay.value = this.showExtraColumnsInternal;
+
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "columns",
+                    properties: { enableColumnDisplay: this.showExtraColumnsInternal },
+                    selector: null
+                }]
+            });
+        }
+
+        this.createColumnDisplayToggleButton(this.lastUpdateOptions?.viewport?.width || 800);
+
+        this.captureScrollPosition(); // Ensure scroll is preserved
+
+        // Trigger generic update like others
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        } else {
+            this.forceFullUpdate = true;
+            this.requestUpdate();
+        }
+    }
+
+    private createColumnDisplayToggleButton(viewportWidth?: number): void {
+        if (!this.headerSvg) return;
+
+        this.headerSvg.selectAll(".column-toggle-group").remove();
+
+        // Check if feature is enabled in settings (it is by default in capabilities, but good to check)
+        // Also check if any columns are actually enabled to be shown? 
+        // Even if individual cols are off, the toggle controls the "Area". 
+        // But if ALL individual cols are off in settings, toggle does nothing visually except expand space.
+        // We'll show it regardless.
+
+        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+        const { x: buttonX, size: buttonSize } = layout.colToggle;
+
+        const colToggleGroup = this.headerSvg.append("g")
+            .attr("class", "column-toggle-group")
+            .style("cursor", "pointer")
+            .attr("role", "button")
+            .attr("aria-label", this.showExtraColumnsInternal ? "Hide data columns" : "Show data columns")
+            .attr("aria-pressed", this.showExtraColumnsInternal.toString())
+            .attr("tabindex", "0");
+
+        const buttonY = this.UI_TOKENS.spacing.sm;
+
+        colToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
+
+        colToggleGroup.append("rect")
+            .attr("width", buttonSize)
+            .attr("height", buttonSize)
+            .attr("rx", this.UI_TOKENS.radius.medium)
+            .attr("ry", this.UI_TOKENS.radius.medium)
+            .style("fill", this.showExtraColumnsInternal
+                ? this.UI_TOKENS.color.primary.light
+                : this.UI_TOKENS.color.neutral.white)
+            .style("stroke", this.showExtraColumnsInternal
+                ? this.UI_TOKENS.color.primary.default
+                : this.UI_TOKENS.color.neutral.grey60)
+            .style("stroke-width", this.showExtraColumnsInternal ? 2 : 1.5)
+            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+        const iconCenterX = buttonSize / 2;
+        const iconCenterY = buttonSize / 2;
+        const iconG = colToggleGroup.append("g")
+            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
+
+        const iconColor = this.showExtraColumnsInternal
+            ? this.UI_TOKENS.color.primary.default
+            : this.UI_TOKENS.color.neutral.grey130;
+
+        // Draw Arrows
+        if (this.showExtraColumnsInternal) {
+            // Left Arrow (Collapse)
+            iconG.append("path")
+                .attr("d", "M 2,-4 L -2,0 L 2,4")
+                .attr("stroke", iconColor)
+                .attr("stroke-width", 2)
+                .attr("fill", "none")
+                .attr("stroke-linecap", "round")
+                .attr("stroke-linejoin", "round");
+            // Vertical bar to left? No, just arrow is enough.
+        } else {
+            // Right Arrow (Expand)
+            iconG.append("path")
+                .attr("d", "M -2,-4 L 2,0 L -2,4")
+                .attr("stroke", iconColor)
+                .attr("stroke-width", 2)
+                .attr("fill", "none")
+                .attr("stroke-linecap", "round")
+                .attr("stroke-linejoin", "round");
+        }
+
+        const tooltipText = this.showExtraColumnsInternal ? "Hide data columns" : "Show data columns";
+        colToggleGroup.append("title").text(tooltipText);
+
+        const self = this;
+        colToggleGroup
+            .on("mouseover", function () {
+                d3.select(this).select("rect")
+                    .style("fill", self.showExtraColumnsInternal
+                        ? self.UI_TOKENS.color.primary.default
+                        : self.UI_TOKENS.color.neutral.grey20)
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+
+                if (self.showExtraColumnsInternal) {
+                    d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
+                }
+            })
+            .on("mouseout", function () {
+                d3.select(this).select("rect")
+                    .style("fill", self.showExtraColumnsInternal
+                        ? self.UI_TOKENS.color.primary.light
+                        : self.UI_TOKENS.color.neutral.white)
+                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+
+                if (self.showExtraColumnsInternal) {
+                    d3.select(this).select("path").attr("stroke", iconColor);
+                }
+            })
+            .on("mousedown", function () {
+                d3.select(this).select("rect").style("transform", "scale(0.95)");
+            })
+            .on("mouseup", function () {
+                d3.select(this).select("rect").style("transform", "scale(1)");
+            });
+
+        colToggleGroup.on("click", function (event) {
+            if (event) event.stopPropagation();
+            self.toggleColumnDisplayInternal();
+        });
+
+        colToggleGroup.on("keydown", function (event) {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                self.toggleColumnDisplayInternal();
+            }
+        });
+    }
+
     private createOrUpdateWbsEnableToggleButton(viewportWidth?: number): void {
         if (!this.headerSvg) return;
 
@@ -3289,6 +3459,9 @@ export class Visual implements IVisual {
         this.zoomSliderSelection.style("cursor", "grab");
         this.zoomSliderContainer.classed("dragging", false);
 
+        // Preserve scroll position before persisting (which triggers update cycle)
+        this.captureScrollPosition();
+
         // Phase 1: Persist zoom range to settings
         this.persistZoomRange();
     }
@@ -3631,6 +3804,478 @@ export class Visual implements IVisual {
         }
     }
 
+    // ============================================================================
+    // PDF Export Functionality
+    // ============================================================================
+
+    /**
+     * Creates the export button in the header area
+     */
+    private createExportButton(viewportWidth?: number): void {
+        if (!this.headerSvg) return;
+
+        // Remove existing button
+        this.headerSvg.selectAll('.export-button-group').remove();
+        this.exportButtonGroup = null;
+
+        // Check setting
+        const showExportButton = this.settings?.generalSettings?.showExportButton?.value ?? true;
+        if (!showExportButton) return;
+
+        // Use centralized layout for button positioning
+        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+        const { x: buttonX, size: buttonSize } = layout.exportButton;
+        const buttonY = this.UI_TOKENS.spacing.sm;
+
+        // Create button group
+        this.exportButtonGroup = this.headerSvg.append('g')
+            .attr('class', 'export-button-group')
+            .attr('transform', `translate(${buttonX}, ${buttonY})`)
+            .style('cursor', 'pointer')
+            .attr('role', 'button')
+            .attr('aria-label', 'Export chart as PDF')
+            .attr('tabindex', '0');
+
+        // Button background
+        this.exportButtonGroup.append('rect')
+            .attr('class', 'export-btn-bg')
+            .attr('width', buttonSize)
+            .attr('height', buttonSize)
+            .attr('rx', this.UI_TOKENS.radius.medium)
+            .attr('ry', this.UI_TOKENS.radius.medium)
+            .style('fill', this.UI_TOKENS.color.neutral.white)
+            .style('stroke', this.UI_TOKENS.color.neutral.grey60)
+            .style('stroke-width', 1.5)
+            .style('filter', `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style('transition', `all ${this.UI_TOKENS.motion.duration.normal}ms`);
+
+        // Icon group
+        const iconG = this.exportButtonGroup.append('g')
+            .attr('class', 'export-icon')
+            .attr('transform', `translate(${buttonSize / 2}, ${buttonSize / 2})`);
+
+        // Document icon (page with folded corner)
+        iconG.append('path')
+            .attr('d', 'M-5,-7 L-5,7 L5,7 L5,-3 L1,-7 Z')
+            .attr('fill', 'none')
+            .attr('stroke', this.UI_TOKENS.color.neutral.grey130)
+            .attr('stroke-width', 1.5)
+            .attr('stroke-linecap', 'round')
+            .attr('stroke-linejoin', 'round');
+
+        // Folded corner
+        iconG.append('path')
+            .attr('d', 'M1,-7 L1,-3 L5,-3')
+            .attr('fill', 'none')
+            .attr('stroke', this.UI_TOKENS.color.neutral.grey130)
+            .attr('stroke-width', 1.5)
+            .attr('stroke-linecap', 'round')
+            .attr('stroke-linejoin', 'round');
+
+        // Download arrow
+        iconG.append('path')
+            .attr('class', 'export-arrow')
+            .attr('d', 'M0,0 L0,4 M-2,2 L0,4 L2,2')
+            .attr('fill', 'none')
+            .attr('stroke', this.UI_TOKENS.color.primary.default)
+            .attr('stroke-width', 1.5)
+            .attr('stroke-linecap', 'round')
+            .attr('stroke-linejoin', 'round');
+
+        // Tooltip
+        this.exportButtonGroup.append('title')
+            .text('Export chart as PDF');
+
+        // Loading spinner (hidden by default)
+        const spinner = iconG.append('g')
+            .attr('class', 'export-spinner')
+            .style('display', 'none');
+
+        spinner.append('circle')
+            .attr('r', 6)
+            .attr('fill', 'none')
+            .attr('stroke', this.UI_TOKENS.color.primary.default)
+            .attr('stroke-width', 2)
+            .attr('stroke-dasharray', '20 10')
+            .attr('stroke-linecap', 'round');
+
+        // Event handlers
+        const self = this;
+
+        this.exportButtonGroup
+            .on('mouseover', function () {
+                if (self.isExporting) return;
+                d3.select(this).select('.export-btn-bg')
+                    .style('fill', self.UI_TOKENS.color.neutral.grey20)
+                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+            })
+            .on('mouseout', function () {
+                if (self.isExporting) return;
+                d3.select(this).select('.export-btn-bg')
+                    .style('fill', self.UI_TOKENS.color.neutral.white)
+                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+            })
+            .on('click', function (event) {
+                event.stopPropagation();
+                if (!self.isExporting) {
+                    self.exportToPDF();
+                }
+            })
+            .on('keydown', function (event) {
+                if ((event.key === 'Enter' || event.key === ' ') && !self.isExporting) {
+                    event.preventDefault();
+                    self.exportToPDF();
+                }
+            });
+    }
+
+    /**
+     * Updates the export button visual state
+     */
+    private updateExportButtonState(loading: boolean): void {
+        if (!this.exportButtonGroup) return;
+
+        const iconPaths = this.exportButtonGroup.selectAll('.export-icon path');
+        const spinner = this.exportButtonGroup.select('.export-spinner');
+
+        if (loading) {
+            // Show spinner, hide icon paths
+            iconPaths.style('display', 'none');
+            spinner.style('display', 'block');
+
+            this.exportButtonGroup
+                .classed('is-exporting', true)
+                .style('cursor', 'wait')
+                .select('.export-btn-bg')
+                .style('fill', this.UI_TOKENS.color.neutral.grey20);
+        } else {
+            // Show icon, hide spinner
+            iconPaths.style('display', 'block');
+            spinner.style('display', 'none');
+
+            this.exportButtonGroup
+                .classed('is-exporting', false)
+                .style('cursor', 'pointer')
+                .select('.export-btn-bg')
+                .style('fill', this.UI_TOKENS.color.neutral.white);
+        }
+    }
+
+    /**
+     * Exports the visual as a PDF file using Power BI Download Service API
+     * Falls back to direct download if the service is unavailable
+     */
+    private async exportToPDF(): Promise<void> {
+        console.log('[PDF Export] Starting export...');
+
+        if (this.isExporting) {
+            console.log('[PDF Export] Export already in progress, skipping');
+            return;
+        }
+
+        this.isExporting = true;
+        this.updateExportButtonState(true);
+
+        try {
+            // Generate filename with timestamp
+            const now = new Date();
+            const timestamp = now.toISOString()
+                .replace(/[:.]/g, '-')
+                .replace('T', '-')
+                .slice(0, 19);
+            const filename = `gantt-export-${timestamp}.pdf`;
+
+            // Generate PDF content
+            console.log('[PDF Export] Generating PDF content...');
+            const pdfBase64 = await this.generatePDFContent();
+            console.log('[PDF Export] PDF content generated, size:', pdfBase64.length, 'chars');
+
+            // Try Power BI Download Service first
+            if (this.downloadService) {
+                try {
+                    console.log('[PDF Export] Checking download service status...');
+                    const status = await this.downloadService.exportStatus();
+                    console.log('[PDF Export] Export status:', status);
+
+                    if (status === PrivilegeStatus.Allowed) {
+                        console.log('[PDF Export] Triggering download via Power BI API...');
+                        const result = await this.downloadService.exportVisualsContentExtended(
+                            pdfBase64,
+                            filename,
+                            'base64',
+                            'PDF export of Gantt chart visualization'
+                        );
+
+                        if (result.downloadCompleted) {
+                            console.log('[PDF Export] Download completed successfully:', result.fileName);
+                            return; // Success!
+                        } else {
+                            console.warn('[PDF Export] Download may not have completed, trying fallback...');
+                        }
+                    } else {
+                        console.log('[PDF Export] Export not allowed by Power BI, status:', status);
+                        // Still try fallback - it has better messaging for Desktop users
+                    }
+                } catch (apiError) {
+                    console.warn('[PDF Export] Power BI API failed, trying fallback:', apiError);
+                }
+            } else {
+                console.log('[PDF Export] Download service not available, using fallback');
+            }
+
+            // Fallback: Direct download using blob URL
+            console.log('[PDF Export] Using fallback download method...');
+            this.fallbackDownload(pdfBase64, filename);
+
+        } catch (error) {
+            console.error('[PDF Export] Export failed:', error);
+            alert('PDF export failed. Please check the console for details.');
+        } finally {
+            this.isExporting = false;
+            this.updateExportButtonState(false);
+            console.log('[PDF Export] Export process finished');
+        }
+    }
+
+    /**
+     * Fallback download method using blob URL
+     * This works when the Power BI Download Service is unavailable
+     */
+    private fallbackDownload(base64Content: string, filename: string): void {
+        try {
+            // Convert base64 to blob
+            const byteCharacters = atob(base64Content);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'application/pdf' });
+
+            // Try method 1: Direct download link
+            try {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                link.style.display = 'none';
+
+                document.body.appendChild(link);
+                link.click();
+
+                setTimeout(() => {
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                }, 100);
+
+                console.log('[PDF Export] Fallback download initiated:', filename);
+                return;
+            } catch (downloadError) {
+                console.warn('[PDF Export] Direct download blocked, trying window.open...', downloadError);
+            }
+
+            // Try method 2: Open in new window (works in some Desktop scenarios)
+            try {
+                const dataUri = 'data:application/pdf;base64,' + base64Content;
+                const newWindow = window.open(dataUri, '_blank');
+                if (newWindow) {
+                    console.log('[PDF Export] Opened PDF in new tab. Use Ctrl+S or right-click to save.');
+                    alert('PDF opened in a new tab.\n\nUse Ctrl+S or right-click and "Save as..." to download it.');
+                    return;
+                }
+            } catch (windowError) {
+                console.warn('[PDF Export] window.open blocked:', windowError);
+            }
+
+            // Method 3: Copy to clipboard as last resort
+            console.log('[PDF Export] All download methods blocked. Showing manual instructions.');
+            alert(
+                'PDF Export is blocked by browser security in Power BI Desktop.\n\n' +
+                'Workaround options:\n' +
+                '1. Publish the report to Power BI Service and export from there\n' +
+                '2. Use Power BI Desktop\'s built-in "Export to PDF" feature (File → Export → PDF)\n' +
+                '3. Take a screenshot of the visual'
+            );
+        } catch (error) {
+            console.error('[PDF Export] Fallback download failed:', error);
+            alert('Unable to download PDF. This feature may not be available in the current environment.');
+        }
+    }
+
+    /**
+     * Handle cases where export is not allowed
+     */
+    private handleExportNotAllowed(status: PrivilegeStatus): void {
+        let message: string;
+        let userMessage: string;
+
+        switch (status) {
+            case PrivilegeStatus.DisabledByAdmin:
+                message = 'Export is disabled by your administrator.';
+                userMessage = 'PDF Export is disabled by your Power BI administrator.\n\n' +
+                    'To enable this feature, your admin needs to allow "Export data" in the tenant settings.';
+                break;
+            case PrivilegeStatus.NotDeclared:
+                message = 'Export capability not configured.';
+                userMessage = 'PDF Export is not properly configured. Please reload the visual.';
+                break;
+            case PrivilegeStatus.NotSupported:
+                message = 'Export is not supported in this environment.';
+                userMessage = 'PDF Export is not supported in this environment.\n\n' +
+                    'Try using Power BI Service (app.powerbi.com) instead of Desktop development mode.';
+                break;
+            default:
+                message = 'Export is currently unavailable.';
+                userMessage = 'PDF Export is currently unavailable. Please try again later.';
+        }
+
+        console.warn('Export not allowed:', message);
+        alert(userMessage);
+        this.isExporting = false;
+        this.updateExportButtonState(false);
+    }
+
+    /**
+     * Generates PDF content by compositing all visual layers onto a single canvas
+     * @returns Base64 encoded PDF content
+     */
+    private async generatePDFContent(): Promise<string> {
+        const scaleFactor = 2; // Export at 2x for quality
+
+        // Get dimensions
+        const visualWidth = this.target.clientWidth;
+        const visualHeight = this.target.clientHeight;
+
+        // Create high-resolution output canvas
+        const outputCanvas = document.createElement('canvas');
+        outputCanvas.width = visualWidth * scaleFactor;
+        outputCanvas.height = visualHeight * scaleFactor;
+
+        const ctx = outputCanvas.getContext('2d');
+        if (!ctx) {
+            throw new Error('Failed to get canvas context');
+        }
+
+        // Scale for high-res output
+        ctx.scale(scaleFactor, scaleFactor);
+
+        // 1. Fill with background color
+        const bgColor = this.settings?.generalSettings?.visualBackgroundColor?.value?.value || '#FFFFFF';
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, visualWidth, visualHeight);
+
+        // 2. Capture and draw sticky header
+        if (this.headerSvg) {
+            try {
+                const headerNode = this.headerSvg.node() as SVGSVGElement;
+                if (headerNode) {
+                    const headerCanvas = await this.svgToCanvas(headerNode);
+                    ctx.drawImage(headerCanvas, 0, 0);
+                }
+            } catch (e) {
+                console.warn('Could not capture header SVG:', e);
+            }
+        }
+
+        // 3. Draw main content area
+        const contentY = this.headerHeight;
+
+        if (this.useCanvasRendering && this.canvasElement) {
+            // Canvas mode: draw the existing canvas
+            const canvasRect = this.canvasElement.getBoundingClientRect();
+            const targetRect = this.target.getBoundingClientRect();
+            const offsetX = canvasRect.left - targetRect.left;
+            const offsetY = canvasRect.top - targetRect.top;
+
+            ctx.drawImage(
+                this.canvasElement,
+                0, 0, this.canvasElement.width, this.canvasElement.height,
+                offsetX, offsetY,
+                this.canvasElement.width / (window.devicePixelRatio || 1),
+                this.canvasElement.height / (window.devicePixelRatio || 1)
+            );
+        } else if (this.mainSvg) {
+            // SVG mode: convert SVG to canvas and draw
+            try {
+                const mainSvgNode = this.mainSvg.node() as SVGSVGElement;
+                if (mainSvgNode) {
+                    const mainCanvas = await this.svgToCanvas(mainSvgNode);
+                    ctx.drawImage(mainCanvas, this.margin.left, contentY);
+                }
+            } catch (e) {
+                console.warn('Could not capture main SVG:', e);
+            }
+        }
+
+        // 4. Generate PDF from composite canvas
+        // Use JPEG with quality 0.92 for much smaller file size (PNG would be ~32MB, JPEG ~1-2MB)
+        const imgData = outputCanvas.toDataURL('image/jpeg', 0.92);
+        console.log('[PDF Export] Image data size:', Math.round(imgData.length / 1024), 'KB');
+
+        const pdf = new jsPDF({
+            orientation: visualWidth > visualHeight ? 'landscape' : 'portrait',
+            unit: 'px',
+            format: [visualWidth, visualHeight],
+            compress: true
+        });
+
+        pdf.addImage(imgData, 'JPEG', 0, 0, visualWidth, visualHeight, undefined, 'FAST');
+
+        // Return base64 without the data URI prefix
+        const pdfOutput = pdf.output('datauristring');
+        return pdfOutput.split(',')[1];
+    }
+
+    /**
+     * Converts an SVG element to a canvas
+     */
+    private svgToCanvas(svg: SVGSVGElement): Promise<HTMLCanvasElement> {
+        return new Promise((resolve, reject) => {
+            try {
+                // Clone the SVG to avoid modifying the original
+                const clonedSvg = svg.cloneNode(true) as SVGSVGElement;
+
+                // Ensure the SVG has proper namespace
+                // eslint-disable-next-line powerbi-visuals/no-http-string
+                clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                // eslint-disable-next-line powerbi-visuals/no-http-string
+                clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+
+                // Get computed styles and inline them
+                const bbox = svg.getBoundingClientRect();
+                clonedSvg.setAttribute('width', String(bbox.width));
+                clonedSvg.setAttribute('height', String(bbox.height));
+
+                const svgData = new XMLSerializer().serializeToString(clonedSvg);
+                const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+                const url = URL.createObjectURL(svgBlob);
+
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = bbox.width * 2;  // 2x for quality
+                    canvas.height = bbox.height * 2;
+
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        ctx.scale(2, 2);
+                        ctx.drawImage(img, 0, 0);
+                    }
+
+                    URL.revokeObjectURL(url);
+                    resolve(canvas);
+                };
+                img.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    reject(new Error('Failed to load SVG as image'));
+                };
+                img.src = url;
+            } catch (e) {
+                reject(e);
+            }
+        });
+    }
+
     /**
      * Log data loading info. With 'top' algorithm, data arrives in one batch.
      */
@@ -3827,6 +4472,10 @@ export class Visual implements IVisual {
 
             if (this.settings?.connectorLines?.showConnectorLines !== undefined) {
                 this.showConnectorLinesInternal = this.settings.connectorLines.showConnectorLines.value;
+            }
+
+            if (this.settings?.columns?.enableColumnDisplay !== undefined) {
+                this.showExtraColumnsInternal = this.settings.columns.enableColumnDisplay.value;
             }
 
             if (this.settings?.wbsGrouping?.expandCollapseAll !== undefined) {
@@ -4569,7 +5218,7 @@ export class Visual implements IVisual {
 
         const getMarginBounds = (): { min: number; max: number } => {
             const minValue = this.settings?.layoutSettings?.leftMargin?.options?.minValue?.value ?? 50;
-            const maxValue = this.settings?.layoutSettings?.leftMargin?.options?.maxValue?.value ?? 600;
+            const maxValue = this.settings?.layoutSettings?.leftMargin?.options?.maxValue?.value ?? 1000;
             const viewportWidth = this.lastViewport?.width
                 || this.lastUpdateOptions?.viewport?.width
                 || (this.target instanceof HTMLElement ? this.target.clientWidth : 0);
@@ -5203,11 +5852,13 @@ export class Visual implements IVisual {
         }
 
         this.createModeToggleButton(viewportWidth);
+        this.createColumnDisplayToggleButton(viewportWidth);
         this.createOrUpdateBaselineToggleButton(viewportWidth);
         this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
         this.createConnectorLinesToggleButton(viewportWidth);
         this.createOrUpdateWbsEnableToggleButton(viewportWidth);
         this.renderWbsCycleButtons(viewportWidth);
+        this.createExportButton(viewportWidth);
     }
 
     private calculateVisibleTasks(): void {
@@ -5847,6 +6498,9 @@ export class Visual implements IVisual {
             this.drawgridLines(xScale, chartHeight, this.gridLayer, this.headerGridLayer);
         }
 
+        // Draw Headers ALWAYS (both for SVG and Canvas modes)
+        this.drawColumnHeaders(this.headerHeight, currentLeftMargin);
+
         if (this.useCanvasRendering) {
 
             this.taskLayer.style("display", "none");
@@ -5940,6 +6594,8 @@ export class Visual implements IVisual {
         }
 
         const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
+        this.drawColumnHeaders(this.headerHeight, currentLeftMargin);
+
         this.drawBaselineAndPreviousEndLines(
             xScale,
             tasksForProjectEnd,
@@ -6885,13 +7541,40 @@ export class Visual implements IVisual {
     ): void {
         if (!this.taskLabelLayer || !yScale) return;
 
-        // Phase 2: Prepare for float column overlap prevention
-        const showFloatColumn = this.settings?.criticalPath?.showFloatColumn?.value ?? false;
-        const floatColumnWidth = this.settings?.criticalPath?.floatColumnWidth?.value ?? 40;
-        let effectiveAvailableWidth = Math.max(10, labelAvailableWidth);
-        if (showFloatColumn) {
-            effectiveAvailableWidth = Math.max(10, effectiveAvailableWidth - (floatColumnWidth + 5));
-        }
+        // Column Settings
+        const cols = this.settings.columns;
+        const showExtra = this.showExtraColumnsInternal;
+        const showStart = showExtra && cols.showStartDate.value;
+        const startWidth = cols.startDateWidth.value;
+        const showFinish = showExtra && cols.showFinishDate.value;
+        const finishWidth = cols.finishDateWidth.value;
+        const showDur = showExtra && cols.showDuration.value;
+        const durWidth = cols.durationWidth.value;
+        const showFloat = showExtra && cols.showTotalFloat.value;
+        const floatWidth = cols.totalFloatWidth.value;
+
+        // Calculate occupied width by columns (Right-to-Left stacking from x=0)
+        let occupiedWidth = 0;
+
+        // Add padding between the last column (closest to chart) and the chart start
+        const columnPadding = 20;
+        occupiedWidth += columnPadding;
+
+        const floatOffset = showFloat ? occupiedWidth : 0;
+        if (showFloat) occupiedWidth += floatWidth;
+
+        const durOffset = showDur ? occupiedWidth : 0;
+        if (showDur) occupiedWidth += durWidth;
+
+        const finishOffset = showFinish ? occupiedWidth : 0;
+        if (showFinish) occupiedWidth += finishWidth;
+
+        const startOffset = showStart ? occupiedWidth : 0;
+        if (showStart) occupiedWidth += startWidth;
+
+        // Calculate available width for Task Name
+        // Allow it to be 0 or negative to trigger hiding logic if space is insufficient
+        let effectiveAvailableWidth = currentLeftMargin - occupiedWidth - this.labelPaddingLeft - 5;
 
         const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
         const wbsIndentPerLevel = wbsGroupingEnabled ? (this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20) : 0;
@@ -6932,128 +7615,249 @@ export class Visual implements IVisual {
             return d3.select(this).attr("transform") === null;
         }).remove();
 
+        // Clear existing labels
         mergedGroups.selectAll(".task-label").remove();
+        mergedGroups.selectAll(".column-label").remove();
 
-        const taskLabels = mergedGroups.append("text")
-            .attr("class", "task-label")
-            .attr("x", (d: Task) => {
-                const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
-                return -currentLeftMargin + this.labelPaddingLeft + indent;
-            })
-            .attr("y", taskHeight / 2)
-            .attr("text-anchor", "start")
-            // vertical alignment handled via dy to support iOS
-            .style("font-family", this.getFontFamily())
-            .style("font-size", `${taskNameFontSize}pt`)
-            .style("fill", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelColor : labelColor)
-            .style("font-weight", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelWeight : "normal")
-            .style("pointer-events", "auto")
-            .style("cursor", "pointer")
-            .each((d: Task, _i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
-                const textElement = d3.select(nodes[_i] as SVGTextElement);
-                const words = (d.name || "").split(/\s+/).reverse();
-                let word: string | undefined;
-                let line: string[] = [];
-                const x = parseFloat(textElement.attr("x"));
-                const y = parseFloat(textElement.attr("y"));
-                const dy = 0;
-                const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
-                const adjustedLabelWidth = effectiveAvailableWidth - indent;
-
-                // Keep reference to first tspan for vertical alignment adjustment
-                // Using 0.35em for standard centered text (fixes iOS vertical drift)
-                let firstTspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", "0.35em");
-                let tspan = firstTspan;
-                let lineCount = 1;
-                const maxLines = 2;
-
-                while (word = words.pop()) {
-                    line.push(word);
-                    tspan.text(line.join(" "));
-                    try {
-                        const node = tspan.node();
-                        if (node && node.getComputedTextLength() > adjustedLabelWidth && line.length > 1) {
-                            line.pop();
-                            tspan.text(line.join(" "));
-
-                            if (lineCount < maxLines) {
-                                line = [word];
-                                tspan = textElement.append("tspan")
-                                    .attr("x", x)
-                                    .attr("dy", lineHeight)
-                                    .text(word);
-                                lineCount++;
-                            } else {
-                                const currentText = tspan.text();
-                                if (currentText.length > 3) {
-                                    tspan.text(currentText.slice(0, -3) + "...");
-                                }
-                                break;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn("Could not get computed text length for wrapping:", e);
-                        tspan.text(line.join(" "));
-                        break;
-                    }
-                }
-
-                // Keep first line position consistent regardless of wrapping
-                // if (lineCount > 1) { firstTspan.attr("dy", "-0.2em"); }
-            });
-
-        taskLabels.on("click", (event: MouseEvent, d: Task) => {
-            if (this.selectedTaskId === d.internalId) {
-                this.selectTask(null, null);
-            } else {
-                this.selectTask(d.internalId, d.name);
-            }
-
-            if (this.dropdownInput) {
-                this.dropdownInput.property("value", this.selectedTaskName || "");
-            }
-
-            event.stopPropagation();
-        });
-
-        taskLabels.on("contextmenu", (event: MouseEvent, d: Task) => {
-            this.showContextMenu(event, d);
-        });
-
-
-        // Phase 2: Add float column if enabled
-        if (showFloatColumn) {
-
-            const criticalColor = this.settings?.criticalPath?.criticalPathColor?.value?.value ?? '#FF0000';
-            const nearCriticalColor = this.settings?.criticalPath?.nearCriticalColor?.value?.value ?? '#FF8C00';
-
-            // Remove existing float labels
-            mergedGroups.selectAll(".float-label").remove();
-
-            // Add float labels
-            mergedGroups.append("text")
-                .attr("class", "float-label")
-                .attr("x", -8) // Position at the right edge of the left margin
+        // 1. Render Task Name (Left-to-Right)
+        // Only render if we have minimal viable space
+        if (effectiveAvailableWidth > 15) {
+            const taskLabels = mergedGroups.append("text")
+                .attr("class", "task-label")
+                // x: Start from left margin edge + padding + indent
+                .attr("x", (d: Task) => {
+                    const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
+                    return -currentLeftMargin + this.labelPaddingLeft + indent;
+                })
                 .attr("y", taskHeight / 2)
-                .attr("text-anchor", "end")
-                .attr("dominant-baseline", "central")
-                .style("font-size", `${taskNameFontSize * 0.9}pt`)
-                .style("font-weight", (d: Task) => d.isCritical ? "600" : "normal")
-                .style("fill", (d: Task) => {
-                    if (d.isCritical) return criticalColor;
-                    if (d.isNearCritical) return nearCriticalColor;
-                    return labelColor;
-                })
-                .style("opacity", (d: Task) => d.isCritical || d.isNearCritical ? 1 : 0.75)
-                .text((d: Task) => {
-                    const floatValue = d.userProvidedTotalFloat ?? d.totalFloat;
-                    if (floatValue === undefined || floatValue === null || !isFinite(floatValue)) {
-                        return "-";
+                .attr("text-anchor", "start")
+                .style("font-family", this.getFontFamily())
+                .style("font-size", `${taskNameFontSize}pt`)
+                .style("fill", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelColor : labelColor)
+                .style("font-weight", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelWeight : "normal")
+                .each((d: Task, _i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
+                    const textElement = d3.select(nodes[_i] as SVGTextElement);
+                    const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
+                    const adjustedLabelWidth = effectiveAvailableWidth - indent;
+
+                    // If individual indented row has no space, remove text
+                    if (adjustedLabelWidth < 15) {
+                        textElement.remove();
+                        return;
                     }
-                    return floatValue.toFixed(0);
-                })
-                .attr("title", (d: Task) => `Total Float: ${d.userProvidedTotalFloat ?? d.totalFloat ?? 'N/A'} days`);
+
+                    const words = (d.name || "").split(/\s+/).reverse();
+                    let word: string | undefined;
+                    let line: string[] = [];
+                    const x = parseFloat(textElement.attr("x"));
+                    const y = parseFloat(textElement.attr("y")); // original y is taskHeight / 2 (centered) -> moved to baseline?
+
+                    let firstTspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", "0.32em");
+                    let tspan = firstTspan;
+                    let lineCount = 1;
+                    const maxLines = 2; // Allow wrapping to 2 lines
+
+                    while (word = words.pop()) {
+                        line.push(word);
+                        tspan.text(line.join(" "));
+                        try {
+                            const textLength = tspan.node()!.getComputedTextLength();
+                            if (textLength > adjustedLabelWidth) {
+                                if (line.length > 1) {
+                                    line.pop();
+                                    tspan.text(line.join(" "));
+                                    line = [word];
+                                    if (lineCount >= maxLines) {
+                                        tspan.text(tspan.text() + "...");
+                                        break;
+                                    }
+
+                                    // Keep first line static (dy="0.32em")
+                                    // Position second line below it (0.32 + 1.1 = ~1.42em)
+
+                                    lineCount++;
+                                    tspan = textElement.append("tspan").attr("x", x).attr("y", y).attr("dy", "1.45em").text(word);
+                                } else {
+                                    // Single word is too long for the line
+                                    // If it's the first line and we have more lines allowed, we can just let it wrap effectively (which means this word takes the line and we move to next)
+                                    // BUT if this single word is ALREADY wider than valid width, we must truncate it.
+
+                                    // Simple binary-like backoff or just substring loop
+                                    let subWord = word;
+                                    while (subWord.length > 0 && tspan.node()!.getComputedTextLength() > adjustedLabelWidth) {
+                                        subWord = subWord.slice(0, -1);
+                                        tspan.text(subWord + "...");
+                                    }
+                                    if (subWord.length === 0) tspan.text("..."); // Minimal fallback
+
+                                    // Since we truncated this word on this line, we technically stop here for this line.
+                                    // If we have maxLines > 1, should we try to put the REST of the word on the next line?
+                                    // That's complex hyphenation. simpler to just truncate the word and stop or wrap.
+                                    // Given the user issue is overlapping, HARD truncation is preferred.
+                                    break;
+                                }
+                            }
+                        } catch (e) { break; }
+                    }
+                });
+
+            // Interactivity for Task Labels
+            taskLabels.on("click", (event: MouseEvent, d: Task) => {
+                if (this.selectedTaskId === d.internalId) this.selectTask(null, null);
+                else this.selectTask(d.internalId, d.name);
+                event.stopPropagation();
+            });
         }
+
+        // 2. Render Columns (Right-to-Left stacking, coords are negative from 0)
+        // This is outside the check, so columns remain visible even if Task Name is hidden
+        const renderColumns = () => {
+            const columnFontSize = taskNameFontSize * 0.9;
+            const colY = taskHeight / 2;
+
+            // Helper to append column text
+            const appendColumnText = (
+                selection: Selection<SVGGElement, Task, any, any>,
+                xOffsetFromRight: number, // positive value, will be negated
+                colWidth: number,
+                getText: (d: Task) => string,
+                align: "start" | "end" | "middle" = "middle", // Default to middle
+                isFloat: boolean = false
+            ) => {
+                selection.append("text")
+                    .attr("class", "column-label")
+                    .attr("x", -xOffsetFromRight - (align === "end" ? 5 : (align === "start" ? colWidth - 5 : colWidth / 2)))
+                    .attr("y", colY)
+                    .attr("text-anchor", align)
+                    .attr("dominant-baseline", "central")
+                    .style("font-size", `${columnFontSize}pt`)
+                    .style("fill", (d: Task) => {
+                        if (isFloat) {
+                            if (d.isCritical) return this.settings?.criticalPath?.criticalPathColor?.value?.value ?? '#FF0000';
+                            if (d.isNearCritical) return this.settings?.criticalPath?.nearCriticalColor?.value?.value ?? '#FF8C00';
+                        }
+                        return labelColor;
+                    })
+                    .text(getText);
+            };
+
+            // Render Start Date
+            if (showStart) {
+                appendColumnText(mergedGroups, startOffset, startWidth, (d: Task) => d.startDate ? this.formatDate(d.startDate) : "", "middle");
+            }
+
+            // Render Finish Date
+            if (showFinish) {
+                appendColumnText(mergedGroups, finishOffset, finishWidth, (d: Task) => d.finishDate ? this.formatDate(d.finishDate) : "", "middle");
+            }
+
+            // Render Duration
+            if (showDur) {
+                appendColumnText(mergedGroups, durOffset, durWidth, (d: Task) => d.duration !== undefined ? d.duration.toFixed(0) : "", "middle");
+            }
+
+            // Render Total Float
+            if (showFloat) {
+                appendColumnText(mergedGroups, floatOffset, floatWidth, (d: Task) => {
+                    const val = d.userProvidedTotalFloat ?? d.totalFloat;
+                    return (val !== undefined && isFinite(val)) ? val.toFixed(0) : "-";
+                }, "middle", true);
+            }
+        };
+
+        renderColumns();
+    }
+
+    private drawColumnHeaders(headerHeight: number, currentLeftMargin: number): void {
+        const headerSvg = this.headerSvg;
+        if (!headerSvg) return;
+
+        let colHeaderLayer = headerSvg.select<SVGGElement>(".column-headers");
+        if (colHeaderLayer.empty()) {
+            colHeaderLayer = headerSvg.append("g").attr("class", "column-headers");
+        }
+        colHeaderLayer.selectAll("*").remove();
+
+        const cols = this.settings.columns;
+        let occupiedWidth = 0;
+
+        // Add padding between the last column (closest to chart) and the chart start
+        const columnPadding = 20;
+        occupiedWidth += columnPadding;
+
+        type Item = { text: string, width: number, offset: number };
+        const items: Item[] = [];
+        const showExtra = this.showExtraColumnsInternal;
+
+        if (showExtra && cols.showTotalFloat.value) {
+            items.push({ text: "Total Float", width: cols.totalFloatWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.totalFloatWidth.value;
+        }
+        if (showExtra && cols.showDuration.value) {
+            items.push({ text: "Rem Dur", width: cols.durationWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.durationWidth.value;
+        }
+        if (showExtra && cols.showFinishDate.value) {
+            items.push({ text: "Finish", width: cols.finishDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.finishDateWidth.value;
+        }
+        if (showExtra && cols.showStartDate.value) {
+            items.push({ text: "Start", width: cols.startDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.startDateWidth.value;
+        }
+
+        const fontSize = this.settings.textAndLabels.taskNameFontSize.value;
+        const color = this.resolveColor(this.settings.textAndLabels.labelColor.value.value, "foreground");
+        const yPos = headerHeight - 15;
+
+        // Draw Task Name Header
+        const remainingWidth = Math.max(0, currentLeftMargin - occupiedWidth);
+        const taskNameCenter = remainingWidth / 2;
+
+        if (showExtra && remainingWidth > 35) { // Only draw if space permits and columns are enabled
+            colHeaderLayer.append("text")
+                .attr("x", taskNameCenter)
+                .attr("y", yPos)
+                .attr("text-anchor", "middle")
+                .style("font-size", `${fontSize}pt`)
+                .style("font-weight", "bold")
+                .style("fill", color)
+                .text("Task Name");
+        }
+
+        // Draw Column Headers
+        items.forEach(item => {
+            // Position from right to left starting at currentLeftMargin
+            const centerX = currentLeftMargin - item.offset - (item.width / 2);
+            colHeaderLayer.append("text")
+                .attr("x", centerX)
+                .attr("y", yPos)
+                .attr("text-anchor", "middle")
+                .style("font-size", `${fontSize}pt`)
+                .style("font-weight", "bold")
+                .style("fill", color)
+                .text(item.text);
+
+            // Divider line (at left edge of column)
+            const lineX = currentLeftMargin - item.offset - item.width;
+            colHeaderLayer.append("line")
+                .attr("x1", lineX)
+                .attr("x2", lineX)
+                .attr("y1", yPos - 15)
+                .attr("y2", yPos + 5)
+                .style("stroke", "#ccc")
+                .style("stroke-width", "1px");
+        });
+
+        // Divider for Task Name (at right edge of Task Name column, which is left edge of first data column)
+        const taskNameDividerX = currentLeftMargin - occupiedWidth;
+        colHeaderLayer.append("line")
+            .attr("x1", taskNameDividerX)
+            .attr("x2", taskNameDividerX)
+            .attr("y1", yPos - 15)
+            .attr("y2", yPos + 5)
+            .style("stroke", "#ccc")
+            .style("stroke-width", "1px");
     }
 
     private drawTasksCanvas(

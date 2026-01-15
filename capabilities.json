@@ -1,5 +1,10 @@
 {
-    "privileges": [],
+    "privileges": [
+        {
+            "name": "ExportContent",
+            "essential": false
+        }
+    ],
     "dataRoles": [
         {
             "name": "taskId",
@@ -167,6 +172,12 @@
                     "type": {
                         "bool": true
                     }
+                },
+                "showExportButton": {
+                    "displayName": "Show Export Button",
+                    "type": {
+                        "bool": true
+                    }
                 }
             }
         },
@@ -300,18 +311,6 @@
                 },
                 "nearCriticalBorderWidth": {
                     "displayName": "Near-Critical Border Width (px)",
-                    "type": {
-                        "numeric": true
-                    }
-                },
-                "showFloatColumn": {
-                    "displayName": "Show Float Column",
-                    "type": {
-                        "bool": true
-                    }
-                },
-                "floatColumnWidth": {
-                    "displayName": "Float Column Width (px)",
                     "type": {
                         "numeric": true
                     }
@@ -553,6 +552,65 @@
                 },
                 "dateBackgroundTransparency": {
                     "displayName": "Date Background Transparency (%)",
+                    "type": {
+                        "numeric": true
+                    }
+                }
+            }
+        },
+        "columns": {
+            "displayName": "Columns",
+            "properties": {
+                "enableColumnDisplay": {
+                    "displayName": "Show Columns Toggle",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "showStartDate": {
+                    "displayName": "Show Start Date",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "startDateWidth": {
+                    "displayName": "Start Date Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showFinishDate": {
+                    "displayName": "Show Finish Date",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "finishDateWidth": {
+                    "displayName": "Finish Date Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showDuration": {
+                    "displayName": "Show Duration",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "durationWidth": {
+                    "displayName": "Duration Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showTotalFloat": {
+                    "displayName": "Show Total Float",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "totalFloatWidth": {
+                    "displayName": "Total Float Width (px)",
                     "type": {
                         "numeric": true
                     }
