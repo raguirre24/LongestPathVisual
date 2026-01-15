@@ -481,6 +481,7 @@ export class Visual implements IVisual {
         wbsEnable: { x: number; width: number };
         wbsExpandToggle: { x: number; size: number };
         wbsCollapseToggle: { x: number; size: number };
+        copyButton: { x: number; size: number };
         exportButton: { x: number; size: number };
         gap: number;
     } {
@@ -523,6 +524,11 @@ export class Visual implements IVisual {
         const wbsCollapseToggle = { x, size: iconButtonSize };
         x += iconButtonSize + gap;
 
+        // Copy button - smaller icon button (28px)
+        const copyButtonSize = 28;
+        const copyButton = { x, size: copyButtonSize };
+        x += copyButtonSize + gap;
+
         // Export button - smaller icon button (28px)
         const exportButtonSize = 28;
         const exportButton = { x, size: exportButtonSize };
@@ -538,6 +544,7 @@ export class Visual implements IVisual {
             wbsEnable,
             wbsExpandToggle,
             wbsCollapseToggle,
+            copyButton,
             exportButton,
             gap
         };
@@ -3809,9 +3816,230 @@ export class Visual implements IVisual {
     // ============================================================================
 
     /**
+     * Creates the "Copy Visible Data" button in the header area
+     */
+    private createCopyDataButton(viewportWidth?: number): void {
+        if (!this.headerSvg) return;
+
+        // Remove existing button
+        this.headerSvg.selectAll('.copy-data-button-group').remove();
+
+        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+        const { x: buttonX, size: buttonSize } = layout.copyButton;
+        const buttonY = this.UI_TOKENS.spacing.sm;
+
+        // Create button group
+        const copyBtnGroup = this.headerSvg.append('g')
+            .attr('class', 'copy-data-button-group')
+            .attr('transform', `translate(${buttonX}, ${buttonY})`)
+            .style('cursor', 'pointer')
+            .attr('role', 'button')
+            .attr('aria-label', 'Copy visible data to clipboard')
+            .attr('tabindex', '0');
+
+        // Button background
+        copyBtnGroup.append('rect')
+            .attr('class', 'copy-btn-bg')
+            .attr('width', buttonSize)
+            .attr('height', buttonSize)
+            .attr('rx', this.UI_TOKENS.radius.medium)
+            .attr('ry', this.UI_TOKENS.radius.medium)
+            .style('fill', this.UI_TOKENS.color.neutral.white)
+            .style('stroke', this.UI_TOKENS.color.neutral.grey60)
+            .style('stroke-width', 1.5)
+            .style('filter', `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style('transition', `all ${this.UI_TOKENS.motion.duration.normal}ms`);
+
+        // Icon group
+        const iconG = copyBtnGroup.append('g')
+            .attr('class', 'copy-icon')
+            .attr('transform', `translate(${buttonSize / 2}, ${buttonSize / 2})`);
+
+        // Copy Icon (Two overlapping rectangles)
+        iconG.append('path')
+            .attr('d', 'M-4,1 L-4,5 L4,5 L4,-3 L0,-3 M0,-7 L6,-7 L6,1 L0,1 L0,-7 Z')
+            .attr('fill', 'none')
+            .attr('stroke', this.UI_TOKENS.color.neutral.grey130)
+            .attr('stroke-width', 1.5)
+            .attr('stroke-linecap', 'round')
+            .attr('stroke-linejoin', 'round');
+
+        // Tooltip
+        copyBtnGroup.append('title')
+            .text('Copy visible data to clipboard');
+
+        // Event handlers
+        const self = this;
+        copyBtnGroup
+            .on('mouseover', function () {
+                d3.select(this).select('.copy-btn-bg')
+                    .style('fill', self.UI_TOKENS.color.neutral.grey20)
+                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+            })
+            .on('mouseout', function () {
+                d3.select(this).select('.copy-btn-bg')
+                    .style('fill', self.UI_TOKENS.color.neutral.white)
+                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+            })
+            .on('click', function (event) {
+                event.stopPropagation();
+                self.copyVisibleDataToClipboard();
+            })
+            .on('keydown', function (event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    self.copyVisibleDataToClipboard();
+                }
+            });
+    }
+
+    /**
+     * Copies the currently visible (filtered) tasks to clipboard
+     */
+    private copyVisibleDataToClipboard(): void {
+        try {
+            if (!this.allFilteredTasks || this.allFilteredTasks.length === 0) {
+                alert("No visible data to copy.");
+                return;
+            }
+
+            // Define headers
+            // Calculate max depth for WBS columns
+            const maxWbsDepth = this.allFilteredTasks.reduce((max, task) => Math.max(max, task.wbsLevels?.length || 0), 0);
+
+            // Define base headers
+            const headers = [
+                "Index", "Task ID", "Task Name", "Start Date", "Finish Date",
+                "Duration", "Total Float", "Is Critical"
+            ];
+
+            // Add dynamic WBS headers
+            for (let i = 0; i < maxWbsDepth; i++) {
+                headers.push(`WBS Level ${i + 1}`);
+            }
+
+            // Format rows (Tab Separated for Excel)
+            const rows = this.allFilteredTasks.map((task, index) => {
+                const wbsCols = [];
+                for (let i = 0; i < maxWbsDepth; i++) {
+                    wbsCols.push(task.wbsLevels?.[i] || "");
+                }
+
+                return [
+                    (index + 1).toString(),
+                    task.id?.toString() || "",
+                    task.name?.replace(/\t/g, " ") || "", // Sanitize tabs
+                    task.startDate ? this.fullDateFormatter.format(task.startDate) : "",
+                    task.finishDate ? this.fullDateFormatter.format(task.finishDate) : "",
+                    task.duration?.toString() || "0",
+                    task.totalFloat?.toString() || "0",
+                    task.isCritical ? "Yes" : "No",
+                    ...wbsCols
+                ].join("\t");
+            });
+
+            // Combine headers and rows
+            const tsvContent = [headers.join("\t"), ...rows].join("\n");
+
+            // Write to clipboard
+            // Force legacy method for stability
+            this.copyUsingLegacyMethod(tsvContent);
+            return;
+
+            navigator.clipboard.writeText(tsvContent).then(() => {
+                const message = `Copied ${this.allFilteredTasks.length} rows to clipboard!`;
+                console.log(message);
+
+                // Show temporary success feedback on the button
+                const btn = this.headerSvg?.select('.copy-data-button-group');
+                if (btn) {
+                    const originalStroke = btn.select('.copy-btn-bg').style('stroke');
+                    btn.select('.copy-btn-bg')
+                        .style('stroke', this.UI_TOKENS.color.success.default)
+                        .style('stroke-width', 2);
+
+                    setTimeout(() => {
+                        btn.select('.copy-btn-bg')
+                            .style('stroke', originalStroke)
+                            .style('stroke-width', 1.5);
+                    }, 1000);
+                }
+
+                alert(message + "\n\nYou can now paste into Excel.");
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+                alert('Failed to copy to clipboard. Please check browser permissions.');
+            });
+
+        } catch (error) {
+            console.error('Error copying data:', error);
+            alert('An error occurred while copying data.');
+        }
+    }
+
+    private copyUsingLegacyMethod(text: string): void {
+        let textArea: HTMLTextAreaElement | null = null;
+        try {
+            textArea = document.createElement("textarea");
+            textArea.value = text;
+
+            // Ensure it's not visible but part of DOM
+            textArea.style.position = "fixed";
+            textArea.style.left = "-9999px";
+            textArea.style.top = "0";
+            document.body.appendChild(textArea);
+
+            textArea.focus();
+            textArea.select();
+
+            const successful = document.execCommand('copy');
+            if (successful) {
+                this.showCopySuccess(this.allFilteredTasks.length);
+            } else {
+                // Last ditch effort: Try allowing user to copy manually? 
+                // No, just alert failure.
+                alert("Clipboard copy failed. Please try again.");
+            }
+        } catch (err) {
+            console.error('Fallback copy failed:', err);
+            alert("Clipboard copy failed: " + err);
+        } finally {
+            if (textArea && document.body.contains(textArea)) {
+                document.body.removeChild(textArea);
+            }
+        }
+    }
+
+    private showCopySuccess(count: number): void {
+        const message = `Copied ${count} rows to clipboard!`;
+        console.log(message);
+
+        // Show temporary success feedback on the button
+        const btn = this.headerSvg?.select('.copy-data-button-group');
+        if (btn) {
+            const originalStroke = btn.select('.copy-btn-bg').style('stroke');
+            btn.select('.copy-btn-bg')
+                .style('stroke', this.UI_TOKENS.color.success.default)
+                .style('stroke-width', 2);
+
+            setTimeout(() => {
+                btn.select('.copy-btn-bg')
+                    .style('stroke', originalStroke)
+                    .style('stroke-width', 1.5);
+            }, 1000);
+        }
+
+        // Use timeout to ensure alert doesn't block UI immediately
+        setTimeout(() => alert(message + "\n\nYou can now paste into Excel."), 10);
+    }
+
+    /**
      * Creates the export button in the header area
      */
     private createExportButton(viewportWidth?: number): void {
+        // Also update the Copy Data button
+        this.createCopyDataButton(viewportWidth);
+
         if (!this.headerSvg) return;
 
         // Remove existing button
@@ -4336,10 +4564,20 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions) {
+        this.eventService.renderingStarted(options);
+
         this.debugLog("===== UPDATE() CALLED =====");
         this.debugLog("Update type:", options.type);
         this.debugLog("Has dataViews:", !!options.dataViews);
-        void this.updateInternal(options);
+
+        this.updateInternal(options)
+            .then(() => {
+                this.eventService.renderingFinished(options);
+            })
+            .catch(error => {
+                console.error("Error during update:", error);
+                this.eventService.renderingFinished(options);
+            });
     }
 
     private async updateInternal(options: VisualUpdateOptions) {

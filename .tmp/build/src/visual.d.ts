@@ -348,6 +348,16 @@ export declare class Visual implements IVisual {
     private updateChartClipRect;
     private toggleConnectorLinesDisplay;
     /**
+     * Creates the "Copy Visible Data" button in the header area
+     */
+    private createCopyDataButton;
+    /**
+     * Copies the currently visible (filtered) tasks to clipboard
+     */
+    private copyVisibleDataToClipboard;
+    private copyUsingLegacyMethod;
+    private showCopySuccess;
+    /**
      * Creates the export button in the header area
      */
     private createExportButton;
