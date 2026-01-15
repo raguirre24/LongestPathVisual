@@ -6595,6 +6595,7 @@ export class Visual implements IVisual {
 
         const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
         this.drawColumnHeaders(this.headerHeight, currentLeftMargin);
+        this.drawLabelColumnSeparators(chartHeight, currentLeftMargin);
 
         this.drawBaselineAndPreviousEndLines(
             xScale,
@@ -7850,14 +7851,84 @@ export class Visual implements IVisual {
         });
 
         // Divider for Task Name (at right edge of Task Name column, which is left edge of first data column)
-        const taskNameDividerX = currentLeftMargin - occupiedWidth;
-        colHeaderLayer.append("line")
-            .attr("x1", taskNameDividerX)
-            .attr("x2", taskNameDividerX)
-            .attr("y1", yPos - 15)
-            .attr("y2", yPos + 5)
-            .style("stroke", "#ccc")
-            .style("stroke-width", "1px");
+        if (showExtra) {
+            const taskNameDividerX = currentLeftMargin - occupiedWidth;
+            colHeaderLayer.append("line")
+                .attr("x1", taskNameDividerX)
+                .attr("x2", taskNameDividerX)
+                .attr("y1", yPos - 15)
+                .attr("y2", yPos + 5)
+                .style("stroke", "#ccc")
+                .style("stroke-width", "1px");
+        }
+    }
+
+    /**
+     * Draws vertical separator lines through the task label area, matching column headers
+     */
+    private drawLabelColumnSeparators(chartHeight: number, currentLeftMargin: number): void {
+        const layer = this.labelGridLayer;
+        if (!layer) return;
+
+        // Clean up existing separators
+        layer.selectAll(".label-column-separator").remove();
+
+        const cols = this.settings.columns;
+        const showExtra = this.showExtraColumnsInternal;
+
+        // Utilize same width calculation logic as drawColumnHeaders
+        const columnPadding = 20;
+        let occupiedWidth = columnPadding; // Start with padding
+
+        type Item = { width: number, offset: number };
+        const items: Item[] = [];
+
+        if (showExtra && cols.showTotalFloat.value) {
+            items.push({ width: cols.totalFloatWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.totalFloatWidth.value;
+        }
+        if (showExtra && cols.showDuration.value) {
+            items.push({ width: cols.durationWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.durationWidth.value;
+        }
+        if (showExtra && cols.showFinishDate.value) {
+            items.push({ width: cols.finishDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.finishDateWidth.value;
+        }
+        if (showExtra && cols.showStartDate.value) {
+            items.push({ width: cols.startDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.startDateWidth.value;
+        }
+
+        // Coordinates in labelGridLayer are relative to mainGroup transform (margin.left, margin.top)
+        // Relative X = -offset - width
+
+        items.forEach(item => {
+            const lineX = -item.offset - item.width;
+            layer.append("line")
+                .attr("class", "label-column-separator")
+                .attr("x1", lineX)
+                .attr("x2", lineX)
+                .attr("y1", 0)
+                .attr("y2", chartHeight)
+                .style("stroke", "#ccc")
+                .style("stroke-width", "1px")
+                .style("shape-rendering", "crispEdges");
+        });
+
+        // Divider for Task Name
+        if (showExtra) {
+            const taskNameDividerX = -occupiedWidth;
+            layer.append("line")
+                .attr("class", "label-column-separator")
+                .attr("x1", taskNameDividerX)
+                .attr("x2", taskNameDividerX)
+                .attr("y1", 0)
+                .attr("y2", chartHeight)
+                .style("stroke", "#ccc")
+                .style("stroke-width", "1px")
+                .style("shape-rendering", "crispEdges");
+        }
     }
 
     private drawTasksCanvas(

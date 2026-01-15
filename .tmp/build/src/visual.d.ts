@@ -441,6 +441,10 @@ export declare class Visual implements IVisual {
      */
     private drawTaskLabelsLayer;
     private drawColumnHeaders;
+    /**
+     * Draws vertical separator lines through the task label area, matching column headers
+     */
+    private drawLabelColumnSeparators;
     private drawTasksCanvas;
     /**
      * Helper to add a rounded rect to the current path
