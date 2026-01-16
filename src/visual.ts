@@ -3903,62 +3903,38 @@ export class Visual implements IVisual {
                 return;
             }
 
+            // --- 1. TSV Generation (Flat Data) ---
             // Calculate max depth for WBS columns
             const maxWbsDepth = this.allFilteredTasks.reduce((max, task) => Math.max(max, task.wbsLevels?.length || 0), 0);
 
-            // 1. Define Headers
-            const headers = [
+            const tsvHeaders = [
                 "Index", "Task ID", "Task Name", "Task Type"
             ];
+            if (this.showBaselineInternal) tsvHeaders.push("Baseline Start", "Baseline Finish");
+            if (this.showPreviousUpdateInternal) tsvHeaders.push("Previous Start", "Previous Finish");
+            tsvHeaders.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
+            for (let i = 0; i < maxWbsDepth; i++) tsvHeaders.push(`WBS Level ${i + 1}`);
 
-            // Add Baseline Headers if active
-            if (this.showBaselineInternal) {
-                headers.push("Baseline Start", "Baseline Finish");
-            }
-
-            // Add Previous Update Headers if active
-            if (this.showPreviousUpdateInternal) {
-                headers.push("Previous Start", "Previous Finish");
-            }
-
-            // Add Standard Headers
-            headers.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
-
-            // Add dynamic WBS headers
-            for (let i = 0; i < maxWbsDepth; i++) {
-                headers.push(`WBS Level ${i + 1}`);
-            }
-
-            // 2. Format Rows
-            const rows = this.allFilteredTasks.map((task, index) => {
-                // Determine Task Type (Milestone vs Activity)
-                // Assuming 0 duration implies milestone as per standard Gantt logic
+            const tsvRows = this.allFilteredTasks.map((task, index) => {
                 const taskType = (task.duration === 0) ? "Milestone" : "Activity";
-
                 const row = [
                     (index + 1).toString(),
                     task.id?.toString() || "",
-                    task.name?.replace(/\t/g, " ") || "", // Sanitize tabs
+                    task.name?.replace(/\t/g, " ") || "",
                     taskType
                 ];
-
-                // Add Baseline Dates
                 if (this.showBaselineInternal) {
                     row.push(
                         task.baselineStartDate ? this.fullDateFormatter.format(task.baselineStartDate) : "",
                         task.baselineFinishDate ? this.fullDateFormatter.format(task.baselineFinishDate) : ""
                     );
                 }
-
-                // Add Previous Dates
                 if (this.showPreviousUpdateInternal) {
                     row.push(
                         task.previousUpdateStartDate ? this.fullDateFormatter.format(task.previousUpdateStartDate) : "",
                         task.previousUpdateFinishDate ? this.fullDateFormatter.format(task.previousUpdateFinishDate) : ""
                     );
                 }
-
-                // Add Standard Dates/Data
                 row.push(
                     task.startDate ? this.fullDateFormatter.format(task.startDate) : "",
                     task.finishDate ? this.fullDateFormatter.format(task.finishDate) : "",
@@ -3966,20 +3942,85 @@ export class Visual implements IVisual {
                     task.totalFloat?.toString() || "0",
                     task.isCritical ? "Yes" : "No"
                 );
-
-                // Add WBS Columns
                 for (let i = 0; i < maxWbsDepth; i++) {
                     row.push(task.wbsLevels?.[i] || "");
                 }
-
                 return row.join("\t");
             });
+            const tsvContent = [tsvHeaders.join("\t"), ...tsvRows].join("\n");
 
-            // Combine
-            const tsvContent = [headers.join("\t"), ...rows].join("\n");
 
-            // Use legacy method
-            this.copyUsingLegacyMethod(tsvContent);
+            // --- 2. HTML Generation (Hierarchical Data) ---
+            const htmlHeaders = [
+                "Index", "Task ID", "Task Name", "Task Type"
+            ];
+            if (this.showBaselineInternal) htmlHeaders.push("Baseline Start", "Baseline Finish");
+            if (this.showPreviousUpdateInternal) htmlHeaders.push("Previous Start", "Previous Finish");
+            htmlHeaders.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
+
+            let htmlContent = `<table border="1" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
+            htmlContent += `<tr style="background-color: #f0f0f0; font-weight: bold;">${htmlHeaders.map(h => `<th style="padding: 4px; white-space: nowrap;">${h}</th>`).join("")}</tr>`;
+
+            const wbsColors = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // Green, Yellow, Cyan, Red, Gray
+            let previousLevels: string[] = [];
+
+            this.allFilteredTasks.forEach((task, index) => {
+                const currentLevels = task.wbsLevels || [];
+
+                // Find divergence
+                let divergenceIndex = 0;
+                while (divergenceIndex < previousLevels.length && divergenceIndex < currentLevels.length && previousLevels[divergenceIndex] === currentLevels[divergenceIndex]) {
+                    divergenceIndex++;
+                }
+
+                // Render Group Headers
+                for (let i = divergenceIndex; i < currentLevels.length; i++) {
+                    const indent = i * 15;
+                    const color = wbsColors[i % wbsColors.length];
+                    const groupName = currentLevels[i];
+                    // Name column index logic: Index=0, ID=1, Name=2
+                    // We want Index and ID empty, Name to span rest? Or just indented Name?
+                    // Spanning is better visual separation.
+                    const colSpan = htmlHeaders.length - 2;
+
+                    htmlContent += `<tr style="background-color: ${color}; font-weight: bold;">`;
+                    htmlContent += `<td></td><td></td>`; // Skip Index and ID
+                    htmlContent += `<td colspan="${colSpan}" style="padding-left: ${indent}px; white-space: nowrap;">${groupName}</td>`;
+                    htmlContent += `</tr>`;
+                }
+                previousLevels = currentLevels;
+
+                // Render Task Row
+                const taskType = (task.duration === 0) ? "Milestone" : "Activity";
+                const indent = currentLevels.length * 15;
+
+                htmlContent += `<tr>`;
+                htmlContent += `<td style="text-align: right; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
+                htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.id || ""}</td>`;
+                htmlContent += `<td style="padding: 2px; padding-left: ${indent}px; white-space: nowrap;">${task.name || ""}</td>`;
+                htmlContent += `<td style="padding: 2px; white-space: nowrap;">${taskType}</td>`;
+
+                // Optional Columns
+                if (this.showBaselineInternal) {
+                    htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.baselineStartDate ? this.fullDateFormatter.format(task.baselineStartDate) : ""}</td>`;
+                    htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.baselineFinishDate ? this.fullDateFormatter.format(task.baselineFinishDate) : ""}</td>`;
+                }
+                if (this.showPreviousUpdateInternal) {
+                    htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.previousUpdateStartDate ? this.fullDateFormatter.format(task.previousUpdateStartDate) : ""}</td>`;
+                    htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.previousUpdateFinishDate ? this.fullDateFormatter.format(task.previousUpdateFinishDate) : ""}</td>`;
+                }
+
+                htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.startDate ? this.fullDateFormatter.format(task.startDate) : ""}</td>`;
+                htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.finishDate ? this.fullDateFormatter.format(task.finishDate) : ""}</td>`;
+                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
+                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.totalFloat?.toString() || "0"}</td>`;
+                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.isCritical ? "Yes" : "No"}</td>`;
+                htmlContent += `</tr>`;
+            });
+            htmlContent += `</table>`;
+
+            // Use legacy method with both formats
+            this.copyUsingLegacyMethod(tsvContent, htmlContent);
 
         } catch (error) {
             console.error('Error copying data:', error);
@@ -3987,13 +4028,48 @@ export class Visual implements IVisual {
         }
     }
 
-    private copyUsingLegacyMethod(text: string): void {
+    private copyUsingLegacyMethod(text: string, html?: string): void {
+        // 1. Try HTML Copy if provided
+        if (html) {
+            try {
+                const div = document.createElement("div");
+                div.innerHTML = html;
+                div.style.position = "fixed";
+                div.style.left = "-9999px";
+                div.style.top = "0";
+                div.contentEditable = "true";
+                document.body.appendChild(div);
+
+                const selection = window.getSelection();
+                if (selection) {
+                    const range = document.createRange();
+                    range.selectNodeContents(div);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+
+                    const successful = document.execCommand('copy');
+
+                    selection.removeAllRanges();
+                    document.body.removeChild(div);
+
+                    if (successful) {
+                        this.showCopySuccess(this.allFilteredTasks.length);
+                        return; // Success
+                    }
+                } else {
+                    document.body.removeChild(div);
+                }
+            } catch (e) {
+                console.error("HTML Copy failed, falling back to text:", e);
+                // Fall through to text copy
+            }
+        }
+
+        // 2. Text Copy (Fallback)
         let textArea: HTMLTextAreaElement | null = null;
         try {
             textArea = document.createElement("textarea");
             textArea.value = text;
-
-            // Ensure it's not visible but part of DOM
             textArea.style.position = "fixed";
             textArea.style.left = "-9999px";
             textArea.style.top = "0";
@@ -4006,8 +4082,6 @@ export class Visual implements IVisual {
             if (successful) {
                 this.showCopySuccess(this.allFilteredTasks.length);
             } else {
-                // Last ditch effort: Try allowing user to copy manually? 
-                // No, just alert failure.
                 alert("Clipboard copy failed. Please try again.");
             }
         } catch (err) {
