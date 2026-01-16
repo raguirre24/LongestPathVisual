@@ -3959,10 +3959,12 @@ export class Visual implements IVisual {
             htmlHeaders.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
 
             let htmlContent = `<table border="1" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
-            htmlContent += `<tr style="background-color: #f0f0f0; font-weight: bold;">${htmlHeaders.map(h => `<th style="padding: 4px; white-space: nowrap;">${h}</th>`).join("")}</tr>`;
+            htmlContent += `<tr style="background-color: #f0f0f0; font-weight: bold; text-align: center;">${htmlHeaders.map(h => `<th style="padding: 4px; white-space: nowrap;">${h}</th>`).join("")}</tr>`;
 
             const wbsColors = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // Green, Yellow, Cyan, Red, Gray
             let previousLevels: string[] = [];
+
+            const exportDateFormatter = d3.timeFormat("%m/%d/%Y");
 
             this.allFilteredTasks.forEach((task, index) => {
                 const currentLevels = task.wbsLevels || [];
@@ -4002,16 +4004,16 @@ export class Visual implements IVisual {
 
                 // Optional Columns
                 if (this.showBaselineInternal) {
-                    htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.baselineStartDate ? this.fullDateFormatter.format(task.baselineStartDate) : ""}</td>`;
-                    htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.baselineFinishDate ? this.fullDateFormatter.format(task.baselineFinishDate) : ""}</td>`;
+                    htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : ""}</td>`;
+                    htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineFinishDate ? exportDateFormatter(task.baselineFinishDate) : ""}</td>`;
                 }
                 if (this.showPreviousUpdateInternal) {
-                    htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.previousUpdateStartDate ? this.fullDateFormatter.format(task.previousUpdateStartDate) : ""}</td>`;
-                    htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.previousUpdateFinishDate ? this.fullDateFormatter.format(task.previousUpdateFinishDate) : ""}</td>`;
+                    htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateStartDate ? exportDateFormatter(task.previousUpdateStartDate) : ""}</td>`;
+                    htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""}</td>`;
                 }
 
-                htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.startDate ? this.fullDateFormatter.format(task.startDate) : ""}</td>`;
-                htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.finishDate ? this.fullDateFormatter.format(task.finishDate) : ""}</td>`;
+                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.startDate ? exportDateFormatter(task.startDate) : ""}</td>`;
+                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.finishDate ? exportDateFormatter(task.finishDate) : ""}</td>`;
                 htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
                 htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.totalFloat?.toString() || "0"}</td>`;
                 htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.isCritical ? "Yes" : "No"}</td>`;
