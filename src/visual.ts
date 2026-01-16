@@ -3903,73 +3903,83 @@ export class Visual implements IVisual {
                 return;
             }
 
-            // Define headers
             // Calculate max depth for WBS columns
             const maxWbsDepth = this.allFilteredTasks.reduce((max, task) => Math.max(max, task.wbsLevels?.length || 0), 0);
 
-            // Define base headers
+            // 1. Define Headers
             const headers = [
-                "Index", "Task ID", "Task Name", "Start Date", "Finish Date",
-                "Duration", "Total Float", "Is Critical"
+                "Index", "Task ID", "Task Name", "Task Type"
             ];
+
+            // Add Baseline Headers if active
+            if (this.showBaselineInternal) {
+                headers.push("Baseline Start", "Baseline Finish");
+            }
+
+            // Add Previous Update Headers if active
+            if (this.showPreviousUpdateInternal) {
+                headers.push("Previous Start", "Previous Finish");
+            }
+
+            // Add Standard Headers
+            headers.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
 
             // Add dynamic WBS headers
             for (let i = 0; i < maxWbsDepth; i++) {
                 headers.push(`WBS Level ${i + 1}`);
             }
 
-            // Format rows (Tab Separated for Excel)
+            // 2. Format Rows
             const rows = this.allFilteredTasks.map((task, index) => {
-                const wbsCols = [];
-                for (let i = 0; i < maxWbsDepth; i++) {
-                    wbsCols.push(task.wbsLevels?.[i] || "");
-                }
+                // Determine Task Type (Milestone vs Activity)
+                // Assuming 0 duration implies milestone as per standard Gantt logic
+                const taskType = (task.duration === 0) ? "Milestone" : "Activity";
 
-                return [
+                const row = [
                     (index + 1).toString(),
                     task.id?.toString() || "",
                     task.name?.replace(/\t/g, " ") || "", // Sanitize tabs
+                    taskType
+                ];
+
+                // Add Baseline Dates
+                if (this.showBaselineInternal) {
+                    row.push(
+                        task.baselineStartDate ? this.fullDateFormatter.format(task.baselineStartDate) : "",
+                        task.baselineFinishDate ? this.fullDateFormatter.format(task.baselineFinishDate) : ""
+                    );
+                }
+
+                // Add Previous Dates
+                if (this.showPreviousUpdateInternal) {
+                    row.push(
+                        task.previousUpdateStartDate ? this.fullDateFormatter.format(task.previousUpdateStartDate) : "",
+                        task.previousUpdateFinishDate ? this.fullDateFormatter.format(task.previousUpdateFinishDate) : ""
+                    );
+                }
+
+                // Add Standard Dates/Data
+                row.push(
                     task.startDate ? this.fullDateFormatter.format(task.startDate) : "",
                     task.finishDate ? this.fullDateFormatter.format(task.finishDate) : "",
                     task.duration?.toString() || "0",
                     task.totalFloat?.toString() || "0",
-                    task.isCritical ? "Yes" : "No",
-                    ...wbsCols
-                ].join("\t");
-            });
+                    task.isCritical ? "Yes" : "No"
+                );
 
-            // Combine headers and rows
-            const tsvContent = [headers.join("\t"), ...rows].join("\n");
-
-            // Write to clipboard
-            // Force legacy method for stability
-            this.copyUsingLegacyMethod(tsvContent);
-            return;
-
-            navigator.clipboard.writeText(tsvContent).then(() => {
-                const message = `Copied ${this.allFilteredTasks.length} rows to clipboard!`;
-                console.log(message);
-
-                // Show temporary success feedback on the button
-                const btn = this.headerSvg?.select('.copy-data-button-group');
-                if (btn) {
-                    const originalStroke = btn.select('.copy-btn-bg').style('stroke');
-                    btn.select('.copy-btn-bg')
-                        .style('stroke', this.UI_TOKENS.color.success.default)
-                        .style('stroke-width', 2);
-
-                    setTimeout(() => {
-                        btn.select('.copy-btn-bg')
-                            .style('stroke', originalStroke)
-                            .style('stroke-width', 1.5);
-                    }, 1000);
+                // Add WBS Columns
+                for (let i = 0; i < maxWbsDepth; i++) {
+                    row.push(task.wbsLevels?.[i] || "");
                 }
 
-                alert(message + "\n\nYou can now paste into Excel.");
-            }).catch(err => {
-                console.error('Failed to copy text: ', err);
-                alert('Failed to copy to clipboard. Please check browser permissions.');
+                return row.join("\t");
             });
+
+            // Combine
+            const tsvContent = [headers.join("\t"), ...rows].join("\n");
+
+            // Use legacy method
+            this.copyUsingLegacyMethod(tsvContent);
 
         } catch (error) {
             console.error('Error copying data:', error);
