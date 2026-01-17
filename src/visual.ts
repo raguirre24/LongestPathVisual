@@ -472,76 +472,256 @@ export class Visual implements IVisual {
 
     /**
      * Returns button dimensions and positions based on current layout mode
-     * This centralizes all responsive layout calculations
+     * This centralizes all responsive layout calculations with smart overflow handling
      */
     private getHeaderButtonLayout(viewportWidth: number): {
-        mode: 'wide' | 'medium' | 'narrow';
-        showAllCritical: { x: number; width: number; showText: boolean };
-        modeToggle: { x: number; width: number; showFullLabels: boolean };
-        colToggle: { x: number; size: number };
-        baseline: { x: number; width: number; iconOnly: boolean };
-        previousUpdate: { x: number; width: number; iconOnly: boolean };
-        connectorLines: { x: number; size: number };
-        wbsEnable: { x: number; width: number };
-        wbsExpandToggle: { x: number; size: number };
-        wbsCollapseToggle: { x: number; size: number };
-        copyButton: { x: number; size: number };
-        exportButton: { x: number; size: number };
-        helpButton: { x: number; size: number };
+        mode: 'wide' | 'medium' | 'narrow' | 'compact' | 'very-narrow';
+        showAllCritical: { x: number; width: number; showText: boolean; visible: boolean };
+        modeToggle: { x: number; width: number; showFullLabels: boolean; visible: boolean };
+        colToggle: { x: number; size: number; visible: boolean };
+        baseline: { x: number; width: number; iconOnly: boolean; visible: boolean };
+        previousUpdate: { x: number; width: number; iconOnly: boolean; visible: boolean };
+        connectorLines: { x: number; size: number; visible: boolean };
+        wbsEnable: { x: number; width: number; visible: boolean };
+        wbsExpandToggle: { x: number; size: number; visible: boolean };
+        wbsCollapseToggle: { x: number; size: number; visible: boolean };
+        copyButton: { x: number; size: number; visible: boolean };
+        exportButton: { x: number; size: number; visible: boolean };
+        helpButton: { x: number; size: number; visible: boolean };
         gap: number;
+        totalWidth: number;
     } {
-        const mode = this.getLayoutMode(viewportWidth);
-        const gap = mode === 'wide' ? 12 : (mode === 'medium' ? 8 : 6);
-        const iconButtonSize = 36;
+        // Extended layout modes for better responsiveness
+        const mode = this.getExtendedLayoutMode(viewportWidth);
+
+        // Reserve space for right-side controls (near-critical threshold, help button)
+        // The float threshold control is ~180-240px + some margin
+        const rightReserved = mode === 'very-narrow' ? 60 : (mode === 'compact' ? 100 : (mode === 'narrow' ? 150 : 260));
+        const availableWidth = viewportWidth - rightReserved;
+
+        // Gap between buttons based on mode
+        const gap = mode === 'wide' ? 12 : (mode === 'medium' ? 8 : (mode === 'narrow' ? 6 : 4));
+        const iconButtonSize = mode === 'very-narrow' ? 28 : (mode === 'compact' ? 30 : 36);
+        const smallIconSize = mode === 'very-narrow' ? 24 : 28;
+
+        // Calculate dimensions for each button type based on mode
+        const showAllWidth = mode === 'wide' ? 140 : (mode === 'medium' ? 120 : (mode === 'narrow' ? 100 : (mode === 'compact' ? 80 : 70)));
+        const modeWidth = mode === 'wide' ? 150 : (mode === 'medium' ? 130 : (mode === 'narrow' ? 110 : (mode === 'compact' ? 90 : 80)));
+        const baselineWidth = (mode === 'wide' || mode === 'medium') ? (mode === 'wide' ? 110 : 90) : iconButtonSize;
+        const prevWidth = (mode === 'wide' || mode === 'medium') ? (mode === 'wide' ? 120 : 90) : iconButtonSize;
+        const wbsEnableWidth = mode === 'wide' ? 70 : (mode === 'medium' ? 65 : 60);
+
+        // Calculate total width needed for all buttons
+        const allButtonWidths = [
+            showAllWidth,
+            modeWidth,
+            baselineWidth,
+            prevWidth,
+            iconButtonSize, // connector lines
+            iconButtonSize, // column toggle
+            wbsEnableWidth,
+            iconButtonSize, // wbs expand
+            iconButtonSize, // wbs collapse
+            smallIconSize,  // copy
+            smallIconSize,  // export
+            smallIconSize   // help
+        ];
+
+        const numButtons = allButtonWidths.length;
+        const totalNeeded = allButtonWidths.reduce((a, b) => a + b, 0) + (numButtons - 1) * gap;
+
+        // Determine which buttons to show based on available space
+        // Priority order (highest = most important, keep visible):
+        // 1. Show All/Critical toggle (essential)
+        // 2. Mode toggle (essential)
+        // 3. Help button (always keep at end)
+        // 4. Copy/Export (useful)
+        // 5. Baseline/Previous Update (important comparison features)
+        // 6. Connector Lines toggle
+        // 7. Column toggle
+        // 8. WBS controls (least priority if WBS not in use)
+
+        let visibleButtons = {
+            showAll: true,
+            modeToggle: true,
+            baseline: true,
+            previousUpdate: true,
+            connectorLines: true,
+            colToggle: true,
+            wbsEnable: this.wbsDataExistsInMetadata,
+            wbsExpand: this.wbsDataExistsInMetadata,
+            wbsCollapse: this.wbsDataExistsInMetadata,
+            copyButton: true,
+            exportButton: true,
+            helpButton: true
+        };
+
+        // Progressive hiding based on available width
+        const calculateVisibleWidth = () => {
+            let width = 0;
+            let count = 0;
+            if (visibleButtons.showAll) { width += showAllWidth; count++; }
+            if (visibleButtons.modeToggle) { width += modeWidth; count++; }
+            if (visibleButtons.baseline) { width += baselineWidth; count++; }
+            if (visibleButtons.previousUpdate) { width += prevWidth; count++; }
+            if (visibleButtons.connectorLines) { width += iconButtonSize; count++; }
+            if (visibleButtons.colToggle) { width += iconButtonSize; count++; }
+            if (visibleButtons.wbsEnable) { width += wbsEnableWidth; count++; }
+            if (visibleButtons.wbsExpand) { width += iconButtonSize; count++; }
+            if (visibleButtons.wbsCollapse) { width += iconButtonSize; count++; }
+            if (visibleButtons.copyButton) { width += smallIconSize; count++; }
+            if (visibleButtons.exportButton) { width += smallIconSize; count++; }
+            if (visibleButtons.helpButton) { width += smallIconSize; count++; }
+            return width + Math.max(0, count - 1) * gap;
+        };
+
+        // Progressively hide buttons if needed (in order of decreasing priority)
+        let visibleWidth = calculateVisibleWidth();
+
+        // Hide WBS collapse button first
+        if (visibleWidth > availableWidth && visibleButtons.wbsCollapse) {
+            visibleButtons.wbsCollapse = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        // Hide WBS expand button
+        if (visibleWidth > availableWidth && visibleButtons.wbsExpand) {
+            visibleButtons.wbsExpand = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        // Hide WBS enable button
+        if (visibleWidth > availableWidth && visibleButtons.wbsEnable) {
+            visibleButtons.wbsEnable = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        // Hide column toggle
+        if (visibleWidth > availableWidth && visibleButtons.colToggle) {
+            visibleButtons.colToggle = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        // Hide connector lines toggle
+        if (visibleWidth > availableWidth && visibleButtons.connectorLines) {
+            visibleButtons.connectorLines = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        // Hide export button
+        if (visibleWidth > availableWidth && visibleButtons.exportButton) {
+            visibleButtons.exportButton = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        // Hide copy button
+        if (visibleWidth > availableWidth && visibleButtons.copyButton) {
+            visibleButtons.copyButton = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        // Hide previous update
+        if (visibleWidth > availableWidth && visibleButtons.previousUpdate) {
+            visibleButtons.previousUpdate = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        // Hide baseline
+        if (visibleWidth > availableWidth && visibleButtons.baseline) {
+            visibleButtons.baseline = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        // Now calculate positions for visible buttons
         let x = 10;
 
-        const showAllWidth = mode === 'narrow' ? 100 : 140;
-        const showAllCritical = { x, width: showAllWidth, showText: true };
-        x += showAllWidth + gap;
+        const showAllCritical = {
+            x,
+            width: showAllWidth,
+            showText: mode !== 'very-narrow',
+            visible: visibleButtons.showAll
+        };
+        if (visibleButtons.showAll) x += showAllWidth + gap;
 
-        const modeWidth = mode === 'wide' ? 150 : (mode === 'medium' ? 130 : 110);
-        const modeToggle = { x, width: modeWidth, showFullLabels: mode === 'wide' };
-        x += modeWidth + gap;
+        const modeToggle = {
+            x,
+            width: modeWidth,
+            showFullLabels: mode === 'wide',
+            visible: visibleButtons.modeToggle
+        };
+        if (visibleButtons.modeToggle) x += modeWidth + gap;
 
-        const baselineIconOnly = mode === 'narrow';
-        const baselineWidth = baselineIconOnly ? iconButtonSize : (mode === 'medium' ? 90 : 110);
-        const baseline = { x, width: baselineWidth, iconOnly: baselineIconOnly };
-        x += baselineWidth + gap;
+        const baseline = {
+            x,
+            width: baselineWidth,
+            iconOnly: mode !== 'wide' && mode !== 'medium',
+            visible: visibleButtons.baseline
+        };
+        if (visibleButtons.baseline) x += baselineWidth + gap;
 
-        const prevIconOnly = mode === 'narrow';
-        const prevWidth = prevIconOnly ? iconButtonSize : (mode === 'medium' ? 90 : 120);
-        const previousUpdate = { x, width: prevWidth, iconOnly: prevIconOnly };
-        x += prevWidth + gap;
+        const previousUpdate = {
+            x,
+            width: prevWidth,
+            iconOnly: mode !== 'wide' && mode !== 'medium',
+            visible: visibleButtons.previousUpdate
+        };
+        if (visibleButtons.previousUpdate) x += prevWidth + gap;
 
-        const connectorLines = { x, size: iconButtonSize };
-        x += iconButtonSize + gap;
+        const connectorLines = {
+            x,
+            size: iconButtonSize,
+            visible: visibleButtons.connectorLines
+        };
+        if (visibleButtons.connectorLines) x += iconButtonSize + gap;
 
-        // Column toggle moved here - after connector lines, before WBS
-        const colToggle = { x, size: iconButtonSize };
-        x += iconButtonSize + gap;
+        const colToggle = {
+            x,
+            size: iconButtonSize,
+            visible: visibleButtons.colToggle
+        };
+        if (visibleButtons.colToggle) x += iconButtonSize + gap;
 
-        const wbsEnableWidth = mode === 'narrow' ? 60 : 70;
-        const wbsEnable = { x, width: wbsEnableWidth };
-        x += wbsEnableWidth + gap;
+        const wbsEnable = {
+            x,
+            width: wbsEnableWidth,
+            visible: visibleButtons.wbsEnable
+        };
+        if (visibleButtons.wbsEnable) x += wbsEnableWidth + gap;
 
-        const wbsExpandToggle = { x, size: iconButtonSize };
-        x += iconButtonSize + gap;
-        const wbsCollapseToggle = { x, size: iconButtonSize };
-        x += iconButtonSize + gap;
+        const wbsExpandToggle = {
+            x,
+            size: iconButtonSize,
+            visible: visibleButtons.wbsExpand
+        };
+        if (visibleButtons.wbsExpand) x += iconButtonSize + gap;
 
-        // Copy button - smaller icon button (28px)
-        const copyButtonSize = 28;
-        const copyButton = { x, size: copyButtonSize };
-        x += copyButtonSize + gap;
+        const wbsCollapseToggle = {
+            x,
+            size: iconButtonSize,
+            visible: visibleButtons.wbsCollapse
+        };
+        if (visibleButtons.wbsCollapse) x += iconButtonSize + gap;
 
-        // Export button - smaller icon button (28px)
-        const exportButtonSize = 28;
-        const exportButton = { x, size: exportButtonSize };
-        x += exportButtonSize + gap;
+        const copyButton = {
+            x,
+            size: smallIconSize,
+            visible: visibleButtons.copyButton
+        };
+        if (visibleButtons.copyButton) x += smallIconSize + gap;
 
-        // Help button - smaller icon button (28px)
-        const helpButtonSize = 28;
-        const helpButton = { x, size: helpButtonSize };
+        const exportButton = {
+            x,
+            size: smallIconSize,
+            visible: visibleButtons.exportButton
+        };
+        if (visibleButtons.exportButton) x += smallIconSize + gap;
+
+        const helpButton = {
+            x,
+            size: smallIconSize,
+            visible: visibleButtons.helpButton
+        };
+        if (visibleButtons.helpButton) x += smallIconSize;
 
         return {
             mode,
@@ -557,8 +737,20 @@ export class Visual implements IVisual {
             copyButton,
             exportButton,
             helpButton,
-            gap
+            gap,
+            totalWidth: x
         };
+    }
+
+    /**
+     * Extended layout mode determination with more granular breakpoints
+     */
+    private getExtendedLayoutMode(viewportWidth: number): 'wide' | 'medium' | 'narrow' | 'compact' | 'very-narrow' {
+        if (viewportWidth >= this.LAYOUT_BREAKPOINTS.wide) return 'wide';
+        if (viewportWidth >= this.LAYOUT_BREAKPOINTS.medium) return 'medium';
+        if (viewportWidth >= 500) return 'narrow';
+        if (viewportWidth >= 350) return 'compact';
+        return 'very-narrow';
     }
 
     /**
@@ -1506,15 +1698,33 @@ export class Visual implements IVisual {
             .style("pointer-events", "none")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
-        const buttonText = layout.mode === 'narrow'
-            ? (isShowingCritical ? "Critical" : "All")
-            : (isShowingCritical ? "Show Critical" : "Show All");
+        // Determine text based on available width
+        let buttonText: string;
+        if (layout.mode === 'very-narrow' || layout.mode === 'compact') {
+            buttonText = isShowingCritical ? "CP" : "All";
+        } else if (layout.mode === 'narrow') {
+            buttonText = isShowingCritical ? "Critical" : "All";
+        } else {
+            buttonText = isShowingCritical ? "Show Critical" : "Show All";
+        }
+
+        // Create a unique clip path for text clipping
+        const clipId = `showall-text-clip-${Date.now()}`;
+        const defs = this.toggleButtonGroup.append("defs");
+        defs.append("clipPath")
+            .attr("id", clipId)
+            .append("rect")
+            .attr("x", 0)
+            .attr("y", 0)
+            .attr("width", buttonWidth)
+            .attr("height", buttonHeight);
 
         this.toggleButtonGroup.append("text")
             .attr("x", buttonWidth / 2 + this.UI_TOKENS.spacing.md)
             .attr("y", buttonHeight / 2)
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
+            .attr("clip-path", `url(#${clipId})`)
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
             .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
             .style("fill", this.UI_TOKENS.color.neutral.grey160)
@@ -1582,6 +1792,12 @@ export class Visual implements IVisual {
 
         this.headerSvg.selectAll(".baseline-toggle-group").remove();
 
+        const layout = this.getHeaderButtonLayout(viewportWidth);
+        const { x: buttonX, width: buttonWidth, iconOnly, visible } = layout.baseline;
+
+        // Don't render if not visible (hidden due to space constraints)
+        if (!visible) return;
+
         const dataView = this.lastUpdateOptions?.dataViews?.[0];
         const hasBaselineStart = dataView ? this.hasDataRole(dataView, 'baselineStartDate') : false;
         const hasBaselineFinish = dataView ? this.hasDataRole(dataView, 'baselineFinishDate') : false;
@@ -1591,9 +1807,6 @@ export class Visual implements IVisual {
         const lightBaselineColor = this.lightenColor(baselineColor, 0.93);
         const hoverBaselineColor = this.lightenColor(baselineColor, 0.85);
         const previousUpdateColor = this.settings.comparisonBars.previousUpdateColor.value.value;
-
-        const layout = this.getHeaderButtonLayout(viewportWidth);
-        const { x: buttonX, width: buttonWidth, iconOnly } = layout.baseline;
 
         const baselineToggleGroup = this.headerSvg.append("g")
             .attr("class", "baseline-toggle-group")
@@ -1667,11 +1880,23 @@ export class Visual implements IVisual {
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
         if (!iconOnly) {
+            // Create a unique clip path for text clipping
+            const clipId = `baseline-text-clip-${Date.now()}`;
+            const defs = baselineToggleGroup.append("defs");
+            defs.append("clipPath")
+                .attr("id", clipId)
+                .append("rect")
+                .attr("x", 0)
+                .attr("y", 0)
+                .attr("width", buttonWidth)
+                .attr("height", buttonHeight);
+
             baselineToggleGroup.append("text")
                 .attr("class", "toggle-text")
                 .attr("x", iconX + 26)
                 .attr("y", buttonHeight / 2)
                 .attr("dominant-baseline", "central")
+                .attr("clip-path", `url(#${clipId})`)
                 .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
                 .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
                 .style("fill", this.UI_TOKENS.color.neutral.grey160)
@@ -1746,6 +1971,12 @@ export class Visual implements IVisual {
 
         this.headerSvg.selectAll(".previous-update-toggle-group").remove();
 
+        const layout = this.getHeaderButtonLayout(viewportWidth);
+        const { x: buttonX, width: buttonWidth, iconOnly, visible } = layout.previousUpdate;
+
+        // Don't render if not visible (hidden due to space constraints)
+        if (!visible) return;
+
         const dataView = this.lastUpdateOptions?.dataViews?.[0];
         const hasPreviousUpdateStart = dataView ? this.hasDataRole(dataView, 'previousUpdateStartDate') : false;
         const hasPreviousUpdateFinish = dataView ? this.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
@@ -1755,9 +1986,6 @@ export class Visual implements IVisual {
         const lightPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.90);
         const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.80);
         const baselineColor = this.settings.comparisonBars.baselineColor.value.value;
-
-        const layout = this.getHeaderButtonLayout(viewportWidth);
-        const { x: buttonX, width: buttonWidth, iconOnly } = layout.previousUpdate;
 
         const previousUpdateToggleGroup = this.headerSvg.append("g")
             .attr("class", "previous-update-toggle-group")
@@ -1828,11 +2056,26 @@ export class Visual implements IVisual {
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
         if (!iconOnly) {
+            // Create a unique clip path for text clipping
+            const clipId = `prev-update-text-clip-${Date.now()}`;
+            const defs = previousUpdateToggleGroup.append("defs");
+            defs.append("clipPath")
+                .attr("id", clipId)
+                .append("rect")
+                .attr("x", 0)
+                .attr("y", 0)
+                .attr("width", buttonWidth)
+                .attr("height", buttonHeight);
+
+            // Use shorter text in narrower modes
+            const textLabel = buttonWidth >= 110 ? "Prev Update" : "Prev";
+
             previousUpdateToggleGroup.append("text")
                 .attr("class", "toggle-text")
                 .attr("x", iconX + 24)
                 .attr("y", buttonHeight / 2)
                 .attr("dominant-baseline", "central")
+                .attr("clip-path", `url(#${clipId})`)
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
                 .style("letter-spacing", "0.2px")
@@ -1840,7 +2083,7 @@ export class Visual implements IVisual {
                 .style("font-weight", this.showPreviousUpdateInternal ? this.UI_TOKENS.fontWeight.semibold : this.UI_TOKENS.fontWeight.medium)
                 .style("pointer-events", "none")
                 .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-                .text("Prev Update");
+                .text(textLabel);
         }
 
         previousUpdateToggleGroup.append("title")
@@ -1925,7 +2168,10 @@ export class Visual implements IVisual {
         if (!showConnectorToggle) return;
 
         const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize } = layout.connectorLines;
+        const { x: buttonX, size: buttonSize, visible } = layout.connectorLines;
+
+        // Don't render if not visible (hidden due to space constraints)
+        if (!visible) return;
 
         const connectorToggleGroup = this.headerSvg.append("g")
             .attr("class", "connector-toggle-group")
@@ -2079,7 +2325,10 @@ export class Visual implements IVisual {
         // We'll show it regardless.
 
         const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize } = layout.colToggle;
+        const { x: buttonX, size: buttonSize, visible } = layout.colToggle;
+
+        // Don't render if not visible (hidden due to space constraints)
+        if (!visible) return;
 
         const colToggleGroup = this.headerSvg.append("g")
             .attr("class", "column-toggle-group")
@@ -2198,7 +2447,10 @@ export class Visual implements IVisual {
         const isEnabled = !!this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
         const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, width: buttonWidth } = layout.wbsEnable;
+        const { x: buttonX, width: buttonWidth, visible } = layout.wbsEnable;
+
+        // Don't render if not visible (hidden due to space constraints)
+        if (!visible) return;
         const buttonHeight = this.UI_TOKENS.height.standard;
         const buttonY = this.UI_TOKENS.spacing.sm;
 
@@ -2361,6 +2613,12 @@ export class Visual implements IVisual {
         const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
         if (!wbsEnabled || !showWbsToggle) return;
 
+        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+        const { x: buttonX, size: buttonSize, visible } = layout.wbsExpandToggle;
+
+        // Don't render if not visible (hidden due to space constraints)
+        if (!visible) return;
+
         if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
             this.refreshWbsAvailableLevels();
         }
@@ -2374,9 +2632,6 @@ export class Visual implements IVisual {
         const nextLevelLabel = nextLevelValue !== null
             ? this.getWbsExpandLevelLabel(nextLevelValue)
             : this.getWbsExpandLevelLabel(currentLevel);
-
-        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize } = layout.wbsExpandToggle;
 
         const wbsToggleGroup = this.headerSvg.append("g")
             .attr("class", "wbs-expand-toggle-group")
@@ -2518,6 +2773,12 @@ export class Visual implements IVisual {
         const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
         if (!wbsEnabled || !showWbsToggle) return;
 
+        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+        const { x: buttonX, size: buttonSize, visible } = layout.wbsCollapseToggle;
+
+        // Don't render if not visible (hidden due to space constraints)
+        if (!visible) return;
+
         if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
             this.refreshWbsAvailableLevels();
         }
@@ -2531,9 +2792,6 @@ export class Visual implements IVisual {
         const previousLevelLabel = previousLevelValue !== null
             ? this.getWbsExpandLevelLabel(previousLevelValue)
             : this.getWbsExpandLevelLabel(currentLevel);
-
-        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize } = layout.wbsCollapseToggle;
 
         const isCollapsed = this.wbsExpandToLevel === 0 || !this.wbsExpandedInternal;
 
@@ -2981,7 +3239,7 @@ export class Visual implements IVisual {
             this.host.persistProperties({ merge: properties });
 
             this.createModeToggleButton(this.lastUpdateOptions?.viewport.width || 800);
-            this.createFloatThresholdControl();
+            this.createFloatThresholdControl(this.lastUpdateOptions?.viewport.width);
 
             this.forceCanvasRefresh();
 
@@ -3008,7 +3266,7 @@ export class Visual implements IVisual {
     /**
      * Creates the Float Threshold control with premium input design and enhanced UX
      */
-    private createFloatThresholdControl(): void {
+    private createFloatThresholdControl(viewportWidth?: number): void {
         this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
 
         const currentMode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
@@ -3019,8 +3277,9 @@ export class Visual implements IVisual {
             return;
         }
 
-        const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
-        const layoutMode = this.getLayoutMode(viewportWidth);
+        // Use provided viewportWidth, falling back to lastUpdateOptions or default
+        const effectiveWidth = viewportWidth ?? this.lastUpdateOptions?.viewport?.width ?? 800;
+        const layoutMode = this.getLayoutMode(effectiveWidth);
         const isCompact = layoutMode === 'narrow';
         const isMedium = layoutMode === 'medium';
         const maxWidth = isCompact ? 180 : (isMedium ? 210 : 240);
@@ -3839,7 +4098,11 @@ export class Visual implements IVisual {
         this.headerSvg.selectAll('.copy-data-button-group').remove();
 
         const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize } = layout.copyButton;
+        const { x: buttonX, size: buttonSize, visible } = layout.copyButton;
+
+        // Don't render if not visible (hidden due to space constraints)
+        if (!visible) return;
+
         const buttonY = this.UI_TOKENS.spacing.sm;
 
         // Create button group
@@ -4191,7 +4454,11 @@ export class Visual implements IVisual {
 
         // Use centralized layout for button positioning
         const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize } = layout.exportButton;
+        const { x: buttonX, size: buttonSize, visible } = layout.exportButton;
+
+        // Don't render if not visible (hidden due to space constraints)
+        if (!visible) return;
+
         const buttonY = this.UI_TOKENS.spacing.sm;
 
         // Create button group
@@ -4976,7 +5243,7 @@ export class Visual implements IVisual {
 
             this.clearVisual();
             this.updateHeaderElements(viewportWidth);
-            this.createFloatThresholdControl();
+            this.createFloatThresholdControl(viewportWidth);
             this.createpathSelectionDropdown();
             this.createTraceModeToggle();
 
@@ -5450,14 +5717,14 @@ export class Visual implements IVisual {
                 this.identifyLongestPathFromP6();
             } else {
 
-                this.updatePathInfoLabel();
+                this.updatePathInfoLabel(options.viewport.width);
             }
         }
 
         this.clearVisual();
 
         this.updateHeaderElements(options.viewport.width);
-        this.createFloatThresholdControl();
+        this.createFloatThresholdControl(options.viewport.width);
         this.createpathSelectionDropdown();
 
         if (this.dropdownInput) {
@@ -6205,19 +6472,9 @@ export class Visual implements IVisual {
     }
 
     private updateHeaderElements(viewportWidth: number): void {
-
-        let currentToggleText = "";
-        const textSelection = this.toggleButtonGroup?.select("text");
-
-        if (textSelection && !textSelection.empty()) {
-            currentToggleText = textSelection.text();
-        }
-
-        const expectedToggleText = this.showAllTasksInternal ? "Show Critical" : "Show All";
-
-        if (currentToggleText !== expectedToggleText) {
-            this.createOrUpdateToggleButton(viewportWidth);
-        }
+        // Always recreate the toggle button when updating to ensure it respects
+        // current viewport width and layout mode (fixes responsive sizing)
+        this.createOrUpdateToggleButton(viewportWidth);
 
         const dividerLine = this.headerSvg?.select(".divider-line");
         if (dividerLine && !dividerLine.empty()) {
@@ -6238,6 +6495,10 @@ export class Visual implements IVisual {
         this.renderWbsCycleButtons(viewportWidth);
         this.createExportButton(viewportWidth);
         this.createHelpButton(viewportWidth);
+
+        // Also update right-side controls to respond to viewport changes
+        this.createFloatThresholdControl(viewportWidth);
+        this.updatePathInfoLabel(viewportWidth);
     }
 
     private calculateVisibleTasks(): void {
@@ -10075,7 +10336,7 @@ export class Visual implements IVisual {
      * Professional navigation buttons with enhanced design and smooth animations
      * Shows "Path 1/1" even with single path so users understand there's only one driving path
      */
-    private updatePathInfoLabel(): void {
+    private updatePathInfoLabel(viewportWidth?: number): void {
         if (!this.pathInfoLabel) return;
 
         const showPathInfo = this.settings?.pathSelection?.showPathInfo?.value ?? true;
@@ -10096,8 +10357,9 @@ export class Visual implements IVisual {
             return;
         }
 
-        const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
-        const layoutMode = this.getLayoutMode(viewportWidth);
+        // Use provided viewportWidth, falling back to lastUpdateOptions or default
+        const effectiveWidth = viewportWidth ?? this.lastUpdateOptions?.viewport?.width ?? 800;
+        const layoutMode = this.getLayoutMode(effectiveWidth);
         const isCompact = layoutMode === 'narrow';
         const isMedium = layoutMode === 'medium';
 
@@ -14582,7 +14844,11 @@ export class Visual implements IVisual {
 
         // Use centralized layout for button positioning
         const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize } = layout.helpButton;
+        const { x: buttonX, size: buttonSize, visible } = layout.helpButton;
+
+        // Don't render if not visible (hidden due to space constraints)
+        if (!visible) return;
+
         const buttonY = this.UI_TOKENS.spacing.sm;
 
         // Create button group

@@ -192,9 +192,13 @@ export declare class Visual implements IVisual {
     private getLayoutMode;
     /**
      * Returns button dimensions and positions based on current layout mode
-     * This centralizes all responsive layout calculations
+     * This centralizes all responsive layout calculations with smart overflow handling
      */
     private getHeaderButtonLayout;
+    /**
+     * Extended layout mode determination with more granular breakpoints
+     */
+    private getExtendedLayoutMode;
     /**
      * Returns second row layout (dropdown, trace mode toggle) based on viewport width
      */
