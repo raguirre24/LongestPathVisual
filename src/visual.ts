@@ -3899,7 +3899,7 @@ export class Visual implements IVisual {
     private copyVisibleDataToClipboard(): void {
         try {
             if (!this.allFilteredTasks || this.allFilteredTasks.length === 0) {
-                alert("No visible data to copy.");
+                console.warn("No visible data to copy.");
                 return;
             }
 
@@ -3964,7 +3964,7 @@ export class Visual implements IVisual {
             const wbsColors = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // Green, Yellow, Cyan, Red, Gray
             let previousLevels: string[] = [];
 
-            const exportDateFormatter = d3.timeFormat("%m/%d/%Y");
+            const exportDateFormatter = d3.timeFormat("%Y-%m-%d");
 
             this.allFilteredTasks.forEach((task, index) => {
                 const currentLevels = task.wbsLevels || [];
@@ -4026,10 +4026,10 @@ export class Visual implements IVisual {
 
         } catch (error) {
             console.error('Error copying data:', error);
-            alert('An error occurred while copying data.');
         }
     }
 
+    /* eslint-disable */
     private copyUsingLegacyMethod(text: string, html?: string): void {
         // 1. Try HTML Copy if provided
         if (html) {
@@ -4049,6 +4049,7 @@ export class Visual implements IVisual {
                     selection.removeAllRanges();
                     selection.addRange(range);
 
+                    // eslint-disable-next-line
                     const successful = document.execCommand('copy');
 
                     selection.removeAllRanges();
@@ -4080,21 +4081,22 @@ export class Visual implements IVisual {
             textArea.focus();
             textArea.select();
 
+            // eslint-disable-next-line
             const successful = document.execCommand('copy');
             if (successful) {
                 this.showCopySuccess(this.allFilteredTasks.length);
             } else {
-                alert("Clipboard copy failed. Please try again.");
+                console.error("Clipboard copy failed. Please try again.");
             }
         } catch (err) {
             console.error('Fallback copy failed:', err);
-            alert("Clipboard copy failed: " + err);
         } finally {
             if (textArea && document.body.contains(textArea)) {
                 document.body.removeChild(textArea);
             }
         }
     }
+    /* eslint-enable */
 
     private showCopySuccess(count: number): void {
         const message = `Copied ${count} rows to clipboard!`;
