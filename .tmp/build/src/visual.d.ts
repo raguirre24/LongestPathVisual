@@ -143,6 +143,8 @@ export declare class Visual implements IVisual {
     private lastExpandCollapseAllState;
     private tooltipDebugLogged;
     private landingPageContainer;
+    private helpOverlayContainer;
+    private isHelpOverlayVisible;
     private relationshipIndex;
     private allDrivingChains;
     private selectedPathIndex;
@@ -763,5 +765,25 @@ export declare class Visual implements IVisual {
     private getRoleDisplayName;
     private getMissingRequiredRoles;
     private displayLandingPage;
+    /**
+     * Creates the Help button in the header area
+     */
+    private createHelpButton;
+    /**
+     * Shows the help overlay with user guide content
+     */
+    private showHelpOverlay;
+    /**
+     * Builds the help content sections using safe DOM manipulation
+     */
+    private buildHelpContent;
+    /**
+     * Hides the help overlay
+     */
+    private hideHelpOverlay;
+    /**
+     * Clears the help overlay from the DOM
+     */
+    private clearHelpOverlay;
     private debugLog;
 }

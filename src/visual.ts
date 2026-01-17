@@ -283,6 +283,10 @@ export class Visual implements IVisual {
     private tooltipDebugLogged: boolean = false;
     private landingPageContainer: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
 
+    // Help overlay state
+    private helpOverlayContainer: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
+    private isHelpOverlayVisible: boolean = false;
+
     private relationshipIndex: Map<string, Relationship[]> = new Map();
 
     private allDrivingChains: Array<{
@@ -483,6 +487,7 @@ export class Visual implements IVisual {
         wbsCollapseToggle: { x: number; size: number };
         copyButton: { x: number; size: number };
         exportButton: { x: number; size: number };
+        helpButton: { x: number; size: number };
         gap: number;
     } {
         const mode = this.getLayoutMode(viewportWidth);
@@ -532,6 +537,11 @@ export class Visual implements IVisual {
         // Export button - smaller icon button (28px)
         const exportButtonSize = 28;
         const exportButton = { x, size: exportButtonSize };
+        x += exportButtonSize + gap;
+
+        // Help button - smaller icon button (28px)
+        const helpButtonSize = 28;
+        const helpButton = { x, size: helpButtonSize };
 
         return {
             mode,
@@ -546,6 +556,7 @@ export class Visual implements IVisual {
             wbsCollapseToggle,
             copyButton,
             exportButton,
+            helpButton,
             gap
         };
     }
@@ -1268,6 +1279,9 @@ export class Visual implements IVisual {
         if (styleElement) {
             styleElement.remove();
         }
+
+        // Clean up help overlay if visible
+        this.clearHelpOverlay();
 
         this.debugLog("Critical Path Visual destroyed.");
     }
@@ -6223,6 +6237,7 @@ export class Visual implements IVisual {
         this.createOrUpdateWbsEnableToggleButton(viewportWidth);
         this.renderWbsCycleButtons(viewportWidth);
         this.createExportButton(viewportWidth);
+        this.createHelpButton(viewportWidth);
     }
 
     private calculateVisibleTasks(): void {
@@ -14550,6 +14565,473 @@ export class Visual implements IVisual {
                 .style("margin-bottom", "4px")
                 .text(this.getRoleDisplayName(role));
         }
+    }
+
+    // ============================================================================
+    // Help Overlay Functionality
+    // ============================================================================
+
+    /**
+     * Creates the Help button in the header area
+     */
+    private createHelpButton(viewportWidth?: number): void {
+        if (!this.headerSvg) return;
+
+        // Remove existing button
+        this.headerSvg.selectAll('.help-button-group').remove();
+
+        // Use centralized layout for button positioning
+        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
+        const { x: buttonX, size: buttonSize } = layout.helpButton;
+        const buttonY = this.UI_TOKENS.spacing.sm;
+
+        // Create button group
+        const helpBtnGroup = this.headerSvg.append('g')
+            .attr('class', 'help-button-group')
+            .attr('transform', `translate(${buttonX}, ${buttonY})`)
+            .style('cursor', 'pointer')
+            .attr('role', 'button')
+            .attr('aria-label', 'Show help and user guide')
+            .attr('tabindex', '0');
+
+        // Button background
+        helpBtnGroup.append('rect')
+            .attr('class', 'help-btn-bg')
+            .attr('width', buttonSize)
+            .attr('height', buttonSize)
+            .attr('rx', this.UI_TOKENS.radius.medium)
+            .attr('ry', this.UI_TOKENS.radius.medium)
+            .style('fill', this.UI_TOKENS.color.neutral.white)
+            .style('stroke', this.UI_TOKENS.color.neutral.grey60)
+            .style('stroke-width', 1.5)
+            .style('filter', `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style('transition', `all ${this.UI_TOKENS.motion.duration.normal}ms`);
+
+        // Icon group - Question mark icon
+        const iconG = helpBtnGroup.append('g')
+            .attr('class', 'help-icon')
+            .attr('transform', `translate(${buttonSize / 2}, ${buttonSize / 2})`);
+
+        // Question mark circle
+        iconG.append('circle')
+            .attr('r', 7)
+            .attr('fill', 'none')
+            .attr('stroke', this.UI_TOKENS.color.primary.default)
+            .attr('stroke-width', 1.5);
+
+        // Question mark
+        iconG.append('text')
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'central')
+            .attr('y', 0)
+            .attr('font-size', '11px')
+            .attr('font-weight', '600')
+            .attr('fill', this.UI_TOKENS.color.primary.default)
+            .text('?');
+
+        // Tooltip
+        helpBtnGroup.append('title')
+            .text('Show help and user guide');
+
+        // Event handlers
+        const self = this;
+        helpBtnGroup
+            .on('mouseover', function () {
+                d3.select(this).select('.help-btn-bg')
+                    .style('fill', self.UI_TOKENS.color.neutral.grey20)
+                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
+            })
+            .on('mouseout', function () {
+                d3.select(this).select('.help-btn-bg')
+                    .style('fill', self.UI_TOKENS.color.neutral.white)
+                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
+            })
+            .on('click', function (event) {
+                event.stopPropagation();
+                self.showHelpOverlay();
+            })
+            .on('keydown', function (event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    self.showHelpOverlay();
+                }
+            });
+    }
+
+    /**
+     * Shows the help overlay with user guide content
+     */
+    private showHelpOverlay(): void {
+        if (this.isHelpOverlayVisible) return;
+
+        this.isHelpOverlayVisible = true;
+        this.clearHelpOverlay();
+
+        // Create overlay container that covers the entire visual
+        const overlay = d3.select(this.target)
+            .append('div')
+            .attr('class', 'help-overlay')
+            .style('position', 'absolute')
+            .style('top', '0')
+            .style('left', '0')
+            .style('width', '100%')
+            .style('height', '100%')
+            .style('background', 'rgba(0, 0, 0, 0.6)')
+            .style('z-index', '10000')
+            .style('display', 'flex')
+            .style('align-items', 'center')
+            .style('justify-content', 'center')
+            .style('padding', '20px')
+            .style('box-sizing', 'border-box')
+            .style('animation', 'fadeIn 0.2s ease-out');
+
+        this.helpOverlayContainer = overlay;
+
+        // Create the help content card
+        const card = overlay.append('div')
+            .attr('class', 'help-card')
+            .style('max-width', '800px')
+            .style('max-height', '90%')
+            .style('width', '100%')
+            .style('background', this.getBackgroundColor())
+            .style('border-radius', '16px')
+            .style('box-shadow', '0 24px 48px rgba(0, 0, 0, 0.2)')
+            .style('display', 'flex')
+            .style('flex-direction', 'column')
+            .style('overflow', 'hidden')
+            .style('font-family', 'Segoe UI, sans-serif')
+            .style('color', this.getForegroundColor());
+
+        // Header with close button
+        const header = card.append('div')
+            .style('display', 'flex')
+            .style('align-items', 'center')
+            .style('justify-content', 'space-between')
+            .style('padding', '20px 24px')
+            .style('border-bottom', `1px solid ${this.UI_TOKENS.color.neutral.grey30}`)
+            .style('flex-shrink', '0');
+
+        // Header title with icon - using safe DOM manipulation
+        const headerTitle = header.append('div')
+            .style('display', 'flex')
+            .style('align-items', 'center')
+            .style('gap', '12px');
+
+        // Create SVG icon using D3's proper namespace handling
+        const headerIcon = headerTitle.append('svg')
+            .attr('width', 24)
+            .attr('height', 24)
+            .attr('viewBox', '0 0 24 24')
+            .attr('fill', 'none');
+        headerIcon.append('circle')
+            .attr('cx', 12)
+            .attr('cy', 12)
+            .attr('r', 10)
+            .attr('stroke', this.UI_TOKENS.color.primary.default)
+            .attr('stroke-width', 2);
+        headerIcon.append('text')
+            .attr('x', 12)
+            .attr('y', 16)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 14)
+            .attr('font-weight', 600)
+            .attr('fill', this.UI_TOKENS.color.primary.default)
+            .text('?');
+
+        headerTitle.append('span')
+            .style('font-size', '20px')
+            .style('font-weight', '600')
+            .text('User Guide');
+
+        const self = this;
+
+        // Close button with X icon - using safe DOM manipulation
+        const closeBtn = header.append('button')
+            .attr('aria-label', 'Close help')
+            .style('background', 'none')
+            .style('border', 'none')
+            .style('cursor', 'pointer')
+            .style('padding', '8px')
+            .style('border-radius', '8px')
+            .style('display', 'flex')
+            .style('align-items', 'center')
+            .style('justify-content', 'center')
+            .style('transition', 'background 0.15s')
+            .on('mouseover', function () {
+                d3.select(this).style('background', self.UI_TOKENS.color.neutral.grey20);
+            })
+            .on('mouseout', function () {
+                d3.select(this).style('background', 'none');
+            })
+            .on('click', function () {
+                self.hideHelpOverlay();
+            });
+
+        // Create close icon SVG
+        const closeIcon = closeBtn.append('svg')
+            .attr('width', 20)
+            .attr('height', 20)
+            .attr('viewBox', '0 0 20 20')
+            .attr('fill', this.UI_TOKENS.color.neutral.grey130);
+        closeIcon.append('path')
+            .attr('d', 'M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z');
+
+        // Scrollable content area
+        const content = card.append('div')
+            .style('flex', '1')
+            .style('overflow-y', 'auto')
+            .style('padding', '24px')
+            .style('line-height', '1.6');
+
+        // Build help content
+        this.buildHelpContent(content);
+
+        // Footer with close button
+        const footer = card.append('div')
+            .style('padding', '16px 24px')
+            .style('border-top', `1px solid ${this.UI_TOKENS.color.neutral.grey30}`)
+            .style('display', 'flex')
+            .style('justify-content', 'flex-end')
+            .style('flex-shrink', '0');
+
+        footer.append('button')
+            .style('background', this.UI_TOKENS.color.primary.default)
+            .style('color', '#fff')
+            .style('border', 'none')
+            .style('padding', '10px 24px')
+            .style('border-radius', '8px')
+            .style('font-size', '14px')
+            .style('font-weight', '500')
+            .style('cursor', 'pointer')
+            .style('transition', 'background 0.15s')
+            .text('Got it!')
+            .on('mouseover', function () {
+                d3.select(this).style('background', self.UI_TOKENS.color.primary.hover);
+            })
+            .on('mouseout', function () {
+                d3.select(this).style('background', self.UI_TOKENS.color.primary.default);
+            })
+            .on('click', function () {
+                self.hideHelpOverlay();
+            });
+
+        // Close on backdrop click
+        overlay.on('click', function (event) {
+            if (event.target === this) {
+                self.hideHelpOverlay();
+            }
+        });
+
+        // Close on Escape key
+        const escapeHandler = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                this.hideHelpOverlay();
+                document.removeEventListener('keydown', escapeHandler);
+            }
+        };
+        document.addEventListener('keydown', escapeHandler);
+    }
+
+    /**
+     * Builds the help content sections using safe DOM manipulation
+     */
+    private buildHelpContent(container: Selection<HTMLDivElement, unknown, null, undefined>): void {
+        const primaryColor = this.UI_TOKENS.color.primary.default;
+
+        // Helper to create a section
+        const createSection = (icon: string, title: string): Selection<HTMLDivElement, unknown, null, undefined> => {
+            const section = container.append('div')
+                .style('margin-bottom', '28px');
+
+            const titleDiv = section.append('div')
+                .style('font-size', '16px')
+                .style('font-weight', '600')
+                .style('color', primaryColor)
+                .style('margin-bottom', '12px')
+                .style('display', 'flex')
+                .style('align-items', 'center')
+                .style('gap', '8px');
+
+            titleDiv.append('span').text(icon);
+            titleDiv.append('span').text(title);
+
+            return section;
+        };
+
+        // Helper to add a paragraph
+        const addParagraph = (section: Selection<HTMLDivElement, unknown, null, undefined>, text: string): void => {
+            section.append('p')
+                .style('font-size', '13px')
+                .style('margin-bottom', '8px')
+                .text(text);
+        };
+
+        // Helper to add a subtitle
+        const addSubtitle = (section: Selection<HTMLDivElement, unknown, null, undefined>, text: string): void => {
+            section.append('div')
+                .style('font-size', '14px')
+                .style('font-weight', '600')
+                .style('margin-bottom', '8px')
+                .style('margin-top', '16px')
+                .text(text);
+        };
+
+        // Helper to create a list
+        const createList = (section: Selection<HTMLDivElement, unknown, null, undefined>): Selection<HTMLUListElement, unknown, null, undefined> => {
+            return section.append('ul')
+                .style('margin', '0')
+                .style('padding-left', '20px')
+                .style('font-size', '13px');
+        };
+
+        // Helper to add list items with bold label
+        const addListItem = (list: Selection<HTMLUListElement, unknown, null, undefined>, label: string, description: string): void => {
+            const li = list.append('li').style('margin-bottom', '6px');
+            li.append('strong').text(label);
+            li.append('span').text(' - ' + description);
+        };
+
+        // Helper to add simple list item
+        const addSimpleListItem = (list: Selection<HTMLUListElement, unknown, null, undefined>, text: string): void => {
+            list.append('li').style('margin-bottom', '6px').text(text);
+        };
+
+        // ========== Introduction ==========
+        const introSection = createSection('📊', 'Welcome to the Longest Path Visual');
+        addParagraph(introSection, 'This visual helps you analyze your project schedule and critical path. Below is a guide to all available features and controls.');
+
+        // ========== Calculation Modes ==========
+        const modeSection = createSection('🔄', 'Calculation Modes');
+        addParagraph(modeSection, 'The visual supports two different methods for identifying critical tasks:');
+
+        addSubtitle(modeSection, 'Longest Path (CPM)');
+        const cpmPara = modeSection.append('p')
+            .style('font-size', '13px')
+            .style('margin-bottom', '8px');
+        cpmPara.text('Calculates the longest chain of dependent activities from project start to finish. ');
+        cpmPara.append('span')
+            .style('display', 'inline-block')
+            .style('padding', '2px 8px')
+            .style('border-radius', '4px')
+            .style('font-size', '11px')
+            .style('font-weight', '500')
+            .style('background', this.UI_TOKENS.color.primary.light)
+            .text('Default');
+
+        addSubtitle(modeSection, 'Float-Based');
+        addParagraph(modeSection, 'Identifies critical tasks based on Total Float values. Tasks with zero or negative float are marked as critical.');
+
+        const togglePara = modeSection.append('p')
+            .style('font-size', '13px')
+            .style('margin-bottom', '8px');
+        togglePara.append('strong').text('How to use: ');
+        togglePara.append('span').text('Click the mode toggle button in the header to switch between modes.');
+
+        // ========== Display Toggles ==========
+        const displaySection = createSection('👁️', 'Display Toggles');
+        const displayList = createList(displaySection);
+        addListItem(displayList, 'Show All / Show Critical', 'Switch between viewing all tasks or only critical and near-critical tasks');
+        addListItem(displayList, 'Baseline', 'Show or hide baseline schedule bars for comparison');
+        addListItem(displayList, 'Previous Update', 'Show or hide previous schedule update bars for trend analysis');
+        addListItem(displayList, 'Connector Lines', 'Show or hide relationship lines connecting tasks');
+        addListItem(displayList, 'Columns Toggle', 'Show or hide additional data columns (Start Date, Finish Date, etc.)');
+
+        // ========== WBS Grouping ==========
+        const wbsSection = createSection('📁', 'WBS Grouping');
+        addParagraph(wbsSection, 'When Work Breakdown Structure levels are available, you can organize tasks hierarchically:');
+        const wbsList = createList(wbsSection);
+        addListItem(wbsList, 'WBS Toggle', 'Enable or disable the hierarchical grouping view');
+        addListItem(wbsList, 'Expand Button (+)', 'Cycle through expansion levels from collapsed to fully expanded');
+        addListItem(wbsList, 'Collapse Button (-)', 'Cycle in reverse order from expanded to collapsed');
+        addListItem(wbsList, 'Click Group Headers', 'Click on any group header row to expand or collapse that specific group');
+
+        // ========== Task Selection & Tracing ==========
+        const selectionSection = createSection('🎯', 'Task Selection & Path Tracing');
+        addParagraph(selectionSection, 'Use the search dropdown to find and select specific tasks, then trace their relationships:');
+        const selectionList = createList(selectionSection);
+        addListItem(selectionList, 'Task Dropdown', 'Search and select any task by ID or name');
+        addListItem(selectionList, 'Trace Mode: Backward', 'Highlight all predecessor tasks leading to the selected task');
+        addListItem(selectionList, 'Trace Mode: Forward', 'Highlight all successor tasks following the selected task');
+        addListItem(selectionList, 'Trace Mode: Both', 'Highlight both predecessor and successor chains');
+
+        const tipPara = selectionSection.append('p')
+            .style('font-size', '13px')
+            .style('margin-bottom', '8px');
+        tipPara.append('strong').text('Tip: ');
+        tipPara.append('span').text('Click directly on any task bar in the chart to select it.');
+
+        // ========== Near Critical Path ==========
+        const nearCriticalSection = createSection('⚠️', 'Near-Critical Path');
+        addParagraph(nearCriticalSection, 'Tasks that are close to becoming critical are highlighted separately:');
+        const nearCriticalList = createList(nearCriticalSection);
+        addListItem(nearCriticalList, 'Float Threshold', 'Tasks with float below this threshold are marked as near-critical (shown in yellow/amber)');
+        addListItem(nearCriticalList, 'Visual Indication', 'Near-critical tasks appear between critical (red) and normal tasks in importance');
+
+        // ========== Zoom & Navigation ==========
+        const zoomSection = createSection('🔍', 'Zoom & Navigation');
+        const zoomList = createList(zoomSection);
+        addListItem(zoomList, 'Zoom Slider', 'Use the slider at the bottom to focus on a specific time range');
+        addListItem(zoomList, 'Drag Handles', 'Drag the left or right handles to adjust the visible date range');
+        addListItem(zoomList, 'Drag Middle', 'Drag the center of the selection to pan through the timeline');
+        addListItem(zoomList, 'Vertical Scroll', 'Use your mouse wheel or the scrollbar to navigate through tasks');
+        addListItem(zoomList, 'Resize Margin', 'Drag the divider between task names and the chart to adjust column width');
+
+        // ========== Export & Copy ==========
+        const exportSection = createSection('📋', 'Export & Copy');
+        const exportList = createList(exportSection);
+        addListItem(exportList, 'Copy Button', 'Copy all visible task data to your clipboard, then paste directly into Excel');
+        addListItem(exportList, 'PDF Export', 'Download the current view as a PDF document');
+
+        const exportNote = exportSection.append('p')
+            .style('font-size', '13px')
+            .style('margin-bottom', '8px');
+        exportNote.append('strong').text('Note: ');
+        exportNote.append('span').text('Copied data includes the original Total Float values regardless of which calculation mode is displayed.');
+
+        // ========== Legend & Filtering ==========
+        const legendSection = createSection('🎨', 'Legend & Filtering');
+        addParagraph(legendSection, 'If categories are shown in the legend at the bottom:');
+        const legendList = createList(legendSection);
+        addListItem(legendList, 'Click Legend Items', 'Filter the view to show only tasks in that category');
+        addListItem(legendList, 'Multiple Selection', 'Click multiple items to show tasks from several categories');
+        addListItem(legendList, 'Scroll Arrows', 'Use the arrows to see more legend items when there are many');
+
+        // ========== Tooltips ==========
+        const tooltipSection = createSection('💬', 'Tooltips');
+        addParagraph(tooltipSection, 'Hover over any task bar to see detailed information:');
+        const tooltipList = createList(tooltipSection);
+        addSimpleListItem(tooltipList, 'Task ID and Name');
+        addSimpleListItem(tooltipList, 'Start and Finish Dates');
+        addSimpleListItem(tooltipList, 'Duration and Total Float');
+        addSimpleListItem(tooltipList, 'Criticality Status');
+        addSimpleListItem(tooltipList, 'Additional project-specific information');
+
+        // ========== Keyboard Shortcuts ==========
+        const keyboardSection = createSection('⌨️', 'Keyboard Shortcuts');
+        const keyboardList = createList(keyboardSection);
+        addListItem(keyboardList, 'Escape', 'Close this help dialog or clear task selection');
+        addListItem(keyboardList, 'Tab', 'Navigate through interactive elements');
+        addListItem(keyboardList, 'Enter/Space', 'Activate the currently focused button');
+    }
+
+    /**
+     * Hides the help overlay
+     */
+    private hideHelpOverlay(): void {
+        this.isHelpOverlayVisible = false;
+        this.clearHelpOverlay();
+    }
+
+    /**
+     * Clears the help overlay from the DOM
+     */
+    private clearHelpOverlay(): void {
+        if (this.helpOverlayContainer) {
+            this.helpOverlayContainer.remove();
+            this.helpOverlayContainer = null;
+        }
+        // Also remove by class in case state got out of sync
+        d3.select(this.target).selectAll('.help-overlay').remove();
     }
 
     private debugLog(...args: unknown[]): void {
