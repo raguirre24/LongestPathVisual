@@ -3940,12 +3940,21 @@ export class Visual implements IVisual {
                         task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""
                     );
                 }
+                // Use user-provided Total Float if available, otherwise fall back to calculated value
+                // This ensures consistent export regardless of mode (Longest Path vs Float-Based)
+                const exportTotalFloat = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
+                    ? task.userProvidedTotalFloat
+                    : task.totalFloat;
+                // Determine criticality for export based on user-provided float (critical if <= 0)
+                const exportIsCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
+                    ? task.userProvidedTotalFloat <= 0
+                    : task.isCritical;
                 row.push(
                     task.startDate ? exportDateFormatter(task.startDate) : "",
                     task.finishDate ? exportDateFormatter(task.finishDate) : "",
                     task.duration?.toString() || "0",
-                    task.totalFloat?.toString() || "0",
-                    task.isCritical ? "Yes" : "No"
+                    exportTotalFloat?.toString() || "0",
+                    exportIsCritical ? "Yes" : "No"
                 );
                 for (let i = 0; i < maxWbsDepth; i++) {
                     row.push(task.wbsLevels?.[i] || "");
@@ -4025,11 +4034,18 @@ export class Visual implements IVisual {
                     htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""}</td>`;
                 }
 
+                // Use user-provided Total Float if available for consistent export
+                const htmlExportTotalFloat = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
+                    ? task.userProvidedTotalFloat
+                    : task.totalFloat;
+                const htmlExportIsCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
+                    ? task.userProvidedTotalFloat <= 0
+                    : task.isCritical;
                 htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.startDate ? exportDateFormatter(task.startDate) : ""}</td>`;
                 htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.finishDate ? exportDateFormatter(task.finishDate) : ""}</td>`;
                 htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
-                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.totalFloat?.toString() || "0"}</td>`;
-                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.isCritical ? "Yes" : "No"}</td>`;
+                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${htmlExportTotalFloat?.toString() || "0"}</td>`;
+                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${htmlExportIsCritical ? "Yes" : "No"}</td>`;
 
                 // Add WBS Columns if Toggle is OFF
                 if (!showWbs) {
