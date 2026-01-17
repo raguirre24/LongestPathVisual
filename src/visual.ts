@@ -3904,7 +3904,12 @@ export class Visual implements IVisual {
             }
 
             // --- 1. TSV Generation (Flat Data) ---
-            // Calculate max depth for WBS columns
+            const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
+
+            // Format as ISO 8601 (yyyy-mm-dd) consistent with HTML
+            const exportDateFormatter = d3.timeFormat("%Y-%m-%d");
+
+            // Always calculate max depth (TSV always shows hierarchy columns, HTML shows them if toggle is OFF)
             const maxWbsDepth = this.allFilteredTasks.reduce((max, task) => Math.max(max, task.wbsLevels?.length || 0), 0);
 
             const tsvHeaders = [
@@ -3925,19 +3930,19 @@ export class Visual implements IVisual {
                 ];
                 if (this.showBaselineInternal) {
                     row.push(
-                        task.baselineStartDate ? this.fullDateFormatter.format(task.baselineStartDate) : "",
-                        task.baselineFinishDate ? this.fullDateFormatter.format(task.baselineFinishDate) : ""
+                        task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : "",
+                        task.baselineFinishDate ? exportDateFormatter(task.baselineFinishDate) : ""
                     );
                 }
                 if (this.showPreviousUpdateInternal) {
                     row.push(
-                        task.previousUpdateStartDate ? this.fullDateFormatter.format(task.previousUpdateStartDate) : "",
-                        task.previousUpdateFinishDate ? this.fullDateFormatter.format(task.previousUpdateFinishDate) : ""
+                        task.previousUpdateStartDate ? exportDateFormatter(task.previousUpdateStartDate) : "",
+                        task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""
                     );
                 }
                 row.push(
-                    task.startDate ? this.fullDateFormatter.format(task.startDate) : "",
-                    task.finishDate ? this.fullDateFormatter.format(task.finishDate) : "",
+                    task.startDate ? exportDateFormatter(task.startDate) : "",
+                    task.finishDate ? exportDateFormatter(task.finishDate) : "",
                     task.duration?.toString() || "0",
                     task.totalFloat?.toString() || "0",
                     task.isCritical ? "Yes" : "No"
@@ -3958,43 +3963,51 @@ export class Visual implements IVisual {
             if (this.showPreviousUpdateInternal) htmlHeaders.push("Previous Start", "Previous Finish");
             htmlHeaders.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
 
+            // Add WBS Columns if Toggle is OFF
+            if (!showWbs) {
+                for (let i = 0; i < maxWbsDepth; i++) htmlHeaders.push(`WBS Level ${i + 1}`);
+            }
+
             let htmlContent = `<table border="1" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
             htmlContent += `<tr style="background-color: #f0f0f0; font-weight: bold; text-align: center;">${htmlHeaders.map(h => `<th style="padding: 4px; white-space: nowrap;">${h}</th>`).join("")}</tr>`;
 
             const wbsColors = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // Green, Yellow, Cyan, Red, Gray
             let previousLevels: string[] = [];
 
-            const exportDateFormatter = d3.timeFormat("%Y-%m-%d");
+
 
             this.allFilteredTasks.forEach((task, index) => {
                 const currentLevels = task.wbsLevels || [];
 
-                // Find divergence
-                let divergenceIndex = 0;
-                while (divergenceIndex < previousLevels.length && divergenceIndex < currentLevels.length && previousLevels[divergenceIndex] === currentLevels[divergenceIndex]) {
-                    divergenceIndex++;
-                }
+                if (showWbs) {
+                    // Find divergence
+                    let divergenceIndex = 0;
+                    while (divergenceIndex < previousLevels.length && divergenceIndex < currentLevels.length && previousLevels[divergenceIndex] === currentLevels[divergenceIndex]) {
+                        divergenceIndex++;
+                    }
 
-                // Render Group Headers
-                for (let i = divergenceIndex; i < currentLevels.length; i++) {
-                    const indent = i * 15;
-                    const color = wbsColors[i % wbsColors.length];
-                    const groupName = currentLevels[i];
-                    // Name column index logic: Index=0, ID=1, Name=2
-                    // We want Index and ID empty, Name to span rest? Or just indented Name?
-                    // Spanning is better visual separation.
-                    const colSpan = htmlHeaders.length - 2;
+                    // Render Group Headers
+                    for (let i = divergenceIndex; i < currentLevels.length; i++) {
+                        const indent = i * 15;
+                        const color = wbsColors[i % wbsColors.length];
+                        const groupName = currentLevels[i];
 
-                    htmlContent += `<tr style="background-color: ${color}; font-weight: bold;">`;
-                    htmlContent += `<td></td><td></td>`; // Skip Index and ID
-                    htmlContent += `<td colspan="${colSpan}" style="padding-left: ${indent}px; white-space: nowrap;">${groupName}</td>`;
-                    htmlContent += `</tr>`;
+                        // Name column index logic: Index=0, ID=1, Name=2
+                        // We want Index and ID empty, Name to span rest? Or just indented Name?
+                        // Spanning is better visual separation.
+                        const colSpan = htmlHeaders.length - 2;
+
+                        htmlContent += `<tr style="background-color: ${color}; font-weight: bold;">`;
+                        htmlContent += `<td></td><td></td>`; // Skip Index and ID
+                        htmlContent += `<td colspan="${colSpan}" style="padding-left: ${indent}px; white-space: nowrap;">${groupName}</td>`;
+                        htmlContent += `</tr>`;
+                    }
+                    previousLevels = currentLevels;
                 }
-                previousLevels = currentLevels;
 
                 // Render Task Row
                 const taskType = (task.duration === 0) ? "Milestone" : "Activity";
-                const indent = currentLevels.length * 15;
+                const indent = showWbs ? currentLevels.length * 15 : 0;
 
                 htmlContent += `<tr>`;
                 htmlContent += `<td style="text-align: right; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
@@ -4017,6 +4030,14 @@ export class Visual implements IVisual {
                 htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
                 htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.totalFloat?.toString() || "0"}</td>`;
                 htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.isCritical ? "Yes" : "No"}</td>`;
+
+                // Add WBS Columns if Toggle is OFF
+                if (!showWbs) {
+                    for (let i = 0; i < maxWbsDepth; i++) {
+                        htmlContent += `<td style="padding: 2px; white-space: nowrap;">${currentLevels[i] || ""}</td>`;
+                    }
+                }
+
                 htmlContent += `</tr>`;
             });
             htmlContent += `</table>`;

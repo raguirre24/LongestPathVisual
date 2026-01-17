@@ -81,6 +81,8 @@ class GeneralSettingsCard extends Card {
         value: true
     });
 
+
+
     slices: Slice[] = [
         this.visualBackgroundColor,
         this.alternatingRowColors,
