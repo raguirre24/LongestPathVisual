@@ -4260,9 +4260,57 @@ export class Visual implements IVisual {
             const wbsColors = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // Green, Yellow, Cyan, Red, Gray
             let previousLevels: string[] = [];
 
+            // When WBS grouping is enabled, sort tasks by WBS hierarchy first, then by start date within each group.
+            // This ensures all activities from the same WBS appear together in the export, preventing duplicate WBS headers
+            // that would otherwise occur when activities from different WBS groups have interleaved start dates.
+            // WBS groups are ordered by the earliest start date of their activities.
+            let tasksForHtml = this.allFilteredTasks;
+            if (showWbs) {
+                // Build a map of each WBS path to its earliest start date
+                // Key: WBS path joined by '|', Value: earliest start date timestamp
+                const wbsMinStartDate = new Map<string, number>();
+                this.allFilteredTasks.forEach(task => {
+                    const levels = task.wbsLevels || [];
+                    const startTime = task.startDate?.getTime() ?? Infinity;
+
+                    // For each level depth, track the earliest start date
+                    // This ensures parent WBS groups also get ordered by their earliest descendant
+                    for (let depth = 1; depth <= levels.length; depth++) {
+                        const pathKey = levels.slice(0, depth).join('|');
+                        const existingMin = wbsMinStartDate.get(pathKey) ?? Infinity;
+                        if (startTime < existingMin) {
+                            wbsMinStartDate.set(pathKey, startTime);
+                        }
+                    }
+                });
+
+                tasksForHtml = [...this.allFilteredTasks].sort((a, b) => {
+                    const aLevels = a.wbsLevels || [];
+                    const bLevels = b.wbsLevels || [];
+
+                    // Compare WBS levels hierarchically, using earliest start date for ordering
+                    const maxLen = Math.max(aLevels.length, bLevels.length);
+                    for (let i = 0; i < maxLen; i++) {
+                        const aLevel = aLevels[i] || '';
+                        const bLevel = bLevels[i] || '';
+                        if (aLevel !== bLevel) {
+                            // Get the WBS path up to this level for comparison
+                            const aPath = aLevels.slice(0, i + 1).join('|');
+                            const bPath = bLevels.slice(0, i + 1).join('|');
+                            const aMinDate = wbsMinStartDate.get(aPath) ?? Infinity;
+                            const bMinDate = wbsMinStartDate.get(bPath) ?? Infinity;
+                            // Order by earliest start date of the WBS group
+                            return aMinDate - bMinDate;
+                        }
+                    }
+
+                    // If same WBS hierarchy, sort by start date within the group
+                    return (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0);
+                });
+            }
 
 
-            this.allFilteredTasks.forEach((task, index) => {
+            tasksForHtml.forEach((task, index) => {
                 const currentLevels = task.wbsLevels || [];
 
                 if (showWbs) {
