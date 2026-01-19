@@ -5384,16 +5384,10 @@ export class Visual implements IVisual {
                     tasksToConsider = relevantPlottableTasks.length > 0 ? relevantPlottableTasks : plottableTasksSorted;
                 } else {
                     if (mode === 'floatBased') {
+                        // Float-Based + Trace + Show Critical: only show tasks with float <= 0 in the traced path
+                        // If no critical tasks exist in the traced path, show nothing (empty)
                         const criticalTraceTasks = relevantPlottableTasks.filter(task => task.isCritical || task.isNearCritical);
-                        if (criticalTraceTasks.length > 0) {
-                            tasksToConsider = criticalTraceTasks;
-                        } else if (criticalAndNearCriticalTasks.length > 0) {
-                            tasksToConsider = criticalAndNearCriticalTasks;
-                        } else if (relevantPlottableTasks.length > 0) {
-                            tasksToConsider = relevantPlottableTasks;
-                        } else {
-                            tasksToConsider = plottableTasksSorted;
-                        }
+                        tasksToConsider = criticalTraceTasks;
                     } else {
                         if (criticalAndNearCriticalTasks.length > 0) {
                             tasksToConsider = criticalAndNearCriticalTasks;
