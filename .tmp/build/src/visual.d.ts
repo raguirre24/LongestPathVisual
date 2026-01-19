@@ -115,6 +115,7 @@ export declare class Visual implements IVisual {
     private scrollListener;
     private allTasksToShow;
     private allFilteredTasks;
+    private filterKeyword;
     private lastViewport;
     private renderStartTime;
     private predecessorIndex;
@@ -710,6 +711,7 @@ export declare class Visual implements IVisual {
     private activateDropdownSelection;
     private updateDropdownActiveState;
     private selectTask;
+    private applyFilter;
     private ensureTaskVisible;
     getFormattingModel(): powerbi.visuals.FormattingModel;
     /**

@@ -248,6 +248,7 @@ export class Visual implements IVisual {
     private scrollListener: any;
     private allTasksToShow: Task[] = [];
     private allFilteredTasks: Task[] = [];
+    private filterKeyword: string | null = null;
 
     private lastViewport: IViewport | null = null;
 
@@ -5342,7 +5343,7 @@ export class Visual implements IVisual {
                 if (this.selectedTaskId) {
                     this.dropdownInput.property("value", this.selectedTaskName || "");
                 } else {
-                    this.dropdownInput.property("value", "");
+                    this.dropdownInput.property("value", this.filterKeyword || "");
                 }
             }
 
@@ -5457,9 +5458,20 @@ export class Visual implements IVisual {
                     tasksToConsider.push(selectedTask);
                 }
             } else {
-                tasksToConsider = this.showAllTasksInternal
-                    ? plottableTasksSorted
-                    : (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : plottableTasksSorted;
+
+                let baseTasks: Task[];
+                if (this.showAllTasksInternal) {
+                    baseTasks = plottableTasksSorted;
+                } else {
+                    baseTasks = (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : plottableTasksSorted;
+                }
+
+                if (this.filterKeyword && this.filterKeyword.trim().length > 0) {
+                    const lowerFilter = this.filterKeyword.toLowerCase();
+                    tasksToConsider = baseTasks.filter(t => (t.name || "").toLowerCase().includes(lowerFilter));
+                } else {
+                    tasksToConsider = baseTasks;
+                }
             }
 
             if (tasksToConsider === plottableTasksSorted) {
@@ -13512,7 +13524,19 @@ export class Visual implements IVisual {
                 // Use longer delay and smarter detection
                 setTimeout(() => {
                     if (!self.isDropdownInteracting) {
-                        self.closeDropdown(false);
+                        const currentInputValue = self.dropdownInput?.property("value");
+
+                        // If the user cleared the text and left, clear the filter
+                        if (currentInputValue === "") {
+                            self.closeDropdown(false);
+                            if (self.filterKeyword || self.selectedTaskId) {
+                                self.applyFilter("");
+                            }
+                        } else {
+                            self.closeDropdown(false);
+                            const currentText = self.selectedTaskName || self.filterKeyword || "";
+                            if (self.dropdownInput) self.dropdownInput.property("value", currentText);
+                        }
                     }
 
                     self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
@@ -13528,7 +13552,12 @@ export class Visual implements IVisual {
                     self.moveDropdownActive(-1);
                 } else if (event.key === "Enter") {
                     event.preventDefault();
-                    self.activateDropdownSelection();
+                    if (self.dropdownActiveIndex >= 0) {
+                        self.activateDropdownSelection();
+                    } else {
+                        const val = (this as HTMLInputElement).value;
+                        self.applyFilter(val);
+                    }
                 } else if (event.key === "Escape") {
                     self.isDropdownInteracting = false;
                     self.closeDropdown(true);
@@ -13797,7 +13826,8 @@ export class Visual implements IVisual {
         if (selectedIndex >= 0) {
             this.dropdownActiveIndex = selectedIndex;
         } else if (this.dropdownActiveIndex < 0 && this.dropdownFocusableItems.length > 0) {
-            this.dropdownActiveIndex = 0;
+            // Do not auto-select the first item to allow for filtering
+            // this.dropdownActiveIndex = 0;
         } else if (this.dropdownActiveIndex >= this.dropdownFocusableItems.length) {
             this.dropdownActiveIndex = this.dropdownFocusableItems.length - 1;
         }
@@ -13900,11 +13930,9 @@ export class Visual implements IVisual {
         if (!item || !this.dropdownInput || !this.dropdownList) return;
 
         if (item.type === "clear") {
-            this.selectTask(null, null);
-            this.dropdownInput.property("value", "");
-            this.closeDropdown(false);
-            this.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
-                .style("pointer-events", "auto");
+            // Fix: selectTask(null, null) clears Trace but not Filter.
+            // Using applyFilter("") clears active filter AND active text input.
+            this.applyFilter("");
             return;
         }
 
@@ -13945,6 +13973,9 @@ export class Visual implements IVisual {
 
     private selectTask(taskId: string | null, taskName: string | null): void {
 
+        const wasFilterActive = this.filterKeyword !== null && this.filterKeyword.trim().length > 0;
+        this.filterKeyword = null;
+
         if (this.selectedTaskId === taskId && taskId !== null) {
             taskId = null;
             taskName = null;
@@ -13952,7 +13983,7 @@ export class Visual implements IVisual {
 
         const taskChanged = this.selectedTaskId !== taskId;
 
-        if (!taskChanged) {
+        if (!taskChanged && !wasFilterActive) {
             return;
         }
 
@@ -13999,6 +14030,39 @@ export class Visual implements IVisual {
             requestAnimationFrame(() => {
                 this.ensureTaskVisible(taskId);
             });
+        }
+
+        this.forceFullUpdate = true;
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+    }
+
+    private applyFilter(keyword: string): void {
+        this.filterKeyword = keyword;
+
+        // Manually clear selection to avoid triggering selectTask's filter clean-up
+        this.selectedTaskId = null;
+        this.selectedTaskName = null;
+
+        if (this.allowInteractions && this.selectionManager) {
+            this.selectionManager.clear();
+        }
+
+        this.createTraceModeToggle();
+
+        this.host.persistProperties({
+            merge: [{
+                objectName: "persistedState",
+                properties: { selectedTaskId: "" },
+                selector: null
+            }]
+        });
+
+        this.closeDropdown(false);
+        // Important: preserve the input text which is the filter
+        if (this.dropdownInput) {
+            this.dropdownInput.property("value", keyword);
         }
 
         this.forceFullUpdate = true;
