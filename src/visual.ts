@@ -6669,7 +6669,7 @@ export class Visual implements IVisual {
                 this.canvasElement.style.visibility = 'visible';
                 this.canvasElement.style.left = `${leftMargin}px`;
                 this.canvasElement.style.top = `${topMargin}px`;
-                this.canvasElement.style.imageRendering = 'auto';
+                this.canvasElement.style.imageRendering = 'crisp-edges';
                 this.canvasElement.style.transform = 'translateZ(0)';
             }
 
@@ -8982,7 +8982,6 @@ export class Visual implements IVisual {
         this.canvasContext.clip();
 
         this.canvasContext.imageSmoothingEnabled = false;
-        this.canvasContext.imageSmoothingQuality = 'high';
 
         (this.canvasContext as any).textRendering = 'optimizeLegibility';
         (this.canvasContext as any).webkitFontSmoothing = 'antialiased';
