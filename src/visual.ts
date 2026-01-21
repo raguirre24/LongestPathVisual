@@ -929,7 +929,7 @@ export class Visual implements IVisual {
             .style("align-items", "center")
             .style("gap", `${this.UI_TOKENS.spacing.sm}px`)
             .style("background-color", this.UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.primary.default}`)
+            .style("border", `2px solid ${this.UI_TOKENS.color.primary.default}`)
             .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
             .style("box-shadow", this.UI_TOKENS.shadow[4])
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
@@ -962,8 +962,7 @@ export class Visual implements IVisual {
             .style("align-items", "center")
             .style("justify-content", "center")
             .style("flex-direction", "column")
-            .style("background", "rgba(255,255,255,0.92)")
-            .style("backdrop-filter", "blur(2px)")
+            .style("background", "rgba(255,255,255,0.95)")
             .style("z-index", "50");
 
         const overlayContent = this.loadingOverlay.append("div")
@@ -1671,6 +1670,9 @@ export class Visual implements IVisual {
             .style("stroke", this.UI_TOKENS.color.neutral.grey60)
             .style("stroke-width", 1.5)
             .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style("transform-origin", "center center")
+            .style("will-change", "transform")
+            .style("backface-visibility", "hidden")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
         const iconPadding = this.UI_TOKENS.spacing.lg;
@@ -2199,6 +2201,9 @@ export class Visual implements IVisual {
                 : this.UI_TOKENS.color.neutral.grey60)
             .style("stroke-width", this.showConnectorLinesInternal ? 2 : 1.5)
             .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style("transform-origin", "center center")
+            .style("will-change", "transform")
+            .style("backface-visibility", "hidden")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
         const iconCenter = (buttonSize / 2) - 2;
@@ -2661,6 +2666,9 @@ export class Visual implements IVisual {
                 : this.UI_TOKENS.color.neutral.grey60)
             .style("stroke-width", this.wbsExpandedInternal ? 2 : 1.5)
             .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style("transform-origin", "center center")
+            .style("will-change", "transform")
+            .style("backface-visibility", "hidden")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
         const iconCenterX = buttonSize / 2;
@@ -2823,6 +2831,9 @@ export class Visual implements IVisual {
                 : this.UI_TOKENS.color.neutral.grey60)
             .style("stroke-width", isCollapsed ? 2 : 1.5)
             .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
+            .style("transform-origin", "center center")
+            .style("will-change", "transform")
+            .style("backface-visibility", "hidden")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
         const iconCenterX = buttonSize / 2;
@@ -3084,6 +3095,9 @@ export class Visual implements IVisual {
             .style("stroke-width", 1.5)
             .style("filter", hasTotalFloat ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
             .style("opacity", hasTotalFloat ? 1 : 0.4)
+            .style("transform-origin", "center center")
+            .style("will-change", "transform")
+            .style("backface-visibility", "hidden")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
 
         const pillWidth = Math.min(106, buttonWidth - 20);
@@ -3128,7 +3142,7 @@ export class Visual implements IVisual {
             .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.medium : this.UI_TOKENS.fontWeight.bold)
             .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.grey130 : this.UI_TOKENS.color.neutral.white)
             .style("pointer-events", "none")
-            .style("letter-spacing", "0.5px")
+            .style("letter-spacing", "0")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
             .text("LP");
 
@@ -3142,7 +3156,7 @@ export class Visual implements IVisual {
             .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.bold : this.UI_TOKENS.fontWeight.medium)
             .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
             .style("pointer-events", "none")
-            .style("letter-spacing", "0.5px")
+            .style("letter-spacing", "0")
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
             .text("Float");
 
@@ -3302,7 +3316,7 @@ export class Visual implements IVisual {
             .style("padding", `0 ${horizontalPadding}px`)
             .style("max-width", `${maxWidth}px`)
             .style("background-color", this.UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.warning.default}`)
+            .style("border", `2px solid ${this.UI_TOKENS.color.warning.default}`)
             .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
             .style("box-shadow", this.UI_TOKENS.shadow[2])
             .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
@@ -3345,7 +3359,7 @@ export class Visual implements IVisual {
             .style("width", `${inputWidth}px`)
             .style("height", "24px")
             .style("padding", `${this.UI_TOKENS.spacing.xs}px ${this.UI_TOKENS.spacing.sm}px`)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+            .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
             .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
             .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
             .style("font-family", "Segoe UI, sans-serif")
@@ -3375,7 +3389,7 @@ export class Visual implements IVisual {
                 .style("width", "16px")
                 .style("height", "16px")
                 .style("border-radius", "50%")
-                .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+                .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
                 .style("background-color", this.UI_TOKENS.color.neutral.grey10)
                 .style("display", "flex")
                 .style("align-items", "center")
@@ -5854,9 +5868,8 @@ export class Visual implements IVisual {
             .style("position", "absolute")
             .style("top", "0")
             .style("bottom", "0")
-            .style("left", "50%")
+            .style("left", "calc(50% - 1px)")
             .style("width", "1px")
-            .style("transform", "translateX(-0.5px)")
             .style("background-color", lineColor)
             .style("opacity", "0.7")
             .style("pointer-events", "none");
@@ -7810,16 +7823,16 @@ export class Visual implements IVisual {
                 if (this.legendDataExists) {
                     if (d.isCritical) {
                         const rgb = this.hexToRgb(criticalColor);
-                        return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                        return `drop-shadow(0 1px 1px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4))`;
                     }
                     if (d.isNearCritical) {
                         const nearColor = nearCriticalColor;
                         const rgb = this.hexToRgb(nearColor);
-                        return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                        return `drop-shadow(0 1px 1px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3))`;
                     }
                 }
 
-                return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
+                return `drop-shadow(0 1px 1px rgba(0, 0, 0, 0.1))`;
             });
 
         allTaskGroups.filter((d: Task) =>
@@ -7894,16 +7907,16 @@ export class Visual implements IVisual {
                 if (this.legendDataExists) {
                     if (d.isCritical) {
                         const rgb = this.hexToRgb(criticalColor);
-                        return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                        return `drop-shadow(0 1px 1px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4))`;
                     }
                     if (d.isNearCritical) {
                         const nearColor = nearCriticalColor;
                         const rgb = this.hexToRgb(nearColor);
-                        return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                        return `drop-shadow(0 1px 1px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3))`;
                     }
                 }
 
-                return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
+                return `drop-shadow(0 1px 1px rgba(0, 0, 0, 0.1))`;
             });
 
         this.drawTaskLabelsLayer(
@@ -8658,9 +8671,9 @@ export class Visual implements IVisual {
                 fillColor = this.getSelectionColor();
                 strokeColor = this.getSelectionColor();
                 strokeWidth = 3;
-                shadowColor = 'rgba(0, 0, 0, 0.15)';
-                shadowBlur = 6;
-                shadowOffset = 3;
+                shadowColor = 'rgba(0, 0, 0, 0.2)';
+                shadowBlur = 2;
+                shadowOffset = 2;
             } else {
 
                 if (this.legendDataExists && task.legendColor) {
@@ -8687,21 +8700,23 @@ export class Visual implements IVisual {
                     if (this.legendDataExists) {
                         if (task.isCritical) {
                             const rgb = this.hexToRgb(criticalColor);
-                            shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35)`;
-                            shadowBlur = 3;
+                            shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.4)`;
+                            shadowBlur = 1;
+                            shadowOffset = 1;
                         } else if (task.isNearCritical) {
                             const ncColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
                             const rgb = this.hexToRgb(ncColor);
-                            shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25)`;
-                            shadowBlur = 2;
+                            shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)`;
+                            shadowBlur = 1;
+                            shadowOffset = 1;
                         } else {
-                            shadowColor = 'rgba(0, 0, 0, 0.08)';
-                            shadowBlur = 2;
+                            shadowColor = 'rgba(0, 0, 0, 0.12)';
+                            shadowBlur = 1;
                             shadowOffset = 1;
                         }
                     } else {
-                        shadowColor = 'rgba(0, 0, 0, 0.08)';
-                        shadowBlur = 2;
+                        shadowColor = 'rgba(0, 0, 0, 0.12)';
+                        shadowBlur = 1;
                         shadowOffset = 1;
                     }
                 }
@@ -10395,6 +10410,9 @@ export class Visual implements IVisual {
             .style("user-select", "none")
             .style("width", "22px")
             .style("height", "22px")
+            .style("transform-origin", "center center")
+            .style("will-change", "transform")
+            .style("backface-visibility", "hidden")
             .attr("title", buttonTitle);
 
         const prevSvg = prevButton.append("svg")
@@ -10484,6 +10502,9 @@ export class Visual implements IVisual {
             .style("user-select", "none")
             .style("width", "22px")
             .style("height", "22px")
+            .style("transform-origin", "center center")
+            .style("will-change", "transform")
+            .style("backface-visibility", "hidden")
             .attr("title", nextButtonTitle);
 
         const nextSvg = nextButton.append("svg")
@@ -13377,7 +13398,7 @@ export class Visual implements IVisual {
             .style("width", `${dropdownWidth}px`)
             .style("height", `${this.UI_TOKENS.height.compact}px`)
             .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+            .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
             .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
             .style("font-size", `${this.UI_TOKENS.fontSize.lg}px`)
@@ -13416,7 +13437,7 @@ export class Visual implements IVisual {
             .style("margin-top", `${this.UI_TOKENS.spacing.xs}px`)
             .style("overflow-y", "auto")
             .style("background", this.UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+            .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
             .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
             .style("box-shadow", this.UI_TOKENS.shadow[8])
             .style("display", "none")
@@ -13580,7 +13601,7 @@ export class Visual implements IVisual {
             .style("padding", "2px")
             .style("gap", "2px")
             .style("background-color", this.UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
+            .style("border", `2px solid ${this.UI_TOKENS.color.neutral.grey60}`)
             .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
             .style("box-shadow", this.UI_TOKENS.shadow[2])
             .style("z-index", "25")
@@ -14537,19 +14558,19 @@ export class Visual implements IVisual {
         this.pathInfoLabel
             ?.style("background-color", background)
             .style("color", foreground)
-            .style("border", `1.5px solid ${foreground}`);
+            .style("border", `2px solid ${foreground}`);
 
         if (this.dropdownInput) {
             this.dropdownInput
                 .style("color", foreground)
                 .style("background", background)
-                .style("border", `1.5px solid ${foreground}`);
+                .style("border", `2px solid ${foreground}`);
         }
 
         if (this.dropdownList) {
             this.dropdownList
                 .style("background", background)
-                .style("border", `1.5px solid ${foreground}`);
+                .style("border", `2px solid ${foreground}`);
         }
 
         if (this.tooltipDiv) {
