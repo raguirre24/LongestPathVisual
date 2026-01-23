@@ -243,6 +243,10 @@ export declare class Visual implements IVisual {
      * Creates the WBS Expand cycle toggle button with icon-only design
      * Similar styling to Connector Lines toggle for visual consistency
      */
+    /**
+     * Creates the WBS Expand cycle toggle button with icon-only design
+     * Similar styling to Connector Lines toggle for visual consistency
+     */
     private createWbsExpandCycleToggleButton;
     /**
      * Creates the WBS Collapse cycle toggle button with icon-only design (reverse order)
