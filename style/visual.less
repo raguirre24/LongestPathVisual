@@ -5,78 +5,78 @@
 .criticalPathVisual {
     font-family: 'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif;
     overflow: visible; // Allow elements like labels to go outside the main SVG bounds if needed
-  }
-  
-  // Styles for SVG text elements (labels, dates, etc.)
-  text {
+}
+
+// Styles for SVG text elements (labels, dates, etc.)
+text {
     fill: #333; // Default text color
     dominant-baseline: middle; // Vertically center text
     text-anchor: start; // Align text to the start (left)
-  }
-  
-  // Specific style for task duration text inside bars
-  .task-duration-text {
+}
+
+// Specific style for task duration text inside bars
+.task-duration-text {
     fill: white;
     font-size: 9px;
     font-weight: bold;
     text-anchor: middle; // Center text horizontally
     dominant-baseline: middle;
     pointer-events: none; // Prevent text from blocking mouse events on the bar
-  }
-  
-  // Style for the project end line text
-  .project-end-text {
-      font-size: 11px;
-      font-weight: bold;
-      text-anchor: end; // Align to the right of the line position
-  }
-  
-  // Style for the project duration text at the bottom
-  .project-duration-text {
-      font-size: 12px;
-      font-weight: bold;
-      text-anchor: middle; // Center align
-  }
-  
-  // Style for task labels (left side)
-  .task-label {
-      font-size: 11px; // Default, can be overridden by format pane
-      text-anchor: end; // Align to the right, before the chart starts
-  }
-  
-  // Style for finish date labels (right side)
-  .finish-date-label {
-      font-size: 11px; // Default, can be overridden by format pane
-      text-anchor: start; // Align to the left, after the bar/milestone
-  }
-  
-  // Style for milestone shapes (e.g., diamonds)
-  .milestone-shape {
-      stroke: #333;
-      stroke-width: 1px;
-  }
-  
-  // Style for task bars
-  .task-bar {
-      stroke: #333;
-      stroke-width: 0.5px;
-  }
-  
-  // Style for dependency arrows
-  .dependency-arrow {
-      stroke-width: 1.5px;
-      fill: none; // Arrows are typically lines/paths, no fill needed
-  }
-  
-  .dependency-arrow-critical {
-      stroke-width: 2px; // Make critical arrows slightly thicker
-  }
-  
-  // Style for the project end line
-  .project-end-line {
-      stroke-dasharray: 4, 2; // Dashed line style
-      stroke-width: 1.5px;
-  }
+}
+
+// Style for the project end line text
+.project-end-text {
+    font-size: 11px;
+    font-weight: bold;
+    text-anchor: end; // Align to the right of the line position
+}
+
+// Style for the project duration text at the bottom
+.project-duration-text {
+    font-size: 12px;
+    font-weight: bold;
+    text-anchor: middle; // Center align
+}
+
+// Style for task labels (left side)
+.task-label {
+    font-size: 11px; // Default, can be overridden by format pane
+    text-anchor: end; // Align to the right, before the chart starts
+}
+
+// Style for finish date labels (right side)
+.finish-date-label {
+    font-size: 11px; // Default, can be overridden by format pane
+    text-anchor: start; // Align to the left, after the bar/milestone
+}
+
+// Style for milestone shapes (e.g., diamonds)
+.milestone-shape {
+    stroke: #333;
+    stroke-width: 1px;
+}
+
+// Style for task bars
+.task-bar {
+    stroke: #333;
+    stroke-width: 0.5px;
+}
+
+// Style for dependency arrows
+.dependency-arrow {
+    stroke-width: 1.5px;
+    fill: none; // Arrows are typically lines/paths, no fill needed
+}
+
+.dependency-arrow-critical {
+    stroke-width: 2px; // Make critical arrows slightly thicker
+}
+
+// Style for the project end line
+.project-end-line {
+    stroke-dasharray: 4, 2; // Dashed line style
+    stroke-width: 1.5px;
+}
 
 // ============================================================================
 // TIMELINE ZOOM SLIDER - Microsoft Power BI standard style
@@ -137,6 +137,7 @@
     &:hover {
         transform: translate(-50%, -50%) scale(1.2);
     }
+
     &:active {
         transform: translate(-50%, -50%) scale(1.1);
     }
@@ -146,6 +147,7 @@
     &:hover {
         transform: translate(50%, -50%) scale(1.2);
     }
+
     &:active {
         transform: translate(50%, -50%) scale(1.1);
     }
@@ -307,6 +309,7 @@
 
 // Phase 1: Reduced motion support - disable animations for users who prefer it
 @media (prefers-reduced-motion: reduce) {
+
     .timeline-zoom-slider-container,
     .timeline-zoom-slider-selection,
     .legend-scroll-content,
@@ -316,7 +319,7 @@
         transition: none !important;
         animation: none !important;
     }
-    
+
     // Keep loading bar static for reduced motion
     .loading-overlay .loading-bar {
         animation: none !important;
@@ -357,8 +360,13 @@
 }
 
 @keyframes skeleton-shimmer {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 .skeleton-task-bar {
@@ -420,11 +428,11 @@
     .legend-swatch {
         forced-color-adjust: none;
     }
-    
+
     .timeline-zoom-slider-selection {
         border: 2px solid CanvasText;
     }
-    
+
     .task-bar,
     .milestone-shape {
         stroke: CanvasText;
@@ -436,8 +444,13 @@
 // ============================================================================
 
 @keyframes export-spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .export-button-group {
@@ -457,4 +470,125 @@
         outline: 2px solid #0078D4;
         outline-offset: 2px;
     }
+}
+
+// ============================================================================
+// PHASE 2: REFACTORED HEADER STYLES
+// ============================================================================
+
+// Base class for all header toggle buttons
+.header-toggle-button {
+    position: absolute;
+    padding: 0;
+    border-style: solid;
+    border-radius: 4px; // Matches UI_TOKENS.radius.medium typical value
+    box-shadow: 0 1.6px 3.6px 0 rgba(0, 0, 0, 0.132), 0 0.3px 0.9px 0 rgba(0, 0, 0, 0.108); // Matches UI_TOKENS.shadow[2] typical value
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center; // Default centered, can be overridden
+    transition: all 0.2s cubic-bezier(0.33, 1, 0.68, 1); // Smooth transition
+
+    &.is-disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        box-shadow: none;
+    }
+
+    &:focus-visible {
+        outline: 2px solid #0078D4;
+        outline-offset: 2px;
+    }
+}
+
+.toggle-text {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 14px;
+    fill: #323130;
+    pointer-events: none;
+}
+
+// ============================================================================
+// DROPDOWN & INPUT STYLES
+// ============================================================================
+
+.task-selection-dropdown-container {
+    position: absolute;
+    top: 10px;
+    left: 150px; // Consider making this responsive in TS if needed
+    z-index: 20;
+    display: none; // Managed by logic
+}
+
+.task-selection-input {
+    width: 250px;
+    padding: 5px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 9px;
+    color: #333;
+}
+
+.task-selection-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    max-height: 150px;
+    overflow-y: auto;
+    width: 100%;
+    background: white;
+    border: 1px solid #ccc;
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    display: none;
+    z-index: 30;
+    pointer-events: auto;
+    margin-bottom: 40px;
+}
+
+.selected-task-label {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    padding: 5px 10px;
+    background-color: rgba(255, 255, 255, 0.8);
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 9px;
+    color: #333;
+    font-weight: bold;
+    display: none;
+}
+
+.path-info-label {
+    position: absolute;
+    top: 6px;
+    right: 10px;
+    display: none; // Toggled via logic
+    align-items: center;
+    background-color: #ffffff; // Default, might be overridden by UI_TOKENS
+    white-space: nowrap;
+    // other dynamic styles handled in TS
+}
+
+// ============================================================================
+// LOADING OVERLAY
+// ============================================================================
+
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(2px);
+    z-index: 50;
 }
