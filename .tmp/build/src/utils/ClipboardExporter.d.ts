@@ -23,4 +23,7 @@ export interface ClipboardExportConfig {
 /**
  * Exports task data to clipboard in both TSV (for plain text) and HTML (for rich paste) formats
  */
-export declare function exportToClipboard(config: ClipboardExportConfig): void;
+/**
+ * Exports task data to clipboard in both TSV (for plain text) and HTML (for rich paste) formats
+ */
+export declare function exportToClipboard(config: ClipboardExportConfig): Promise<void>;

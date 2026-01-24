@@ -30,7 +30,10 @@ const WBS_COLORS = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // G
 /**
  * Exports task data to clipboard in both TSV (for plain text) and HTML (for rich paste) formats
  */
-export function exportToClipboard(config: ClipboardExportConfig): void {
+/**
+ * Exports task data to clipboard in both TSV (for plain text) and HTML (for rich paste) formats
+ */
+export async function exportToClipboard(config: ClipboardExportConfig): Promise<void> {
     const { tasks, showWbs, showBaseline, showPreviousUpdate, onSuccess, onError } = config;
 
     try {
@@ -52,13 +55,15 @@ export function exportToClipboard(config: ClipboardExportConfig): void {
         const htmlContent = generateHtmlContent(tasks, maxWbsDepth, showWbs, showBaseline, showPreviousUpdate, dateFormatter);
 
         // Copy to clipboard
-        copyToClipboard(tsvContent, htmlContent, tasks.length, onSuccess, onError);
+        await copyToClipboard(tsvContent, htmlContent, tasks.length, onSuccess, onError);
 
     } catch (error) {
         console.error('[ClipboardExporter] Error exporting data:', error);
         onError?.(error as Error);
     }
 }
+
+// ... (keep generateTsvContent and generateHtmlContent as is, they are pure functions) ...
 
 /**
  * Generates TSV content for plain text clipboard (always flat format)
@@ -233,50 +238,73 @@ function generateHtmlContent(
 }
 
 /**
- * Copies content to clipboard using legacy execCommand method
- * Tries HTML format first, falls back to plain text
+ * Copies content to clipboard using standard Async Clipboard API
+ * Falls back to legacy execCommand for older environments (like some PBID)
  */
-/* eslint-disable */
-function copyToClipboard(
+async function copyToClipboard(
     tsvContent: string,
     htmlContent: string,
     taskCount: number,
     onSuccess?: (count: number) => void,
     onError?: (error: Error) => void
-): void {
-    // 1. Try HTML Copy first
-    try {
-        const div = document.createElement("div");
-        div.innerHTML = htmlContent;
-        div.style.position = "fixed";
-        div.style.left = "-9999px";
-        div.style.top = "0";
-        div.contentEditable = "true";
-        document.body.appendChild(div);
+): Promise<void> {
 
-        const selection = window.getSelection();
-        if (selection) {
-            const range = document.createRange();
-            range.selectNodeContents(div);
-            selection.removeAllRanges();
-            selection.addRange(range);
+    // 1. Try Modern Async Clipboard API (for rich HTML + Text)
+    if (navigator.clipboard && navigator.clipboard.write) {
+        try {
+            console.log("[ClipboardExporter] Using modern Async Clipboard API");
 
-            const successful = document.execCommand('copy');
-            selection.removeAllRanges();
-            document.body.removeChild(div);
+            // ClipboardItem requires Blob
+            const textBlob = new Blob([tsvContent], { type: 'text/plain' });
+            const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
 
-            if (successful) {
-                onSuccess?.(taskCount);
-                return;
-            }
-        } else {
-            document.body.removeChild(div);
+            const data = [new ClipboardItem({
+                'text/plain': textBlob,
+                'text/html': htmlBlob
+            })];
+
+            await navigator.clipboard.write(data);
+            onSuccess?.(taskCount);
+            return;
+
+        } catch (err) {
+            console.warn("[ClipboardExporter] Async copy failed (permission denied or unsupported type). Falling back to legacy.", err);
+            // Fall through to legacy method
         }
-    } catch (e) {
-        console.error("[ClipboardExporter] HTML copy failed, falling back to text:", e);
+    } else {
+        console.log("[ClipboardExporter] Async Clipboard API not available. Using legacy fallback.");
     }
 
-    // 2. Fallback to plain text copy
+    // 2. Legacy Fallback: execCommand('copy')
+    // Note: execCommand can only handle one format heavily dependent on context (usually text/plain in textarea, or formatted in contentEditable)
+    // To support rich text fallback, we must use a contentEditable div.
+
+    // Fallback A: Try HTML copy via 'copy' event interception (avoids innerHTML security warning)
+    try {
+        const handler = (e: ClipboardEvent) => {
+            e.preventDefault();
+            if (e.clipboardData) {
+                e.clipboardData.setData('text/html', htmlContent);
+                e.clipboardData.setData('text/plain', tsvContent); // Fallback text in same payload
+            }
+        };
+
+        document.addEventListener('copy', handler);
+        const successful = document.execCommand('copy');
+        document.removeEventListener('copy', handler);
+
+        if (successful) {
+            console.log("[ClipboardExporter] Legacy copy via event listener successful");
+            onSuccess?.(taskCount);
+            return;
+        } else {
+            console.warn("[ClipboardExporter] Legacy copy event returned false");
+        }
+    } catch (e) {
+        console.warn("[ClipboardExporter] Legacy copy method failed:", e);
+    }
+
+    // Fallback B: Try Plain Text copy via textarea (most robust last resort)
     let textArea: HTMLTextAreaElement | null = null;
     try {
         textArea = document.createElement("textarea");
@@ -291,12 +319,14 @@ function copyToClipboard(
 
         const successful = document.execCommand('copy');
         if (successful) {
+            console.log("[ClipboardExporter] Legacy Text copy successful");
             onSuccess?.(taskCount);
         } else {
+            console.error("[ClipboardExporter] All clipbord copy methods failed.");
             onError?.(new Error("Clipboard copy failed"));
         }
     } catch (err) {
-        console.error('[ClipboardExporter] Fallback copy failed:', err);
+        console.error('[ClipboardExporter] Final fallback copy failed:', err);
         onError?.(err as Error);
     } finally {
         if (textArea && document.body.contains(textArea)) {
@@ -304,4 +334,3 @@ function copyToClipboard(
         }
     }
 }
-/* eslint-enable */
