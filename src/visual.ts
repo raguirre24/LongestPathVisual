@@ -12188,21 +12188,8 @@ export class Visual implements IVisual {
         const message = `Copied ${count} rows to clipboard!`;
         console.log(message);
 
-        // Show temporary success feedback on the button
-        const btn = this.headerSvg?.select('.copy-data-button-group');
-        if (btn && !btn.empty()) {
-            const btnBg = btn.select('.copy-btn-bg');
-            if (!btnBg.empty()) {
-                const originalStroke = btnBg.style('stroke');
-                btnBg.style('stroke', this.UI_TOKENS.color.success.default)
-                    .style('stroke-width', 2);
-
-                setTimeout(() => {
-                    btnBg.style('stroke', originalStroke)
-                        .style('stroke-width', 1.5);
-                }, 1000);
-            }
-        }
+        // Show visual feedback on the copy button via the Header component
+        this.header?.showCopySuccess();
 
         // Use timeout to ensure alert doesn't block UI immediately
         setTimeout(() => alert(message + "\n\nYou can now paste into Excel."), 10);

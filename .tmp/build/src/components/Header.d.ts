@@ -49,6 +49,11 @@ export declare class Header {
     private initialize;
     render(viewportWidth: number, settings: VisualSettings, state: HeaderState): void;
     private renderButtons;
+    /**
+     * Shows visual feedback on the copy button when copy succeeds.
+     * Turns the button border green for 2 seconds.
+     */
+    showCopySuccess(): void;
     private lightenColor;
     setExporting(isExporting: boolean): void;
     private createOrUpdateToggleButton;

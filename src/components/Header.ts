@@ -101,6 +101,29 @@ export class Header {
         this.createFloatThresholdControl();
     }
 
+    /**
+     * Shows visual feedback on the copy button when copy succeeds.
+     * Turns the button border green for 2 seconds.
+     */
+    public showCopySuccess(): void {
+        const btn = this.container.select('.copy-data-button-group');
+        if (!btn.empty()) {
+            // Store original styles
+            const originalBorder = btn.style('border');
+            const originalBg = btn.style('background-color');
+
+            // Apply success styles
+            btn.style('border', `2px solid ${UI_TOKENS.color.success.default}`)
+                .style('background-color', UI_TOKENS.color.success.light);
+
+            // Revert after 2 seconds
+            setTimeout(() => {
+                btn.style('border', originalBorder)
+                    .style('background-color', originalBg);
+            }, 2000);
+        }
+    }
+
 
     private lightenColor(color: string, factor: number): string {
         const hex = color.replace('#', '');
