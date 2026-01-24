@@ -26,101 +26,11 @@ import { VisualSettings } from "./settings";
 import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 import { IBasicFilter, FilterType } from "powerbi-models";
 import FilterAction = powerbi.FilterAction;
+import { DataProcessor, ProcessedData } from "./data/DataProcessor";
+import { Header, HeaderCallbacks, HeaderState } from "./components/Header";
+import { Task, WBSGroup, Relationship, DropdownItem, UpdateType } from "./data/Interfaces";
+import { exportToClipboard } from "./utils/ClipboardExporter";
 
-interface Task {
-    id: string | number;
-    internalId: string;
-    name: string;
-    type: string;
-    duration: number;
-    userProvidedTotalFloat?: number;
-    taskFreeFloat?: number;
-    predecessorIds: string[];
-    relationshipTypes: { [predId: string]: string; };
-    relationshipLags: { [predId: string]: number | null; };
-    successors: Task[];
-    predecessors: Task[];
-    earlyStart: number;
-    earlyFinish: number;
-    lateStart: number;
-    lateFinish: number;
-    totalFloat: number;
-    isCritical: boolean;
-    isCriticalByFloat?: boolean;
-    isCriticalByRel?: boolean;
-    isNearCritical?: boolean;
-    startDate?: Date | null;
-    finishDate?: Date | null;
-    baselineStartDate?: Date | null;
-    baselineFinishDate?: Date | null;
-    previousUpdateStartDate?: Date | null;
-    previousUpdateFinishDate?: Date | null;
-    yOrder?: number;
-    tooltipData?: Array<{ key: string, value: PrimitiveValue }>;
-    selectionId?: powerbi.visuals.ISelectionId;
-    legendValue?: string;
-    legendColor?: string;
-
-    wbsLevels?: string[];
-    wbsGroupId?: string;
-    wbsIndentLevel?: number;
-}
-
-interface WBSGroup {
-    id: string;
-    level: number;
-    name: string;
-    fullPath: string;
-    parentId: string | null;
-    children: WBSGroup[];
-    tasks: Task[];
-    allTasks: Task[];
-    isExpanded: boolean;
-    yOrder?: number;
-    visibleTaskCount: number;
-
-    summaryStartDate?: Date | null;
-    summaryFinishDate?: Date | null;
-    hasCriticalTasks: boolean;
-    hasNearCriticalTasks?: boolean;
-    taskCount: number;
-
-    criticalStartDate?: Date | null;
-    criticalFinishDate?: Date | null;
-    nearCriticalStartDate?: Date | null;
-    nearCriticalFinishDate?: Date | null;
-    summaryBaselineStartDate?: Date | null;
-    summaryBaselineFinishDate?: Date | null;
-    summaryPreviousUpdateStartDate?: Date | null;
-    summaryPreviousUpdateFinishDate?: Date | null;
-}
-
-interface Relationship {
-    predecessorId: string;
-    successorId: string;
-    type: string;
-    freeFloat: number | null;
-    isCritical: boolean;
-    lag: number | null;
-    relationshipFloat?: number;
-    isDriving?: boolean;
-}
-
-interface DropdownItem {
-    id: string;
-    type: "clear" | "task" | "empty" | "overflow";
-    label: string;
-    task?: Task;
-    focusable: boolean;
-}
-
-enum UpdateType {
-    Full = "Full",
-    DataOnly = "DataOnly",
-    ViewportOnly = "ViewportOnly",
-    SettingsOnly = "SettingsOnly",
-    DataAndSettings = 'DataAndSettings'
-}
 
 export class Visual implements IVisual {
     private target: HTMLElement;
@@ -142,6 +52,7 @@ export class Visual implements IVisual {
     private lastTooltipItems: VisualTooltipDataItem[] = [];
     private lastTooltipIdentities: powerbi.extensibility.ISelectionId[] = [];
 
+    private header: Header;
     private stickyHeaderContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private scrollableContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private headerSvg: Selection<SVGSVGElement, unknown, null, undefined>;
@@ -339,6 +250,7 @@ export class Visual implements IVisual {
     private zoomTouchEndHandler: (() => void) | null = null;
     private readonly zoomTouchListenerOptions: AddEventListenerOptions = { passive: true };
 
+    private dataProcessor: DataProcessor;
     private readonly UI_TOKENS = {
 
         height: {
@@ -475,284 +387,12 @@ export class Visual implements IVisual {
      * Returns button dimensions and positions based on current layout mode
      * This centralizes all responsive layout calculations with smart overflow handling
      */
-    private getHeaderButtonLayout(viewportWidth: number): {
-        mode: 'wide' | 'medium' | 'narrow' | 'compact' | 'very-narrow';
-        showAllCritical: { x: number; width: number; showText: boolean; visible: boolean };
-        modeToggle: { x: number; width: number; showFullLabels: boolean; visible: boolean };
-        colToggle: { x: number; size: number; visible: boolean };
-        baseline: { x: number; width: number; iconOnly: boolean; visible: boolean };
-        previousUpdate: { x: number; width: number; iconOnly: boolean; visible: boolean };
-        connectorLines: { x: number; size: number; visible: boolean };
-        wbsEnable: { x: number; width: number; visible: boolean };
-        wbsExpandToggle: { x: number; size: number; visible: boolean };
-        wbsCollapseToggle: { x: number; size: number; visible: boolean };
-        copyButton: { x: number; size: number; visible: boolean };
-        exportButton: { x: number; size: number; visible: boolean };
-        helpButton: { x: number; size: number; visible: boolean };
-        gap: number;
-        totalWidth: number;
-    } {
-        // Extended layout modes for better responsiveness
-        const mode = this.getExtendedLayoutMode(viewportWidth);
 
-        // Reserve space for right-side controls (near-critical threshold, help button)
-        // The float threshold control is ~180-240px + some margin
-        const rightReserved = mode === 'very-narrow' ? 60 : (mode === 'compact' ? 100 : (mode === 'narrow' ? 150 : 260));
-        const availableWidth = viewportWidth - rightReserved;
-
-        // Gap between buttons based on mode
-        const gap = mode === 'wide' ? 12 : (mode === 'medium' ? 8 : (mode === 'narrow' ? 6 : 4));
-        const iconButtonSize = mode === 'very-narrow' ? 28 : (mode === 'compact' ? 30 : 36);
-        const smallIconSize = mode === 'very-narrow' ? 24 : 28;
-
-        // Calculate dimensions for each button type based on mode
-        const showAllWidth = mode === 'wide' ? 140 : (mode === 'medium' ? 120 : (mode === 'narrow' ? 100 : (mode === 'compact' ? 80 : 70)));
-        const modeWidth = mode === 'wide' ? 150 : (mode === 'medium' ? 130 : (mode === 'narrow' ? 110 : (mode === 'compact' ? 90 : 80)));
-        const baselineWidth = (mode === 'wide' || mode === 'medium') ? (mode === 'wide' ? 125 : 105) : iconButtonSize;
-        const prevWidth = (mode === 'wide' || mode === 'medium') ? (mode === 'wide' ? 125 : 105) : iconButtonSize;
-        const wbsEnableWidth = mode === 'wide' ? 70 : (mode === 'medium' ? 65 : 60);
-
-        // Calculate total width needed for all buttons
-        const allButtonWidths = [
-            showAllWidth,
-            modeWidth,
-            baselineWidth,
-            prevWidth,
-            iconButtonSize, // connector lines
-            iconButtonSize, // column toggle
-            wbsEnableWidth,
-            iconButtonSize, // wbs expand
-            iconButtonSize, // wbs collapse
-            smallIconSize,  // copy
-            smallIconSize,  // export
-            smallIconSize   // help
-        ];
-
-        const numButtons = allButtonWidths.length;
-        const totalNeeded = allButtonWidths.reduce((a, b) => a + b, 0) + (numButtons - 1) * gap;
-
-        // Determine which buttons to show based on available space
-        // Priority order (highest = most important, keep visible):
-        // 1. Show All/Critical toggle (essential)
-        // 2. Mode toggle (essential)
-        // 3. Help button (always keep at end)
-        // 4. Copy/Export (useful)
-        // 5. Baseline/Previous Update (important comparison features)
-        // 6. Connector Lines toggle
-        // 7. Column toggle
-        // 8. WBS controls (least priority if WBS not in use)
-
-        let visibleButtons = {
-            showAll: true,
-            modeToggle: true,
-            baseline: true,
-            previousUpdate: true,
-            connectorLines: true,
-            colToggle: true,
-            wbsEnable: this.wbsDataExistsInMetadata,
-            wbsExpand: this.wbsDataExistsInMetadata,
-            wbsCollapse: this.wbsDataExistsInMetadata,
-            copyButton: true,
-            exportButton: true,
-            helpButton: true
-        };
-
-        // Progressive hiding based on available width
-        const calculateVisibleWidth = () => {
-            let width = 0;
-            let count = 0;
-            if (visibleButtons.showAll) { width += showAllWidth; count++; }
-            if (visibleButtons.modeToggle) { width += modeWidth; count++; }
-            if (visibleButtons.baseline) { width += baselineWidth; count++; }
-            if (visibleButtons.previousUpdate) { width += prevWidth; count++; }
-            if (visibleButtons.connectorLines) { width += iconButtonSize; count++; }
-            if (visibleButtons.colToggle) { width += iconButtonSize; count++; }
-            if (visibleButtons.wbsEnable) { width += wbsEnableWidth; count++; }
-            if (visibleButtons.wbsExpand) { width += iconButtonSize; count++; }
-            if (visibleButtons.wbsCollapse) { width += iconButtonSize; count++; }
-            if (visibleButtons.copyButton) { width += smallIconSize; count++; }
-            if (visibleButtons.exportButton) { width += smallIconSize; count++; }
-            if (visibleButtons.helpButton) { width += smallIconSize; count++; }
-            return width + Math.max(0, count - 1) * gap;
-        };
-
-        // Progressively hide buttons if needed (in order of decreasing priority)
-        let visibleWidth = calculateVisibleWidth();
-
-        // Hide WBS collapse button first
-        if (visibleWidth > availableWidth && visibleButtons.wbsCollapse) {
-            visibleButtons.wbsCollapse = false;
-            visibleWidth = calculateVisibleWidth();
-        }
-
-        // Hide WBS expand button
-        if (visibleWidth > availableWidth && visibleButtons.wbsExpand) {
-            visibleButtons.wbsExpand = false;
-            visibleWidth = calculateVisibleWidth();
-        }
-
-        // Hide WBS enable button
-        if (visibleWidth > availableWidth && visibleButtons.wbsEnable) {
-            visibleButtons.wbsEnable = false;
-            visibleWidth = calculateVisibleWidth();
-        }
-
-        // Hide column toggle
-        if (visibleWidth > availableWidth && visibleButtons.colToggle) {
-            visibleButtons.colToggle = false;
-            visibleWidth = calculateVisibleWidth();
-        }
-
-        // Hide connector lines toggle
-        if (visibleWidth > availableWidth && visibleButtons.connectorLines) {
-            visibleButtons.connectorLines = false;
-            visibleWidth = calculateVisibleWidth();
-        }
-
-        // Hide export button
-        if (visibleWidth > availableWidth && visibleButtons.exportButton) {
-            visibleButtons.exportButton = false;
-            visibleWidth = calculateVisibleWidth();
-        }
-
-        // Hide copy button
-        if (visibleWidth > availableWidth && visibleButtons.copyButton) {
-            visibleButtons.copyButton = false;
-            visibleWidth = calculateVisibleWidth();
-        }
-
-        // Hide previous update
-        if (visibleWidth > availableWidth && visibleButtons.previousUpdate) {
-            visibleButtons.previousUpdate = false;
-            visibleWidth = calculateVisibleWidth();
-        }
-
-        // Hide baseline
-        if (visibleWidth > availableWidth && visibleButtons.baseline) {
-            visibleButtons.baseline = false;
-            visibleWidth = calculateVisibleWidth();
-        }
-
-        // Now calculate positions for visible buttons
-        let x = 10;
-
-        const showAllCritical = {
-            x,
-            width: showAllWidth,
-            showText: mode !== 'very-narrow',
-            visible: visibleButtons.showAll
-        };
-        if (visibleButtons.showAll) x += showAllWidth + gap;
-
-        const modeToggle = {
-            x,
-            width: modeWidth,
-            showFullLabels: mode === 'wide',
-            visible: visibleButtons.modeToggle
-        };
-        if (visibleButtons.modeToggle) x += modeWidth + gap;
-
-        const baseline = {
-            x,
-            width: baselineWidth,
-            iconOnly: mode !== 'wide' && mode !== 'medium',
-            visible: visibleButtons.baseline
-        };
-        if (visibleButtons.baseline) x += baselineWidth + gap;
-
-        const previousUpdate = {
-            x,
-            width: prevWidth,
-            iconOnly: mode !== 'wide' && mode !== 'medium',
-            visible: visibleButtons.previousUpdate
-        };
-        if (visibleButtons.previousUpdate) x += prevWidth + gap;
-
-        const connectorLines = {
-            x,
-            size: iconButtonSize,
-            visible: visibleButtons.connectorLines
-        };
-        if (visibleButtons.connectorLines) x += iconButtonSize + gap;
-
-        const colToggle = {
-            x,
-            size: iconButtonSize,
-            visible: visibleButtons.colToggle
-        };
-        if (visibleButtons.colToggle) x += iconButtonSize + gap;
-
-        const wbsEnable = {
-            x,
-            width: wbsEnableWidth,
-            visible: visibleButtons.wbsEnable
-        };
-        if (visibleButtons.wbsEnable) x += wbsEnableWidth + gap;
-
-        const wbsExpandToggle = {
-            x,
-            size: iconButtonSize,
-            visible: visibleButtons.wbsExpand
-        };
-        if (visibleButtons.wbsExpand) x += iconButtonSize + gap;
-
-        const wbsCollapseToggle = {
-            x,
-            size: iconButtonSize,
-            visible: visibleButtons.wbsCollapse
-        };
-        if (visibleButtons.wbsCollapse) x += iconButtonSize + gap;
-
-        const copyButton = {
-            x,
-            size: smallIconSize,
-            visible: visibleButtons.copyButton
-        };
-        if (visibleButtons.copyButton) x += smallIconSize + gap;
-
-        const exportButton = {
-            x,
-            size: smallIconSize,
-            visible: visibleButtons.exportButton
-        };
-        if (visibleButtons.exportButton) x += smallIconSize + gap;
-
-        const helpButton = {
-            x,
-            size: smallIconSize,
-            visible: visibleButtons.helpButton
-        };
-        if (visibleButtons.helpButton) x += smallIconSize;
-
-        return {
-            mode,
-            showAllCritical,
-            modeToggle,
-            colToggle,
-            baseline,
-            previousUpdate,
-            connectorLines,
-            wbsEnable,
-            wbsExpandToggle,
-            wbsCollapseToggle,
-            copyButton,
-            exportButton,
-            helpButton,
-            gap,
-            totalWidth: x
-        };
-    }
 
     /**
      * Extended layout mode determination with more granular breakpoints
      */
-    private getExtendedLayoutMode(viewportWidth: number): 'wide' | 'medium' | 'narrow' | 'compact' | 'very-narrow' {
-        if (viewportWidth >= this.LAYOUT_BREAKPOINTS.wide) return 'wide';
-        if (viewportWidth >= this.LAYOUT_BREAKPOINTS.medium) return 'medium';
-        if (viewportWidth >= 500) return 'narrow';
-        if (viewportWidth >= 350) return 'compact';
-        return 'very-narrow';
-    }
+
 
     /**
      * Returns second row layout (dropdown, trace mode toggle) based on viewport width
@@ -850,6 +490,28 @@ export class Visual implements IVisual {
             .style("background-color", "white")
             .style("overflow", "visible");
 
+        this.header = new Header(this.stickyHeaderContainer, {
+            onToggleCriticalPath: () => this.toggleTaskDisplayInternal(),
+            onToggleBaseline: () => this.toggleBaselineDisplayInternal(),
+            onTogglePreviousUpdate: () => this.togglePreviousUpdateDisplayInternal(),
+            onToggleConnectorLines: () => this.toggleConnectorLinesDisplay(),
+            onToggleWbsExpand: () => this.toggleWbsExpandCollapseDisplay(),
+            onToggleWbsCollapse: () => this.toggleWbsCollapseCycleDisplay(),
+            onToggleMode: () => this.togglecriticalPath(),
+            onToggleColumns: () => this.toggleColumnDisplayInternal(),
+            onToggleWbsEnable: () => this.toggleWbsEnabled(),
+            onFloatThresholdChanged: (val) => {
+                this.floatThreshold = val;
+                if (this.lastUpdateOptions) this.update(this.lastUpdateOptions);
+            },
+            onHelp: () => this.toggleHelpOverlay(),
+            onExport: () => this.exportToPDF(),
+            onCopy: () => this.copyVisibleDataToClipboard()
+        });
+
+        this.dataProcessor = new DataProcessor(this.host);
+
+
         this.headerSvg = this.stickyHeaderContainer.append("svg")
             .attr("class", "header-svg")
             .attr("width", "100%")
@@ -901,7 +563,7 @@ export class Visual implements IVisual {
             .style("pointer-events", "auto")
             .style("margin-bottom", "40px");
 
-        this.createFloatThresholdControl();
+
 
         this.selectedTaskLabel = this.stickyHeaderContainer.append("div")
             .attr("class", "selected-task-label")
@@ -1122,7 +784,7 @@ export class Visual implements IVisual {
 
         this.traceMode = "backward";
 
-        this.createConnectorLinesToggleButton();
+
 
         d3.select(this.canvasElement).on("click", (event: MouseEvent) => {
             if (!this.useCanvasRendering || !this.xScale || !this.yScale || !this.canvasElement) return;
@@ -1488,6 +1150,39 @@ export class Visual implements IVisual {
         }
     }
 
+    private toggleHelpOverlay(): void {
+        this.isHelpOverlayVisible = !this.isHelpOverlayVisible;
+        if (this.isHelpOverlayVisible) {
+            const wrapper = d3.select(this.target).select(".visual-wrapper");
+            this.helpOverlayContainer = wrapper.append("div")
+                .attr("class", "help-overlay")
+                .style("position", "absolute")
+                .style("top", "0")
+                .style("left", "0")
+                .style("width", "100%")
+                .style("height", "100%")
+                .style("background-color", "rgba(255, 255, 255, 0.95)")
+                .style("z-index", "1000")
+                .style("display", "flex")
+                .style("flex-direction", "column")
+                .style("justify-content", "center")
+                .style("align-items", "center")
+                .on("click", () => this.clearHelpOverlay());
+
+            // eslint-disable-next-line powerbi-visuals/no-implied-inner-html
+            this.helpOverlayContainer.append("div")
+                .style("padding", "20px")
+                .style("background", "white")
+                .style("box-shadow", "0 4px 12px rgba(0,0,0,0.15)")
+                .style("border-radius", "8px")
+                .html("<h3>Keyboard Shortcuts</h3><ul><li><b>Scroll</b>: Pan vertically</li><li><b>Shift + Scroll</b>: Pan horizontally</li><li><b>Ctrl + Scroll</b>: Zoom time axis</li></ul><p>Click anywhere to close.</p>");
+        } else {
+            this.clearHelpOverlay();
+        }
+    }
+
+
+
     private setHoveredTask(taskId: string | null): void {
         const nextTaskId = taskId ?? null;
         if (this.hoveredTaskId === nextTaskId) {
@@ -1561,7 +1256,7 @@ export class Visual implements IVisual {
             this.showBaselineInternal = !this.showBaselineInternal;
             this.debugLog("New showBaselineInternal value:", this.showBaselineInternal);
 
-            this.createOrUpdateBaselineToggleButton(this.lastUpdateOptions?.viewport.width || 800);
+            this.debugLog("New showBaselineInternal value:", this.showBaselineInternal);
 
             this.host.persistProperties({
                 merge: [{
@@ -1602,7 +1297,7 @@ export class Visual implements IVisual {
             this.showPreviousUpdateInternal = !this.showPreviousUpdateInternal;
             this.debugLog("New showPreviousUpdateInternal value:", this.showPreviousUpdateInternal);
 
-            this.createOrUpdatePreviousUpdateToggleButton(this.lastUpdateOptions?.viewport.width || 800);
+            this.debugLog("New showPreviousUpdateInternal value:", this.showPreviousUpdateInternal);
 
             this.host.persistProperties({
                 merge: [{
@@ -1637,524 +1332,11 @@ export class Visual implements IVisual {
         }
     }
 
-    private createOrUpdateToggleButton(viewportWidth: number): void {
-        this.stickyHeaderContainer.selectAll(".toggle-button-group").remove();
 
-        const layout = this.getHeaderButtonLayout(viewportWidth);
-        const buttonWidth = layout.showAllCritical.width;
-        const buttonHeight = this.UI_TOKENS.height.standard;
-        const buttonX = layout.showAllCritical.x;
-        const buttonY = this.UI_TOKENS.spacing.sm;
 
-        const isShowingCritical = this.showAllTasksInternal;
 
-        const btn = this.stickyHeaderContainer.append("button")
-            .attr("class", "toggle-button-group")
-            .attr("type", "button")
-            .attr("aria-label", isShowingCritical ? "Show critical path only" : "Show all tasks")
-            .attr("aria-pressed", (!isShowingCritical).toString())
-            .classed("header-toggle-button", true)
-            .style("position", "absolute")
-            .style("left", `${buttonX}px`)
-            .style("top", `${buttonY}px`)
-            .style("width", `${buttonWidth}px`)
-            .style("height", `${buttonHeight}px`)
-            .style("padding", "0")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-            .style("background-color", this.UI_TOKENS.color.neutral.white)
-            .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
-            .on("click", (event) => {
-                event.stopPropagation();
-                this.toggleTaskDisplayInternal();
-            });
 
-        const iconPadding = this.UI_TOKENS.spacing.lg;
-        const iconColor = isShowingCritical
-            ? this.UI_TOKENS.color.danger.default
-            : this.UI_TOKENS.color.success.default;
 
-        // SVG Icon
-        const svg = btn.append("svg")
-            .attr("width", buttonWidth)
-            .attr("height", buttonHeight)
-            .style("position", "absolute")
-            .style("top", "0")
-            .style("left", "0")
-            .style("pointer-events", "none");
-
-        svg.append("circle")
-            .attr("cx", iconPadding)
-            .attr("cy", buttonHeight / 2)
-            .attr("r", 10)
-            .style("fill", isShowingCritical ? this.UI_TOKENS.color.danger.subtle : this.UI_TOKENS.color.success.subtle);
-
-        svg.append("path")
-            .attr("d", isShowingCritical
-                ? "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z"
-                : "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3")
-            .attr("transform", `translate(${iconPadding}, ${buttonHeight / 2})`)
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 2.25)
-            .attr("fill", isShowingCritical ? iconColor : "none")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round");
-
-        // Text
-        const buttonText = isShowingCritical
-            ? (buttonWidth >= 160 ? "Critical Path Only" : "Critical Only")
-            : (buttonWidth >= 160 ? "Show All Tasks" : "All Tasks");
-
-        const textX = iconPadding + 24;
-
-        if (buttonWidth > 50) {
-            svg.append("text")
-                .attr("x", textX)
-                .attr("y", buttonHeight / 2)
-                .attr("dominant-baseline", "central")
-                .style("font-family", "Segoe UI, sans-serif")
-                .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-                .style("fill", this.UI_TOKENS.color.neutral.grey160)
-                .style("font-weight", this.UI_TOKENS.fontWeight.semibold.toString())
-                .style("letter-spacing", "0.2px")
-                .text(buttonText);
-        }
-
-        // Hover effects
-        const self = this;
-        btn.on("mouseover", function () {
-            d3.select(this)
-                .style("background-color", self.UI_TOKENS.color.neutral.grey10)
-                .style("border-color", self.UI_TOKENS.color.neutral.grey90)
-                .style("border-width", "2px") // Compensate for layout shift if needed or just use box-shadow
-                .style("box-shadow", self.UI_TOKENS.shadow[8]);
-        })
-            .on("mouseout", function () {
-                d3.select(this)
-                    .style("background-color", self.UI_TOKENS.color.neutral.white)
-                    .style("border-color", self.UI_TOKENS.color.neutral.grey60)
-                    .style("border-width", "1.5px")
-                    .style("box-shadow", self.UI_TOKENS.shadow[2]);
-            })
-            .on("mousedown", function () {
-                d3.select(this)
-                    .style("transform", "scale(0.96)")
-                    .style("box-shadow", self.UI_TOKENS.shadow[4]);
-            })
-            .on("mouseup", function () {
-                d3.select(this)
-                    .style("transform", "scale(1)")
-                    .style("box-shadow", self.UI_TOKENS.shadow[8]);
-            });
-
-        this.toggleButtonGroup = btn as any;
-    }
-
-    private createOrUpdateBaselineToggleButton(viewportWidth: number): void {
-        this.stickyHeaderContainer.selectAll(".baseline-toggle-group").remove();
-
-        const layout = this.getHeaderButtonLayout(viewportWidth);
-        const { x: buttonX, width: buttonWidth, iconOnly, visible } = layout.baseline;
-
-        // Don't render if not visible (hidden due to space constraints)
-        if (!visible) return;
-
-        const dataView = this.lastUpdateOptions?.dataViews?.[0];
-        const hasBaselineStart = dataView ? this.hasDataRole(dataView, 'baselineStartDate') : false;
-        const hasBaselineFinish = dataView ? this.hasDataRole(dataView, 'baselineFinishDate') : false;
-        const isAvailable = hasBaselineStart && hasBaselineFinish;
-
-        const baselineColor = this.settings.comparisonBars.baselineColor.value.value;
-        const lightBaselineColor = this.lightenColor(baselineColor, 0.93);
-        const hoverBaselineColor = this.lightenColor(baselineColor, 0.85);
-        const previousUpdateColor = this.settings.comparisonBars.previousUpdateColor.value.value;
-
-        const buttonHeight = this.UI_TOKENS.height.standard;
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        const btn = this.stickyHeaderContainer.append("button")
-            .attr("class", "baseline-toggle-group")
-            .attr("type", "button")
-            .attr("aria-label", `${this.showBaselineInternal ? 'Hide' : 'Show'} baseline task bars`)
-            .attr("aria-pressed", this.showBaselineInternal.toString())
-            .attr("aria-disabled", (!isAvailable).toString())
-            .property("disabled", !isAvailable)
-            .classed("header-toggle-button", true)
-            .classed("is-disabled", !isAvailable)
-            .style("position", "absolute")
-            .style("left", `${buttonX}px`)
-            .style("top", `${buttonY}px`)
-            .style("width", `${buttonWidth}px`)
-            .style("height", `${buttonHeight}px`)
-            .style("padding", "0")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("border", `1.5px solid ${baselineColor}`)
-            .style("border-width", this.showBaselineInternal ? "2px" : "1.5px")
-            .style("background-color", this.showBaselineInternal ? lightBaselineColor : this.UI_TOKENS.color.neutral.white)
-            .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
-            .on("click", (event) => {
-                event.stopPropagation();
-                if (isAvailable) {
-                    this.toggleBaselineDisplayInternal();
-                }
-            });
-
-        // Icon SVG
-        const svg = btn.append("svg")
-            .attr("width", buttonWidth)
-            .attr("height", buttonHeight)
-            .style("position", "absolute")
-            .style("top", "0")
-            .style("left", "0")
-            .style("pointer-events", "none");
-
-        const iconX = iconOnly ? (buttonWidth / 2 - 8) : (this.UI_TOKENS.spacing.lg + 2);
-        const iconY = buttonHeight / 2;
-
-        const iconG = svg.append("g")
-            .attr("transform", `translate(${iconX}, ${iconY})`);
-
-        iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", -8)
-            .attr("width", 16)
-            .attr("height", 4.5)
-            .attr("rx", 2)
-            .attr("ry", 2)
-            .attr("fill", this.showBaselineInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90);
-
-        iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", -1.5)
-            .attr("width", 16)
-            .attr("height", 3.5)
-            .attr("rx", 1.5)
-            .attr("ry", 1.5)
-            .attr("fill", this.showBaselineInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey60)
-            .style("opacity", this.showBaselineInternal ? "1" : "0.6");
-
-        iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", 4)
-            .attr("width", 16)
-            .attr("height", 3.5)
-            .attr("rx", 1.5)
-            .attr("ry", 1.5)
-            .attr("fill", this.showBaselineInternal ? baselineColor : this.UI_TOKENS.color.neutral.grey60)
-            .style("opacity", this.showBaselineInternal ? "1" : "0.6");
-
-        if (!iconOnly) {
-            svg.append("text")
-                .attr("class", "toggle-text")
-                .attr("x", iconX + 26)
-                .attr("y", buttonHeight / 2)
-                .attr("dominant-baseline", "central")
-                .style("font-family", "Segoe UI, sans-serif")
-                .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-                .style("fill", this.UI_TOKENS.color.neutral.grey160)
-                .style("font-weight", this.showBaselineInternal ? this.UI_TOKENS.fontWeight.semibold.toString() : this.UI_TOKENS.fontWeight.medium.toString())
-                .text("Baseline");
-        }
-
-        btn.append("title")
-            .text(isAvailable
-                ? (this.showBaselineInternal ? "Hide baseline task bars" : "Show baseline task bars")
-                : "Requires Baseline Start Date and Baseline Finish Date fields to be mapped");
-
-        if (isAvailable) {
-            const self = this;
-            btn.on("mouseover", function () {
-                d3.select(this)
-                    .style("background-color", self.showBaselineInternal ? hoverBaselineColor : self.UI_TOKENS.color.neutral.grey20)
-                    .style("border-width", "2.5px")
-                    .style("box-shadow", self.UI_TOKENS.shadow[8]);
-
-                if (self.showBaselineInternal) {
-                    // Keep text dark for contrast
-                }
-            })
-                .on("mouseout", function () {
-                    d3.select(this)
-                        .style("background-color", self.showBaselineInternal ? lightBaselineColor : self.UI_TOKENS.color.neutral.white)
-                        .style("border-width", self.showBaselineInternal ? "2px" : "1.5px")
-                        .style("box-shadow", self.UI_TOKENS.shadow[2]);
-
-                    if (self.showBaselineInternal) {
-                        // Reset colors is complicated with D3 generic selection, but here we can just rebuild or rely on next render.
-                        // Actually, simplified:
-                        // Since we don't have easy class selectors for the SVG elements we just appended, 
-                        // we might need to rely on the update cycle or use classes. 
-                        // I'll skip complex hover color-reverting for brevity as it's just 'semantic accessibility' phase.
-                        // The button style change is sufficient feedback.
-                    }
-                })
-                .on("mousedown", function () {
-                    d3.select(this)
-                        .style("transform", "scale(0.98)")
-                        .style("box-shadow", self.UI_TOKENS.shadow[4]);
-                })
-                .on("mouseup", function () {
-                    d3.select(this)
-                        .style("transform", "scale(1)")
-                        .style("box-shadow", self.UI_TOKENS.shadow[8]);
-                });
-        }
-    }
-
-    private createOrUpdatePreviousUpdateToggleButton(viewportWidth: number): void {
-        this.stickyHeaderContainer.selectAll(".previous-update-toggle-group").remove();
-
-        const layout = this.getHeaderButtonLayout(viewportWidth);
-        const { x: buttonX, width: buttonWidth, iconOnly, visible } = layout.previousUpdate;
-
-        // Don't render if not visible (hidden due to space constraints)
-        if (!visible) return;
-
-        const dataView = this.lastUpdateOptions?.dataViews?.[0];
-        const hasPreviousUpdateStart = dataView ? this.hasDataRole(dataView, 'previousUpdateStartDate') : false;
-        const hasPreviousUpdateFinish = dataView ? this.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
-        const isAvailable = hasPreviousUpdateStart && hasPreviousUpdateFinish;
-
-        const previousUpdateColor = this.settings.comparisonBars.previousUpdateColor.value.value;
-        const lightPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.90);
-        const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.80);
-        const baselineColor = this.settings.comparisonBars.baselineColor.value.value;
-
-        const buttonHeight = this.UI_TOKENS.height.standard;
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        const btn = this.stickyHeaderContainer.append("button")
-            .attr("class", "previous-update-toggle-group")
-            .attr("type", "button")
-            .attr("aria-label", `${this.showPreviousUpdateInternal ? 'Hide' : 'Show'} previous update task bars`)
-            .attr("aria-pressed", this.showPreviousUpdateInternal.toString())
-            .attr("aria-disabled", (!isAvailable).toString())
-            .property("disabled", !isAvailable)
-            .classed("header-toggle-button", true)
-            .classed("is-disabled", !isAvailable)
-            .style("position", "absolute")
-            .style("left", `${buttonX}px`)
-            .style("top", `${buttonY}px`)
-            .style("width", `${buttonWidth}px`)
-            .style("height", `${buttonHeight}px`)
-            .style("padding", "0")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("border", `1.5px solid ${previousUpdateColor}`)
-            .style("border-width", this.showPreviousUpdateInternal ? "2px" : "1.5px")
-            .style("background-color", this.showPreviousUpdateInternal ? lightPreviousUpdateColor : this.UI_TOKENS.color.neutral.white)
-            .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
-            .on("click", (event) => {
-                event.stopPropagation();
-                if (isAvailable) {
-                    this.togglePreviousUpdateDisplayInternal();
-                }
-            });
-
-        // Icon SVG
-        const svg = btn.append("svg")
-            .attr("width", buttonWidth)
-            .attr("height", buttonHeight)
-            .style("position", "absolute")
-            .style("top", "0")
-            .style("left", "0")
-            .style("pointer-events", "none");
-
-        const iconX = iconOnly ? (buttonWidth / 2 - 8) : (this.UI_TOKENS.spacing.lg + 2);
-        const iconY = buttonHeight / 2;
-
-        const iconG = svg.append("g")
-            .attr("transform", `translate(${iconX}, ${iconY})`);
-
-        iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", -8)
-            .attr("width", 16)
-            .attr("height", 4.5)
-            .attr("rx", 2)
-            .attr("ry", 2)
-            .attr("fill", this.showPreviousUpdateInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey90);
-
-        iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", -1.5)
-            .attr("width", 16)
-            .attr("height", 3.5)
-            .attr("rx", 1.5)
-            .attr("ry", 1.5)
-            .attr("fill", this.showPreviousUpdateInternal ? previousUpdateColor : this.UI_TOKENS.color.neutral.grey60)
-            .style("opacity", this.showPreviousUpdateInternal ? "1" : "0.6");
-
-        iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", 4)
-            .attr("width", 16)
-            .attr("height", 3.5)
-            .attr("rx", 1.5)
-            .attr("ry", 1.5)
-            .attr("fill", this.showPreviousUpdateInternal ? baselineColor : this.UI_TOKENS.color.neutral.grey60)
-            .style("opacity", this.showPreviousUpdateInternal ? "1" : "0.6");
-
-        if (!iconOnly) {
-            svg.append("text")
-                .attr("class", "toggle-text")
-                .attr("x", iconX + 26)
-                .attr("y", buttonHeight / 2)
-                .attr("dominant-baseline", "central")
-                .style("font-family", "Segoe UI, sans-serif")
-                .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-                .style("fill", this.UI_TOKENS.color.neutral.grey160)
-                .style("font-weight", this.showPreviousUpdateInternal ? this.UI_TOKENS.fontWeight.semibold.toString() : this.UI_TOKENS.fontWeight.medium.toString())
-                .text("Prev. Update");
-        }
-
-        btn.append("title")
-            .text(isAvailable
-                ? (this.showPreviousUpdateInternal ? "Hide previous update task bars" : "Show previous update task bars")
-                : "Requires Previous Update Start and Finish Date fields to be mapped");
-
-        if (isAvailable) {
-            const self = this;
-            btn.on("mouseover", function () {
-                d3.select(this)
-                    .style("background-color", self.showPreviousUpdateInternal ? hoverPreviousUpdateColor : self.UI_TOKENS.color.neutral.grey20)
-                    .style("border-width", "2.5px")
-                    .style("box-shadow", self.UI_TOKENS.shadow[8]);
-            })
-                .on("mouseout", function () {
-                    d3.select(this)
-                        .style("background-color", self.showPreviousUpdateInternal ? lightPreviousUpdateColor : self.UI_TOKENS.color.neutral.white)
-                        .style("border-width", self.showPreviousUpdateInternal ? "2px" : "1.5px")
-                        .style("box-shadow", self.UI_TOKENS.shadow[2]);
-                })
-                .on("mousedown", function () {
-                    d3.select(this)
-                        .style("transform", "scale(0.98)")
-                        .style("box-shadow", self.UI_TOKENS.shadow[4]);
-                })
-                .on("mouseup", function () {
-                    d3.select(this)
-                        .style("transform", "scale(1)")
-                        .style("box-shadow", self.UI_TOKENS.shadow[8]);
-                });
-        }
-    }
-    private lightenColor(color: string, factor: number): string {
-
-        const hex = color.replace('#', '');
-        const r = parseInt(hex.substr(0, 2), 16);
-        const g = parseInt(hex.substr(2, 2), 16);
-        const b = parseInt(hex.substr(4, 2), 16);
-
-        const newR = Math.round(r + (255 - r) * factor);
-        const newG = Math.round(g + (255 - g) * factor);
-        const newB = Math.round(b + (255 - b) * factor);
-
-        return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
-    }
-
-    private createConnectorLinesToggleButton(viewportWidth?: number): void {
-        this.stickyHeaderContainer.selectAll(".connector-toggle-group").remove();
-
-        const showConnectorToggle = this.settings?.connectorLines?.showConnectorToggle?.value ?? false;
-        if (!showConnectorToggle) return;
-
-        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize, visible } = layout.connectorLines;
-
-        // Don't render if not visible
-        if (!visible) return;
-
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        const btn = this.stickyHeaderContainer.append("button")
-            .attr("class", "connector-toggle-group")
-            .attr("type", "button")
-            .attr("aria-label", `${this.showConnectorLinesInternal ? 'Hide' : 'Show'} connector lines between tasks`)
-            .attr("aria-pressed", this.showConnectorLinesInternal.toString())
-            .classed("header-toggle-button", true)
-            .style("position", "absolute")
-            .style("left", `${buttonX}px`)
-            .style("top", `${buttonY}px`)
-            .style("width", `${buttonSize}px`) // Square button
-            .style("height", `${buttonSize}px`)
-            .style("padding", "0")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("border", `1.5px solid ${this.showConnectorLinesInternal ? this.UI_TOKENS.color.success.default : this.UI_TOKENS.color.neutral.grey60}`)
-            .style("border-width", this.showConnectorLinesInternal ? "2px" : "1.5px")
-            .style("background-color", this.showConnectorLinesInternal ? this.UI_TOKENS.color.success.light : this.UI_TOKENS.color.neutral.white)
-            .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
-            .on("click", (event) => {
-                event.stopPropagation();
-                this.toggleConnectorLinesDisplay();
-            });
-
-        const svg = btn.append("svg")
-            .attr("width", buttonSize)
-            .attr("height", buttonSize)
-            .style("pointer-events", "none");
-
-        const iconCenter = (buttonSize / 2) - 2;
-        const iconG = svg.append("g")
-            .attr("transform", `translate(${iconCenter}, ${iconCenter})`);
-
-        iconG.append("path")
-            .attr("d", "M-6,-3 L0,3 L6,-3")
-            .attr("stroke", this.showConnectorLinesInternal ? this.UI_TOKENS.color.success.default : this.UI_TOKENS.color.neutral.grey130)
-            .attr("stroke-width", 2)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round")
-            .attr("stroke-dasharray", this.showConnectorLinesInternal ? "none" : "3,2")
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-        if (this.showConnectorLinesInternal) {
-            iconG.append("circle")
-                .attr("cx", -6).attr("cy", -3).attr("r", 1.5)
-                .attr("fill", this.UI_TOKENS.color.success.default);
-
-            iconG.append("circle")
-                .attr("cx", 6).attr("cy", -3).attr("r", 1.5)
-                .attr("fill", this.UI_TOKENS.color.success.default);
-        }
-
-        btn.append("title")
-            .text(this.showConnectorLinesInternal
-                ? "Click to hide connector lines between dependent tasks"
-                : "Click to show connector lines between dependent tasks");
-
-        const self = this;
-        btn.on("mouseover", function () {
-            d3.select(this)
-                .style("background-color", self.showConnectorLinesInternal ? self.UI_TOKENS.color.success.default : self.UI_TOKENS.color.neutral.grey20)
-                .style("box-shadow", self.UI_TOKENS.shadow[8]);
-
-            if (self.showConnectorLinesInternal) {
-                d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
-                d3.select(this).selectAll("circle").attr("fill", self.UI_TOKENS.color.neutral.white);
-            }
-        })
-            .on("mouseout", function () {
-                d3.select(this)
-                    .style("background-color", self.showConnectorLinesInternal ? self.UI_TOKENS.color.success.light : self.UI_TOKENS.color.neutral.white)
-                    .style("box-shadow", self.UI_TOKENS.shadow[2]);
-
-                if (self.showConnectorLinesInternal) {
-                    d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.success.default);
-                    d3.select(this).selectAll("circle").attr("fill", self.UI_TOKENS.color.success.default);
-                }
-            })
-            .on("mousedown", function () {
-                d3.select(this).style("transform", "scale(0.95)");
-            })
-            .on("mouseup", function () {
-                d3.select(this).style("transform", "scale(1)");
-            });
-    }
 
     private toggleColumnDisplayInternal(): void {
         this.showExtraColumnsInternal = !this.showExtraColumnsInternal;
@@ -2173,7 +1355,7 @@ export class Visual implements IVisual {
             });
         }
 
-        this.createColumnDisplayToggleButton(this.lastUpdateOptions?.viewport?.width || 800);
+
 
         this.captureScrollPosition(); // Ensure scroll is preserved
 
@@ -2186,232 +1368,9 @@ export class Visual implements IVisual {
         }
     }
 
-    private createColumnDisplayToggleButton(viewportWidth?: number): void {
-        if (!this.headerSvg) return;
 
-        this.headerSvg.selectAll(".column-toggle-group").remove();
 
-        // Check if feature is enabled in settings (it is by default in capabilities, but good to check)
-        // Also check if any columns are actually enabled to be shown? 
-        // Even if individual cols are off, the toggle controls the "Area". 
-        // But if ALL individual cols are off in settings, toggle does nothing visually except expand space.
-        // We'll show it regardless.
 
-        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize, visible } = layout.colToggle;
-
-        // Don't render if not visible (hidden due to space constraints)
-        if (!visible) return;
-
-        const colToggleGroup = this.headerSvg.append("g")
-            .attr("class", "column-toggle-group")
-            .style("cursor", "pointer")
-            .attr("role", "button")
-            .attr("aria-label", this.showExtraColumnsInternal ? "Hide data columns" : "Show data columns")
-            .attr("aria-pressed", this.showExtraColumnsInternal.toString())
-            .attr("tabindex", "0");
-
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        colToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
-
-        colToggleGroup.append("rect")
-            .attr("width", buttonSize)
-            .attr("height", buttonSize)
-            .attr("rx", this.UI_TOKENS.radius.medium)
-            .attr("ry", this.UI_TOKENS.radius.medium)
-            .style("fill", this.showExtraColumnsInternal
-                ? this.UI_TOKENS.color.primary.light
-                : this.UI_TOKENS.color.neutral.white)
-            .style("stroke", this.showExtraColumnsInternal
-                ? this.UI_TOKENS.color.primary.default
-                : this.UI_TOKENS.color.neutral.grey60)
-            .style("stroke-width", this.showExtraColumnsInternal ? 2 : 1.5)
-            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-        const iconCenterX = buttonSize / 2;
-        const iconCenterY = buttonSize / 2;
-        const iconG = colToggleGroup.append("g")
-            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
-
-        const iconColor = this.showExtraColumnsInternal
-            ? this.UI_TOKENS.color.primary.default
-            : this.UI_TOKENS.color.neutral.grey130;
-
-        // Draw Arrows
-        if (this.showExtraColumnsInternal) {
-            // Left Arrow (Collapse)
-            iconG.append("path")
-                .attr("d", "M 2,-4 L -2,0 L 2,4")
-                .attr("stroke", iconColor)
-                .attr("stroke-width", 2)
-                .attr("fill", "none")
-                .attr("stroke-linecap", "round")
-                .attr("stroke-linejoin", "round");
-            // Vertical bar to left? No, just arrow is enough.
-        } else {
-            // Right Arrow (Expand)
-            iconG.append("path")
-                .attr("d", "M -2,-4 L 2,0 L -2,4")
-                .attr("stroke", iconColor)
-                .attr("stroke-width", 2)
-                .attr("fill", "none")
-                .attr("stroke-linecap", "round")
-                .attr("stroke-linejoin", "round");
-        }
-
-        const tooltipText = this.showExtraColumnsInternal ? "Hide data columns" : "Show data columns";
-        colToggleGroup.append("title").text(tooltipText);
-
-        const self = this;
-        colToggleGroup
-            .on("mouseover", function () {
-                d3.select(this).select("rect")
-                    .style("fill", self.showExtraColumnsInternal
-                        ? self.UI_TOKENS.color.primary.default
-                        : self.UI_TOKENS.color.neutral.grey20)
-                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-
-                if (self.showExtraColumnsInternal) {
-                    d3.select(this).select("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
-                }
-            })
-            .on("mouseout", function () {
-                d3.select(this).select("rect")
-                    .style("fill", self.showExtraColumnsInternal
-                        ? self.UI_TOKENS.color.primary.light
-                        : self.UI_TOKENS.color.neutral.white)
-                    .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
-
-                if (self.showExtraColumnsInternal) {
-                    d3.select(this).select("path").attr("stroke", iconColor);
-                }
-            })
-            .on("mousedown", function () {
-                d3.select(this).select("rect").style("transform", "scale(0.95)");
-            })
-            .on("mouseup", function () {
-                d3.select(this).select("rect").style("transform", "scale(1)");
-            });
-
-        colToggleGroup.on("click", function (event) {
-            if (event) event.stopPropagation();
-            self.toggleColumnDisplayInternal();
-        });
-
-        colToggleGroup.on("keydown", function (event) {
-            if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                self.toggleColumnDisplayInternal();
-            }
-        });
-    }
-
-    private createOrUpdateWbsEnableToggleButton(viewportWidth?: number): void {
-        if (!this.headerSvg) return;
-
-        this.headerSvg.selectAll(".wbs-enable-toggle-group").remove();
-
-        const wbsColumnsExist = this.wbsDataExistsInMetadata;
-        const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
-        if (!wbsColumnsExist || !showWbsToggle) return;
-
-        const isEnabled = !!this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-
-        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, width: buttonWidth, visible } = layout.wbsEnable;
-
-        // Don't render if not visible (hidden due to space constraints)
-        if (!visible) return;
-        const buttonHeight = this.UI_TOKENS.height.standard;
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        const group = this.headerSvg.append("g")
-            .attr("class", "wbs-enable-toggle-group")
-            .style("cursor", "pointer")
-            .attr("role", "button")
-            .attr("aria-pressed", isEnabled.toString())
-            .attr("aria-label", isEnabled ? "Turn off WBS grouping" : "Turn on WBS grouping")
-            .attr("tabindex", "0")
-            .attr("transform", `translate(${buttonX}, ${buttonY})`);
-
-        const fill = isEnabled ? this.UI_TOKENS.color.primary.light : this.UI_TOKENS.color.neutral.white;
-        const stroke = isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey60;
-        const textColor = isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey130;
-
-        group.append("rect")
-            .attr("width", buttonWidth)
-            .attr("height", buttonHeight)
-            .attr("rx", this.UI_TOKENS.radius.medium)
-            .attr("ry", this.UI_TOKENS.radius.medium)
-            .style("fill", fill)
-            .style("stroke", stroke)
-            .style("stroke-width", isEnabled ? 2 : 1.5)
-            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-        const textY = buttonHeight / 2;
-        group.append("text")
-            .attr("class", "toggle-text")
-            .attr("x", buttonWidth / 2 + 6)
-            .attr("y", textY)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-            .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
-            .style("fill", textColor)
-            .text("WBS");
-
-        group.append("circle")
-            .attr("class", "toggle-circle")
-            .attr("cx", 10)
-            .attr("cy", textY)
-            .attr("r", 4)
-            .style("fill", isEnabled ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey60);
-
-        const self = this;
-        group.on("mouseover", function () {
-            d3.select(this).select("rect")
-                .style("fill", isEnabled ? self.UI_TOKENS.color.primary.default : self.UI_TOKENS.color.neutral.grey20)
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[6]})`);
-
-            if (isEnabled) {
-                d3.select(this).selectAll(".toggle-text, .toggle-circle")
-                    .style("fill", self.UI_TOKENS.color.neutral.white);
-            }
-        }).on("mouseout", function () {
-            d3.select(this).select("rect")
-                .style("fill", fill)
-                .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
-
-            if (isEnabled) {
-                d3.select(this).select(".toggle-text").style("fill", textColor);
-                d3.select(this).select(".toggle-circle").style("fill", self.UI_TOKENS.color.primary.default);
-            }
-        });
-
-        group.on("click", function (event) {
-            if (event) event.stopPropagation();
-            self.toggleWbsEnabled();
-        });
-
-        group.on("keydown", function (event: KeyboardEvent) {
-            if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                self.toggleWbsEnabled();
-            }
-        });
-    }
-
-    /**
-     * Creates both WBS expand (forward cycle) and collapse (reverse cycle) buttons
-     */
-    private renderWbsCycleButtons(viewportWidth?: number): void {
-        this.createWbsExpandCycleToggleButton(viewportWidth);
-        this.createWbsCollapseCycleToggleButton(viewportWidth);
-    }
 
     /**
      * Toggles WBS grouping on/off for the viewer (persisted in formatting properties).
@@ -2458,8 +1417,8 @@ export class Visual implements IVisual {
                 this.scrollThrottleTimeout = null;
             }
 
-            const viewportWidth = this.lastUpdateOptions?.viewport.width || 800;
-            this.createOrUpdateWbsEnableToggleButton(viewportWidth);
+            // const viewportWidth = this.lastUpdateOptions?.viewport.width || 800;
+            // this.createOrUpdateWbsEnableToggleButton(viewportWidth);
 
             if (this.lastUpdateOptions) {
                 this.update(this.lastUpdateOptions);
@@ -2480,294 +1439,7 @@ export class Visual implements IVisual {
      * Creates the WBS Expand cycle toggle button with icon-only design
      * Similar styling to Connector Lines toggle for visual consistency
      */
-    private createWbsExpandCycleToggleButton(viewportWidth?: number): void {
-        this.stickyHeaderContainer.selectAll(".wbs-expand-toggle-group").remove();
 
-        const wbsColumnsExist = this.wbsDataExistsInMetadata;
-        const wbsEnabled = wbsColumnsExist && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-        const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
-        if (!wbsEnabled || !showWbsToggle) return;
-
-        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize, visible } = layout.wbsExpandToggle;
-
-        // Don't render if not visible
-        if (!visible) return;
-
-        if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
-            this.refreshWbsAvailableLevels();
-        }
-
-        const isCustom = this.wbsManualExpansionOverride;
-        const currentLevel = this.getCurrentWbsExpandLevel();
-        const levelLabel = isCustom
-            ? "Custom (manual overrides)"
-            : this.getWbsExpandLevelLabel(this.wbsExpandToLevel !== undefined ? this.wbsExpandToLevel : currentLevel);
-        const nextLevelValue = this.getNextWbsExpandLevel();
-        const nextLevelLabel = nextLevelValue !== null
-            ? this.getWbsExpandLevelLabel(nextLevelValue)
-            : this.getWbsExpandLevelLabel(currentLevel);
-
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        const btn = this.stickyHeaderContainer.append("button")
-            .attr("class", "wbs-expand-toggle-group")
-            .attr("type", "button")
-            .attr("aria-label", isCustom
-                ? "Custom (manual overrides). Click to expand and clear overrides"
-                : `${levelLabel} (click to expand)`)
-            .attr("aria-pressed", this.wbsExpandedInternal.toString())
-            .classed("header-toggle-button", true)
-            .style("position", "absolute")
-            .style("left", `${buttonX}px`)
-            .style("top", `${buttonY}px`)
-            .style("width", `${buttonSize}px`)
-            .style("height", `${buttonSize}px`)
-            .style("padding", "0")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("border", `1.5px solid ${this.wbsExpandedInternal ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey60}`)
-            .style("border-width", this.wbsExpandedInternal ? "2px" : "1.5px")
-            .style("background-color", this.wbsExpandedInternal ? this.UI_TOKENS.color.primary.light : this.UI_TOKENS.color.neutral.white)
-            .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
-            .on("click", (event) => {
-                event.stopPropagation();
-                this.toggleWbsExpandCollapseDisplay();
-            });
-
-        const svg = btn.append("svg")
-            .attr("width", buttonSize)
-            .attr("height", buttonSize)
-            .style("pointer-events", "none");
-
-        const iconCenterX = buttonSize / 2;
-        const iconCenterY = (buttonSize / 2) - 4;
-        const iconG = svg.append("g")
-            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
-
-        const iconColor = this.wbsExpandedInternal
-            ? this.UI_TOKENS.color.primary.default
-            : this.UI_TOKENS.color.neutral.grey130;
-
-        iconG.append("path")
-            .attr("d", "M-4,0 L4,0 M0,-4 L0,4")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 2.2)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round");
-
-        iconG.append("path")
-            .attr("d", "M-4,5 L0,8 L4,5")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 1.8)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round");
-
-        const badgeText = isCustom
-            ? "C"
-            : currentLevel === 0
-                ? "0"
-                : `L${currentLevel}`;
-
-        svg.append("text")
-            .attr("class", "toggle-text")
-            .attr("x", buttonSize / 2)
-            .attr("y", buttonSize - 10)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-            .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
-            .style("fill", iconColor)
-            .text(badgeText);
-
-        const levelsDesc = this.wbsAvailableLevels.length > 0
-            ? this.wbsAvailableLevels.map(l => `L${l}`).join(" -> ")
-            : "no levels";
-        const expandSteps = this.wbsAvailableLevels.length > 0
-            ? `Expand steps: 0 -> ${levelsDesc} (stops at max).`
-            : "Expand steps: 0 (stops at 0).";
-
-        btn.append("title")
-            .text(`${levelLabel}. Next: ${nextLevelLabel}. ${isCustom ? "Manual overrides will be cleared." : expandSteps}`);
-
-        const self = this;
-        btn.on("mouseover", function () {
-            d3.select(this)
-                .style("background-color", self.wbsExpandedInternal ? self.UI_TOKENS.color.primary.default : self.UI_TOKENS.color.neutral.grey20)
-                .style("box-shadow", self.UI_TOKENS.shadow[8]);
-
-            if (self.wbsExpandedInternal) {
-                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
-                d3.select(this).selectAll(".toggle-text").style("fill", self.UI_TOKENS.color.neutral.white);
-            }
-        })
-            .on("mouseout", function () {
-                d3.select(this)
-                    .style("background-color", self.wbsExpandedInternal ? self.UI_TOKENS.color.primary.light : self.UI_TOKENS.color.neutral.white)
-                    .style("box-shadow", self.UI_TOKENS.shadow[2]);
-
-                if (self.wbsExpandedInternal) {
-                    d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
-                    d3.select(this).selectAll(".toggle-text").style("fill", iconColor);
-                }
-            })
-            .on("mousedown", function () {
-                d3.select(this).style("transform", "scale(0.95)");
-            })
-            .on("mouseup", function () {
-                d3.select(this).style("transform", "scale(1)");
-            });
-    }
-
-    /**
-     * Creates the WBS Collapse cycle toggle button with icon-only design (reverse order)
-     */
-    private createWbsCollapseCycleToggleButton(viewportWidth?: number): void {
-        this.stickyHeaderContainer.selectAll(".wbs-collapse-toggle-group").remove();
-
-        const wbsColumnsExist = this.wbsDataExistsInMetadata;
-        const wbsEnabled = wbsColumnsExist && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-        const showWbsToggle = this.settings?.wbsGrouping?.showWbsToggle?.value ?? true;
-        if (!wbsEnabled || !showWbsToggle) return;
-
-        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize, visible } = layout.wbsCollapseToggle;
-
-        // Don't render if not visible
-        if (!visible) return;
-
-        if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
-            this.refreshWbsAvailableLevels();
-        }
-
-        const isCustom = this.wbsManualExpansionOverride;
-        const currentLevel = this.getCurrentWbsExpandLevel();
-        const levelLabel = isCustom
-            ? "Custom (manual overrides)"
-            : this.getWbsExpandLevelLabel(this.wbsExpandToLevel !== undefined ? this.wbsExpandToLevel : currentLevel);
-        const previousLevelValue = this.getPreviousWbsExpandLevel();
-        const previousLevelLabel = previousLevelValue !== null
-            ? this.getWbsExpandLevelLabel(previousLevelValue)
-            : this.getWbsExpandLevelLabel(currentLevel);
-
-        const isCollapsed = this.wbsExpandToLevel === 0 || !this.wbsExpandedInternal;
-
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        const btn = this.stickyHeaderContainer.append("button")
-            .attr("class", "wbs-collapse-toggle-group")
-            .attr("type", "button")
-            .attr("aria-label", isCustom
-                ? "Custom (manual overrides). Click to collapse and clear overrides"
-                : `${levelLabel} (click to collapse)`)
-            .attr("aria-pressed", isCollapsed.toString())
-            .classed("header-toggle-button", true)
-            .style("position", "absolute")
-            .style("left", `${buttonX}px`)
-            .style("top", `${buttonY}px`)
-            .style("width", `${buttonSize}px`)
-            .style("height", `${buttonSize}px`)
-            .style("padding", "0")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("border", `1.5px solid ${isCollapsed ? this.UI_TOKENS.color.primary.default : this.UI_TOKENS.color.neutral.grey60}`)
-            .style("border-width", isCollapsed ? "2px" : "1.5px")
-            .style("background-color", isCollapsed ? this.UI_TOKENS.color.primary.light : this.UI_TOKENS.color.neutral.white)
-            .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
-            .on("click", (event) => {
-                event.stopPropagation();
-                this.toggleWbsCollapseCycleDisplay();
-            });
-
-        const svg = btn.append("svg")
-            .attr("width", buttonSize)
-            .attr("height", buttonSize)
-            .style("pointer-events", "none");
-
-        const iconCenterX = buttonSize / 2;
-        const iconCenterY = (buttonSize / 2) - 4;
-        const iconG = svg.append("g")
-            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
-
-        const iconColor = isCollapsed
-            ? this.UI_TOKENS.color.primary.default
-            : this.UI_TOKENS.color.neutral.grey130;
-
-        iconG.append("path")
-            .attr("d", "M-5,0 L5,0")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 2.2)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round");
-
-        iconG.append("path")
-            .attr("d", "M-4,-3 L0,-7 L4,-3")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 1.8)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round");
-
-        const badgeText = isCustom
-            ? "C"
-            : currentLevel === 0
-                ? "0"
-                : `L${currentLevel}`;
-
-        svg.append("text")
-            .attr("class", "toggle-text")
-            .attr("x", buttonSize / 2)
-            .attr("y", buttonSize - 10)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-            .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
-            .style("fill", iconColor)
-            .text(badgeText);
-
-        const levelsDesc = this.wbsAvailableLevels.length > 0
-            ? [...this.wbsAvailableLevels].sort((a, b) => b - a).map(l => `L${l}`).join(" -> ")
-            : "no levels";
-        const collapseSteps = this.wbsAvailableLevels.length > 0
-            ? `Collapse steps: ${levelsDesc} -> 0 (stops at 0).`
-            : "Collapse steps: 0 (stops at 0).";
-
-        btn.append("title")
-            .text(`${levelLabel}. Previous: ${previousLevelLabel}. ${isCustom ? "Manual overrides will be cleared." : collapseSteps}`);
-
-        const self = this;
-        btn.on("mouseover", function () {
-            d3.select(this)
-                .style("background-color", isCollapsed ? self.UI_TOKENS.color.primary.default : self.UI_TOKENS.color.neutral.grey20)
-                .style("box-shadow", self.UI_TOKENS.shadow[8]);
-
-            if (isCollapsed) {
-                d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.neutral.white);
-                d3.select(this).selectAll(".toggle-text").style("fill", self.UI_TOKENS.color.neutral.white);
-            }
-        })
-            .on("mouseout", function () {
-                d3.select(this)
-                    .style("background-color", isCollapsed ? self.UI_TOKENS.color.primary.light : self.UI_TOKENS.color.neutral.white)
-                    .style("box-shadow", self.UI_TOKENS.shadow[2]);
-
-                if (isCollapsed) {
-                    d3.select(this).selectAll("path").attr("stroke", self.UI_TOKENS.color.primary.default);
-                    d3.select(this).selectAll(".toggle-text").style("fill", iconColor);
-                }
-            })
-            .on("mousedown", function () {
-                d3.select(this).style("transform", "scale(0.95)");
-            })
-            .on("mouseup", function () {
-                d3.select(this).style("transform", "scale(1)");
-            });
-    }
 
     /**
      * Cycles the WBS expand depth (collapse -> Level 1/2/3/.../N -> expand all)
@@ -2857,10 +1529,10 @@ export class Visual implements IVisual {
                 }]
             });
 
-            const viewportWidth = this.lastUpdateOptions?.viewport?.width
-                || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
-                || 800;
-            this.renderWbsCycleButtons(viewportWidth);
+            // const viewportWidth = this.lastUpdateOptions?.viewport?.width
+            //     || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
+            //     || 800;
+            // this.renderWbsCycleButtons(viewportWidth);
 
             this.forceFullUpdate = true;
 
@@ -2886,157 +1558,9 @@ export class Visual implements IVisual {
      * Professional pill-style toggle with smooth animations and refined visuals
      * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
      */
-    private createModeToggleButton(viewportWidth: number): void {
-        if (!this.headerSvg) return;
 
-        this.headerSvg.selectAll(".mode-toggle-group").remove();
 
-        const currentMode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
-        const isFloatBased = currentMode === 'floatBased';
-        const dataView = this.lastUpdateOptions?.dataViews?.[0];
-        const hasTotalFloat = dataView ? this.hasDataRole(dataView, 'taskTotalFloat') : false;
 
-        const layout = this.getHeaderButtonLayout(viewportWidth);
-        const buttonWidth = layout.modeToggle.width;
-        const buttonHeight = this.UI_TOKENS.height.standard;
-        const buttonX = layout.modeToggle.x;
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        const modeToggleGroup = this.headerSvg.append("g")
-            .attr("class", "mode-toggle-group")
-            .style("cursor", hasTotalFloat ? "pointer" : "not-allowed")
-            .attr("role", "button")
-            .attr("aria-label", `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`)
-            .attr("aria-pressed", isFloatBased.toString())
-            .attr("aria-disabled", (!hasTotalFloat).toString())
-            .attr("tabindex", hasTotalFloat ? "0" : "-1");
-
-        modeToggleGroup.attr("transform", `translate(${buttonX}, ${buttonY})`);
-
-        const buttonG = modeToggleGroup.append("g")
-            .attr("class", "mode-button-container");
-
-        const bgColor = isFloatBased ? this.UI_TOKENS.color.warning.subtle : this.UI_TOKENS.color.primary.subtle;
-        const borderColor = isFloatBased ? this.UI_TOKENS.color.warning.default : this.UI_TOKENS.color.primary.default;
-        const hoverBgColor = isFloatBased ? this.UI_TOKENS.color.warning.lighter : this.UI_TOKENS.color.primary.lighter;
-
-        const buttonRect = buttonG.append("rect")
-            .attr("width", buttonWidth)
-            .attr("height", buttonHeight)
-            .attr("rx", this.UI_TOKENS.radius.pill)
-            .attr("ry", this.UI_TOKENS.radius.pill)
-            .style("fill", bgColor)
-            .style("stroke", borderColor)
-            .style("stroke-width", 1.5)
-            .style("filter", hasTotalFloat ? `drop-shadow(${this.UI_TOKENS.shadow[2]})` : "none")
-            .style("opacity", hasTotalFloat ? 1 : 0.4)
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-        const pillWidth = Math.min(106, buttonWidth - 20);
-        const pillHeight = 22;
-        const pillG = buttonG.append("g")
-            .attr("transform", `translate(${(buttonWidth - pillWidth) / 2}, ${buttonHeight / 2})`);
-
-        const pillX = isFloatBased ? pillWidth / 2 : 0;
-
-        pillG.append("rect")
-            .attr("class", "mode-pill-bg")
-            .attr("x", 0)
-            .attr("y", -pillHeight / 2)
-            .attr("width", pillWidth)
-            .attr("height", pillHeight)
-            .attr("rx", this.UI_TOKENS.radius.large)
-            .attr("ry", this.UI_TOKENS.radius.large)
-            .style("fill", this.UI_TOKENS.color.neutral.grey20)
-            .style("opacity", 0.8);
-
-        const slidingPill = pillG.append("rect")
-            .attr("class", "mode-pill")
-            .attr("x", pillX)
-            .attr("y", -pillHeight / 2)
-            .attr("width", pillWidth / 2)
-            .attr("height", pillHeight)
-            .attr("rx", this.UI_TOKENS.radius.large)
-            .attr("ry", this.UI_TOKENS.radius.large)
-            .style("fill", borderColor)
-            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[4]})`)
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.slow}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-        const labelY = 0;
-
-        pillG.append("text")
-            .attr("x", pillWidth / 4)
-            .attr("y", labelY)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-            .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.medium : this.UI_TOKENS.fontWeight.bold)
-            .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.grey130 : this.UI_TOKENS.color.neutral.white)
-            .style("pointer-events", "none")
-            .style("letter-spacing", "0.5px")
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-            .text("LP");
-
-        pillG.append("text")
-            .attr("x", 3 * pillWidth / 4)
-            .attr("y", labelY)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-            .style("font-weight", isFloatBased ? this.UI_TOKENS.fontWeight.bold : this.UI_TOKENS.fontWeight.medium)
-            .style("fill", isFloatBased ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
-            .style("pointer-events", "none")
-            .style("letter-spacing", "0.5px")
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-            .text("Float");
-
-        modeToggleGroup.append("title")
-            .text(hasTotalFloat
-                ? `Current mode: ${isFloatBased ? 'Float-Based Criticality' : 'Longest Path (CPM)'}\nClick to switch calculation method`
-                : "Float-Based mode requires Task Total Float field to be mapped");
-
-        if (hasTotalFloat) {
-            const self = this;
-
-            modeToggleGroup
-                .on("mouseover", function () {
-                    d3.select(this).select(".mode-button-container rect")
-                        .style("fill", hoverBgColor) // already lighter
-                        .style("stroke-width", 2.5) // Increase border width only
-                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-                })
-                .on("mouseout", function () {
-                    d3.select(this).select(".mode-button-container rect")
-                        .style("fill", bgColor)
-                        .style("stroke-width", 1.5)
-                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
-                })
-                .on("mousedown", function () {
-                    d3.select(this).select(".mode-button-container rect")
-                        .style("transform", "scale(0.96)")
-                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[4]})`);
-                })
-                .on("mouseup", function () {
-                    d3.select(this).select(".mode-button-container rect")
-                        .style("transform", "scale(1)")
-                        .style("filter", `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-                });
-
-            modeToggleGroup.on("click", function (event) {
-                if (event) event.stopPropagation();
-                self.togglecriticalPath();
-            });
-
-            modeToggleGroup.on("keydown", function (event) {
-                if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    self.togglecriticalPath();
-                }
-            });
-        }
-    }
 
     private togglecriticalPath(): void {
         try {
@@ -3085,8 +1609,7 @@ export class Visual implements IVisual {
 
             this.host.persistProperties({ merge: properties });
 
-            this.createModeToggleButton(this.lastUpdateOptions?.viewport.width || 800);
-            this.createFloatThresholdControl(this.lastUpdateOptions?.viewport.width);
+
 
             this.forceCanvasRefresh();
 
@@ -3110,209 +1633,7 @@ export class Visual implements IVisual {
         }
     }
 
-    /**
-     * Creates the Float Threshold control with premium input design and enhanced UX
-     */
-    private createFloatThresholdControl(viewportWidth?: number): void {
-        this.stickyHeaderContainer.selectAll(".float-threshold-wrapper").remove();
 
-        const currentMode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
-        const isFloatBased = currentMode === 'floatBased';
-
-        if (!this.showNearCritical || !isFloatBased) {
-            this.floatThresholdInput = null as any;
-            return;
-        }
-
-        // Use provided viewportWidth, falling back to lastUpdateOptions or default
-        const effectiveWidth = viewportWidth ?? this.lastUpdateOptions?.viewport?.width ?? 800;
-        const layoutMode = this.getLayoutMode(effectiveWidth);
-        const isCompact = layoutMode === 'narrow';
-        const isMedium = layoutMode === 'medium';
-        const maxWidth = isCompact ? 180 : (isMedium ? 210 : 240);
-        const horizontalPadding = isCompact
-            ? this.UI_TOKENS.spacing.sm
-            : (isMedium ? this.UI_TOKENS.spacing.md : this.UI_TOKENS.spacing.lg);
-
-        const controlContainer = this.stickyHeaderContainer.append("div")
-            .attr("class", "float-threshold-wrapper")
-            .attr("role", "group")
-            .attr("aria-label", "Near-critical threshold setting")
-            .style("position", "absolute")
-            .style("right", "10px")
-            .style("top", "6px")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`)
-            .style("height", `${this.UI_TOKENS.height.standard}px`)
-            .style("padding", `0 ${this.UI_TOKENS.spacing.sm}px`)
-            .style("max-width", `${maxWidth}px`)
-            .style("background-color", this.UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.warning.default}`)
-            .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
-            .style("box-shadow", this.UI_TOKENS.shadow[2])
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-        const labelContainer = controlContainer.append("div")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("gap", `${this.UI_TOKENS.spacing.xs}px`);
-
-        const iconSize = 12;
-        const iconSvg = labelContainer.append("svg")
-            .attr("width", iconSize)
-            .attr("height", iconSize)
-            .attr("viewBox", `0 0 ${iconSize} ${iconSize}`)
-            .style("flex-shrink", "0");
-
-        iconSvg.append("circle")
-            .attr("cx", iconSize / 2)
-            .attr("cy", iconSize / 2)
-            .attr("r", iconSize / 2)
-            .attr("fill", this.UI_TOKENS.color.warning.default);
-
-        const labelText = isCompact ? "NC ≤" : (isMedium ? "Near-Crit ≤" : "Near-Critical ≤");
-        labelContainer.append("span")
-            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-            .style("letter-spacing", "0.1px")
-            .style("color", this.UI_TOKENS.color.neutral.grey160)
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-weight", this.UI_TOKENS.fontWeight.medium)
-            .style("white-space", "nowrap")
-            .text(labelText);
-
-        const inputWidth = isCompact ? 42 : (isMedium ? 50 : 54);
-        this.floatThresholdInput = controlContainer.append("input")
-            .attr("type", "number")
-            .attr("min", "0")
-            .attr("step", "1")
-            .attr("value", this.floatThreshold)
-            .attr("aria-label", "Near-critical threshold in days")
-            .style("width", `${inputWidth}px`)
-            .style("height", "24px")
-            .style("padding", `${this.UI_TOKENS.spacing.xs}px ${this.UI_TOKENS.spacing.sm}px`)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-            .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
-            .style("font-size", `${this.UI_TOKENS.fontSize.md}px`)
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-weight", this.UI_TOKENS.fontWeight.semibold)
-            .style("text-align", "center")
-            .style("outline", "none")
-            .style("background-color", this.UI_TOKENS.color.neutral.white)
-            .style("color", this.UI_TOKENS.color.neutral.grey160)
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
-
-        if (!isCompact) {
-            controlContainer.append("span")
-                .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-                .style("letter-spacing", "0.1px")
-                .style("color", this.UI_TOKENS.color.neutral.grey130)
-                .style("font-family", "Segoe UI, sans-serif")
-                .style("font-weight", this.UI_TOKENS.fontWeight.medium)
-                .style("white-space", "nowrap")
-                .text("days");
-        }
-
-        if (!isCompact) {
-            const helpIcon = controlContainer.append("div")
-                .attr("role", "button")
-                .attr("aria-label", "Information about near-critical threshold")
-                .attr("tabindex", "0")
-                .style("width", "16px")
-                .style("height", "16px")
-                .style("border-radius", "50%")
-                .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-                .style("background-color", this.UI_TOKENS.color.neutral.grey10)
-                .style("display", "flex")
-                .style("align-items", "center")
-                .style("justify-content", "center")
-                .style("cursor", "help")
-                .style("font-size", `${this.UI_TOKENS.fontSize.xs}px`)
-                .style("color", this.UI_TOKENS.color.neutral.grey130)
-                .style("font-family", "Segoe UI, sans-serif")
-                .style("font-weight", this.UI_TOKENS.fontWeight.bold)
-                .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-                .text("?");
-
-            helpIcon.append("title")
-                .text("Tasks with Total Float less than or equal to this value will be highlighted as near-critical path tasks");
-
-            helpIcon
-                .on("mouseover", function () {
-                    d3.select(this)
-                        .style("background-color", this.UI_TOKENS.color.warning.light)
-                        .style("border-color", this.UI_TOKENS.color.warning.default)
-                        .style("color", this.UI_TOKENS.color.warning.default);
-                }.bind(this))
-                .on("mouseout", function () {
-                    d3.select(this)
-                        .style("background-color", this.UI_TOKENS.color.neutral.grey10)
-                        .style("border-color", this.UI_TOKENS.color.neutral.grey60)
-                        .style("color", this.UI_TOKENS.color.neutral.grey130);
-                }.bind(this));
-        }
-
-        const self = this;
-        this.floatThresholdInput
-            .on("focus", function () {
-                d3.select(this)
-                    .style("border-color", self.UI_TOKENS.color.warning.default)
-                    .style("box-shadow", `0 0 0 3px ${self.UI_TOKENS.color.warning.lighter}`);
-            })
-            .on("blur", function () {
-                d3.select(this)
-                    .style("border-color", self.UI_TOKENS.color.neutral.grey60)
-                    .style("box-shadow", "none");
-            });
-
-        let floatThresholdTimeout: any = null;
-        this.floatThresholdInput.on("input", function () {
-            const value = parseFloat((this as HTMLInputElement).value);
-            const newThreshold = isNaN(value) ? 0 : Math.max(0, value);
-
-            self.floatThreshold = newThreshold;
-
-            d3.select(this)
-                .transition()
-                .duration(self.UI_TOKENS.motion.duration.fast)
-                .style("background-color", self.UI_TOKENS.color.warning.lighter)
-                .transition()
-                .duration(self.UI_TOKENS.motion.duration.normal)
-                .style("background-color", self.UI_TOKENS.color.neutral.white);
-
-            if (floatThresholdTimeout) {
-                clearTimeout(floatThresholdTimeout);
-            }
-
-            floatThresholdTimeout = setTimeout(() => {
-
-                if (self.scrollThrottleTimeout) {
-                    clearTimeout(self.scrollThrottleTimeout);
-                    self.scrollThrottleTimeout = null;
-                }
-
-                self.host.persistProperties({
-                    merge: [{
-                        objectName: "persistedState",
-                        properties: { floatThreshold: self.floatThreshold },
-                        selector: null
-                    }]
-                });
-
-                self.requestUpdate(true);
-            }, 500);
-        });
-
-        controlContainer
-            .on("mouseover", function () {
-                d3.select(this)
-                    .style("box-shadow", self.UI_TOKENS.shadow[8]);
-            })
-            .on("mouseout", function () {
-                d3.select(this)
-                    .style("box-shadow", self.UI_TOKENS.shadow[4]);
-            });
-    }
 
     /**
      * Creates the zoom slider UI component matching Microsoft Power BI standard style
@@ -3923,7 +2244,7 @@ export class Visual implements IVisual {
             const viewportWidth = this.lastUpdateOptions?.viewport?.width
                 || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
                 || 800;
-            this.createConnectorLinesToggleButton(viewportWidth);
+
 
             this.debugLog("Connector lines toggled and persisted");
         } catch (error) {
@@ -3935,512 +2256,19 @@ export class Visual implements IVisual {
     // PDF Export Functionality
     // ============================================================================
 
-    /**
-     * Creates the "Copy Visible Data" button in the header area
-     */
-    private createCopyDataButton(viewportWidth?: number): void {
-        if (!this.headerSvg) return;
-
-        // Remove existing button
-        this.headerSvg.selectAll('.copy-data-button-group').remove();
-
-        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize, visible } = layout.copyButton;
-
-        // Don't render if not visible (hidden due to space constraints)
-        if (!visible) return;
-
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        // Create button group
-        const copyBtnGroup = this.headerSvg.append('g')
-            .attr('class', 'copy-data-button-group')
-            .attr('transform', `translate(${buttonX}, ${buttonY})`)
-            .style('cursor', 'pointer')
-            .attr('role', 'button')
-            .attr('aria-label', 'Copy visible data to clipboard')
-            .attr('tabindex', '0');
-
-        // Button background
-        copyBtnGroup.append('rect')
-            .attr('class', 'copy-btn-bg')
-            .attr('width', buttonSize)
-            .attr('height', buttonSize)
-            .attr('rx', this.UI_TOKENS.radius.medium)
-            .attr('ry', this.UI_TOKENS.radius.medium)
-            .style('fill', this.UI_TOKENS.color.neutral.white)
-            .style('stroke', this.UI_TOKENS.color.neutral.grey60)
-            .style('stroke-width', 1.5)
-            .style('filter', `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-            .style('transition', `all ${this.UI_TOKENS.motion.duration.normal}ms`);
-
-        // Icon group
-        const iconG = copyBtnGroup.append('g')
-            .attr('class', 'copy-icon')
-            .attr('transform', `translate(${buttonSize / 2}, ${buttonSize / 2})`);
-
-        // Copy Icon (Two overlapping rectangles)
-        iconG.append('path')
-            .attr('d', 'M-4,1 L-4,5 L4,5 L4,-3 L0,-3 M0,-7 L6,-7 L6,1 L0,1 L0,-7 Z')
-            .attr('fill', 'none')
-            .attr('stroke', this.UI_TOKENS.color.neutral.grey130)
-            .attr('stroke-width', 1.5)
-            .attr('stroke-linecap', 'round')
-            .attr('stroke-linejoin', 'round');
-
-        // Tooltip
-        copyBtnGroup.append('title')
-            .text('Copy visible data to clipboard');
-
-        // Event handlers
-        const self = this;
-        copyBtnGroup
-            .on('mouseover', function () {
-                d3.select(this).select('.copy-btn-bg')
-                    .style('fill', self.UI_TOKENS.color.neutral.grey20)
-                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-            })
-            .on('mouseout', function () {
-                d3.select(this).select('.copy-btn-bg')
-                    .style('fill', self.UI_TOKENS.color.neutral.white)
-                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
-            })
-            .on('click', function (event) {
-                event.stopPropagation();
-                self.copyVisibleDataToClipboard();
-            })
-            .on('keydown', function (event) {
-                if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    self.copyVisibleDataToClipboard();
-                }
-            });
-    }
-
-    /**
-     * Copies the currently visible (filtered) tasks to clipboard
-     */
-    private copyVisibleDataToClipboard(): void {
-        try {
-            if (!this.allFilteredTasks || this.allFilteredTasks.length === 0) {
-                console.warn("No visible data to copy.");
-                return;
-            }
-
-            // --- 1. TSV Generation (Flat Data) ---
-            const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
-
-            // Format as ISO 8601 (yyyy-mm-dd) consistent with HTML
-            const exportDateFormatter = d3.timeFormat("%Y-%m-%d");
-
-            // Always calculate max depth (TSV always shows hierarchy columns, HTML shows them if toggle is OFF)
-            const maxWbsDepth = this.allFilteredTasks.reduce((max, task) => Math.max(max, task.wbsLevels?.length || 0), 0);
-
-            const tsvHeaders = [
-                "Index", "Task ID", "Task Name", "Task Type"
-            ];
-            if (this.showBaselineInternal) tsvHeaders.push("Baseline Start", "Baseline Finish");
-            if (this.showPreviousUpdateInternal) tsvHeaders.push("Previous Start", "Previous Finish");
-            tsvHeaders.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
-            for (let i = 0; i < maxWbsDepth; i++) tsvHeaders.push(`WBS Level ${i + 1}`);
-
-            const tsvRows = this.allFilteredTasks.map((task, index) => {
-                const taskType = (task.duration === 0) ? "Milestone" : "Activity";
-                const row = [
-                    (index + 1).toString(),
-                    task.id?.toString() || "",
-                    task.name?.replace(/\t/g, " ") || "",
-                    taskType
-                ];
-                if (this.showBaselineInternal) {
-                    row.push(
-                        task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : "",
-                        task.baselineFinishDate ? exportDateFormatter(task.baselineFinishDate) : ""
-                    );
-                }
-                if (this.showPreviousUpdateInternal) {
-                    row.push(
-                        task.previousUpdateStartDate ? exportDateFormatter(task.previousUpdateStartDate) : "",
-                        task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""
-                    );
-                }
-                // Use user-provided Total Float if available, otherwise fall back to calculated value
-                // This ensures consistent export regardless of mode (Longest Path vs Float-Based)
-                const exportTotalFloat = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
-                    ? task.userProvidedTotalFloat
-                    : task.totalFloat;
-                // Determine criticality for export based on user-provided float (critical if <= 0)
-                const exportIsCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
-                    ? task.userProvidedTotalFloat <= 0
-                    : task.isCritical;
-                row.push(
-                    task.startDate ? exportDateFormatter(task.startDate) : "",
-                    task.finishDate ? exportDateFormatter(task.finishDate) : "",
-                    task.duration?.toString() || "0",
-                    exportTotalFloat?.toString() || "0",
-                    exportIsCritical ? "Yes" : "No"
-                );
-                for (let i = 0; i < maxWbsDepth; i++) {
-                    row.push(task.wbsLevels?.[i] || "");
-                }
-                return row.join("\t");
-            });
-            const tsvContent = [tsvHeaders.join("\t"), ...tsvRows].join("\n");
-
-
-            // --- 2. HTML Generation (Hierarchical Data) ---
-            const htmlHeaders = [
-                "Index", "Task ID", "Task Name", "Task Type"
-            ];
-            if (this.showBaselineInternal) htmlHeaders.push("Baseline Start", "Baseline Finish");
-            if (this.showPreviousUpdateInternal) htmlHeaders.push("Previous Start", "Previous Finish");
-            htmlHeaders.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
-
-            // Add WBS Columns if Toggle is OFF
-            if (!showWbs) {
-                for (let i = 0; i < maxWbsDepth; i++) htmlHeaders.push(`WBS Level ${i + 1}`);
-            }
-
-            let htmlContent = `<table border="1" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
-            htmlContent += `<tr style="background-color: #f0f0f0; font-weight: bold; text-align: center;">${htmlHeaders.map(h => `<th style="padding: 4px; white-space: nowrap;">${h}</th>`).join("")}</tr>`;
-
-            const wbsColors = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // Green, Yellow, Cyan, Red, Gray
-            let previousLevels: string[] = [];
-
-            // allFilteredTasks is already properly ordered by WBS hierarchy (via applyWbsOrdering)
-            // so we can use it directly without additional sorting
-            this.allFilteredTasks.forEach((task, index) => {
-                const currentLevels = task.wbsLevels || [];
-
-                if (showWbs) {
-                    // Find divergence
-                    let divergenceIndex = 0;
-                    while (divergenceIndex < previousLevels.length && divergenceIndex < currentLevels.length && previousLevels[divergenceIndex] === currentLevels[divergenceIndex]) {
-                        divergenceIndex++;
-                    }
-
-                    // Render Group Headers
-                    for (let i = divergenceIndex; i < currentLevels.length; i++) {
-                        const indent = i * 15;
-                        const color = wbsColors[i % wbsColors.length];
-                        const groupName = currentLevels[i];
-
-                        // Name column index logic: Index=0, ID=1, Name=2
-                        // We want Index and ID empty, Name to span rest? Or just indented Name?
-                        // Spanning is better visual separation.
-                        const colSpan = htmlHeaders.length - 2;
-
-                        htmlContent += `<tr style="background-color: ${color}; font-weight: bold;">`;
-                        htmlContent += `<td></td><td></td>`; // Skip Index and ID
-                        htmlContent += `<td colspan="${colSpan}" style="padding-left: ${indent}px; white-space: nowrap;">${groupName}</td>`;
-                        htmlContent += `</tr>`;
-                    }
-                    previousLevels = currentLevels;
-                }
-
-                // Render Task Row
-                const taskType = (task.duration === 0) ? "Milestone" : "Activity";
-                const indent = showWbs ? currentLevels.length * 15 : 0;
-
-                htmlContent += `<tr>`;
-                htmlContent += `<td style="text-align: right; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
-                htmlContent += `<td style="padding: 2px; white-space: nowrap;">${task.id || ""}</td>`;
-                htmlContent += `<td style="padding: 2px; padding-left: ${indent}px; white-space: nowrap;">${task.name || ""}</td>`;
-                htmlContent += `<td style="padding: 2px; white-space: nowrap;">${taskType}</td>`;
-
-                // Optional Columns
-                if (this.showBaselineInternal) {
-                    htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : ""}</td>`;
-                    htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineFinishDate ? exportDateFormatter(task.baselineFinishDate) : ""}</td>`;
-                }
-                if (this.showPreviousUpdateInternal) {
-                    htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateStartDate ? exportDateFormatter(task.previousUpdateStartDate) : ""}</td>`;
-                    htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""}</td>`;
-                }
-
-                // Use user-provided Total Float if available for consistent export
-                const htmlExportTotalFloat = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
-                    ? task.userProvidedTotalFloat
-                    : task.totalFloat;
-                const htmlExportIsCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
-                    ? task.userProvidedTotalFloat <= 0
-                    : task.isCritical;
-                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.startDate ? exportDateFormatter(task.startDate) : ""}</td>`;
-                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.finishDate ? exportDateFormatter(task.finishDate) : ""}</td>`;
-                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
-                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${htmlExportTotalFloat?.toString() || "0"}</td>`;
-                htmlContent += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${htmlExportIsCritical ? "Yes" : "No"}</td>`;
-
-                // Add WBS Columns if Toggle is OFF
-                if (!showWbs) {
-                    for (let i = 0; i < maxWbsDepth; i++) {
-                        htmlContent += `<td style="padding: 2px; white-space: nowrap;">${currentLevels[i] || ""}</td>`;
-                    }
-                }
-
-                htmlContent += `</tr>`;
-            });
-            htmlContent += `</table>`;
-
-            // Use legacy method with both formats
-            this.copyUsingLegacyMethod(tsvContent, htmlContent);
-
-        } catch (error) {
-            console.error('Error copying data:', error);
-        }
-    }
-
-    /* eslint-disable */
-    private copyUsingLegacyMethod(text: string, html?: string): void {
-        // 1. Try HTML Copy if provided
-        if (html) {
-            try {
-                const div = document.createElement("div");
-                div.innerHTML = html;
-                div.style.position = "fixed";
-                div.style.left = "-9999px";
-                div.style.top = "0";
-                div.contentEditable = "true";
-                document.body.appendChild(div);
-
-                const selection = window.getSelection();
-                if (selection) {
-                    const range = document.createRange();
-                    range.selectNodeContents(div);
-                    selection.removeAllRanges();
-                    selection.addRange(range);
-
-                    // eslint-disable-next-line
-                    const successful = document.execCommand('copy');
-
-                    selection.removeAllRanges();
-                    document.body.removeChild(div);
-
-                    if (successful) {
-                        this.showCopySuccess(this.allFilteredTasks.length);
-                        return; // Success
-                    }
-                } else {
-                    document.body.removeChild(div);
-                }
-            } catch (e) {
-                console.error("HTML Copy failed, falling back to text:", e);
-                // Fall through to text copy
-            }
-        }
-
-        // 2. Text Copy (Fallback)
-        let textArea: HTMLTextAreaElement | null = null;
-        try {
-            textArea = document.createElement("textarea");
-            textArea.value = text;
-            textArea.style.position = "fixed";
-            textArea.style.left = "-9999px";
-            textArea.style.top = "0";
-            document.body.appendChild(textArea);
-
-            textArea.focus();
-            textArea.select();
-
-            // eslint-disable-next-line
-            const successful = document.execCommand('copy');
-            if (successful) {
-                this.showCopySuccess(this.allFilteredTasks.length);
-            } else {
-                console.error("Clipboard copy failed. Please try again.");
-            }
-        } catch (err) {
-            console.error('Fallback copy failed:', err);
-        } finally {
-            if (textArea && document.body.contains(textArea)) {
-                document.body.removeChild(textArea);
-            }
-        }
-    }
-    /* eslint-enable */
-
-    private showCopySuccess(count: number): void {
-        const message = `Copied ${count} rows to clipboard!`;
-        console.log(message);
-
-        // Show temporary success feedback on the button
-        const btn = this.headerSvg?.select('.copy-data-button-group');
-        if (btn) {
-            const originalStroke = btn.select('.copy-btn-bg').style('stroke');
-            btn.select('.copy-btn-bg')
-                .style('stroke', this.UI_TOKENS.color.success.default)
-                .style('stroke-width', 2);
-
-            setTimeout(() => {
-                btn.select('.copy-btn-bg')
-                    .style('stroke', originalStroke)
-                    .style('stroke-width', 1.5);
-            }, 1000);
-        }
-
-        // Use timeout to ensure alert doesn't block UI immediately
-        setTimeout(() => alert(message + "\n\nYou can now paste into Excel."), 10);
-    }
 
     /**
      * Creates the export button in the header area
      */
-    private createExportButton(viewportWidth?: number): void {
-        // Also update the Copy Data button
-        this.createCopyDataButton(viewportWidth);
 
-        if (!this.headerSvg) return;
-
-        // Remove existing button
-        this.headerSvg.selectAll('.export-button-group').remove();
-        this.exportButtonGroup = null;
-
-        // Check setting
-        const showExportButton = this.settings?.generalSettings?.showExportButton?.value ?? true;
-        if (!showExportButton) return;
-
-        // Use centralized layout for button positioning
-        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize, visible } = layout.exportButton;
-
-        // Don't render if not visible (hidden due to space constraints)
-        if (!visible) return;
-
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        // Create button group
-        this.exportButtonGroup = this.headerSvg.append('g')
-            .attr('class', 'export-button-group')
-            .attr('transform', `translate(${buttonX}, ${buttonY})`)
-            .style('cursor', 'pointer')
-            .attr('role', 'button')
-            .attr('aria-label', 'Export chart as PDF')
-            .attr('tabindex', '0');
-
-        // Button background
-        this.exportButtonGroup.append('rect')
-            .attr('class', 'export-btn-bg')
-            .attr('width', buttonSize)
-            .attr('height', buttonSize)
-            .attr('rx', this.UI_TOKENS.radius.medium)
-            .attr('ry', this.UI_TOKENS.radius.medium)
-            .style('fill', this.UI_TOKENS.color.neutral.white)
-            .style('stroke', this.UI_TOKENS.color.neutral.grey60)
-            .style('stroke-width', 1.5)
-            .style('filter', `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-            .style('transition', `all ${this.UI_TOKENS.motion.duration.normal}ms`);
-
-        // Icon group
-        const iconG = this.exportButtonGroup.append('g')
-            .attr('class', 'export-icon')
-            .attr('transform', `translate(${buttonSize / 2}, ${buttonSize / 2})`);
-
-        // Document icon (page with folded corner)
-        iconG.append('path')
-            .attr('d', 'M-5,-7 L-5,7 L5,7 L5,-3 L1,-7 Z')
-            .attr('fill', 'none')
-            .attr('stroke', this.UI_TOKENS.color.neutral.grey130)
-            .attr('stroke-width', 1.5)
-            .attr('stroke-linecap', 'round')
-            .attr('stroke-linejoin', 'round');
-
-        // Folded corner
-        iconG.append('path')
-            .attr('d', 'M1,-7 L1,-3 L5,-3')
-            .attr('fill', 'none')
-            .attr('stroke', this.UI_TOKENS.color.neutral.grey130)
-            .attr('stroke-width', 1.5)
-            .attr('stroke-linecap', 'round')
-            .attr('stroke-linejoin', 'round');
-
-        // Download arrow
-        iconG.append('path')
-            .attr('class', 'export-arrow')
-            .attr('d', 'M0,0 L0,4 M-2,2 L0,4 L2,2')
-            .attr('fill', 'none')
-            .attr('stroke', this.UI_TOKENS.color.primary.default)
-            .attr('stroke-width', 1.5)
-            .attr('stroke-linecap', 'round')
-            .attr('stroke-linejoin', 'round');
-
-        // Tooltip
-        this.exportButtonGroup.append('title')
-            .text('Export chart as PDF');
-
-        // Loading spinner (hidden by default)
-        const spinner = iconG.append('g')
-            .attr('class', 'export-spinner')
-            .style('display', 'none');
-
-        spinner.append('circle')
-            .attr('r', 6)
-            .attr('fill', 'none')
-            .attr('stroke', this.UI_TOKENS.color.primary.default)
-            .attr('stroke-width', 2)
-            .attr('stroke-dasharray', '20 10')
-            .attr('stroke-linecap', 'round');
-
-        // Event handlers
-        const self = this;
-
-        this.exportButtonGroup
-            .on('mouseover', function () {
-                if (self.isExporting) return;
-                d3.select(this).select('.export-btn-bg')
-                    .style('fill', self.UI_TOKENS.color.neutral.grey20)
-                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-            })
-            .on('mouseout', function () {
-                if (self.isExporting) return;
-                d3.select(this).select('.export-btn-bg')
-                    .style('fill', self.UI_TOKENS.color.neutral.white)
-                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
-            })
-            .on('click', function (event) {
-                event.stopPropagation();
-                if (!self.isExporting) {
-                    self.exportToPDF();
-                }
-            })
-            .on('keydown', function (event) {
-                if ((event.key === 'Enter' || event.key === ' ') && !self.isExporting) {
-                    event.preventDefault();
-                    self.exportToPDF();
-                }
-            });
-    }
 
     /**
      * Updates the export button visual state
      */
     private updateExportButtonState(loading: boolean): void {
-        if (!this.exportButtonGroup) return;
-
-        const iconPaths = this.exportButtonGroup.selectAll('.export-icon path');
-        const spinner = this.exportButtonGroup.select('.export-spinner');
-
-        if (loading) {
-            // Show spinner, hide icon paths
-            iconPaths.style('display', 'none');
-            spinner.style('display', 'block');
-
-            this.exportButtonGroup
-                .classed('is-exporting', true)
-                .style('cursor', 'wait')
-                .select('.export-btn-bg')
-                .style('fill', this.UI_TOKENS.color.neutral.grey20);
-        } else {
-            // Show icon, hide spinner
-            iconPaths.style('display', 'block');
-            spinner.style('display', 'none');
-
-            this.exportButtonGroup
-                .classed('is-exporting', false)
-                .style('cursor', 'pointer')
-                .select('.export-btn-bg')
-                .style('fill', this.UI_TOKENS.color.neutral.white);
-        }
+        this.header.setExporting(loading);
     }
+
 
     /**
      * Exports the visual as a PDF file using Power BI Download Service API
@@ -4717,7 +2545,6 @@ export class Visual implements IVisual {
                 const clonedSvg = svg.cloneNode(true) as SVGSVGElement;
 
                 // Ensure the SVG has proper namespace
-                // eslint-disable-next-line powerbi-visuals/no-http-string
                 clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
                 // eslint-disable-next-line powerbi-visuals/no-http-string
                 clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
@@ -4762,7 +2589,7 @@ export class Visual implements IVisual {
      */
     private logDataLoadInfo(dataView: DataView): void {
         const rowCount = dataView.table?.rows?.length || 0;
-        const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
+        const hasTotalFloat = this.dataProcessor.hasDataRole(dataView, 'taskTotalFloat');
 
         this.debugLog(
             `[WBS] Data loaded: ${rowCount.toLocaleString()} rows`,
@@ -4938,7 +2765,7 @@ export class Visual implements IVisual {
 
             this.wbsLevelColumnIndices = [];
             this.wbsLevelColumnNames = [];
-            this.wbsDataExistsInMetadata = this.hasDataRole(dataView, 'wbsLevels');
+            this.wbsDataExistsInMetadata = this.dataProcessor.hasDataRole(dataView, 'wbsLevels');
 
             if (this.wbsDataExistsInMetadata && dataView.table?.columns) {
 
@@ -5090,11 +2917,11 @@ export class Visual implements IVisual {
 
             this.clearVisual();
             this.updateHeaderElements(viewportWidth);
-            this.createFloatThresholdControl(viewportWidth);
+
             this.createpathSelectionDropdown();
             this.createTraceModeToggle();
 
-            if (!this.validateDataView(dataView)) {
+            if (!this.dataProcessor.validateDataView(dataView, this.settings)) {
                 this.applyTaskFilter([]);
                 const missingRoles = this.getMissingRequiredRoles(dataView);
                 this.displayLandingPage(missingRoles);
@@ -5104,7 +2931,39 @@ export class Visual implements IVisual {
 
             const shouldTransform = dataChanged || this.allTasksData.length === 0;
             if (shouldTransform) {
-                this.transformDataOptimized(dataView);
+                const processedData = this.dataProcessor.processData(
+                    dataView,
+                    this.settings,
+                    this.wbsExpandedState,
+                    this.wbsManuallyToggledGroups,
+                    this.lastExpandCollapseAllState,
+                    this.highContrastMode,
+                    this.highContrastForeground
+                );
+
+                // Update local state from processed data
+                this.allTasksData = processedData.allTasksData;
+                this.relationships = processedData.relationships;
+                this.taskIdToTask = processedData.taskIdToTask;
+                this.predecessorIndex = processedData.predecessorIndex;
+                this.relationshipIndex = processedData.relationshipIndex;
+                this.relationshipByPredecessor = processedData.relationshipByPredecessor;
+                this.dataDate = processedData.dataDate;
+                this.legendDataExists = processedData.legendDataExists;
+                this.legendCategories = processedData.legendCategories;
+                this.legendColorMap = processedData.legendColorMap;
+                this.legendFieldName = processedData.legendFieldName;
+                this.wbsDataExists = processedData.wbsDataExists;
+                this.wbsGroups = processedData.wbsGroups;
+                this.wbsGroupMap = processedData.wbsGroupMap;
+                this.wbsRootGroups = processedData.wbsRootGroups;
+                this.wbsAvailableLevels = processedData.wbsAvailableLevels;
+                this.taskIdQueryName = processedData.taskIdQueryName;
+                this.taskIdTable = processedData.taskIdTable;
+                this.taskIdColumn = processedData.taskIdColumn;
+                this.wbsLevelColumnIndices = processedData.wbsLevelColumnIndices;
+                this.wbsLevelColumnNames = processedData.wbsLevelColumnNames;
+
                 this.lastDataSignature = dataSignature;
                 this.cachedSortedTasksSignature = null;
                 this.dropdownNeedsRefresh = true;
@@ -5255,7 +3114,7 @@ export class Visual implements IVisual {
                 if (this.showAllTasksInternal) {
                     baseTasks = plottableTasksSorted;
                 } else {
-                    baseTasks = (criticalAndNearCriticalTasks.length > 0) ? criticalAndNearCriticalTasks : plottableTasksSorted;
+                    baseTasks = criticalAndNearCriticalTasks;
                 }
 
                 if (this.filterKeyword && this.filterKeyword.trim().length > 0) {
@@ -5402,7 +3261,7 @@ export class Visual implements IVisual {
 
             this.renderLegend(viewportWidth, viewportHeight);
 
-            this.renderWbsCycleButtons(viewportWidth);
+            this.updateHeaderElements(viewportWidth);
 
             this.updateZoomSliderUI();
             this.drawZoomSliderMiniChart();
@@ -5492,7 +3351,8 @@ export class Visual implements IVisual {
 
         this.calculateVisibleTasks();
 
-        this.clearVisual();
+        // Optimized: Skip full clear to allow efficient D3 updates
+        // this.clearVisual();
 
         const showHorzGridLines = this.settings.gridLines.showHorizontalLines.value;
         const showVertGridLines = this.settings.gridLines.showVerticalLines.value;
@@ -5540,7 +3400,8 @@ export class Visual implements IVisual {
         const oldShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
 
         if (options.dataViews?.[0]) {
-            this.processLegendData(options.dataViews[0]);
+            // TODO: Re-integrate legend processing via DataProcessor
+            // this.processLegendData(options.dataViews[0]);
         }
 
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(
@@ -5576,7 +3437,7 @@ export class Visual implements IVisual {
         this.clearVisual();
 
         this.updateHeaderElements(options.viewport.width);
-        this.createFloatThresholdControl(options.viewport.width);
+
         this.createpathSelectionDropdown();
 
         if (this.dropdownInput) {
@@ -6324,9 +4185,36 @@ export class Visual implements IVisual {
     }
 
     private updateHeaderElements(viewportWidth: number): void {
-        // Always recreate the toggle button when updating to ensure it respects
-        // current viewport width and layout mode (fixes responsive sizing)
-        this.createOrUpdateToggleButton(viewportWidth);
+        const dataView = this.lastUpdateOptions?.dataViews?.[0];
+        const hasBaselineStart = dataView ? this.dataProcessor.hasDataRole(dataView, 'baselineStartDate') : false;
+        const hasBaselineFinish = dataView ? this.dataProcessor.hasDataRole(dataView, 'baselineFinishDate') : false;
+        const baselineAvailable = hasBaselineStart && hasBaselineFinish;
+
+        const hasPreviousUpdateStart = dataView ? this.dataProcessor.hasDataRole(dataView, 'previousUpdateStartDate') : false;
+        const hasPreviousUpdateFinish = dataView ? this.dataProcessor.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
+        const previousUpdateAvailable = hasPreviousUpdateStart && hasPreviousUpdateFinish;
+
+        const state: HeaderState = {
+            showAllTasks: this.showAllTasksInternal,
+            showBaseline: this.showBaselineInternal,
+            baselineAvailable: baselineAvailable,
+            showPreviousUpdate: this.showPreviousUpdateInternal,
+            previousUpdateAvailable: previousUpdateAvailable,
+            showConnectorLines: this.showConnectorLinesInternal,
+            wbsExpanded: this.wbsExpandedInternal,
+            wbsDataExists: this.wbsDataExistsInMetadata || this.wbsDataExists, // Prioritize metadata check if available
+            wbsAvailableLevels: this.wbsAvailableLevels,
+            wbsExpandToLevel: this.wbsExpandToLevel,
+            wbsManualExpansionOverride: this.wbsManualExpansionOverride,
+
+            currentMode: (this.settings?.criticalPath?.calculationMode?.value as any)?.value || 'longestPath',
+            floatThreshold: this.floatThreshold,
+            showNearCritical: this.showNearCritical,
+            showExtraColumns: this.showExtraColumnsInternal,
+            wbsEnabled: !!this.settings?.wbsGrouping?.enableWbsGrouping?.value
+        };
+
+        this.header.render(viewportWidth, this.settings, state);
 
         const dividerLine = this.headerSvg?.select(".divider-line");
         if (dividerLine && !dividerLine.empty()) {
@@ -6338,18 +4226,8 @@ export class Visual implements IVisual {
             this.drawHeaderDivider(viewportWidth);
         }
 
-        this.createModeToggleButton(viewportWidth);
-        this.createColumnDisplayToggleButton(viewportWidth);
-        this.createOrUpdateBaselineToggleButton(viewportWidth);
-        this.createOrUpdatePreviousUpdateToggleButton(viewportWidth);
-        this.createConnectorLinesToggleButton(viewportWidth);
-        this.createOrUpdateWbsEnableToggleButton(viewportWidth);
-        this.renderWbsCycleButtons(viewportWidth);
-        this.createExportButton(viewportWidth);
-        this.createHelpButton(viewportWidth);
-
-        // Also update right-side controls to respond to viewport changes
-        this.createFloatThresholdControl(viewportWidth);
+        // Dropdown and other custom header elements not yet in Header component
+        this.createpathSelectionDropdown();
         this.updatePathInfoLabel(viewportWidth);
     }
 
@@ -6923,9 +4801,10 @@ export class Visual implements IVisual {
             return;
         }
 
-        this.taskLabelLayer?.selectAll("*").remove();
-        this.labelGridLayer?.selectAll("*").remove();
-        this.wbsGroupLayer?.selectAll("*").remove();
+        // Optimized: Removed aggressive clearing to allow D3 data binding to update elements
+        // this.taskLabelLayer?.selectAll("*").remove();
+        // this.labelGridLayer?.selectAll("*").remove();
+        // this.wbsGroupLayer?.selectAll("*").remove();
 
         this.updateChartClipRect(chartWidth, chartHeight);
 
@@ -7102,10 +4981,6 @@ export class Visual implements IVisual {
 
     private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
         if (!this.gridLayer?.node() || !yScale) { console.warn("Skipping horizontal grid lines: Missing layer or Y scale."); return; }
-        this.gridLayer.selectAll(".grid-line.horizontal").remove();
-        this.gridLayer.selectAll(".alternating-row-bg").remove();
-        this.labelGridLayer?.selectAll(".label-grid-line").remove();
-        this.labelGridLayer?.selectAll(".alternating-row-bg-label").remove();
 
         const settings = this.settings.gridLines;
         const lineColor = settings.horizontalLineColor.value.value;
@@ -7141,63 +5016,79 @@ export class Visual implements IVisual {
             for (let i = 0; i <= maxYOrder; i++) {
                 rowIndices.push(i);
             }
+            const oddRows = rowIndices.filter(i => i % 2 === 1);
 
-            this.gridLayer.selectAll(".alternating-row-bg")
-                .data(rowIndices.filter(i => i % 2 === 1)) // Odd rows get background
-                .enter()
-                .append("rect")
-                .attr("class", "alternating-row-bg")
+            this.gridLayer.selectAll<SVGRectElement, number>(".alternating-row-bg")
+                .data(oddRows, d => d)
+                .join(
+                    enter => enter.append("rect")
+                        .attr("class", "alternating-row-bg")
+                        .style("pointer-events", "none"),
+                    update => update,
+                    exit => exit.remove()
+                )
                 .attr("x", 0)
                 .attr("y", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
                 .attr("width", chartWidth)
                 .attr("height", rowHeight)
-                .style("fill", alternatingColor)
-                .style("pointer-events", "none");
+                .style("fill", alternatingColor);
 
             // Extend alternating to label area
             if (this.labelGridLayer) {
-                this.labelGridLayer.selectAll(".alternating-row-bg-label")
-                    .data(rowIndices.filter(i => i % 2 === 1))
-                    .enter()
-                    .append("rect")
-                    .attr("class", "alternating-row-bg-label")
+                this.labelGridLayer.selectAll<SVGRectElement, number>(".alternating-row-bg-label")
+                    .data(oddRows, d => d)
+                    .join(
+                        enter => enter.append("rect")
+                            .attr("class", "alternating-row-bg-label")
+                            .style("pointer-events", "none"),
+                        update => update,
+                        exit => exit.remove()
+                    )
                     .attr("x", -currentLeftMargin)
                     .attr("y", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
                     .attr("width", currentLeftMargin)
                     .attr("height", rowHeight)
-                    .style("fill", alternatingColor)
-                    .style("pointer-events", "none");
+                    .style("fill", alternatingColor);
             }
+        } else {
+            this.gridLayer.selectAll(".alternating-row-bg").remove();
+            this.labelGridLayer?.selectAll(".alternating-row-bg-label").remove();
         }
 
-        this.gridLayer.selectAll(".grid-line.horizontal")
-            .data(uniqueYOrders)
-            .enter()
-            .append("line")
-            .attr("class", "grid-line horizontal")
+        this.gridLayer.selectAll<SVGLineElement, number>(".grid-line.horizontal")
+            .data(uniqueYOrders, d => d)
+            .join(
+                enter => enter.append("line")
+                    .attr("class", "grid-line horizontal")
+                    .style("pointer-events", "none"),
+                update => update,
+                exit => exit.remove()
+            )
             .attr("x1", 0)
             .attr("x2", chartWidth)
             .attr("y1", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
             .attr("y2", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
             .style("stroke", lineColor)
             .style("stroke-width", lineWidth)
-            .style("stroke-dasharray", lineDashArray)
-            .style("pointer-events", "none");
+            .style("stroke-dasharray", lineDashArray);
 
         if (this.labelGridLayer) {
-            this.labelGridLayer.selectAll(".label-grid-line")
-                .data(uniqueYOrders)
-                .enter()
-                .append("line")
-                .attr("class", "label-grid-line")
+            this.labelGridLayer.selectAll<SVGLineElement, number>(".label-grid-line")
+                .data(uniqueYOrders, d => d)
+                .join(
+                    enter => enter.append("line")
+                        .attr("class", "label-grid-line")
+                        .style("pointer-events", "none"),
+                    update => update,
+                    exit => exit.remove()
+                )
                 .attr("x1", -currentLeftMargin)
                 .attr("x2", 0)
                 .attr("y1", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
                 .attr("y2", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
                 .style("stroke", lineColor)
                 .style("stroke-width", lineWidth)
-                .style("stroke-dasharray", lineDashArray)
-                .style("pointer-events", "none");
+                .style("stroke-dasharray", lineDashArray);
         }
     }
 
@@ -7212,11 +5103,12 @@ export class Visual implements IVisual {
             return;
         }
 
-        mainGridLayer.selectAll(".vertical-grid-line").remove();
-        headerLayer.selectAll(".vertical-grid-label").remove();
-
         const settings = this.settings.gridLines;
-        if (!settings.showVerticalLines.value) return;
+        if (!settings.showVerticalLines.value) {
+            mainGridLayer.selectAll(".vertical-grid-line").remove();
+            headerLayer.selectAll(".vertical-grid-label").remove();
+            return;
+        }
 
         const lineColor = this.resolveColor(settings.verticalLineColor.value.value, "foreground");
         const lineWidth = settings.verticalLineWidth.value;
@@ -7345,19 +5237,22 @@ export class Visual implements IVisual {
         }
 
         // Draw grid lines
-        mainGridLayer.selectAll(".vertical-grid-line")
-            .data(ticks)
-            .enter()
-            .append("line")
-            .attr("class", "vertical-grid-line")
+        mainGridLayer.selectAll<SVGLineElement, Date>(".vertical-grid-line")
+            .data(ticks, (d: Date) => d.getTime())
+            .join(
+                enter => enter.append("line")
+                    .attr("class", "vertical-grid-line")
+                    .style("pointer-events", "none"),
+                update => update,
+                exit => exit.remove()
+            )
             .attr("x1", (d: Date) => xScale(d))
             .attr("x2", (d: Date) => xScale(d))
             .attr("y1", 0)
             .attr("y2", chartHeight)
             .style("stroke", lineColor)
             .style("stroke-width", lineWidth)
-            .style("stroke-dasharray", lineDashArray)
-            .style("pointer-events", "none");
+            .style("stroke-dasharray", lineDashArray);
 
         // Draw labels with appropriate formatting based on granularity
         if (showMonthLabels) {
@@ -7382,19 +5277,24 @@ export class Visual implements IVisual {
                 }
             };
 
-            headerLayer.selectAll(".vertical-grid-label")
-                .data(ticks)
-                .enter()
-                .append("text")
-                .attr("class", "vertical-grid-label")
+            headerLayer.selectAll<SVGTextElement, Date>(".vertical-grid-label")
+                .data(ticks, (d: Date) => d.getTime())
+                .join(
+                    enter => enter.append("text")
+                        .attr("class", "vertical-grid-label")
+                        .attr("text-anchor", "middle")
+                        .style("pointer-events", "none"),
+                    update => update,
+                    exit => exit.remove()
+                )
                 .attr("x", (d: Date) => xScale(d))
                 .attr("y", this.headerHeight - 15)
-                .attr("text-anchor", "middle")
                 .style("font-family", this.getFontFamily())
                 .style("font-size", `${labelFontSize}pt`)
                 .style("fill", labelColor)
-                .style("pointer-events", "none")
                 .text((d: Date) => formatLabel(d));
+        } else {
+            headerLayer.selectAll(".vertical-grid-label").remove();
         }
     }
 
@@ -10878,968 +8778,13 @@ export class Visual implements IVisual {
     /**
      * Extracts and validates task ID from a data row
      */
-    private extractTaskId(row: any[]): string | null {
-        const idIdx = this.getColumnIndex(this.lastUpdateOptions?.dataViews[0], 'taskId');
-        if (idIdx === -1) return null;
 
-        const rawTaskId = row[idIdx];
-        if (rawTaskId == null || (typeof rawTaskId !== 'string' && typeof rawTaskId !== 'number')) {
-            return null;
-        }
-
-        const taskIdStr = String(rawTaskId).trim();
-        return taskIdStr === '' ? null : taskIdStr;
-    }
-
-    /**
-     * Extracts predecessor ID from a data row
-     */
-    private extractPredecessorId(row: any[]): string | null {
-        const predIdIdx = this.getColumnIndex(this.lastUpdateOptions?.dataViews[0], 'predecessorId');
-        if (predIdIdx === -1) return null;
-
-        const rawPredId = row[predIdIdx];
-        if (rawPredId == null || (typeof rawPredId !== 'string' && typeof rawPredId !== 'number')) {
-            return null;
-        }
-
-        const predIdStr = String(rawPredId).trim();
-        return predIdStr === '' ? null : predIdStr;
-    }
-
-    private createTaskFromRow(row: any[], rowIndex: number): Task | null {
-        const dataView = this.lastUpdateOptions?.dataViews?.[0];
-        if (!dataView) return null;
-
-        const taskId = this.extractTaskId(row);
-        if (!taskId) return null;
-
-        const nameIdx = this.getColumnIndex(dataView, 'taskName');
-        const typeIdx = this.getColumnIndex(dataView, 'taskType');
-        const durationIdx = this.getColumnIndex(dataView, 'duration');
-        const startDateIdx = this.getColumnIndex(dataView, 'startDate');
-        const finishDateIdx = this.getColumnIndex(dataView, 'finishDate');
-        const totalFloatIdx = this.getColumnIndex(dataView, 'taskTotalFloat');
-        const taskFreeFloatIdx = this.getColumnIndex(dataView, 'taskFreeFloat');
-        const baselineStartDateIdx = this.getColumnIndex(dataView, 'baselineStartDate');
-        const baselineFinishDateIdx = this.getColumnIndex(dataView, 'baselineFinishDate');
-        const previousUpdateStartDateIdx = this.getColumnIndex(dataView, 'previousUpdateStartDate');
-        const previousUpdateFinishDateIdx = this.getColumnIndex(dataView, 'previousUpdateFinishDate');
-
-        const taskName = (nameIdx !== -1 && row[nameIdx] != null)
-            ? String(row[nameIdx]).trim()
-            : `Task ${taskId}`;
-
-        const taskType = (typeIdx !== -1 && row[typeIdx] != null)
-            ? String(row[typeIdx]).trim()
-            : 'TT_Task';
-
-        let duration = 0;
-        if (durationIdx !== -1 && row[durationIdx] != null) {
-            const parsedDuration = Number(row[durationIdx]);
-            if (!isNaN(parsedDuration) && isFinite(parsedDuration)) {
-                duration = parsedDuration;
-            }
-        }
-        if (taskType === 'TT_Mile' || taskType === 'TT_FinMile') {
-            duration = 0;
-        }
-        duration = Math.max(0, duration);
-
-        let userProvidedTotalFloat: number | undefined = undefined;
-        if (totalFloatIdx !== -1 && row[totalFloatIdx] != null) {
-            const parsedFloat = Number(row[totalFloatIdx]);
-            if (!isNaN(parsedFloat) && isFinite(parsedFloat)) {
-                userProvidedTotalFloat = parsedFloat;
-            }
-        }
-
-        let taskFreeFloat: number | undefined = undefined;
-        if (taskFreeFloatIdx !== -1 && row[taskFreeFloatIdx] != null) {
-            const parsedFloat = Number(row[taskFreeFloatIdx]);
-            if (!isNaN(parsedFloat) && isFinite(parsedFloat)) {
-                taskFreeFloat = parsedFloat;
-            }
-        }
-
-        const startDate = (startDateIdx !== -1 && row[startDateIdx] != null)
-            ? this.parseDate(row[startDateIdx])
-            : null;
-        const finishDate = (finishDateIdx !== -1 && row[finishDateIdx] != null)
-            ? this.parseDate(row[finishDateIdx])
-            : null;
-
-        const baselineStartDate = (baselineStartDateIdx !== -1 && row[baselineStartDateIdx] != null)
-            ? this.parseDate(row[baselineStartDateIdx])
-            : null;
-        const baselineFinishDate = (baselineFinishDateIdx !== -1 && row[baselineFinishDateIdx] != null)
-            ? this.parseDate(row[baselineFinishDateIdx])
-            : null;
-
-        const previousUpdateStartDate = (previousUpdateStartDateIdx !== -1 && row[previousUpdateStartDateIdx] != null)
-            ? this.parseDate(row[previousUpdateStartDateIdx])
-            : null;
-        const previousUpdateFinishDate = (previousUpdateFinishDateIdx !== -1 && row[previousUpdateFinishDateIdx] != null)
-            ? this.parseDate(row[previousUpdateFinishDateIdx])
-            : null;
-
-        const legendIdx = this.getColumnIndex(dataView, 'legend');
-        const legendValue = (legendIdx !== -1 && row[legendIdx] != null)
-            ? String(row[legendIdx])
-            : undefined;
-
-        const wbsLevels: string[] = [];
-        for (const colIdx of this.wbsLevelColumnIndices) {
-            if (colIdx !== -1 && row[colIdx] != null) {
-                const value = String(row[colIdx]).trim();
-                if (value) {
-                    wbsLevels.push(value);
-                }
-            }
-        }
-
-        const tooltipData = this.extractTooltipData(row, dataView);
-
-        const safeRowIndex = rowIndex >= 0 ? rowIndex : 0;
-        const selectionId = dataView.table
-            ? this.host.createSelectionIdBuilder().withTable(dataView.table, safeRowIndex).createSelectionId()
-            : undefined;
-
-        const task: Task = {
-            id: row[this.getColumnIndex(dataView, 'taskId')],
-            internalId: taskId,
-            name: taskName,
-            type: taskType,
-            duration: duration,
-            userProvidedTotalFloat: userProvidedTotalFloat,
-            taskFreeFloat: taskFreeFloat,
-            predecessorIds: [],
-            predecessors: [],
-            successors: [],
-            relationshipTypes: {},
-            relationshipLags: {},
-            earlyStart: 0,
-            earlyFinish: duration,
-            lateStart: Infinity,
-            lateFinish: Infinity,
-            totalFloat: Infinity,
-            isCritical: false,
-            isCriticalByFloat: false,
-            isCriticalByRel: false,
-            startDate: startDate,
-            finishDate: finishDate,
-            baselineStartDate: baselineStartDate,
-            baselineFinishDate: baselineFinishDate,
-            previousUpdateStartDate: previousUpdateStartDate,
-            previousUpdateFinishDate: previousUpdateFinishDate,
-            tooltipData: tooltipData,
-            selectionId: selectionId,
-            legendValue: legendValue,
-            wbsLevels: wbsLevels.length > 0 ? wbsLevels : undefined
-        };
-
-        return task;
-    }
-
-    /**
-     * Extracts tooltip data from a row
-     */
-    private extractTooltipData(row: any[], dataView: DataView): Array<{ key: string, value: PrimitiveValue }> | undefined {
-        const columns = dataView.metadata?.columns;
-        if (!columns) return undefined;
-
-        const tooltipColumns: Array<{ column: any, rowIndex: number }> = [];
-
-        columns.forEach((column, index) => {
-            if (column.roles?.tooltip) {
-
-                if (index === 0 || !this.tooltipDebugLogged) {
-                    this.debugLog(`Tooltip column: ${column.displayName}, index: ${column.index}, queryName: ${column.queryName}`);
-                }
-                tooltipColumns.push({
-                    column: column,
-                    rowIndex: index
-                });
-            }
-        });
-
-        this.tooltipDebugLogged = true;
-
-        tooltipColumns.sort((a, b) => {
-            const aQuery = a.column.queryName || '';
-            const bQuery = b.column.queryName || '';
-
-            const aMatch = aQuery.match(/\.tooltip\.(\d+)$/);
-            const bMatch = bQuery.match(/\.tooltip\.(\d+)$/);
-
-            if (aMatch && bMatch) {
-                return parseInt(aMatch[1]) - parseInt(bMatch[1]);
-            }
-
-            if (a.column.index !== undefined && b.column.index !== undefined) {
-                return a.column.index - b.column.index;
-            }
-
-            return a.rowIndex - b.rowIndex;
-        });
-
-        const tooltipData: Array<{ key: string, value: PrimitiveValue }> = [];
-
-        for (const item of tooltipColumns) {
-            const value = row[item.rowIndex];
-            if (value !== null && value !== undefined) {
-
-                if (item.column.type?.dateTime || this.mightBeDate(value)) {
-                    const parsedDate = this.parseDate(value);
-                    if (parsedDate) {
-                        tooltipData.push({
-                            key: item.column.displayName || `Field ${item.rowIndex}`,
-                            value: parsedDate
-                        });
-                        continue;
-                    }
-                }
-
-                tooltipData.push({
-                    key: item.column.displayName || `Field ${item.rowIndex}`,
-                    value: value
-                });
-            }
-        }
-
-        return tooltipData.length > 0 ? tooltipData : undefined;
-    }
-
-    private transformDataOptimized(dataView: DataView): void {
-        this.debugLog("Transforming data with enhanced optimization...");
-        const startTime = performance.now();
-
-        this.allTasksData = [];
-        this.relationships = [];
-        this.taskIdToTask.clear();
-        this.predecessorIndex.clear();
-        this.relationshipIndex.clear();
-        this.relationshipByPredecessor.clear();
-        this.dataDate = null;
-
-        if (!dataView.table?.rows || !dataView.metadata?.columns) {
-            console.error("Data transformation failed: No table data or columns found.");
-            return;
-        }
-
-        const rows = dataView.table.rows;
-        const columns = dataView.metadata.columns;
-
-        const idIdx = this.getColumnIndex(dataView, "taskId");
-        if (idIdx !== -1) {
-            this.taskIdQueryName = dataView.metadata.columns[idIdx].queryName || null;
-            const match = this.taskIdQueryName
-                ? this.taskIdQueryName.match(/([^\[]+)\[([^\]]+)\]/)
-                : null;
-            if (match) {
-                this.taskIdTable = match[1];
-                this.taskIdColumn = match[2];
-            } else if (this.taskIdQueryName) {
-                const parts = this.taskIdQueryName.split(".");
-                this.taskIdTable = parts.length > 1 ? parts[0] : null;
-                this.taskIdColumn = parts[parts.length - 1];
-            } else {
-                this.taskIdTable = null;
-                this.taskIdColumn = null;
-            }
-        }
-
-        const predIdIdx = this.getColumnIndex(dataView, "predecessorId");
-        const relTypeIdx = this.getColumnIndex(dataView, "relationshipType");
-        const relLagIdx = this.getColumnIndex(dataView, "relationshipLag");
-        const relFreeFloatIdx = this.getColumnIndex(dataView, "relationshipFreeFloat");
-        const dataDateIdx = this.getColumnIndex(dataView, "dataDate");
-
-        if (idIdx === -1) {
-            console.error("Data transformation failed: Missing Task ID column.");
-            this.displayMessage("Missing essential data fields.");
-            return;
-        }
-
-        const taskDataMap = new Map<
-            string,
-            {
-                rows: any[];
-                task: Task | null;
-                rowIndex: number;
-                relationships: Array<{
-                    predId: string;
-                    relType: string;
-                    lag: number | null;
-                    freeFloat: number | null;
-                }>;
-            }
-        >();
-
-        const allPredecessorIds = new Set<string>();
-
-        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-            const row = rows[rowIndex];
-            const taskId = this.extractTaskId(row);
-            if (!taskId) {
-                console.warn(`Skipping row ${rowIndex}: Invalid or missing Task ID.`);
-                continue;
-            }
-
-            if (dataDateIdx !== -1 && row[dataDateIdx] != null) {
-                const parsedDataDate = this.parseDate(row[dataDateIdx]);
-                if (parsedDataDate) {
-                    const ts = parsedDataDate.getTime();
-                    if (this.dataDate === null || ts > this.dataDate.getTime()) {
-                        this.dataDate = parsedDataDate;
-                    }
-                }
-            }
-
-            let taskData = taskDataMap.get(taskId);
-            if (!taskData) {
-                taskData = {
-                    rows: [],
-                    task: null,
-                    rowIndex: rowIndex,
-                    relationships: [],
-                };
-                taskDataMap.set(taskId, taskData);
-            }
-
-            taskData.rows.push(row);
-
-            if (predIdIdx !== -1 && row[predIdIdx] != null) {
-                const predId = this.extractPredecessorId(row);
-                if (predId && predId !== taskId) {
-
-                    allPredecessorIds.add(predId);
-
-                    const relTypeRaw =
-                        relTypeIdx !== -1 && row[relTypeIdx] != null
-                            ? String(row[relTypeIdx]).trim().toUpperCase()
-                            : "FS";
-                    const validRelTypes = ["FS", "SS", "FF", "SF"];
-                    const relType = validRelTypes.includes(relTypeRaw)
-                        ? relTypeRaw
-                        : "FS";
-
-                    let relLag: number | null = null;
-                    if (relLagIdx !== -1 && row[relLagIdx] != null) {
-                        const parsedLag = Number(row[relLagIdx]);
-                        if (!isNaN(parsedLag) && isFinite(parsedLag)) {
-                            relLag = parsedLag;
-                        }
-                    }
-
-                    let relFreeFloat: number | null = null;
-                    if (relFreeFloatIdx !== -1 && row[relFreeFloatIdx] != null) {
-                        const parsedFreeFloat = Number(row[relFreeFloatIdx]);
-                        if (!isNaN(parsedFreeFloat) && isFinite(parsedFreeFloat)) {
-                            relFreeFloat = parsedFreeFloat;
-                        }
-                    }
-
-                    const existingRel = taskData.relationships.find(
-                        (r) => r.predId === predId
-                    );
-                    if (!existingRel) {
-                        taskData.relationships.push({
-                            predId: predId,
-                            relType: relType,
-                            lag: relLag,
-                            freeFloat: relFreeFloat,
-                        });
-                    }
-                }
-            }
-        }
-
-        let syntheticTaskCount = 0;
-        for (const predId of allPredecessorIds) {
-            if (!taskDataMap.has(predId)) {
-                syntheticTaskCount++;
-            }
-        }
-
-        this.allTasksData = new Array(taskDataMap.size + syntheticTaskCount);
-        this.relationships = [];
-
-        const successorMap = new Map<string, Task[]>();
-        let taskIndex = 0;
-
-        for (const [taskId, taskData] of taskDataMap) {
-
-            if (taskData.rows.length > 0 && !taskData.task) {
-                taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex);
-            }
-            if (!taskData.task) continue;
-
-            const task = taskData.task;
-
-            if (!this.predecessorIndex.has(taskId)) {
-                this.predecessorIndex.set(taskId, new Set());
-            }
-
-            for (const rel of taskData.relationships) {
-                task.predecessorIds.push(rel.predId);
-                task.relationshipTypes[rel.predId] = rel.relType;
-                task.relationshipLags[rel.predId] = rel.lag;
-
-                if (!this.predecessorIndex.has(rel.predId)) {
-                    this.predecessorIndex.set(rel.predId, new Set());
-                }
-                this.predecessorIndex.get(rel.predId)!.add(taskId);
-
-                if (!successorMap.has(rel.predId)) {
-                    successorMap.set(rel.predId, []);
-                }
-                successorMap.get(rel.predId)!.push(task);
-
-                const relationship: Relationship = {
-                    predecessorId: rel.predId,
-                    successorId: taskId,
-                    type: rel.relType,
-                    freeFloat: rel.freeFloat,
-                    lag: rel.lag,
-                    isCritical: false,
-                };
-                this.relationships.push(relationship);
-
-                if (!this.relationshipIndex.has(taskId)) {
-                    this.relationshipIndex.set(taskId, []);
-                }
-                this.relationshipIndex.get(taskId)!.push(relationship);
-
-                if (!this.relationshipByPredecessor.has(rel.predId)) {
-                    this.relationshipByPredecessor.set(rel.predId, []);
-                }
-                this.relationshipByPredecessor.get(rel.predId)!.push(relationship);
-            }
-
-            this.allTasksData[taskIndex++] = task;
-            this.taskIdToTask.set(taskId, task);
-        }
-
-        for (const predId of allPredecessorIds) {
-
-            if (this.taskIdToTask.has(predId)) {
-                continue;
-            }
-
-            const syntheticTask: Task = {
-                id: predId,
-                internalId: predId,
-                name: String(predId),
-                type: "Synthetic",
-                duration: 0,
-                userProvidedTotalFloat: undefined,
-                taskFreeFloat: undefined,
-                predecessorIds: [],
-                predecessors: [],
-                successors: [],
-                relationshipTypes: {},
-                relationshipLags: {},
-                earlyStart: 0,
-                earlyFinish: 0,
-                lateStart: Infinity,
-                lateFinish: Infinity,
-                totalFloat: Infinity,
-                isCritical: false,
-                isCriticalByFloat: false,
-                isCriticalByRel: false,
-                startDate: null,
-                finishDate: null,
-                baselineStartDate: null,
-                baselineFinishDate: null,
-                previousUpdateStartDate: null,
-                previousUpdateFinishDate: null,
-                tooltipData: undefined,
-                legendValue: undefined,
-            };
-
-            this.allTasksData[taskIndex++] = syntheticTask;
-            this.taskIdToTask.set(predId, syntheticTask);
-        }
-
-        if (taskIndex < this.allTasksData.length) {
-            this.allTasksData.length = taskIndex;
-        }
-
-        for (const task of this.allTasksData) {
-
-            task.successors = successorMap.get(task.internalId) || [];
-
-            task.predecessors = task.predecessorIds
-                .map((id) => this.taskIdToTask.get(id))
-                .filter((t) => t !== undefined) as Task[];
-        }
-
-        this.processLegendData(dataView);
-
-        this.processWBSData();
-
-        this.validateDataQuality();
-
-        const endTime = performance.now();
-        this.debugLog(
-            `Data transformation complete in ${endTime - startTime}ms. ` +
-            `Found ${this.allTasksData.length} tasks and ${this.relationships.length} relationships.`
-        );
-    }
-
-    /**
-     * DATA QUALITY: Validates data quality and reports issues to the user
-     * Checks for:
-     * - Duplicate Task IDs
-     * - Circular dependencies
-     * - Invalid date ranges (start after finish)
-     * - Tasks with no dates
-     */
-    private validateDataQuality(): void {
-        const warnings: string[] = [];
-
-        const seenIds = new Map<string, number>();
-        for (const task of this.allTasksData) {
-            const count = seenIds.get(task.id as string) || 0;
-            seenIds.set(task.id as string, count + 1);
-        }
-
-        const duplicates = Array.from(seenIds.entries())
-            .filter(([_id, count]) => count > 1)
-            .map(([id, count]) => `${id} (${count}x)`);
-
-        if (duplicates.length > 0) {
-            warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
-        }
-
-        const circularPaths = this.detectCircularDependencies();
-        if (circularPaths.length > 0) {
-            warnings.push(`Circular dependencies detected in ${circularPaths.length} path(s): ${circularPaths.slice(0, 3).join(', ')}${circularPaths.length > 3 ? '...' : ''}`);
-        }
-
-        const invalidDates: string[] = [];
-        for (const task of this.allTasksData) {
-            if (task.startDate instanceof Date && task.finishDate instanceof Date &&
-                !isNaN(task.startDate.getTime()) && !isNaN(task.finishDate.getTime())) {
-                if (task.startDate > task.finishDate) {
-                    invalidDates.push(task.name);
-                }
-            }
-        }
-
-        if (invalidDates.length > 0) {
-            warnings.push(`Invalid date ranges (start > finish): ${invalidDates.slice(0, 5).join(', ')}${invalidDates.length > 5 ? ` and ${invalidDates.length - 5} more` : ''}`);
-        }
-
-        const noDateTasks = this.allTasksData.filter(task =>
-            !(task.startDate instanceof Date && !isNaN(task.startDate.getTime())) &&
-            !(task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()))
-        );
-
-        if (noDateTasks.length > 0 && noDateTasks.length < this.allTasksData.length) {
-            warnings.push(`${noDateTasks.length} task(s) have no valid dates and will not be displayed`);
-        }
-
-        const syntheticTasks = this.allTasksData.filter(task => task.type === "Synthetic");
-        if (syntheticTasks.length > 0) {
-            const syntheticIds = syntheticTasks.map(t => t.id).slice(0, 5);
-            warnings.push(`${syntheticTasks.length} task(s) referenced as predecessors but missing from task list: ${syntheticIds.join(', ')}${syntheticTasks.length > 5 ? '...' : ''}. Add these tasks to your data source with proper Task Name values.`);
-        }
-
-        if (warnings.length > 0) {
-            console.warn('Data Quality Issues Detected:');
-            warnings.forEach((warning, index) => {
-                console.warn(`  ${index + 1}. ${warning}`);
-            });
-        }
-    }
-
-    /**
-     * Detects circular dependencies in the task graph
-     * @returns Array of circular dependency paths as strings
-     */
-    private detectCircularDependencies(): string[] {
-        const circularPaths: string[] = [];
-        const seenCycles = new Set<string>();
-        const visitState = new Map<string, 0 | 1 | 2>();
-        const parent = new Map<string, string | null>();
-
-        type StackFrame = { id: string; preds: string[]; index: number };
-        const stack: StackFrame[] = [];
-
-        const pushNode = (taskId: string, parentId: string | null) => {
-            visitState.set(taskId, 1);
-            parent.set(taskId, parentId);
-            const preds = this.taskIdToTask.get(taskId)?.predecessorIds ?? [];
-            stack.push({ id: taskId, preds, index: 0 });
-        };
-
-        for (const task of this.allTasksData) {
-            const startId = task.internalId;
-            if (visitState.get(startId)) {
-                continue;
-            }
-
-            pushNode(startId, null);
-
-            while (stack.length > 0) {
-                const frame = stack[stack.length - 1];
-
-                if (frame.index >= frame.preds.length) {
-                    visitState.set(frame.id, 2);
-                    stack.pop();
-                    continue;
-                }
-
-                const predId = frame.preds[frame.index++];
-                if (!this.taskIdToTask.has(predId)) {
-                    continue;
-                }
-
-                const state = visitState.get(predId) ?? 0;
-                if (state === 0) {
-                    pushNode(predId, frame.id);
-                } else if (state === 1) {
-                    const cycle: string[] = [predId];
-                    let current: string | null = frame.id;
-
-                    while (current && current !== predId) {
-                        cycle.push(current);
-                        current = parent.get(current) ?? null;
-                    }
-
-                    cycle.push(predId);
-                    cycle.reverse();
-
-                    const key = cycle.join('->');
-                    if (!seenCycles.has(key)) {
-                        seenCycles.add(key);
-                        circularPaths.push(cycle.join(' -> '));
-                    }
-                }
-            }
-        }
-
-        return circularPaths;
-    }
-
-    /**
-     * Process legend data and assign colors to tasks based on legend values
-     */
-    private processLegendData(dataView: DataView): void {
-
-        this.legendDataExists = false;
-        this.legendColorMap.clear();
-        this.legendCategories = [];
-        this.legendSelectionIds.clear();
-        this.legendFieldName = "";
-
-        const columns = dataView.metadata?.columns;
-        if (!columns) return;
-
-        const legendColumn = columns.find(col => col.roles?.legend);
-        if (!legendColumn) {
-
-            for (const task of this.allTasksData) {
-                task.legendColor = undefined;
-            }
-            return;
-        }
-
-        this.legendFieldName = legendColumn.displayName || "Legend";
-        this.legendDataExists = true;
-
-        const legendValueSet = new Set<string>();
-        for (const task of this.allTasksData) {
-            if (task.legendValue) {
-                legendValueSet.add(task.legendValue);
-            }
-        }
-
-        this.legendCategories = Array.from(legendValueSet);
-
-        const sortOrder = this.settings?.legend?.sortOrder?.value?.value || "none";
-        if (sortOrder === "ascending") {
-            this.legendCategories.sort((a, b) => a.localeCompare(b));
-        } else if (sortOrder === "descending") {
-            this.legendCategories.sort((a, b) => b.localeCompare(a));
-        }
-
-        const legendColorsObjects = dataView.metadata?.objects?.legendColors;
-        const useHighContrast = this.highContrastMode;
-        for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
-            const category = this.legendCategories[i];
-            const colorKey = `color${i + 1}`;
-
-            if (useHighContrast) {
-                this.legendColorMap.set(category, this.highContrastForeground);
-                continue;
-            }
-
-            const persistedColor = legendColorsObjects?.[colorKey];
-
-            if (persistedColor && typeof persistedColor === 'object' && 'solid' in persistedColor) {
-
-                this.legendColorMap.set(category, (persistedColor as any).solid.color);
-            } else {
-
-                const defaultColor = this.host.colorPalette.getColor(category).value;
-                this.legendColorMap.set(category, defaultColor);
-            }
-        }
-
-        for (const task of this.allTasksData) {
-            if (task.legendValue) {
-                task.legendColor = this.legendColorMap.get(task.legendValue);
-            } else {
-                task.legendColor = undefined;
-            }
-        }
-
-        this.debugLog(`Legend processed: ${this.legendCategories.length} categories found`);
-    }
 
     /**
      * WBS GROUPING: Processes WBS data and builds hierarchical group structure
      * Builds the WBS hierarchy from task WBS level fields and calculates summary metrics
      */
-    private processWBSData(): void {
 
-        this.wbsDataExists = false;
-        this.wbsGroups = [];
-        this.wbsGroupMap.clear();
-        this.wbsRootGroups = [];
-        this.wbsAvailableLevels = [];
-
-        const hasWbsData = this.allTasksData.some(task =>
-            task.wbsLevels && task.wbsLevels.length > 0
-        );
-
-        if (!hasWbsData) {
-
-            for (const task of this.allTasksData) {
-                task.wbsGroupId = undefined;
-                task.wbsIndentLevel = 0;
-            }
-            return;
-        }
-
-        this.wbsDataExists = true;
-        const defaultExpanded = this.settings?.wbsGrouping?.defaultExpanded?.value ?? true;
-        const expandCollapseAll = this.settings?.wbsGrouping?.expandCollapseAll?.value ?? true;
-
-        const expandCollapseAllChanged = this.lastExpandCollapseAllState !== null &&
-            this.lastExpandCollapseAllState !== expandCollapseAll;
-        if (expandCollapseAllChanged) {
-
-            this.wbsExpandedState.clear();
-        }
-        this.lastExpandCollapseAllState = expandCollapseAll;
-
-        for (const task of this.allTasksData) {
-            const pathParts: string[] = [];
-
-            if (task.wbsLevels && task.wbsLevels.length > 0) {
-
-                for (let i = 0; i < task.wbsLevels.length; i++) {
-                    const level = i + 1;
-                    pathParts.push(`L${level}:${task.wbsLevels[i]}`);
-                }
-            }
-
-            if (pathParts.length > 0) {
-                task.wbsGroupId = pathParts.join('|');
-
-                task.wbsIndentLevel = pathParts.length - 1;
-            } else {
-                task.wbsGroupId = undefined;
-                task.wbsIndentLevel = 0;
-            }
-        }
-
-        const groupPaths = new Set<string>();
-
-        for (const task of this.allTasksData) {
-            if (!task.wbsGroupId) continue;
-
-            const parts = task.wbsGroupId.split('|');
-            let currentPath = '';
-            for (const part of parts) {
-                currentPath = currentPath ? `${currentPath}|${part}` : part;
-                groupPaths.add(currentPath);
-            }
-        }
-
-        for (const path of groupPaths) {
-            const parts = path.split('|');
-            const lastPart = parts[parts.length - 1];
-            const levelMatch = lastPart.match(/^L(\d+):(.+)$/);
-
-            if (!levelMatch) continue;
-
-            const level = parseInt(levelMatch[1], 10);
-            const name = levelMatch[2];
-            const parentPath = parts.length > 1 ? parts.slice(0, -1).join('|') : null;
-
-            const isExpanded = this.wbsExpandedState.has(path)
-                ? this.wbsExpandedState.get(path)!
-                : expandCollapseAll;
-
-            const group: WBSGroup = {
-                id: path,
-                level: level,
-                name: name,
-                fullPath: path,
-                parentId: parentPath,
-                children: [],
-                tasks: [],
-                allTasks: [],
-                isExpanded: isExpanded,
-                yOrder: undefined,
-                visibleTaskCount: 0,
-                summaryStartDate: null,
-                summaryFinishDate: null,
-                hasCriticalTasks: false,
-                taskCount: 0,
-                criticalStartDate: null,
-                criticalFinishDate: null,
-                hasNearCriticalTasks: false,
-                nearCriticalStartDate: null,
-                nearCriticalFinishDate: null,
-                summaryBaselineStartDate: null,
-                summaryBaselineFinishDate: null,
-                summaryPreviousUpdateStartDate: null,
-                summaryPreviousUpdateFinishDate: null
-            };
-
-            this.wbsGroups.push(group);
-            this.wbsGroupMap.set(path, group);
-        }
-
-        for (const group of this.wbsGroups) {
-            if (group.parentId) {
-                const parent = this.wbsGroupMap.get(group.parentId);
-                if (parent) {
-                    parent.children.push(group);
-                }
-            } else {
-                this.wbsRootGroups.push(group);
-            }
-        }
-
-        for (const task of this.allTasksData) {
-            if (task.wbsGroupId) {
-                const group = this.wbsGroupMap.get(task.wbsGroupId);
-                if (group) {
-                    group.tasks.push(task);
-                }
-            }
-        }
-
-        const calculateGroupMetrics = (group: WBSGroup): void => {
-
-            group.allTasks = [...group.tasks];
-
-            for (const child of group.children) {
-                calculateGroupMetrics(child);
-
-                group.allTasks.push(...child.allTasks);
-            }
-
-            group.taskCount = group.allTasks.length;
-            group.hasCriticalTasks = group.allTasks.some(t => t.isCritical);
-            group.hasNearCriticalTasks = group.allTasks.some(t => t.isNearCritical);
-
-            let minStart: Date | null = null;
-            let maxFinish: Date | null = null;
-            let nearCriticalMinStart: Date | null = null;
-            let nearCriticalMaxFinish: Date | null = null;
-            let baselineMinStart: Date | null = null;
-            let baselineMaxFinish: Date | null = null;
-            let prevUpdateMinStart: Date | null = null;
-            let prevUpdateMaxFinish: Date | null = null;
-
-            for (const task of group.allTasks) {
-                if (task.startDate) {
-                    if (!minStart || task.startDate < minStart) {
-                        minStart = task.startDate;
-                    }
-                }
-                if (task.finishDate) {
-                    if (!maxFinish || task.finishDate > maxFinish) {
-                        maxFinish = task.finishDate;
-                    }
-                }
-
-                if (task.baselineStartDate) {
-                    if (!baselineMinStart || task.baselineStartDate < baselineMinStart) {
-                        baselineMinStart = task.baselineStartDate;
-                    }
-                }
-                if (task.baselineFinishDate) {
-                    if (!baselineMaxFinish || task.baselineFinishDate > baselineMaxFinish) {
-                        baselineMaxFinish = task.baselineFinishDate;
-                    }
-                }
-
-                if (task.previousUpdateStartDate) {
-                    if (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart) {
-                        prevUpdateMinStart = task.previousUpdateStartDate;
-                    }
-                }
-                if (task.previousUpdateFinishDate) {
-                    if (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish) {
-                        prevUpdateMaxFinish = task.previousUpdateFinishDate;
-                    }
-                }
-
-                if (task.isNearCritical) {
-                    if (task.startDate && (!nearCriticalMinStart || task.startDate < nearCriticalMinStart)) {
-                        nearCriticalMinStart = task.startDate;
-                    }
-                    if (task.finishDate && (!nearCriticalMaxFinish || task.finishDate > nearCriticalMaxFinish)) {
-                        nearCriticalMaxFinish = task.finishDate;
-                    }
-                }
-            }
-
-            group.summaryStartDate = minStart;
-            group.summaryFinishDate = maxFinish;
-            group.nearCriticalStartDate = nearCriticalMinStart;
-            group.nearCriticalFinishDate = nearCriticalMaxFinish;
-            group.summaryBaselineStartDate = baselineMinStart;
-            group.summaryBaselineFinishDate = baselineMaxFinish;
-            group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
-            group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
-        };
-
-        for (const rootGroup of this.wbsRootGroups) {
-            calculateGroupMetrics(rootGroup);
-        }
-
-        const sortByStartDate = (a: WBSGroup, b: WBSGroup): number => {
-            const aStart = a.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
-            const bStart = b.summaryStartDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
-            if (aStart !== bStart) return aStart - bStart;
-
-            return a.fullPath.localeCompare(b.fullPath);
-        };
-
-        this.wbsGroups.sort(sortByStartDate);
-        this.wbsRootGroups.sort(sortByStartDate);
-
-        for (const group of this.wbsGroups) {
-            group.children.sort(sortByStartDate);
-        }
-
-        this.refreshWbsAvailableLevels();
-        if (this.wbsExpandToLevel !== undefined && !this.wbsManualExpansionOverride) {
-            this.applyWbsExpandLevel(this.wbsExpandToLevel);
-        }
-
-        this.debugLog(`WBS processed: ${this.wbsGroups.length} groups found, ${this.wbsRootGroups.length} root groups`);
-    }
 
     /**
      * WBS GROUPING: Helpers for expand-to-level behavior
@@ -12808,133 +9753,7 @@ export class Visual implements IVisual {
         }
     }
 
-    private mightBeDate(value: PrimitiveValue): boolean {
 
-        if (value instanceof Date) return true;
-
-        if (typeof value === 'string') {
-
-            return /^\d{4}-\d{1,2}-\d{1,2}|^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}/.test(value);
-        }
-
-        if (typeof value === 'number') {
-
-            return value > 946684800000;
-        }
-
-        return false;
-    }
-
-    private validateDataView(dataView: DataView): boolean {
-        if (!dataView?.table?.rows || !dataView.metadata?.columns) {
-            console.warn("validateDataView: Missing table/rows or metadata/columns.");
-            return false;
-        }
-
-        const hasId = this.hasDataRole(dataView, 'taskId');
-        const hasStartDate = this.hasDataRole(dataView, 'startDate');
-        const hasFinishDate = this.hasDataRole(dataView, 'finishDate');
-
-        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
-        const hasDuration = this.hasDataRole(dataView, 'duration');
-        const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
-        const hasTaskFreeFloat = this.hasDataRole(dataView, 'taskFreeFloat');
-
-        let isValid = true;
-        if (!hasId) {
-            console.warn("validateDataView: Missing 'taskId' data role.");
-            isValid = false;
-        }
-
-        if (mode === 'floatBased') {
-
-            if (!hasTotalFloat) {
-                console.warn("validateDataView: Float-Based mode requires 'taskTotalFloat' data role for criticality.");
-                isValid = false;
-            }
-        } else {
-
-            if (!hasDuration) {
-                console.warn("validateDataView: Longest Path mode requires 'duration' data role (needed for CPM).");
-                isValid = false;
-            }
-        }
-
-        if (!hasStartDate) {
-            console.warn("validateDataView: Missing 'startDate' data role (needed for plotting).");
-            isValid = false;
-        }
-        if (!hasFinishDate) {
-            console.warn("validateDataView: Missing 'finishDate' data role (needed for plotting).");
-            isValid = false;
-        }
-
-        return isValid;
-    }
-
-    private hasDataRole(dataView: DataView, roleName: string): boolean {
-        if (!dataView?.metadata?.columns) return false;
-        return dataView.metadata.columns.some(column => column.roles?.[roleName]);
-    }
-
-    private getColumnIndex(dataView: DataView, roleName: string): number {
-        if (!dataView?.metadata?.columns) return -1;
-        return dataView.metadata.columns.findIndex(column => column.roles?.[roleName]);
-    }
-
-    private parseDate(dateValue: PrimitiveValue): Date | null {
-        if (dateValue == null) return null;
-        let date: Date | null = null;
-
-        try {
-            if (dateValue instanceof Date) {
-                if (!isNaN(dateValue.getTime())) date = dateValue;
-            }
-            else if (typeof dateValue === 'string') {
-                let dateStrToParse = dateValue.trim();
-                if (dateStrToParse) {
-
-                    const parsedTimestamp = Date.parse(dateStrToParse);
-                    if (!isNaN(parsedTimestamp)) date = new Date(parsedTimestamp);
-
-                    if (!date) {
-                        date = new Date(dateStrToParse);
-                        if (isNaN(date.getTime())) date = null;
-                    }
-                }
-            }
-            else if (typeof dateValue === 'number') {
-                const num = dateValue;
-                if (!isNaN(num) && isFinite(num)) {
-
-                    if (num > 0 && num < 60) {
-
-                    } else if (num >= 61 && num < 2958466) {
-
-                        date = new Date(Math.round((num - 25569) * 86400 * 1000));
-                    }
-
-                    else if (num > 631152000000 && num < Date.now() + 3153600000000 * 20) {
-                        date = new Date(num);
-                    }
-
-                    else if (num > 631152000 && num < (Date.now() / 1000) + 31536000 * 20) {
-                        date = new Date(num * 1000);
-                    }
-
-                    if (date && isNaN(date.getTime())) date = null;
-                }
-            }
-        } catch (e) {
-            date = null;
-            console.warn(`Error parsing date value: "${String(dateValue)}"`, e);
-        }
-
-        if (!date) {
-
-        }
-        return date;
-    }
 
     private refreshDateFormatters(): void {
         const locale = this.host?.locale || undefined;
@@ -13175,7 +9994,7 @@ export class Visual implements IVisual {
             .text(message);
 
         const viewportWidth = this.lastUpdateOptions?.viewport.width || width;
-        this.createOrUpdateToggleButton(viewportWidth);
+
         this.drawHeaderDivider(viewportWidth);
     }
 
@@ -14621,7 +11440,7 @@ export class Visual implements IVisual {
         const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "longestPath";
         const requiredRoles = ["taskId", "startDate", "finishDate"];
         requiredRoles.push(mode === "floatBased" ? "taskTotalFloat" : "duration");
-        return requiredRoles.filter(role => !this.hasDataRole(dataView, role));
+        return requiredRoles.filter(role => !this.dataProcessor.hasDataRole(dataView, role));
     }
 
     private displayLandingPage(missingRoles: string[] = []): void {
@@ -14736,34 +11555,22 @@ export class Visual implements IVisual {
     // Help Overlay Functionality
     // ============================================================================
 
+
     /**
      * Creates the Help button in the header area
      */
-    private createHelpButton(viewportWidth?: number): void {
+    private createHelpButton(buttonSize: number = 24): void {
         if (!this.headerSvg) return;
 
-        // Remove existing button
-        this.headerSvg.selectAll('.help-button-group').remove();
+        const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
+        const xPos = viewportWidth - buttonSize - 10; // Right aligned
 
-        // Use centralized layout for button positioning
-        const layout = this.getHeaderButtonLayout(viewportWidth || 800);
-        const { x: buttonX, size: buttonSize, visible } = layout.helpButton;
-
-        // Don't render if not visible (hidden due to space constraints)
-        if (!visible) return;
-
-        const buttonY = this.UI_TOKENS.spacing.sm;
-
-        // Create button group
         const helpBtnGroup = this.headerSvg.append('g')
-            .attr('class', 'help-button-group')
-            .attr('transform', `translate(${buttonX}, ${buttonY})`)
+            .attr('class', 'help-btn-group')
+            .attr('transform', `translate(${xPos}, 10)`)
             .style('cursor', 'pointer')
-            .attr('role', 'button')
-            .attr('aria-label', 'Show help and user guide')
-            .attr('tabindex', '0');
+            .on('click', () => this.showHelpOverlay());
 
-        // Button background
         helpBtnGroup.append('rect')
             .attr('class', 'help-btn-bg')
             .attr('width', buttonSize)
@@ -14804,27 +11611,7 @@ export class Visual implements IVisual {
 
         // Event handlers
         const self = this;
-        helpBtnGroup
-            .on('mouseover', function () {
-                d3.select(this).select('.help-btn-bg')
-                    .style('fill', self.UI_TOKENS.color.neutral.grey20)
-                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[8]})`);
-            })
-            .on('mouseout', function () {
-                d3.select(this).select('.help-btn-bg')
-                    .style('fill', self.UI_TOKENS.color.neutral.white)
-                    .style('filter', `drop-shadow(${self.UI_TOKENS.shadow[2]})`);
-            })
-            .on('click', function (event) {
-                event.stopPropagation();
-                self.showHelpOverlay();
-            })
-            .on('keydown', function (event) {
-                if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    self.showHelpOverlay();
-                }
-            });
+
     }
 
     /**
@@ -14877,7 +11664,7 @@ export class Visual implements IVisual {
             .style('align-items', 'center')
             .style('justify-content', 'space-between')
             .style('padding', '20px 24px')
-            .style('border-bottom', `1px solid ${this.UI_TOKENS.color.neutral.grey30}`)
+            .style('border-bottom', `1px solid ${this.UI_TOKENS.color.neutral.grey30} `)
             .style('flex-shrink', '0');
 
         // Header title with icon - using safe DOM manipulation
@@ -14958,7 +11745,7 @@ export class Visual implements IVisual {
         // Footer with close button
         const footer = card.append('div')
             .style('padding', '16px 24px')
-            .style('border-top', `1px solid ${this.UI_TOKENS.color.neutral.grey30}`)
+            .style('border-top', `1px solid ${this.UI_TOKENS.color.neutral.grey30} `)
             .style('display', 'flex')
             .style('justify-content', 'flex-end')
             .style('flex-shrink', '0');
@@ -15201,6 +11988,224 @@ export class Visual implements IVisual {
         }
         // Also remove by class in case state got out of sync
         d3.select(this.target).selectAll('.help-overlay').remove();
+    }
+
+    /**
+     * Generates hierarchical HTML content for WBS export with colored group headers
+     * and indented task names, matching the visual display layout.
+     */
+    private generateWbsHierarchicalHtml(
+        exportDateFormatter: (date: Date) => string,
+        visibleTaskIds: Set<string>
+    ): string {
+        const defaultGroupHeaderColor = this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F0F0F0";
+        const defaultGroupNameColor = this.settings?.wbsGrouping?.groupNameColor?.value?.value || "#333333";
+        const indentPerLevel = this.settings?.wbsGrouping?.indentPerLevel?.value || 20;
+
+        // Calculate total columns for spanning (no WBS level columns in hierarchical mode)
+        let totalColumns = 5; // Index, Task ID, Task Name, Task Type, Is Critical
+        totalColumns += 4; // Start Date, Finish Date, Duration, Total Float
+        if (this.showBaselineInternal) totalColumns += 2;
+        if (this.showPreviousUpdateInternal) totalColumns += 2;
+
+        let html = `<table border="1" cellspacing="0" cellpadding="2" style="border-collapse: collapse;">`;
+
+        // HTML headers
+        html += `<tr style="font-weight: bold; background-color: #f0f0f0;">`;
+        html += `<th style="padding: 2px; white-space: nowrap;">Index</th>`;
+        html += `<th style="padding: 2px; white-space: nowrap;">Task ID</th>`;
+        html += `<th style="padding: 2px; white-space: nowrap;">Task Name</th>`;
+        html += `<th style="padding: 2px; white-space: nowrap;">Task Type</th>`;
+        if (this.showBaselineInternal) {
+            html += `<th style="padding: 2px; white-space: nowrap;">Baseline Start</th>`;
+            html += `<th style="padding: 2px; white-space: nowrap;">Baseline Finish</th>`;
+        }
+        if (this.showPreviousUpdateInternal) {
+            html += `<th style="padding: 2px; white-space: nowrap;">Previous Start</th>`;
+            html += `<th style="padding: 2px; white-space: nowrap;">Previous Finish</th>`;
+        }
+        html += `<th style="padding: 2px; white-space: nowrap;">Start Date</th>`;
+        html += `<th style="padding: 2px; white-space: nowrap;">Finish Date</th>`;
+        html += `<th style="padding: 2px; white-space: nowrap;">Duration</th>`;
+        html += `<th style="padding: 2px; white-space: nowrap;">Total Float</th>`;
+        html += `<th style="padding: 2px; white-space: nowrap;">Is Critical</th>`;
+        html += `</tr>`;
+
+        let rowIndex = 0;
+
+        // Recursive function to process WBS groups
+        const processGroup = (group: WBSGroup): void => {
+            // Get level style for colors
+            const levelStyle = this.getWbsLevelStyle(group.level, defaultGroupHeaderColor, defaultGroupNameColor);
+            const bgColor = this.resolveColor(levelStyle.background, "background");
+            const textColor = this.resolveColor(levelStyle.text, "foreground");
+
+            // Calculate indentation (pixels converted to padding)
+            const indentPx = Math.max(0, (group.level - 1) * indentPerLevel);
+
+            // Generate WBS group header row
+            html += `<tr style="background-color: ${bgColor}; color: ${textColor}; font-weight: bold;">`;
+            html += `<td style="padding: 2px;"></td>`; // Index - empty for group headers
+            html += `<td style="padding: 2px;"></td>`; // Task ID - empty for group headers
+            html += `<td style="padding: 2px ${indentPx}px; white-space: nowrap; padding-left: ${indentPx + 2}px;">${group.name}</td>`;
+            html += `<td style="padding: 2px;"></td>`; // Task Type - empty for group headers
+            if (this.showBaselineInternal) {
+                html += `<td style="padding: 2px;"></td>`;
+                html += `<td style="padding: 2px;"></td>`;
+            }
+            if (this.showPreviousUpdateInternal) {
+                html += `<td style="padding: 2px;"></td>`;
+                html += `<td style="padding: 2px;"></td>`;
+            }
+            html += `<td style="padding: 2px;"></td>`; // Start Date - empty
+            html += `<td style="padding: 2px;"></td>`; // Finish Date - empty
+            html += `<td style="padding: 2px;"></td>`; // Duration - empty
+            html += `<td style="padding: 2px;"></td>`; // Total Float - empty
+            html += `<td style="padding: 2px;"></td>`; // Is Critical - empty
+            html += `</tr>`;
+
+            // Process child groups first (already sorted by summaryStartDate)
+            for (const child of group.children) {
+                processGroup(child);
+            }
+
+            // Process direct tasks of this group (sorted by start date)
+            const directTasks = group.tasks
+                .filter(t => visibleTaskIds.has(t.internalId))
+                .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+            const taskIndentPx = group.level * indentPerLevel;
+
+            for (const task of directTasks) {
+                rowIndex++;
+                const taskType = (task.duration === 0) ? "Milestone" : "Activity";
+
+                const totalFloat = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
+                    ? task.userProvidedTotalFloat
+                    : task.totalFloat;
+                const isCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
+                    ? task.userProvidedTotalFloat <= 0
+                    : task.isCritical;
+
+                html += `<tr>`;
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${rowIndex}</td>`;
+                html += `<td style="padding: 2px; white-space: nowrap;">${task.id?.toString() || ""}</td>`;
+                html += `<td style="padding: 2px; white-space: nowrap; padding-left: ${taskIndentPx + 2}px;">${task.name || ""}</td>`;
+                html += `<td style="padding: 2px; white-space: nowrap;">${taskType}</td>`;
+
+                if (this.showBaselineInternal) {
+                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : ""}</td>`;
+                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineFinishDate ? exportDateFormatter(task.baselineFinishDate) : ""}</td>`;
+                }
+                if (this.showPreviousUpdateInternal) {
+                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateStartDate ? exportDateFormatter(task.previousUpdateStartDate) : ""}</td>`;
+                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""}</td>`;
+                }
+
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.startDate ? exportDateFormatter(task.startDate) : ""}</td>`;
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.finishDate ? exportDateFormatter(task.finishDate) : ""}</td>`;
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${totalFloat?.toString() || "0"}</td>`;
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${isCritical ? "Yes" : "No"}</td>`;
+                html += `</tr>`;
+            }
+        };
+
+        // Process root groups (already sorted by summaryStartDate)
+        for (const rootGroup of this.wbsRootGroups) {
+            processGroup(rootGroup);
+        }
+
+        // Handle tasks without WBS assignment
+        const tasksWithoutWbs = this.allFilteredTasks
+            .filter(t => !t.wbsGroupId && visibleTaskIds.has(t.internalId))
+            .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+
+        for (const task of tasksWithoutWbs) {
+            rowIndex++;
+            const taskType = (task.duration === 0) ? "Milestone" : "Activity";
+
+            const totalFloat = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
+                ? task.userProvidedTotalFloat
+                : task.totalFloat;
+            const isCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
+                ? task.userProvidedTotalFloat <= 0
+                : task.isCritical;
+
+            html += `<tr>`;
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${rowIndex}</td>`;
+            html += `<td style="padding: 2px; white-space: nowrap;">${task.id?.toString() || ""}</td>`;
+            html += `<td style="padding: 2px; white-space: nowrap;">${task.name || ""}</td>`;
+            html += `<td style="padding: 2px; white-space: nowrap;">${taskType}</td>`;
+
+            if (this.showBaselineInternal) {
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : ""}</td>`;
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineFinishDate ? exportDateFormatter(task.baselineFinishDate) : ""}</td>`;
+            }
+            if (this.showPreviousUpdateInternal) {
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateStartDate ? exportDateFormatter(task.previousUpdateStartDate) : ""}</td>`;
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""}</td>`;
+            }
+
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.startDate ? exportDateFormatter(task.startDate) : ""}</td>`;
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.finishDate ? exportDateFormatter(task.finishDate) : ""}</td>`;
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${totalFloat?.toString() || "0"}</td>`;
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${isCritical ? "Yes" : "No"}</td>`;
+            html += `</tr>`;
+        }
+
+        html += `</table>`;
+        return html;
+    }
+
+    /**
+     * Copies the currently visible data to the clipboard in a format suitable for Excel.
+     * Delegates to ClipboardExporter module for the actual export logic.
+     */
+    private copyVisibleDataToClipboard(): void {
+        if (!this.allFilteredTasks || this.allFilteredTasks.length === 0) {
+            console.warn("No visible data to copy.");
+            return;
+        }
+
+        const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
+
+        exportToClipboard({
+            tasks: this.allFilteredTasks,
+            showWbs,
+            showBaseline: this.showBaselineInternal,
+            showPreviousUpdate: this.showPreviousUpdateInternal,
+            onSuccess: (count) => this.showCopySuccess(count),
+            onError: (error) => console.error('Copy failed:', error)
+        });
+    }
+    /**
+     * Shows visual feedback when copy is successful
+     * Changes button border color temporarily and shows alert
+     */
+    private showCopySuccess(count: number): void {
+        const message = `Copied ${count} rows to clipboard!`;
+        console.log(message);
+
+        // Show temporary success feedback on the button
+        const btn = this.headerSvg?.select('.copy-data-button-group');
+        if (btn && !btn.empty()) {
+            const btnBg = btn.select('.copy-btn-bg');
+            if (!btnBg.empty()) {
+                const originalStroke = btnBg.style('stroke');
+                btnBg.style('stroke', this.UI_TOKENS.color.success.default)
+                    .style('stroke-width', 2);
+
+                setTimeout(() => {
+                    btnBg.style('stroke', originalStroke)
+                        .style('stroke-width', 1.5);
+                }, 1000);
+            }
+        }
+
+        // Use timeout to ensure alert doesn't block UI immediately
+        setTimeout(() => alert(message + "\n\nYou can now paste into Excel."), 10);
     }
 
     private debugLog(...args: unknown[]): void {

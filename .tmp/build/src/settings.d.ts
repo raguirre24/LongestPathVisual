@@ -83,6 +83,7 @@ declare class TextAndLabelsCard extends Card {
 declare class ColumnsCard extends Card {
     name: string;
     displayName: string;
+    showColumnToggleButton: formattingSettings.ToggleSwitch;
     enableColumnDisplay: formattingSettings.ToggleSwitch;
     showStartDate: formattingSettings.ToggleSwitch;
     startDateWidth: formattingSettings.NumUpDown;

@@ -561,8 +561,14 @@
         "columns": {
             "displayName": "Columns",
             "properties": {
+                "showColumnToggleButton": {
+                    "displayName": "Show Column Toggle Button",
+                    "type": {
+                        "bool": true
+                    }
+                },
                 "enableColumnDisplay": {
-                    "displayName": "Show Columns Toggle",
+                    "displayName": "Enable Columns",
                     "type": {
                         "bool": true
                     }

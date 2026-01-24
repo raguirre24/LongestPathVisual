@@ -552,7 +552,8 @@ class ColumnsCard extends Card {
     name: string = "columns";
     displayName: string = "Columns";
 
-    enableColumnDisplay = new ToggleSwitch({ name: "enableColumnDisplay", displayName: "Show Columns Toggle", value: true });
+    showColumnToggleButton = new ToggleSwitch({ name: "showColumnToggleButton", displayName: "Show Column Toggle Button", value: true });
+    enableColumnDisplay = new ToggleSwitch({ name: "enableColumnDisplay", displayName: "Enable Columns", value: true });
     showStartDate = new ToggleSwitch({ name: "showStartDate", displayName: "Show Start Date", value: false });
     startDateWidth = new NumUpDown({ name: "startDateWidth", displayName: "Start Date Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
@@ -566,6 +567,7 @@ class ColumnsCard extends Card {
     totalFloatWidth = new NumUpDown({ name: "totalFloatWidth", displayName: "Total Float Width (px)", value: 50, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
     slices: Slice[] = [
+        this.showColumnToggleButton,
         this.enableColumnDisplay,
         this.showStartDate, this.startDateWidth,
         this.showFinishDate, this.finishDateWidth,

@@ -21,6 +21,7 @@ export declare class Visual implements IVisual {
     private highContrastForegroundSelected;
     private lastTooltipItems;
     private lastTooltipIdentities;
+    private header;
     private stickyHeaderContainer;
     private scrollableContainer;
     private headerSvg;
@@ -185,6 +186,7 @@ export declare class Visual implements IVisual {
     private zoomTouchMoveHandler;
     private zoomTouchEndHandler;
     private readonly zoomTouchListenerOptions;
+    private dataProcessor;
     private readonly UI_TOKENS;
     private readonly LAYOUT_BREAKPOINTS;
     /**
@@ -195,11 +197,9 @@ export declare class Visual implements IVisual {
      * Returns button dimensions and positions based on current layout mode
      * This centralizes all responsive layout calculations with smart overflow handling
      */
-    private getHeaderButtonLayout;
     /**
      * Extended layout mode determination with more granular breakpoints
      */
-    private getExtendedLayoutMode;
     /**
      * Returns second row layout (dropdown, trace mode toggle) based on viewport width
      */
@@ -216,6 +216,7 @@ export declare class Visual implements IVisual {
     private determineUpdateType;
     destroy(): void;
     private captureScrollPosition;
+    private toggleHelpOverlay;
     private setHoveredTask;
     private isRelationshipHovered;
     private getConnectorOpacity;
@@ -223,18 +224,7 @@ export declare class Visual implements IVisual {
     private toggleTaskDisplayInternal;
     private toggleBaselineDisplayInternal;
     private togglePreviousUpdateDisplayInternal;
-    private createOrUpdateToggleButton;
-    private createOrUpdateBaselineToggleButton;
-    private createOrUpdatePreviousUpdateToggleButton;
-    private lightenColor;
-    private createConnectorLinesToggleButton;
     private toggleColumnDisplayInternal;
-    private createColumnDisplayToggleButton;
-    private createOrUpdateWbsEnableToggleButton;
-    /**
-     * Creates both WBS expand (forward cycle) and collapse (reverse cycle) buttons
-     */
-    private renderWbsCycleButtons;
     /**
      * Toggles WBS grouping on/off for the viewer (persisted in formatting properties).
      */
@@ -247,11 +237,6 @@ export declare class Visual implements IVisual {
      * Creates the WBS Expand cycle toggle button with icon-only design
      * Similar styling to Connector Lines toggle for visual consistency
      */
-    private createWbsExpandCycleToggleButton;
-    /**
-     * Creates the WBS Collapse cycle toggle button with icon-only design (reverse order)
-     */
-    private createWbsCollapseCycleToggleButton;
     /**
      * Cycles the WBS expand depth (collapse -> Level 1/2/3/.../N -> expand all)
      * Levels are dynamic based on the number of WBS columns added by the user
@@ -267,12 +252,7 @@ export declare class Visual implements IVisual {
      * Professional pill-style toggle with smooth animations and refined visuals
      * RESPONSIVE: Adapts to viewport width using getHeaderButtonLayout()
      */
-    private createModeToggleButton;
     private togglecriticalPath;
-    /**
-     * Creates the Float Threshold control with premium input design and enhanced UX
-     */
-    private createFloatThresholdControl;
     /**
      * Creates the zoom slider UI component matching Microsoft Power BI standard style
      * Design: Thin track line with circular handles at each end
@@ -359,19 +339,8 @@ export declare class Visual implements IVisual {
     private updateChartClipRect;
     private toggleConnectorLinesDisplay;
     /**
-     * Creates the "Copy Visible Data" button in the header area
-     */
-    private createCopyDataButton;
-    /**
-     * Copies the currently visible (filtered) tasks to clipboard
-     */
-    private copyVisibleDataToClipboard;
-    private copyUsingLegacyMethod;
-    private showCopySuccess;
-    /**
      * Creates the export button in the header area
      */
-    private createExportButton;
     /**
      * Updates the export button visual state
      */
@@ -586,40 +555,10 @@ export declare class Visual implements IVisual {
     /**
      * Extracts and validates task ID from a data row
      */
-    private extractTaskId;
-    /**
-     * Extracts predecessor ID from a data row
-     */
-    private extractPredecessorId;
-    private createTaskFromRow;
-    /**
-     * Extracts tooltip data from a row
-     */
-    private extractTooltipData;
-    private transformDataOptimized;
-    /**
-     * DATA QUALITY: Validates data quality and reports issues to the user
-     * Checks for:
-     * - Duplicate Task IDs
-     * - Circular dependencies
-     * - Invalid date ranges (start after finish)
-     * - Tasks with no dates
-     */
-    private validateDataQuality;
-    /**
-     * Detects circular dependencies in the task graph
-     * @returns Array of circular dependency paths as strings
-     */
-    private detectCircularDependencies;
-    /**
-     * Process legend data and assign colors to tasks based on legend values
-     */
-    private processLegendData;
     /**
      * WBS GROUPING: Processes WBS data and builds hierarchical group structure
      * Builds the WBS hierarchy from task WBS level fields and calculates summary metrics
      */
-    private processWBSData;
     /**
      * WBS GROUPING: Helpers for expand-to-level behavior
      */
@@ -680,11 +619,6 @@ export declare class Visual implements IVisual {
      * Renders group headers with expand/collapse controls and optional summary bars
      */
     private drawWbsGroupHeaders;
-    private mightBeDate;
-    private validateDataView;
-    private hasDataRole;
-    private getColumnIndex;
-    private parseDate;
     private refreshDateFormatters;
     private formatColumnDate;
     private formatDate;
@@ -795,5 +729,20 @@ export declare class Visual implements IVisual {
      * Clears the help overlay from the DOM
      */
     private clearHelpOverlay;
+    /**
+     * Generates hierarchical HTML content for WBS export with colored group headers
+     * and indented task names, matching the visual display layout.
+     */
+    private generateWbsHierarchicalHtml;
+    /**
+     * Copies the currently visible data to the clipboard in a format suitable for Excel.
+     * Delegates to ClipboardExporter module for the actual export logic.
+     */
+    private copyVisibleDataToClipboard;
+    /**
+     * Shows visual feedback when copy is successful
+     * Changes button border color temporarily and shows alert
+     */
+    private showCopySuccess;
     private debugLog;
 }
