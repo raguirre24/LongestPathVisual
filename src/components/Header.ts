@@ -195,8 +195,8 @@ export class Header {
 
         const iconPadding = UI_TOKENS.spacing.lg;
         const iconColor = isShowingCritical
-            ? UI_TOKENS.color.danger.default
-            : UI_TOKENS.color.success.default;
+            ? UI_TOKENS.color.success.default
+            : UI_TOKENS.color.danger.default;
 
         // SVG Icon
         const svg = btn.append("svg")
@@ -211,23 +211,23 @@ export class Header {
             .attr("cx", iconPadding)
             .attr("cy", buttonHeight / 2)
             .attr("r", 10)
-            .style("fill", isShowingCritical ? UI_TOKENS.color.danger.subtle : UI_TOKENS.color.success.subtle);
+            .style("fill", isShowingCritical ? UI_TOKENS.color.success.subtle : UI_TOKENS.color.danger.subtle);
 
         svg.append("path")
             .attr("d", isShowingCritical
-                ? "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z"
-                : "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3")
+                ? "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3"
+                : "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z")
             .attr("transform", `translate(${iconPadding}, ${buttonHeight / 2})`)
             .attr("stroke", iconColor)
             .attr("stroke-width", 2.25)
-            .attr("fill", isShowingCritical ? iconColor : "none")
+            .attr("fill", isShowingCritical ? "none" : iconColor)
             .attr("stroke-linecap", "round")
             .attr("stroke-linejoin", "round");
 
         // Text
         const buttonText = isShowingCritical
-            ? (buttonWidth >= 160 ? "Critical Path Only" : "Critical Only")
-            : (buttonWidth >= 160 ? "All Tasks" : "All Tasks");
+            ? (buttonWidth >= 160 ? "Show All Tasks" : "Show All")
+            : (buttonWidth >= 160 ? "Critical Path Only" : "Show Critical");
 
         const textX = iconPadding + 24;
 
@@ -335,7 +335,7 @@ export class Header {
 
         iconG.append("rect")
             .attr("x", 0)
-            .attr("y", -8)
+            .attr("y", -7.75)
             .attr("width", 16)
             .attr("height", 4.5)
             .attr("rx", 2)
@@ -344,7 +344,7 @@ export class Header {
 
         iconG.append("rect")
             .attr("x", 0)
-            .attr("y", -1.5)
+            .attr("y", -1.25)
             .attr("width", 16)
             .attr("height", 3.5)
             .attr("rx", 1.5)
@@ -354,7 +354,7 @@ export class Header {
 
         iconG.append("rect")
             .attr("x", 0)
-            .attr("y", 4)
+            .attr("y", 4.25)
             .attr("width", 16)
             .attr("height", 3.5)
             .attr("rx", 1.5)
@@ -470,7 +470,7 @@ export class Header {
 
         iconG.append("rect")
             .attr("x", 0)
-            .attr("y", -8)
+            .attr("y", -7.75)
             .attr("width", 16)
             .attr("height", 4.5)
             .attr("rx", 2)
@@ -479,7 +479,7 @@ export class Header {
 
         iconG.append("rect")
             .attr("x", 0)
-            .attr("y", -1.5)
+            .attr("y", -1.25)
             .attr("width", 16)
             .attr("height", 3.5)
             .attr("rx", 1.5)
@@ -489,7 +489,7 @@ export class Header {
 
         iconG.append("rect")
             .attr("x", 0)
-            .attr("y", 4)
+            .attr("y", 4.25)
             .attr("width", 16)
             .attr("height", 3.5)
             .attr("rx", 1.5)
