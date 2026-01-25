@@ -465,6 +465,12 @@ export declare class Visual implements IVisual {
     private positionTooltip;
     private drawArrows;
     private getLineDashArray;
+    /**
+     * Gets the appropriate task set for finish line calculations.
+     * When WBS groups are collapsed, this collects all underlying tasks from visible WBS groups.
+     * This respects filters while ensuring finish lines appear correctly.
+     */
+    private getTasksForFinishLines;
     private getLatestFinishDate;
     private drawFinishLine;
     private drawProjectEndLine;

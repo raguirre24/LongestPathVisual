@@ -4599,7 +4599,8 @@ export class Visual implements IVisual {
             );
         }
 
-        const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : allTasksToShow;
+        // Use getTasksForFinishLines to properly collect underlying tasks from visible WBS groups
+        const tasksForProjectEnd = this.getTasksForFinishLines();
         this.drawBaselineAndPreviousEndLines(
             xScale,
             tasksForProjectEnd,
@@ -4964,7 +4965,8 @@ export class Visual implements IVisual {
             );
         }
 
-        const tasksForProjectEnd = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
+        // Use getTasksForFinishLines to properly collect underlying tasks from visible WBS groups
+        const tasksForProjectEnd = this.getTasksForFinishLines();
         this.drawColumnHeaders(this.headerHeight, currentLeftMargin);
         this.drawLabelColumnSeparators(chartHeight, currentLeftMargin);
 
@@ -7325,6 +7327,72 @@ export class Visual implements IVisual {
             default: return "none";
         }
     }
+
+    /**
+     * Gets the appropriate task set for finish line calculations.
+     * When WBS groups are collapsed, this collects all underlying tasks from visible WBS groups.
+     * This respects filters while ensuring finish lines appear correctly.
+     */
+    private getTasksForFinishLines(): Task[] {
+        const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+        if (!wbsGroupingEnabled) {
+            // No WBS grouping - use filtered tasks if available, otherwise all tasks
+            if (this.allFilteredTasks && this.allFilteredTasks.length > 0) {
+                return this.allFilteredTasks;
+            }
+            return this.allTasksData;
+        }
+
+        // WBS grouping enabled - collect underlying tasks from visible WBS groups
+        const tasksFromGroups: Task[] = [];
+        const addedTaskIds = new Set<string>();
+
+        // Helper to recursively collect tasks from a WBS group and its children
+        const collectTasksFromGroup = (group: WBSGroup): void => {
+            // If group is expanded, we only add its direct tasks here
+            // Its children will be processed separately
+            if (group.isExpanded) {
+                for (const task of group.tasks) {
+                    if (!addedTaskIds.has(task.internalId)) {
+                        tasksFromGroups.push(task);
+                        addedTaskIds.add(task.internalId);
+                    }
+                }
+                // Process expanded children
+                for (const child of group.children) {
+                    collectTasksFromGroup(child);
+                }
+            } else {
+                // Group is collapsed - add ALL underlying tasks (allTasks includes nested)
+                if (group.allTasks) {
+                    for (const task of group.allTasks) {
+                        if (!addedTaskIds.has(task.internalId)) {
+                            tasksFromGroups.push(task);
+                            addedTaskIds.add(task.internalId);
+                        }
+                    }
+                } else {
+                    // Fallback to direct tasks if allTasks not available
+                    for (const task of group.tasks) {
+                        if (!addedTaskIds.has(task.internalId)) {
+                            tasksFromGroups.push(task);
+                            addedTaskIds.add(task.internalId);
+                        }
+                    }
+                }
+            }
+        };
+
+        // Process all root-level WBS groups
+        for (const group of this.wbsRootGroups) {
+            collectTasksFromGroup(group);
+        }
+
+        // If we found tasks from WBS groups, use those; otherwise fall back to allTasksData
+        return tasksFromGroups.length > 0 ? tasksFromGroups : this.allTasksData;
+    }
+
 
     private getLatestFinishDate(allTasks: Task[], selector: (task: Task) => Date | null | undefined): Date | null {
         let latestFinishTimestamp: number | null = null;
