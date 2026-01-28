@@ -1100,7 +1100,7 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
-
+        // Clean up all timeout references to prevent memory leaks
         if (this.updateDebounceTimeout) {
             clearTimeout(this.updateDebounceTimeout);
             this.updateDebounceTimeout = null;
@@ -1116,11 +1116,27 @@ export class Visual implements IVisual {
             this.dropdownFilterTimeout = null;
         }
 
+        if (this.zoomChangeTimeout) {
+            clearTimeout(this.zoomChangeTimeout);
+            this.zoomChangeTimeout = null;
+        }
+
+        // Clean up tooltip elements
         d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
 
+        // Clean up scroll listener
         if (this.scrollListener && this.scrollableContainer) {
             this.scrollableContainer.on("scroll", null);
             this.scrollListener = null;
+        }
+
+        // Clean up canvas event listeners
+        if (this.canvasElement) {
+            d3.select(this.canvasElement)
+                .on("click", null)
+                .on("contextmenu", null)
+                .on("mousemove", null)
+                .on("mouseout", null);
         }
 
         this.detachZoomDragListeners();
@@ -1156,6 +1172,9 @@ export class Visual implements IVisual {
             const wrapper = d3.select(this.target).select(".visual-wrapper");
             this.helpOverlayContainer = wrapper.append("div")
                 .attr("class", "help-overlay")
+                .attr("role", "dialog")
+                .attr("aria-modal", "true")
+                .attr("aria-labelledby", "help-overlay-title")
                 .style("position", "absolute")
                 .style("top", "0")
                 .style("left", "0")
@@ -1169,13 +1188,42 @@ export class Visual implements IVisual {
                 .style("align-items", "center")
                 .on("click", () => this.clearHelpOverlay());
 
-            // eslint-disable-next-line powerbi-visuals/no-implied-inner-html
-            this.helpOverlayContainer.append("div")
+            // Build help content with structured DOM (no innerHTML)
+            const contentBox = this.helpOverlayContainer.append("div")
                 .style("padding", "20px")
                 .style("background", "white")
                 .style("box-shadow", "0 4px 12px rgba(0,0,0,0.15)")
                 .style("border-radius", "8px")
-                .html("<h3>Keyboard Shortcuts</h3><ul><li><b>Scroll</b>: Pan vertically</li><li><b>Shift + Scroll</b>: Pan horizontally</li><li><b>Ctrl + Scroll</b>: Zoom time axis</li></ul><p>Click anywhere to close.</p>");
+                .on("click", (event: MouseEvent) => event.stopPropagation());
+
+            contentBox.append("h3")
+                .attr("id", "help-overlay-title")
+                .style("margin", "0 0 12px 0")
+                .style("font-family", "Segoe UI, sans-serif")
+                .text("Keyboard Shortcuts");
+
+            const shortcuts = [
+                { key: "Scroll", action: "Pan vertically" },
+                { key: "Shift + Scroll", action: "Pan horizontally" },
+                { key: "Ctrl + Scroll", action: "Zoom time axis" }
+            ];
+
+            const list = contentBox.append("ul")
+                .style("margin", "0 0 12px 0")
+                .style("padding-left", "20px")
+                .style("font-family", "Segoe UI, sans-serif");
+
+            shortcuts.forEach(({ key, action }) => {
+                const li = list.append("li").style("margin", "6px 0");
+                li.append("strong").text(key);
+                li.append("span").text(`: ${action}`);
+            });
+
+            contentBox.append("p")
+                .style("margin", "0")
+                .style("color", "#666")
+                .style("font-family", "Segoe UI, sans-serif")
+                .text("Click anywhere to close.");
         } else {
             this.clearHelpOverlay();
         }
