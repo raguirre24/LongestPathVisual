@@ -30,6 +30,8 @@ import { DataProcessor, ProcessedData } from "./data/DataProcessor";
 import { Header, HeaderCallbacks, HeaderState } from "./components/Header";
 import { Task, WBSGroup, Relationship, DropdownItem, UpdateType } from "./data/Interfaces";
 import { exportToClipboard } from "./utils/ClipboardExporter";
+import { toast } from "./utils/Toast";
+import { dateFormatter } from "./utils/DateFormatter";
 
 
 export class Visual implements IVisual {
@@ -2386,7 +2388,7 @@ export class Visual implements IVisual {
 
         } catch (error) {
             console.error('[PDF Export] Export failed:', error);
-            alert('PDF export failed. Please check the console for details.');
+            toast.error(this.target, 'PDF export failed. Please try again.');
         } finally {
             this.isExporting = false;
             this.updateExportButtonState(false);
@@ -2437,25 +2439,23 @@ export class Visual implements IVisual {
                 const newWindow = window.open(dataUri, '_blank');
                 if (newWindow) {
                     console.log('[PDF Export] Opened PDF in new tab. Use Ctrl+S or right-click to save.');
-                    alert('PDF opened in a new tab.\n\nUse Ctrl+S or right-click and "Save as..." to download it.');
+                    toast.success(this.target, 'PDF opened in a new tab. Use Ctrl+S to save it.');
                     return;
                 }
             } catch (windowError) {
                 console.warn('[PDF Export] window.open blocked:', windowError);
             }
 
-            // Method 3: Copy to clipboard as last resort
+            // Method 3: Show instructions as last resort
             console.log('[PDF Export] All download methods blocked. Showing manual instructions.');
-            alert(
-                'PDF Export is blocked by browser security in Power BI Desktop.\n\n' +
-                'Workaround options:\n' +
-                '1. Publish the report to Power BI Service and export from there\n' +
-                '2. Use Power BI Desktop\'s built-in "Export to PDF" feature (File → Export → PDF)\n' +
-                '3. Take a screenshot of the visual'
+            toast.warning(
+                this.target,
+                'PDF export blocked in Desktop. Use File → Export → PDF or publish to Power BI Service.',
+                10000
             );
         } catch (error) {
             console.error('[PDF Export] Fallback download failed:', error);
-            alert('Unable to download PDF. This feature may not be available in the current environment.');
+            toast.error(this.target, 'Unable to download PDF in this environment.');
         }
     }
 
@@ -2469,17 +2469,15 @@ export class Visual implements IVisual {
         switch (status) {
             case PrivilegeStatus.DisabledByAdmin:
                 message = 'Export is disabled by your administrator.';
-                userMessage = 'PDF Export is disabled by your Power BI administrator.\n\n' +
-                    'To enable this feature, your admin needs to allow "Export data" in the tenant settings.';
+                userMessage = 'PDF Export is disabled by your administrator. Contact your Power BI admin.';
                 break;
             case PrivilegeStatus.NotDeclared:
                 message = 'Export capability not configured.';
-                userMessage = 'PDF Export is not properly configured. Please reload the visual.';
+                userMessage = 'PDF Export is not configured. Please reload the visual.';
                 break;
             case PrivilegeStatus.NotSupported:
                 message = 'Export is not supported in this environment.';
-                userMessage = 'PDF Export is not supported in this environment.\n\n' +
-                    'Try using Power BI Service (app.powerbi.com) instead of Desktop development mode.';
+                userMessage = 'PDF Export not supported here. Try Power BI Service instead.';
                 break;
             default:
                 message = 'Export is currently unavailable.';
@@ -2487,7 +2485,7 @@ export class Visual implements IVisual {
         }
 
         console.warn('Export not allowed:', message);
-        alert(userMessage);
+        toast.warning(this.target, userMessage, 8000);
         this.isExporting = false;
         this.updateExportButtonState(false);
     }
@@ -9881,6 +9879,12 @@ export class Visual implements IVisual {
         }
 
         this.lastLocale = locale || null;
+
+        // Update the shared dateFormatter with current locale
+        if (locale) {
+            dateFormatter.setLocale(locale);
+        }
+
         this.fullDateFormatter = new Intl.DateTimeFormat(locale, {
             day: "2-digit",
             month: "2-digit",
@@ -9898,11 +9902,8 @@ export class Visual implements IVisual {
     }
 
     private formatColumnDate(date: Date): string {
-        if (!date || isNaN(date.getTime())) return "";
-        const day = date.getDate().toString().padStart(2, '0');
-        const month = (date.getMonth() + 1).toString().padStart(2, '0');
-        const year = date.getFullYear();
-        return `${day}/${month}/${year}`;
+        // Use locale-aware dateFormatter for consistent formatting
+        return dateFormatter.formatForColumn(date);
     }
 
     private formatDate(date: Date | null | undefined): string {
@@ -12301,14 +12302,14 @@ export class Visual implements IVisual {
      * Changes button border color temporarily and shows alert
      */
     private showCopySuccess(count: number): void {
-        const message = `Copied ${count} rows to clipboard!`;
+        const message = `Copied ${count} rows to clipboard. Ready to paste into Excel.`;
         console.log(message);
 
         // Show visual feedback on the copy button via the Header component
         this.header?.showCopySuccess();
 
-        // Use timeout to ensure alert doesn't block UI immediately
-        setTimeout(() => alert(message + "\n\nYou can now paste into Excel."), 10);
+        // Show toast notification
+        toast.success(this.target, message, 4000);
     }
 
     private debugLog(...args: unknown[]): void {
