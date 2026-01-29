@@ -2807,7 +2807,16 @@ export class Visual implements IVisual {
                 this.logDataLoadInfo(dataView);
             }
 
-            this.setLoadingOverlayVisible(false);
+            // Show loading overlay for large datasets to provide user feedback
+            const rowCount = dataView?.table?.rows?.length || 0;
+            if (dataChanged && rowCount > 1000) {
+                this.setLoadingOverlayVisible(true, {
+                    message: "Processing data...",
+                    rowCount: rowCount
+                });
+                // Allow UI to update before heavy processing
+                await new Promise(resolve => requestAnimationFrame(resolve));
+            }
 
             this.wbsLevelColumnIndices = [];
             this.wbsLevelColumnNames = [];
@@ -3325,6 +3334,9 @@ export class Visual implements IVisual {
             this.applyTaskFilter([]);
             this.displayMessage(`Error updating visual: ${errorMessage}`);
         } finally {
+            // Hide loading overlay when update completes (success or failure)
+            this.setLoadingOverlayVisible(false);
+
             if (!renderingFailed) {
                 eventService?.renderingFinished(options);
             }
@@ -6656,12 +6668,14 @@ export class Visual implements IVisual {
 
         this.mainSvg.selectAll(".accessible-fallback-layer").remove();
 
+        const taskHeight = this.settings.taskBars.taskHeight.value;
+        const self = this;
+
+        // Create accessibility layer - visually hidden but keyboard accessible
         const accessibleLayer = this.mainSvg.append("g")
             .attr("class", "accessible-fallback-layer")
             .attr("role", "list")
-            .attr("aria-label", "Project tasks (canvas rendering mode)")
-            .style("opacity", 0)
-            .style("pointer-events", "none");
+            .attr("aria-label", "Project tasks (canvas rendering mode)");
 
         const taskGroups = accessibleLayer.selectAll(".accessible-task")
             .data(tasks, (d: Task) => d.internalId)
@@ -6672,7 +6686,7 @@ export class Visual implements IVisual {
             .attr("transform", (d: Task) => {
                 const domainKey = d.yOrder?.toString() ?? '';
                 const yPosition = yScale(domainKey);
-                return yPosition !== undefined ? `translate(0, ${yPosition})` : "translate(0, 0)";
+                return yPosition !== undefined ? `translate(0, ${yPosition})` : "translate(0, -9999)";
             });
 
         taskGroups.append("rect")
@@ -6687,38 +6701,83 @@ export class Visual implements IVisual {
                     return `${d.name}, ${statusText} task, Start: ${this.formatDate(d.startDate)}, Finish: ${this.formatDate(d.finishDate)}${selectedText}. Press Enter or Space to select.`;
                 }
             })
-            .attr("tabindex", 0)
+            .attr("tabindex", "0")
             .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
             .attr("x", 0)
             .attr("y", 0)
             .attr("width", "100%")
-            .attr("height", this.settings.taskBars.taskHeight.value)
+            .attr("height", taskHeight)
             .style("fill", "transparent")
-            .on("keydown", (event: KeyboardEvent, d: Task) => {
+            .style("cursor", "pointer")
+            .on("click", function(event: MouseEvent, d: Task) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (self.selectedTaskId === d.internalId) {
+                    self.selectTask(null, null);
+                } else {
+                    self.selectTask(d.internalId, d.name);
+                }
+                if (self.dropdownInput) {
+                    self.dropdownInput.property("value", self.selectedTaskName || "");
+                }
+            })
+            .on("keydown", function(event: KeyboardEvent, d: Task) {
                 if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     event.stopPropagation();
 
-                    if (this.selectedTaskId === d.internalId) {
-                        this.selectTask(null, null);
+                    if (self.selectedTaskId === d.internalId) {
+                        self.selectTask(null, null);
                     } else {
-                        this.selectTask(d.internalId, d.name);
+                        self.selectTask(d.internalId, d.name);
                     }
 
-                    if (this.dropdownInput) {
-                        this.dropdownInput.property("value", this.selectedTaskName || "");
+                    if (self.dropdownInput) {
+                        self.dropdownInput.property("value", self.selectedTaskName || "");
+                    }
+                } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    // Navigate between tasks with arrow keys
+                    event.preventDefault();
+                    const currentIndex = tasks.findIndex(t => t.internalId === d.internalId);
+                    const nextIndex = event.key === "ArrowDown"
+                        ? Math.min(currentIndex + 1, tasks.length - 1)
+                        : Math.max(currentIndex - 1, 0);
+
+                    if (nextIndex !== currentIndex) {
+                        const nextTask = tasks[nextIndex];
+                        const nextElement = accessibleLayer
+                            .selectAll<SVGRectElement, Task>(".accessible-task rect")
+                            .filter((t: Task) => t.internalId === nextTask.internalId)
+                            .node();
+
+                        if (nextElement) {
+                            nextElement.focus();
+                        }
                     }
                 }
             })
-            .on("focus", function (_event: FocusEvent, _d: Task) {
+            .on("focus", function(_event: FocusEvent, d: Task) {
                 d3.select(this)
                     .style("outline", "2px solid #0078D4")
-                    .style("outline-offset", "2px");
+                    .style("outline-offset", "2px")
+                    .style("fill", "rgba(0, 120, 212, 0.1)");
+
+                // Scroll into view if needed
+                const element = this as SVGRectElement;
+                const parent = element.closest('.scrollable-container') as HTMLElement;
+                if (parent) {
+                    const rect = element.getBoundingClientRect();
+                    const parentRect = parent.getBoundingClientRect();
+                    if (rect.top < parentRect.top || rect.bottom > parentRect.bottom) {
+                        element.scrollIntoView({ block: "nearest" });
+                    }
+                }
             })
-            .on("blur", function (_event: FocusEvent, _d: Task) {
+            .on("blur", function(_event: FocusEvent, _d: Task) {
                 d3.select(this)
                     .style("outline", null)
-                    .style("outline-offset", null);
+                    .style("outline-offset", null)
+                    .style("fill", "transparent");
             });
     }
 
@@ -10271,28 +10330,59 @@ export class Visual implements IVisual {
                 }, 200);
             })
             .on("keydown", function (event: KeyboardEvent) {
-                if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    self.moveDropdownActive(1);
-                } else if (event.key === "ArrowUp") {
-                    event.preventDefault();
-                    self.moveDropdownActive(-1);
-                } else if (event.key === "Enter") {
-                    event.preventDefault();
-                    if (self.dropdownActiveIndex >= 0) {
-                        self.activateDropdownSelection();
-                    } else {
-                        const val = (this as HTMLInputElement).value;
-                        self.applyFilter(val);
-                    }
-                } else if (event.key === "Escape") {
-                    self.isDropdownInteracting = false;
-                    self.closeDropdown(true);
+                const count = self.dropdownFocusableItems.length;
 
-                    self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
-                        .style("pointer-events", "auto");
+                switch (event.key) {
+                    case "ArrowDown":
+                        event.preventDefault();
+                        self.moveDropdownActive(1);
+                        break;
 
-                    event.preventDefault();
+                    case "ArrowUp":
+                        event.preventDefault();
+                        self.moveDropdownActive(-1);
+                        break;
+
+                    case "Home":
+                        // Jump to first item
+                        event.preventDefault();
+                        if (count > 0) {
+                            self.dropdownActiveIndex = 0;
+                            self.updateDropdownActiveState();
+                        }
+                        break;
+
+                    case "End":
+                        // Jump to last item
+                        event.preventDefault();
+                        if (count > 0) {
+                            self.dropdownActiveIndex = count - 1;
+                            self.updateDropdownActiveState();
+                        }
+                        break;
+
+                    case "Enter":
+                        event.preventDefault();
+                        if (self.dropdownActiveIndex >= 0) {
+                            self.activateDropdownSelection();
+                        } else {
+                            const val = (this as HTMLInputElement).value;
+                            self.applyFilter(val);
+                        }
+                        break;
+
+                    case "Escape":
+                        event.preventDefault();
+                        self.isDropdownInteracting = false;
+                        self.closeDropdown(true);
+                        self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+                            .style("pointer-events", "auto");
+                        break;
+
+                    case "Tab":
+                        // Allow default tab behavior but close dropdown
+                        self.closeDropdown(false);
+                        break;
                 }
             });
 
@@ -10688,6 +10778,9 @@ export class Visual implements IVisual {
                 const isSelected = node.getAttribute("data-selected") === "true";
                 node.setAttribute("aria-selected", isSelected ? "true" : "false");
                 node.style.backgroundColor = isActive ? "#e6f7ff" : defaultBg;
+                // Add visible focus indicator for keyboard navigation
+                node.style.outline = isActive ? "2px solid #0078D4" : "none";
+                node.style.outlineOffset = isActive ? "-2px" : "0";
             });
 
         if (activeId) {
