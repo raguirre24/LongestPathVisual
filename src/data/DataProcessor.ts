@@ -37,7 +37,7 @@ export interface ProcessedData {
 }
 
 export class DataProcessor {
-    private debug: boolean = true;
+    private debug: boolean = false;
 
     // Temporary state during processing
     private lastUpdateOptions: { dataViews: DataView[] } | undefined;
@@ -255,59 +255,85 @@ export class DataProcessor {
 
         const successorMap = new Map<string, Task[]>();
         let taskIndex = 0;
+        const dataErrors: Array<{ taskId: string; error: string }> = [];
 
-        // --- Pass 2: Create Task Objects ---
+        // --- Pass 2: Create Task Objects with error handling ---
         for (const [taskId, taskData] of taskDataMap) {
+            try {
+                if (taskData.rows.length > 0 && !taskData.task) {
+                    taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex, result.wbsLevelColumnIndices, dataView);
+                }
+                if (!taskData.task) {
+                    dataErrors.push({ taskId, error: 'Failed to create task object' });
+                    continue;
+                }
 
-            if (taskData.rows.length > 0 && !taskData.task) {
-                taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex, result.wbsLevelColumnIndices, dataView);
+                const task = taskData.task;
+
+                if (!result.predecessorIndex.has(taskId)) {
+                    result.predecessorIndex.set(taskId, new Set());
+                }
+
+                for (const rel of taskData.relationships) {
+                    try {
+                        task.predecessorIds.push(rel.predId);
+                        task.relationshipTypes[rel.predId] = rel.relType;
+                        task.relationshipLags[rel.predId] = rel.lag;
+
+                        if (!result.predecessorIndex.has(rel.predId)) {
+                            result.predecessorIndex.set(rel.predId, new Set());
+                        }
+                        result.predecessorIndex.get(rel.predId)!.add(taskId);
+
+                        if (!successorMap.has(rel.predId)) {
+                            successorMap.set(rel.predId, []);
+                        }
+                        successorMap.get(rel.predId)!.push(task);
+
+                        const relationship: Relationship = {
+                            predecessorId: rel.predId,
+                            successorId: taskId,
+                            type: rel.relType,
+                            freeFloat: rel.freeFloat,
+                            lag: rel.lag,
+                            isCritical: false,
+                        };
+                        result.relationships.push(relationship);
+
+                        if (!result.relationshipIndex.has(taskId)) {
+                            result.relationshipIndex.set(taskId, []);
+                        }
+                        result.relationshipIndex.get(taskId)!.push(relationship);
+
+                        if (!result.relationshipByPredecessor.has(rel.predId)) {
+                            result.relationshipByPredecessor.set(rel.predId, []);
+                        }
+                        result.relationshipByPredecessor.get(rel.predId)!.push(relationship);
+                    } catch (relError) {
+                        dataErrors.push({
+                            taskId,
+                            error: `Relationship error with predecessor ${rel.predId}: ${relError instanceof Error ? relError.message : String(relError)}`
+                        });
+                    }
+                }
+
+                result.allTasksData[taskIndex++] = task;
+                result.taskIdToTask.set(taskId, task);
+            } catch (taskError) {
+                dataErrors.push({
+                    taskId,
+                    error: `Task processing error: ${taskError instanceof Error ? taskError.message : String(taskError)}`
+                });
             }
-            if (!taskData.task) continue;
+        }
 
-            const task = taskData.task;
-
-            if (!result.predecessorIndex.has(taskId)) {
-                result.predecessorIndex.set(taskId, new Set());
+        // Report errors without crashing
+        if (dataErrors.length > 0) {
+            console.warn(`DataProcessor: ${dataErrors.length} tasks had errors:`);
+            dataErrors.slice(0, 10).forEach(e => console.warn(`  Task ${e.taskId}: ${e.error}`));
+            if (dataErrors.length > 10) {
+                console.warn(`  ... and ${dataErrors.length - 10} more errors`);
             }
-
-            for (const rel of taskData.relationships) {
-                task.predecessorIds.push(rel.predId);
-                task.relationshipTypes[rel.predId] = rel.relType;
-                task.relationshipLags[rel.predId] = rel.lag;
-
-                if (!result.predecessorIndex.has(rel.predId)) {
-                    result.predecessorIndex.set(rel.predId, new Set());
-                }
-                result.predecessorIndex.get(rel.predId)!.add(taskId);
-
-                if (!successorMap.has(rel.predId)) {
-                    successorMap.set(rel.predId, []);
-                }
-                successorMap.get(rel.predId)!.push(task);
-
-                const relationship: Relationship = {
-                    predecessorId: rel.predId,
-                    successorId: taskId,
-                    type: rel.relType,
-                    freeFloat: rel.freeFloat,
-                    lag: rel.lag,
-                    isCritical: false,
-                };
-                result.relationships.push(relationship);
-
-                if (!result.relationshipIndex.has(taskId)) {
-                    result.relationshipIndex.set(taskId, []);
-                }
-                result.relationshipIndex.get(taskId)!.push(relationship);
-
-                if (!result.relationshipByPredecessor.has(rel.predId)) {
-                    result.relationshipByPredecessor.set(rel.predId, []);
-                }
-                result.relationshipByPredecessor.get(rel.predId)!.push(relationship);
-            }
-
-            result.allTasksData[taskIndex++] = task;
-            result.taskIdToTask.set(taskId, task);
         }
 
         // --- Pass 3: Create Synthetic Tasks ---

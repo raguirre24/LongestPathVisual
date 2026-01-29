@@ -30,6 +30,8 @@ import { DataProcessor, ProcessedData } from "./data/DataProcessor";
 import { Header, HeaderCallbacks, HeaderState } from "./components/Header";
 import { Task, WBSGroup, Relationship, DropdownItem, UpdateType } from "./data/Interfaces";
 import { exportToClipboard } from "./utils/ClipboardExporter";
+import { toast } from "./utils/Toast";
+import { dateFormatter } from "./utils/DateFormatter";
 
 
 export class Visual implements IVisual {
@@ -1100,7 +1102,7 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
-
+        // Clean up all timeout references to prevent memory leaks
         if (this.updateDebounceTimeout) {
             clearTimeout(this.updateDebounceTimeout);
             this.updateDebounceTimeout = null;
@@ -1116,11 +1118,27 @@ export class Visual implements IVisual {
             this.dropdownFilterTimeout = null;
         }
 
+        if (this.zoomChangeTimeout) {
+            clearTimeout(this.zoomChangeTimeout);
+            this.zoomChangeTimeout = null;
+        }
+
+        // Clean up tooltip elements
         d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
 
+        // Clean up scroll listener
         if (this.scrollListener && this.scrollableContainer) {
             this.scrollableContainer.on("scroll", null);
             this.scrollListener = null;
+        }
+
+        // Clean up canvas event listeners
+        if (this.canvasElement) {
+            d3.select(this.canvasElement)
+                .on("click", null)
+                .on("contextmenu", null)
+                .on("mousemove", null)
+                .on("mouseout", null);
         }
 
         this.detachZoomDragListeners();
@@ -1156,6 +1174,9 @@ export class Visual implements IVisual {
             const wrapper = d3.select(this.target).select(".visual-wrapper");
             this.helpOverlayContainer = wrapper.append("div")
                 .attr("class", "help-overlay")
+                .attr("role", "dialog")
+                .attr("aria-modal", "true")
+                .attr("aria-labelledby", "help-overlay-title")
                 .style("position", "absolute")
                 .style("top", "0")
                 .style("left", "0")
@@ -1169,13 +1190,42 @@ export class Visual implements IVisual {
                 .style("align-items", "center")
                 .on("click", () => this.clearHelpOverlay());
 
-            // eslint-disable-next-line powerbi-visuals/no-implied-inner-html
-            this.helpOverlayContainer.append("div")
+            // Build help content with structured DOM (no innerHTML)
+            const contentBox = this.helpOverlayContainer.append("div")
                 .style("padding", "20px")
                 .style("background", "white")
                 .style("box-shadow", "0 4px 12px rgba(0,0,0,0.15)")
                 .style("border-radius", "8px")
-                .html("<h3>Keyboard Shortcuts</h3><ul><li><b>Scroll</b>: Pan vertically</li><li><b>Shift + Scroll</b>: Pan horizontally</li><li><b>Ctrl + Scroll</b>: Zoom time axis</li></ul><p>Click anywhere to close.</p>");
+                .on("click", (event: MouseEvent) => event.stopPropagation());
+
+            contentBox.append("h3")
+                .attr("id", "help-overlay-title")
+                .style("margin", "0 0 12px 0")
+                .style("font-family", "Segoe UI, sans-serif")
+                .text("Keyboard Shortcuts");
+
+            const shortcuts = [
+                { key: "Scroll", action: "Pan vertically" },
+                { key: "Shift + Scroll", action: "Pan horizontally" },
+                { key: "Ctrl + Scroll", action: "Zoom time axis" }
+            ];
+
+            const list = contentBox.append("ul")
+                .style("margin", "0 0 12px 0")
+                .style("padding-left", "20px")
+                .style("font-family", "Segoe UI, sans-serif");
+
+            shortcuts.forEach(({ key, action }) => {
+                const li = list.append("li").style("margin", "6px 0");
+                li.append("strong").text(key);
+                li.append("span").text(`: ${action}`);
+            });
+
+            contentBox.append("p")
+                .style("margin", "0")
+                .style("color", "#666")
+                .style("font-family", "Segoe UI, sans-serif")
+                .text("Click anywhere to close.");
         } else {
             this.clearHelpOverlay();
         }
@@ -2338,7 +2388,7 @@ export class Visual implements IVisual {
 
         } catch (error) {
             console.error('[PDF Export] Export failed:', error);
-            alert('PDF export failed. Please check the console for details.');
+            toast.error(this.target, 'PDF export failed. Please try again.');
         } finally {
             this.isExporting = false;
             this.updateExportButtonState(false);
@@ -2389,25 +2439,23 @@ export class Visual implements IVisual {
                 const newWindow = window.open(dataUri, '_blank');
                 if (newWindow) {
                     console.log('[PDF Export] Opened PDF in new tab. Use Ctrl+S or right-click to save.');
-                    alert('PDF opened in a new tab.\n\nUse Ctrl+S or right-click and "Save as..." to download it.');
+                    toast.success(this.target, 'PDF opened in a new tab. Use Ctrl+S to save it.');
                     return;
                 }
             } catch (windowError) {
                 console.warn('[PDF Export] window.open blocked:', windowError);
             }
 
-            // Method 3: Copy to clipboard as last resort
+            // Method 3: Show instructions as last resort
             console.log('[PDF Export] All download methods blocked. Showing manual instructions.');
-            alert(
-                'PDF Export is blocked by browser security in Power BI Desktop.\n\n' +
-                'Workaround options:\n' +
-                '1. Publish the report to Power BI Service and export from there\n' +
-                '2. Use Power BI Desktop\'s built-in "Export to PDF" feature (File → Export → PDF)\n' +
-                '3. Take a screenshot of the visual'
+            toast.warning(
+                this.target,
+                'PDF export blocked in Desktop. Use File → Export → PDF or publish to Power BI Service.',
+                10000
             );
         } catch (error) {
             console.error('[PDF Export] Fallback download failed:', error);
-            alert('Unable to download PDF. This feature may not be available in the current environment.');
+            toast.error(this.target, 'Unable to download PDF in this environment.');
         }
     }
 
@@ -2421,17 +2469,15 @@ export class Visual implements IVisual {
         switch (status) {
             case PrivilegeStatus.DisabledByAdmin:
                 message = 'Export is disabled by your administrator.';
-                userMessage = 'PDF Export is disabled by your Power BI administrator.\n\n' +
-                    'To enable this feature, your admin needs to allow "Export data" in the tenant settings.';
+                userMessage = 'PDF Export is disabled by your administrator. Contact your Power BI admin.';
                 break;
             case PrivilegeStatus.NotDeclared:
                 message = 'Export capability not configured.';
-                userMessage = 'PDF Export is not properly configured. Please reload the visual.';
+                userMessage = 'PDF Export is not configured. Please reload the visual.';
                 break;
             case PrivilegeStatus.NotSupported:
                 message = 'Export is not supported in this environment.';
-                userMessage = 'PDF Export is not supported in this environment.\n\n' +
-                    'Try using Power BI Service (app.powerbi.com) instead of Desktop development mode.';
+                userMessage = 'PDF Export not supported here. Try Power BI Service instead.';
                 break;
             default:
                 message = 'Export is currently unavailable.';
@@ -2439,7 +2485,7 @@ export class Visual implements IVisual {
         }
 
         console.warn('Export not allowed:', message);
-        alert(userMessage);
+        toast.warning(this.target, userMessage, 8000);
         this.isExporting = false;
         this.updateExportButtonState(false);
     }
@@ -2761,7 +2807,16 @@ export class Visual implements IVisual {
                 this.logDataLoadInfo(dataView);
             }
 
-            this.setLoadingOverlayVisible(false);
+            // Show loading overlay for large datasets to provide user feedback
+            const rowCount = dataView?.table?.rows?.length || 0;
+            if (dataChanged && rowCount > 1000) {
+                this.setLoadingOverlayVisible(true, {
+                    message: "Processing data...",
+                    rowCount: rowCount
+                });
+                // Allow UI to update before heavy processing
+                await new Promise(resolve => requestAnimationFrame(resolve));
+            }
 
             this.wbsLevelColumnIndices = [];
             this.wbsLevelColumnNames = [];
@@ -3279,6 +3334,9 @@ export class Visual implements IVisual {
             this.applyTaskFilter([]);
             this.displayMessage(`Error updating visual: ${errorMessage}`);
         } finally {
+            // Hide loading overlay when update completes (success or failure)
+            this.setLoadingOverlayVisible(false);
+
             if (!renderingFailed) {
                 eventService?.renderingFinished(options);
             }
@@ -6610,12 +6668,14 @@ export class Visual implements IVisual {
 
         this.mainSvg.selectAll(".accessible-fallback-layer").remove();
 
+        const taskHeight = this.settings.taskBars.taskHeight.value;
+        const self = this;
+
+        // Create accessibility layer - visually hidden but keyboard accessible
         const accessibleLayer = this.mainSvg.append("g")
             .attr("class", "accessible-fallback-layer")
             .attr("role", "list")
-            .attr("aria-label", "Project tasks (canvas rendering mode)")
-            .style("opacity", 0)
-            .style("pointer-events", "none");
+            .attr("aria-label", "Project tasks (canvas rendering mode)");
 
         const taskGroups = accessibleLayer.selectAll(".accessible-task")
             .data(tasks, (d: Task) => d.internalId)
@@ -6626,7 +6686,7 @@ export class Visual implements IVisual {
             .attr("transform", (d: Task) => {
                 const domainKey = d.yOrder?.toString() ?? '';
                 const yPosition = yScale(domainKey);
-                return yPosition !== undefined ? `translate(0, ${yPosition})` : "translate(0, 0)";
+                return yPosition !== undefined ? `translate(0, ${yPosition})` : "translate(0, -9999)";
             });
 
         taskGroups.append("rect")
@@ -6641,38 +6701,83 @@ export class Visual implements IVisual {
                     return `${d.name}, ${statusText} task, Start: ${this.formatDate(d.startDate)}, Finish: ${this.formatDate(d.finishDate)}${selectedText}. Press Enter or Space to select.`;
                 }
             })
-            .attr("tabindex", 0)
+            .attr("tabindex", "0")
             .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
             .attr("x", 0)
             .attr("y", 0)
             .attr("width", "100%")
-            .attr("height", this.settings.taskBars.taskHeight.value)
+            .attr("height", taskHeight)
             .style("fill", "transparent")
-            .on("keydown", (event: KeyboardEvent, d: Task) => {
+            .style("cursor", "pointer")
+            .on("click", function(event: MouseEvent, d: Task) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (self.selectedTaskId === d.internalId) {
+                    self.selectTask(null, null);
+                } else {
+                    self.selectTask(d.internalId, d.name);
+                }
+                if (self.dropdownInput) {
+                    self.dropdownInput.property("value", self.selectedTaskName || "");
+                }
+            })
+            .on("keydown", function(event: KeyboardEvent, d: Task) {
                 if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     event.stopPropagation();
 
-                    if (this.selectedTaskId === d.internalId) {
-                        this.selectTask(null, null);
+                    if (self.selectedTaskId === d.internalId) {
+                        self.selectTask(null, null);
                     } else {
-                        this.selectTask(d.internalId, d.name);
+                        self.selectTask(d.internalId, d.name);
                     }
 
-                    if (this.dropdownInput) {
-                        this.dropdownInput.property("value", this.selectedTaskName || "");
+                    if (self.dropdownInput) {
+                        self.dropdownInput.property("value", self.selectedTaskName || "");
+                    }
+                } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    // Navigate between tasks with arrow keys
+                    event.preventDefault();
+                    const currentIndex = tasks.findIndex(t => t.internalId === d.internalId);
+                    const nextIndex = event.key === "ArrowDown"
+                        ? Math.min(currentIndex + 1, tasks.length - 1)
+                        : Math.max(currentIndex - 1, 0);
+
+                    if (nextIndex !== currentIndex) {
+                        const nextTask = tasks[nextIndex];
+                        const nextElement = accessibleLayer
+                            .selectAll<SVGRectElement, Task>(".accessible-task rect")
+                            .filter((t: Task) => t.internalId === nextTask.internalId)
+                            .node();
+
+                        if (nextElement) {
+                            nextElement.focus();
+                        }
                     }
                 }
             })
-            .on("focus", function (_event: FocusEvent, _d: Task) {
+            .on("focus", function(_event: FocusEvent, d: Task) {
                 d3.select(this)
                     .style("outline", "2px solid #0078D4")
-                    .style("outline-offset", "2px");
+                    .style("outline-offset", "2px")
+                    .style("fill", "rgba(0, 120, 212, 0.1)");
+
+                // Scroll into view if needed
+                const element = this as SVGRectElement;
+                const parent = element.closest('.scrollable-container') as HTMLElement;
+                if (parent) {
+                    const rect = element.getBoundingClientRect();
+                    const parentRect = parent.getBoundingClientRect();
+                    if (rect.top < parentRect.top || rect.bottom > parentRect.bottom) {
+                        element.scrollIntoView({ block: "nearest" });
+                    }
+                }
             })
-            .on("blur", function (_event: FocusEvent, _d: Task) {
+            .on("blur", function(_event: FocusEvent, _d: Task) {
                 d3.select(this)
                     .style("outline", null)
-                    .style("outline-offset", null);
+                    .style("outline-offset", null)
+                    .style("fill", "transparent");
             });
     }
 
@@ -9833,6 +9938,12 @@ export class Visual implements IVisual {
         }
 
         this.lastLocale = locale || null;
+
+        // Update the shared dateFormatter with current locale
+        if (locale) {
+            dateFormatter.setLocale(locale);
+        }
+
         this.fullDateFormatter = new Intl.DateTimeFormat(locale, {
             day: "2-digit",
             month: "2-digit",
@@ -9850,11 +9961,8 @@ export class Visual implements IVisual {
     }
 
     private formatColumnDate(date: Date): string {
-        if (!date || isNaN(date.getTime())) return "";
-        const day = date.getDate().toString().padStart(2, '0');
-        const month = (date.getMonth() + 1).toString().padStart(2, '0');
-        const year = date.getFullYear();
-        return `${day}/${month}/${year}`;
+        // Use locale-aware dateFormatter for consistent formatting
+        return dateFormatter.formatForColumn(date);
     }
 
     private formatDate(date: Date | null | undefined): string {
@@ -10222,28 +10330,59 @@ export class Visual implements IVisual {
                 }, 200);
             })
             .on("keydown", function (event: KeyboardEvent) {
-                if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    self.moveDropdownActive(1);
-                } else if (event.key === "ArrowUp") {
-                    event.preventDefault();
-                    self.moveDropdownActive(-1);
-                } else if (event.key === "Enter") {
-                    event.preventDefault();
-                    if (self.dropdownActiveIndex >= 0) {
-                        self.activateDropdownSelection();
-                    } else {
-                        const val = (this as HTMLInputElement).value;
-                        self.applyFilter(val);
-                    }
-                } else if (event.key === "Escape") {
-                    self.isDropdownInteracting = false;
-                    self.closeDropdown(true);
+                const count = self.dropdownFocusableItems.length;
 
-                    self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
-                        .style("pointer-events", "auto");
+                switch (event.key) {
+                    case "ArrowDown":
+                        event.preventDefault();
+                        self.moveDropdownActive(1);
+                        break;
 
-                    event.preventDefault();
+                    case "ArrowUp":
+                        event.preventDefault();
+                        self.moveDropdownActive(-1);
+                        break;
+
+                    case "Home":
+                        // Jump to first item
+                        event.preventDefault();
+                        if (count > 0) {
+                            self.dropdownActiveIndex = 0;
+                            self.updateDropdownActiveState();
+                        }
+                        break;
+
+                    case "End":
+                        // Jump to last item
+                        event.preventDefault();
+                        if (count > 0) {
+                            self.dropdownActiveIndex = count - 1;
+                            self.updateDropdownActiveState();
+                        }
+                        break;
+
+                    case "Enter":
+                        event.preventDefault();
+                        if (self.dropdownActiveIndex >= 0) {
+                            self.activateDropdownSelection();
+                        } else {
+                            const val = (this as HTMLInputElement).value;
+                            self.applyFilter(val);
+                        }
+                        break;
+
+                    case "Escape":
+                        event.preventDefault();
+                        self.isDropdownInteracting = false;
+                        self.closeDropdown(true);
+                        self.stickyHeaderContainer?.selectAll(".trace-mode-toggle")
+                            .style("pointer-events", "auto");
+                        break;
+
+                    case "Tab":
+                        // Allow default tab behavior but close dropdown
+                        self.closeDropdown(false);
+                        break;
                 }
             });
 
@@ -10639,6 +10778,9 @@ export class Visual implements IVisual {
                 const isSelected = node.getAttribute("data-selected") === "true";
                 node.setAttribute("aria-selected", isSelected ? "true" : "false");
                 node.style.backgroundColor = isActive ? "#e6f7ff" : defaultBg;
+                // Add visible focus indicator for keyboard navigation
+                node.style.outline = isActive ? "2px solid #0078D4" : "none";
+                node.style.outlineOffset = isActive ? "-2px" : "0";
             });
 
         if (activeId) {
@@ -12253,14 +12395,14 @@ export class Visual implements IVisual {
      * Changes button border color temporarily and shows alert
      */
     private showCopySuccess(count: number): void {
-        const message = `Copied ${count} rows to clipboard!`;
+        const message = `Copied ${count} rows to clipboard. Ready to paste into Excel.`;
         console.log(message);
 
         // Show visual feedback on the copy button via the Header component
         this.header?.showCopySuccess();
 
-        // Use timeout to ensure alert doesn't block UI immediately
-        setTimeout(() => alert(message + "\n\nYou can now paste into Excel."), 10);
+        // Show toast notification
+        toast.success(this.target, message, 4000);
     }
 
     private debugLog(...args: unknown[]): void {
