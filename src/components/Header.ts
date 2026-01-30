@@ -1141,13 +1141,13 @@ export class Header {
             .style("top", "6px")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("gap", isCompact ? `${UI_TOKENS.spacing.xs}px` : `${UI_TOKENS.spacing.sm}px`)
-            .style("height", `${UI_TOKENS.height.standard}px`)
-            .style("padding", `0 ${UI_TOKENS.spacing.sm}px`)
+            .style("gap", isCompact ? "4px" : "6px")
+            .style("height", "24px")
+            .style("padding", "0 8px")
             .style("max-width", `${maxWidth}px`)
             .style("background-color", UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${UI_TOKENS.color.warning.default}`)
-            .style("border-radius", `${UI_TOKENS.radius.pill}px`)
+            .style("border", `1px solid ${UI_TOKENS.color.warning.default}`)
+            .style("border-radius", "12px")
             .style("box-shadow", UI_TOKENS.shadow[2])
             .style("transition", `all ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.smooth}`);
 
@@ -1171,7 +1171,7 @@ export class Header {
 
         const labelText = isCompact ? "Near-Critical ≤" : (isMedium ? "Near-Critical ≤" : "Near-Critical ≤");
         labelContainer.append("span")
-            .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
+            .style("font-size", "11px")
             .style("letter-spacing", "0.1px")
             .style("color", UI_TOKENS.color.neutral.grey160)
             .style("font-family", "Segoe UI, sans-serif")
@@ -1188,11 +1188,11 @@ export class Header {
             .attr("value", this.currentState.floatThreshold)
             .attr("aria-label", "Near-critical threshold in days")
             .style("width", `${inputWidth}px`)
-            .style("height", "24px")
-            .style("padding", `${UI_TOKENS.spacing.xs}px ${UI_TOKENS.spacing.sm}px`)
-            .style("border", `1.5px solid ${UI_TOKENS.color.neutral.grey60}`)
-            .style("border-radius", `${UI_TOKENS.radius.small}px`)
-            .style("font-size", `${UI_TOKENS.fontSize.md}px`)
+            .style("height", "18px")
+            .style("padding", "0 4px")
+            .style("border", `1px solid ${UI_TOKENS.color.neutral.grey60}`)
+            .style("border-radius", "4px")
+            .style("font-size", "11px")
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("text-align", "center")
@@ -1206,7 +1206,7 @@ export class Header {
 
         // Add 'days' text
         controlContainer.append("span")
-            .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
+            .style("font-size", "11px")
             .style("color", UI_TOKENS.color.neutral.grey130)
             .style("font-family", "Segoe UI, sans-serif")
             .text("days");

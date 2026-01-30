@@ -585,17 +585,17 @@ export class Visual implements IVisual {
             .style("position", "absolute")
             .style("top", "6px")
             .style("right", "10px")
-            .style("height", `${this.UI_TOKENS.height.standard}px`)
-            .style("padding", `0 ${this.UI_TOKENS.spacing.sm}px`)
+            .style("height", "24px")
+            .style("padding", "0 8px")
             .style("display", "none")
             .style("align-items", "center")
-            .style("gap", `${this.UI_TOKENS.spacing.sm}px`)
+            .style("gap", "4px")
             .style("background-color", this.UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.primary.default}`)
-            .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
-            .style("box-shadow", this.UI_TOKENS.shadow[4])
+            .style("border", `1px solid ${this.UI_TOKENS.color.primary.default}`)
+            .style("border-radius", "12px")
+            .style("box-shadow", this.UI_TOKENS.shadow[2])
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+            .style("font-size", "11px")
             .style("color", this.UI_TOKENS.color.primary.default)
             .style("font-weight", "600")
             .style("letter-spacing", "0.1px")
@@ -2913,6 +2913,12 @@ export class Visual implements IVisual {
 
             this.margin.left = this.settings.layoutSettings.leftMargin.value;
             this.margin.right = this.settings.layoutSettings.rightMargin.value;
+
+            this.headerHeight = this.settings.layoutSettings.headerHeight.value;
+            this.stickyHeaderContainer
+                .style("height", `${this.headerHeight}px`)
+                .style("min-height", `${this.headerHeight}px`);
+
             this.updateMarginResizerPosition();
 
             this.clearVisual();
@@ -3422,6 +3428,25 @@ export class Visual implements IVisual {
         if (this.settings?.comparisonBars?.showBaseline !== undefined) {
             this.showBaselineInternal = this.settings.comparisonBars.showBaseline.value;
         }
+
+        if (this.settings?.comparisonBars?.showPreviousUpdate !== undefined) {
+            this.showPreviousUpdateInternal = this.settings.comparisonBars.showPreviousUpdate.value;
+        }
+
+        if (this.settings?.connectorLines?.showConnectorLines !== undefined) {
+            this.showConnectorLinesInternal = this.settings.connectorLines.showConnectorLines.value;
+        }
+
+        if (this.settings?.columns?.enableColumnDisplay !== undefined) {
+            this.showExtraColumnsInternal = this.settings.columns.enableColumnDisplay.value;
+        }
+
+
+        this.headerHeight = this.settings.layoutSettings.headerHeight.value;
+        this.stickyHeaderContainer
+            .style("height", `${this.headerHeight}px`)
+            .style("min-height", `${this.headerHeight}px`);
+
 
         if (drivingPathChanged) {
             this.debugLog("Driving path selection changed, recalculating...");
