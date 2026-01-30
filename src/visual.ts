@@ -10086,8 +10086,6 @@ export class Visual implements IVisual {
             return;
         }
 
-        this.dropdownContainer.selectAll("*").remove();
-
         this.dropdownContainer
             .style("position", "absolute")
             .style("top", "40px")
@@ -10096,9 +10094,17 @@ export class Visual implements IVisual {
             .style("transform", "none")
             .style("z-index", "20");
 
-        this.dropdownInput = this.dropdownContainer.append("input")
+        // Select existing elements or create new ones
+        let inputSelection = this.dropdownContainer.select<HTMLInputElement>("input.task-selection-input");
+        if (inputSelection.empty()) {
+            inputSelection = this.dropdownContainer.append<HTMLInputElement>("input")
+                .attr("class", "task-selection-input");
+        }
+        this.dropdownInput = inputSelection;
+
+        // Update attributes and styles (idempotent)
+        this.dropdownInput
             .attr("type", "text")
-            .attr("class", "task-selection-input")
             .attr("placeholder", searchPlaceholder)
             .attr("role", "combobox")
             .attr("aria-autocomplete", "list")
@@ -10136,8 +10142,14 @@ export class Visual implements IVisual {
                     .style("box-shadow", selfRef.UI_TOKENS.shadow[2]);
             });
 
-        this.dropdownList = this.dropdownContainer.append("div")
-            .attr("class", "task-selection-list")
+        let listSelection = this.dropdownContainer.select<HTMLDivElement>("div.task-selection-list");
+        if (listSelection.empty()) {
+            listSelection = this.dropdownContainer.append<HTMLDivElement>("div")
+                .attr("class", "task-selection-list");
+        }
+        this.dropdownList = listSelection;
+
+        this.dropdownList
             .attr("id", this.dropdownListId)
             .attr("role", "listbox")
             .attr("aria-label", this.getLocalizedString("ui.taskListLabel", "Task results"))
@@ -10172,6 +10184,7 @@ export class Visual implements IVisual {
 
         this.dropdownInput
             .on("input", function () {
+                self.isDropdownInteracting = true;
                 const inputValue = (this as HTMLInputElement).value.trim();
                 if (self.dropdownFilterTimeout) {
                     clearTimeout(self.dropdownFilterTimeout);
@@ -10179,6 +10192,10 @@ export class Visual implements IVisual {
                 self.dropdownFilterTimeout = window.setTimeout(() => {
                     self.renderTaskDropdown(inputValue);
                     self.openDropdown();
+                    // Keep interacting flag true a bit longer to survive any update cycles
+                    setTimeout(() => {
+                        self.isDropdownInteracting = false;
+                    }, 300);
                 }, 120);
             })
             .on("focus", function () {
@@ -10202,7 +10219,7 @@ export class Visual implements IVisual {
                 // Use longer delay and smarter detection
                 setTimeout(() => {
                     if (!self.isDropdownInteracting) {
-                        const currentInputValue = self.dropdownInput?.property("value");
+                        const currentInputValue = self.dropdownInput?.property("value") || "";
 
                         // If the user cleared the text and left, clear the filter
                         if (currentInputValue === "") {
@@ -10211,9 +10228,12 @@ export class Visual implements IVisual {
                                 self.applyFilter("");
                             }
                         } else {
+                            // User left input with text - apply it as filter
+                            // This ensures filter persists when clicking other UI elements
                             self.closeDropdown(false);
-                            const currentText = self.selectedTaskName || self.filterKeyword || "";
-                            if (self.dropdownInput) self.dropdownInput.property("value", currentText);
+                            if (currentInputValue !== self.filterKeyword && !self.selectedTaskId) {
+                                self.applyFilter(currentInputValue);
+                            }
                         }
                     }
 
