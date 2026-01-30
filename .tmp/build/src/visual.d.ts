@@ -216,7 +216,6 @@ export declare class Visual implements IVisual {
     private determineUpdateType;
     destroy(): void;
     private captureScrollPosition;
-    private toggleHelpOverlay;
     private setHoveredTask;
     private isRelationshipHovered;
     private getConnectorOpacity;

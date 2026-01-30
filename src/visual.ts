@@ -504,7 +504,7 @@ export class Visual implements IVisual {
                 this.floatThreshold = val;
                 if (this.lastUpdateOptions) this.update(this.lastUpdateOptions);
             },
-            onHelp: () => this.toggleHelpOverlay(),
+            onHelp: () => this.showHelpOverlay(),
             onExport: () => this.exportToPDF(),
             onCopy: () => this.copyVisibleDataToClipboard()
         });
@@ -1149,38 +1149,6 @@ export class Visual implements IVisual {
             this.debugLog(`Scroll position captured: ${this.preservedScrollTop}`);
         }
     }
-
-    private toggleHelpOverlay(): void {
-        this.isHelpOverlayVisible = !this.isHelpOverlayVisible;
-        if (this.isHelpOverlayVisible) {
-            const wrapper = d3.select(this.target).select(".visual-wrapper");
-            this.helpOverlayContainer = wrapper.append("div")
-                .attr("class", "help-overlay")
-                .style("position", "absolute")
-                .style("top", "0")
-                .style("left", "0")
-                .style("width", "100%")
-                .style("height", "100%")
-                .style("background-color", "rgba(255, 255, 255, 0.95)")
-                .style("z-index", "1000")
-                .style("display", "flex")
-                .style("flex-direction", "column")
-                .style("justify-content", "center")
-                .style("align-items", "center")
-                .on("click", () => this.clearHelpOverlay());
-
-            // eslint-disable-next-line powerbi-visuals/no-implied-inner-html
-            this.helpOverlayContainer.append("div")
-                .style("padding", "20px")
-                .style("background", "white")
-                .style("box-shadow", "0 4px 12px rgba(0,0,0,0.15)")
-                .style("border-radius", "8px")
-                .html("<h3>Keyboard Shortcuts</h3><ul><li><b>Scroll</b>: Pan vertically</li><li><b>Shift + Scroll</b>: Pan horizontally</li><li><b>Ctrl + Scroll</b>: Zoom time axis</li></ul><p>Click anywhere to close.</p>");
-        } else {
-            this.clearHelpOverlay();
-        }
-    }
-
 
 
     private setHoveredTask(taskId: string | null): void {
@@ -2644,6 +2612,27 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions) {
+        // Fix for stale updates: Force viewport to match actual container size if larger
+        // This prevents the visual from resizing down to a cached small size when in Focus Mode
+        if (this.target) {
+            const actualWidth = this.target.clientWidth;
+            const actualHeight = this.target.clientHeight;
+
+            if (options.viewport.width < actualWidth || options.viewport.height < actualHeight) {
+                this.debugLog(`Viewport mismatch detected. Override: [${options.viewport.width}x${options.viewport.height}] -> [${actualWidth}x${actualHeight}]`);
+                options.viewport.width = actualWidth;
+                options.viewport.height = actualHeight;
+            }
+        }
+
+        // Handle concurrent updates by debouncing
+        if (this.isUpdating) {
+            this.debugLog("Update already in progress, queuing next update.");
+            this.pendingUpdate = options;
+            this.debouncedUpdate();
+            return;
+        }
+
         this.eventService.renderingStarted(options);
 
         this.debugLog("===== UPDATE() CALLED =====");
@@ -2692,9 +2681,15 @@ export class Visual implements IVisual {
         let renderingFailed = false;
         eventService?.renderingStarted(options);
 
+        // Update lastUpdateOptions early to ensure viewport data is current for rendering
+        this.lastUpdateOptions = options;
+
         try {
             const updateType = this.determineUpdateType(options);
             this.debugLog(`Update type detected: ${updateType}`);
+
+            // ... (rest of logic) ...
+
 
             if (updateType === UpdateType.Full && this.scrollableContainer?.node()) {
                 const node = this.scrollableContainer.node();
@@ -2751,8 +2746,10 @@ export class Visual implements IVisual {
 
             const dataView = options.dataViews[0];
             const viewport = options.viewport;
-            const viewportHeight = viewport.height;
-            const viewportWidth = viewport.width;
+            // Always use the larger of options.viewport and the actual container size
+            // This ensures we fill focus mode even if Power BI sends stale/frozen dimensions
+            const viewportWidth = Math.max(viewport.width, this.target?.clientWidth ?? viewport.width);
+            const viewportHeight = Math.max(viewport.height, this.target?.clientHeight ?? viewport.height);
             const dataSignature = this.getDataSignature(dataView);
             const dataChanged = (options.type & VisualUpdateType.Data) !== 0 ||
                 this.lastDataSignature !== dataSignature;
@@ -3295,6 +3292,17 @@ export class Visual implements IVisual {
                 this.scrollHandlerBackup = null;
                 this.debugLog("Scroll handler restored in finally block");
             }
+
+            // Post-update size check: detect if container resized during/after update (Focus Mode timing fix)
+            requestAnimationFrame(() => {
+                if (this.target && this.lastViewport) {
+                    const currentContainerWidth = this.target.clientWidth;
+                    if (Math.abs(currentContainerWidth - this.lastViewport.width) > 10) {
+                        this.debugLog(`Post-update size mismatch: rendered=${this.lastViewport.width}, container=${currentContainerWidth}. Triggering re-render.`);
+                        this.requestUpdate(true);
+                    }
+                }
+            });
         }
     }
 
@@ -3332,8 +3340,16 @@ export class Visual implements IVisual {
 
     private handleViewportOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing viewport-only update");
-        const viewportWidth = options.viewport.width;
-        const viewportHeight = options.viewport.height;
+
+        // Ensure we use the full available width from the container if larger than the options viewport
+        // This fixes issues where Power BI sends a stale/small viewport after a resize event
+        let viewportWidth = options.viewport.width;
+        let viewportHeight = options.viewport.height;
+
+        if (this.target) {
+            viewportWidth = Math.max(viewportWidth, this.target.clientWidth);
+            viewportHeight = Math.max(viewportHeight, this.target.clientHeight);
+        }
 
         this.updateHeaderElements(viewportWidth);
 
@@ -3353,6 +3369,41 @@ export class Visual implements IVisual {
         if (this.xScale) {
             this.xScale.range([0, chartWidth]);
             this.debugLog(`Updated X scale range to [0, ${chartWidth}]`);
+
+            // Explicitly update task bar positions to sync with new xScale
+            // This ensures bars update immediately on resize without waiting for full redraw
+            const xScale = this.xScale;
+            const minTaskWidth = this.minTaskWidthPixels;
+
+            this.taskLayer?.selectAll<SVGRectElement, Task>(".task-bar")
+                .attr("x", (d: Task) => xScale(d.startDate!))
+                .attr("width", (d: Task) => {
+                    const startPos = xScale(d.startDate!);
+                    const finishPos = xScale(d.finishDate!);
+                    return Math.max(minTaskWidth, finishPos - startPos);
+                });
+
+            this.taskLayer?.selectAll<SVGPolygonElement, Task>(".milestone")
+                .attr("transform", (d: Task) => {
+                    const x = xScale(d.startDate || d.finishDate!);
+                    return `translate(${x}, 0)`;
+                });
+
+            this.taskLayer?.selectAll<SVGRectElement, Task>(".baseline-bar")
+                .attr("x", (d: Task) => xScale(d.baselineStartDate!))
+                .attr("width", (d: Task) => {
+                    const startPos = xScale(d.baselineStartDate!);
+                    const finishPos = xScale(d.baselineFinishDate!);
+                    return Math.max(minTaskWidth, finishPos - startPos);
+                });
+
+            this.taskLayer?.selectAll<SVGRectElement, Task>(".previous-update-bar")
+                .attr("x", (d: Task) => xScale(d.previousUpdateStartDate!))
+                .attr("width", (d: Task) => {
+                    const startPos = xScale(d.previousUpdateStartDate!);
+                    const finishPos = xScale(d.previousUpdateFinishDate!);
+                    return Math.max(minTaskWidth, finishPos - startPos);
+                });
         }
 
         this.calculateVisibleTasks();
@@ -5045,6 +5096,16 @@ export class Visual implements IVisual {
             }
             const oddRows = rowIndices.filter(i => i % 2 === 1);
 
+            // Ensure we cover the full range of the scale
+            const scaleRangeMax = yScale.range && yScale.range().length > 1 ? (yScale as any).range()[1] : 0;
+            // Note: The above cast is to workaround potential type incompatibility if yScale is strictly ScaleBand but we need range end. 
+            // Actually, for horizontal grid lines width we care about X axis width which is chartWidth.
+            // But let's check xScale range too if passed or if we can infer it. 
+            // The method signature passes `chartWidth`. 
+
+            // Let's rely on chartWidth but if we can, ensure it matches at least the content.
+            const effectiveWidth = chartWidth;
+
             this.gridLayer.selectAll<SVGRectElement, number>(".alternating-row-bg")
                 .data(oddRows, d => d)
                 .join(
@@ -5056,7 +5117,7 @@ export class Visual implements IVisual {
                 )
                 .attr("x", 0)
                 .attr("y", (yOrder: number) => yScale(yOrder.toString()) ?? 0)
-                .attr("width", chartWidth)
+                .attr("width", effectiveWidth)
                 .attr("height", rowHeight)
                 .style("fill", alternatingColor);
 
@@ -5351,7 +5412,15 @@ export class Visual implements IVisual {
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
         const milestoneSizeSetting = this.settings.taskBars.milestoneSize.value;
         const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
-        const viewportWidth = this.lastUpdateOptions?.viewport?.width ?? 0;
+
+        // Prioritize width from current scale range if available and non-zero
+        let viewportWidth = 0;
+        if (xScale && xScale.range() && xScale.range().length > 1) {
+            viewportWidth = xScale.range()[1];
+        } else {
+            viewportWidth = this.lastUpdateOptions?.viewport?.width ?? 0;
+        }
+
         const reduceLabelDensity = this.getLayoutMode(viewportWidth) === 'narrow';
         const shouldShowFinishLabel = (d: Task): boolean => {
             if (!reduceLabelDensity) return true;
