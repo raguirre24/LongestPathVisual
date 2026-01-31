@@ -7514,22 +7514,15 @@ export class Visual implements IVisual {
                     collectTasksFromGroup(child);
                 }
             } else {
-                // Group is collapsed - add ALL underlying tasks (allTasks includes nested)
-                if (group.allTasks) {
-                    for (const task of group.allTasks) {
-                        if (!addedTaskIds.has(task.internalId)) {
-                            tasksFromGroups.push(task);
-                            addedTaskIds.add(task.internalId);
-                        }
+                // Group is collapsed - recursively add ALL underlying tasks
+                for (const task of group.tasks) {
+                    if (!addedTaskIds.has(task.internalId)) {
+                        tasksFromGroups.push(task);
+                        addedTaskIds.add(task.internalId);
                     }
-                } else {
-                    // Fallback to direct tasks if allTasks not available
-                    for (const task of group.tasks) {
-                        if (!addedTaskIds.has(task.internalId)) {
-                            tasksFromGroups.push(task);
-                            addedTaskIds.add(task.internalId);
-                        }
-                    }
+                }
+                for (const child of group.children) {
+                    collectTasksFromGroup(child);
                 }
             }
         };

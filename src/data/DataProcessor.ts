@@ -833,16 +833,12 @@ export class DataProcessor {
 
         // Calculate group metrics
         const calculateGroupMetrics = (group: WBSGroup): void => {
-            group.allTasks = [...group.tasks];
+            // 1. Process children first (Post-order traversal)
             for (const child of group.children) {
                 calculateGroupMetrics(child);
-                group.allTasks.push(...child.allTasks);
             }
 
-            group.taskCount = group.allTasks.length;
-            group.hasCriticalTasks = group.allTasks.some(t => t.isCritical);
-            group.hasNearCriticalTasks = group.allTasks.some(t => t.isNearCritical);
-
+            // 2. Initialize metrics with current group's direct tasks
             let minStart: Date | null = null;
             let maxFinish: Date | null = null;
             let nearCriticalMinStart: Date | null = null;
@@ -852,7 +848,14 @@ export class DataProcessor {
             let prevUpdateMinStart: Date | null = null;
             let prevUpdateMaxFinish: Date | null = null;
 
-            for (const task of group.allTasks) {
+            let hasCritical = false;
+            let hasNearCritical = false;
+
+            // Process direct tasks
+            for (const task of group.tasks) {
+                if (task.isCritical) hasCritical = true;
+                if (task.isNearCritical) hasNearCritical = true;
+
                 const visualStart = task.manualStartDate ?? task.startDate;
                 const visualFinish = task.manualFinishDate ?? task.finishDate;
 
@@ -862,6 +865,7 @@ export class DataProcessor {
                 if (visualFinish) {
                     if (!maxFinish || visualFinish > maxFinish) maxFinish = visualFinish;
                 }
+
                 if (task.baselineStartDate) {
                     if (!baselineMinStart || task.baselineStartDate < baselineMinStart) baselineMinStart = task.baselineStartDate;
                 }
@@ -879,6 +883,47 @@ export class DataProcessor {
                     if (visualFinish && (!nearCriticalMaxFinish || visualFinish > nearCriticalMaxFinish)) nearCriticalMaxFinish = visualFinish;
                 }
             }
+
+            // 3. Aggregate with Children's Metrics
+            let childTaskCount = 0;
+
+            for (const child of group.children) {
+                childTaskCount += child.taskCount;
+                if (child.hasCriticalTasks) hasCritical = true;
+                if (child.hasNearCriticalTasks) hasNearCritical = true;
+
+                // Aggregate Dates
+                if (child.summaryStartDate) {
+                    if (!minStart || child.summaryStartDate < minStart) minStart = child.summaryStartDate;
+                }
+                if (child.summaryFinishDate) {
+                    if (!maxFinish || child.summaryFinishDate > maxFinish) maxFinish = child.summaryFinishDate;
+                }
+
+                if (child.summaryBaselineStartDate) {
+                    if (!baselineMinStart || child.summaryBaselineStartDate < baselineMinStart) baselineMinStart = child.summaryBaselineStartDate;
+                }
+                if (child.summaryBaselineFinishDate) {
+                    if (!baselineMaxFinish || child.summaryBaselineFinishDate > baselineMaxFinish) baselineMaxFinish = child.summaryBaselineFinishDate;
+                }
+                if (child.summaryPreviousUpdateStartDate) {
+                    if (!prevUpdateMinStart || child.summaryPreviousUpdateStartDate < prevUpdateMinStart) prevUpdateMinStart = child.summaryPreviousUpdateStartDate;
+                }
+                if (child.summaryPreviousUpdateFinishDate) {
+                    if (!prevUpdateMaxFinish || child.summaryPreviousUpdateFinishDate > prevUpdateMaxFinish) prevUpdateMaxFinish = child.summaryPreviousUpdateFinishDate;
+                }
+                if (child.nearCriticalStartDate) {
+                    if (!nearCriticalMinStart || child.nearCriticalStartDate < nearCriticalMinStart) nearCriticalMinStart = child.nearCriticalStartDate;
+                }
+                if (child.nearCriticalFinishDate) {
+                    if (!nearCriticalMaxFinish || child.nearCriticalFinishDate > nearCriticalMaxFinish) nearCriticalMaxFinish = child.nearCriticalFinishDate;
+                }
+            }
+
+            // 4. Set Result
+            group.taskCount = group.tasks.length + childTaskCount;
+            group.hasCriticalTasks = hasCritical;
+            group.hasNearCriticalTasks = hasNearCritical;
 
             group.summaryStartDate = minStart;
             group.summaryFinishDate = maxFinish;

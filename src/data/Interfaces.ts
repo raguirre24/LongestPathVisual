@@ -51,7 +51,7 @@ export interface WBSGroup {
     parentId: string | null;
     children: WBSGroup[];
     tasks: Task[];
-    allTasks: Task[];
+    allTasks?: Task[];
     isExpanded: boolean;
     yOrder?: number;
     visibleTaskCount: number;
