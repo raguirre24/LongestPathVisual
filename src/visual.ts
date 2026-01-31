@@ -3174,6 +3174,11 @@ export class Visual implements IVisual {
             }
 
             if (wbsGroupingEnabled) {
+                // Ensure the WBS expansion level defaults are applied if a global level is set
+                // (Custom overrides are handled by wbsExpandedState in processData, but global levels need explicit application)
+                if (this.wbsExpandToLevel !== undefined) {
+                    this.applyWbsExpandLevel(this.wbsExpandToLevel);
+                }
                 this.updateWbsFilteredCounts(tasksAfterLegendFilter);
             }
 
@@ -4298,7 +4303,7 @@ export class Visual implements IVisual {
             wbsExpanded: this.wbsExpandedInternal,
             wbsDataExists: this.wbsDataExistsInMetadata || this.wbsDataExists, // Prioritize metadata check if available
             wbsAvailableLevels: this.wbsAvailableLevels,
-            wbsExpandToLevel: this.wbsExpandToLevel,
+            wbsExpandToLevel: this.getCurrentWbsExpandLevel(),
             wbsManualExpansionOverride: this.wbsManualExpansionOverride,
 
             currentMode: (this.settings?.criticalPath?.calculationMode?.value as any)?.value || 'longestPath',
