@@ -200,6 +200,7 @@ export class Visual implements IVisual {
     private isHelpOverlayVisible: boolean = false;
 
     private relationshipIndex: Map<string, Relationship[]> = new Map();
+    private hasUserProvidedFloat: boolean = false;
 
     private allDrivingChains: Array<{
         tasks: Set<string>,
@@ -997,9 +998,11 @@ export class Visual implements IVisual {
     }
 
     private hasValidPlotDates(task: Task): boolean {
-        return task.startDate instanceof Date && !isNaN(task.startDate.getTime()) &&
-            task.finishDate instanceof Date && !isNaN(task.finishDate.getTime()) &&
-            task.finishDate >= task.startDate;
+        const start = task.manualStartDate ?? task.startDate;
+        const finish = task.manualFinishDate ?? task.finishDate;
+        return start instanceof Date && !isNaN(start.getTime()) &&
+            finish instanceof Date && !isNaN(finish.getTime()) &&
+            finish >= start;
     }
 
     private ensureTaskSortCache(signature: string): void {
@@ -1008,8 +1011,15 @@ export class Visual implements IVisual {
         }
 
         const sortedByStartDate = this.allTasksData
-            .filter(task => task.startDate instanceof Date && !isNaN(task.startDate.getTime()))
-            .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+            .filter(task => {
+                const s = task.manualStartDate ?? task.startDate;
+                return s instanceof Date && !isNaN(s.getTime());
+            })
+            .sort((a, b) => {
+                const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
+                const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                return aStart - bStart;
+            });
 
         this.cachedTasksSortedByStartDate = sortedByStartDate;
         this.cachedPlottableTasksSorted = sortedByStartDate.filter(task => this.hasValidPlotDates(task));
@@ -2952,6 +2962,7 @@ export class Visual implements IVisual {
                 this.relationshipIndex = processedData.relationshipIndex;
                 this.relationshipByPredecessor = processedData.relationshipByPredecessor;
                 this.dataDate = processedData.dataDate;
+                this.hasUserProvidedFloat = processedData.hasUserProvidedFloat;
                 this.legendDataExists = processedData.legendDataExists;
                 this.legendCategories = processedData.legendCategories;
                 this.legendColorMap = processedData.legendColorMap;
@@ -3170,7 +3181,11 @@ export class Visual implements IVisual {
             if (wbsGroupingEnabled) {
                 orderedTasks = this.applyWbsOrdering(tasksAfterLegendFilter);
             } else {
-                orderedTasks = [...tasksAfterLegendFilter].sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+                orderedTasks = [...tasksAfterLegendFilter].sort((a, b) => {
+                    const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
+                    const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                    return aStart - bStart;
+                });
             }
 
             // Update allFilteredTasks with the properly ordered tasks
@@ -3376,16 +3391,16 @@ export class Visual implements IVisual {
             const minTaskWidth = this.minTaskWidthPixels;
 
             this.taskLayer?.selectAll<SVGRectElement, Task>(".task-bar")
-                .attr("x", (d: Task) => xScale(d.startDate!))
+                .attr("x", (d: Task) => xScale(d.manualStartDate ?? d.startDate!))
                 .attr("width", (d: Task) => {
-                    const startPos = xScale(d.startDate!);
-                    const finishPos = xScale(d.finishDate!);
+                    const startPos = xScale(d.manualStartDate ?? d.startDate!);
+                    const finishPos = xScale(d.manualFinishDate ?? d.finishDate!);
                     return Math.max(minTaskWidth, finishPos - startPos);
                 });
 
             this.taskLayer?.selectAll<SVGPolygonElement, Task>(".milestone")
                 .attr("transform", (d: Task) => {
-                    const x = xScale(d.startDate || d.finishDate!);
+                    const x = xScale((d.manualStartDate ?? d.startDate) || (d.manualFinishDate ?? d.finishDate!));
                     return `translate(${x}, 0)`;
                 });
 
@@ -3638,10 +3653,10 @@ export class Visual implements IVisual {
             .style("top", "0")
             .style("bottom", "0")
             .style("left", "50%")
-            .style("width", "1px")
-            .style("transform", "translateX(-0.5px)")
-            .style("background-color", lineColor)
-            .style("opacity", "0.7")
+            .style("width", "2px")
+            .style("transform", "translateX(-1px)")
+            .style("background-color", "#666")
+            .style("opacity", "1")
             .style("pointer-events", "none");
 
         const self = this;
@@ -3992,11 +4007,14 @@ export class Visual implements IVisual {
 
         tasksToShow.forEach(task => {
 
-            if (task.startDate && !isNaN(task.startDate.getTime())) {
-                allTimestamps.push(task.startDate.getTime());
+            const start = task.manualStartDate ?? task.startDate;
+            const finish = task.manualFinishDate ?? task.finishDate;
+
+            if (start && !isNaN(start.getTime())) {
+                allTimestamps.push(start.getTime());
             }
-            if (task.finishDate && !isNaN(task.finishDate.getTime())) {
-                allTimestamps.push(task.finishDate.getTime());
+            if (finish && !isNaN(finish.getTime())) {
+                allTimestamps.push(finish.getTime());
             }
 
             if (includeBaselineInScale) {
@@ -4298,8 +4316,18 @@ export class Visual implements IVisual {
             if (Math.abs(currentX2 - viewportWidth) > 1) {
                 dividerLine.attr("x2", viewportWidth);
             }
+            // Enhance visibility
+            dividerLine
+                .style("stroke", "#666")
+                .style("stroke-width", "2px")
+                .style("opacity", "1");
         } else {
             this.drawHeaderDivider(viewportWidth);
+            // Apply styles after drawing
+            this.headerSvg?.select(".divider-line")
+                .style("stroke", "#666")
+                .style("stroke-width", "2px")
+                .style("opacity", "1");
         }
 
         // Dropdown and other custom header elements not yet in Header component
@@ -4860,10 +4888,6 @@ export class Visual implements IVisual {
         chartWidth: number,
         chartHeight: number
     ): void {
-        if (this.scrollThrottleTimeout !== null) {
-            this.debugLog("Skipping full redraw during active scroll");
-            return;
-        }
 
         if (!(this.gridLayer?.node() && this.taskLayer?.node() && this.arrowLayer?.node() &&
             xScale && yScale && yScale.bandwidth())) {
@@ -4933,6 +4957,8 @@ export class Visual implements IVisual {
 
         this.useCanvasRendering = renderableTasks.length > this.CANVAS_THRESHOLD;
         this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${renderableTasks.length} tasks`);
+
+
 
         /* Remove the unconditional SVG draw. It is handled conditionally below.
         if (showHorzGridLines) {
@@ -5445,11 +5471,13 @@ export class Visual implements IVisual {
         const milestoneShape = this.settings.taskBars.milestoneShape.value?.value ?? "diamond";
 
         const getTaskBarWidth = (d: Task): number => {
-            if (!(d.startDate instanceof Date) || !(d.finishDate instanceof Date)) {
+            const start = d.manualStartDate ?? d.startDate;
+            const finish = d.manualFinishDate ?? d.finishDate;
+            if (!(start instanceof Date) || !(finish instanceof Date)) {
                 return this.minTaskWidthPixels;
             }
-            const startPos = xScale(d.startDate);
-            const finishPos = xScale(d.finishDate);
+            const startPos = xScale(start);
+            const finishPos = xScale(finish);
             if (isNaN(startPos) || isNaN(finishPos) || finishPos < startPos) {
                 return this.minTaskWidthPixels;
             }
@@ -5585,167 +5613,170 @@ export class Visual implements IVisual {
         allTaskGroups.selectAll(".task-bar, .milestone").remove();
 
         allTaskGroups.filter((d: Task) =>
-            d.type !== 'TT_Mile' && d.type !== 'TT_FinMile' &&
-            d.startDate instanceof Date && !isNaN(d.startDate.getTime()) &&
-            d.finishDate instanceof Date && !isNaN(d.finishDate.getTime()) &&
-            d.finishDate >= d.startDate
+            (d.type !== 'TT_Mile' && d.type !== 'TT_FinMile')
         )
-            .append("rect")
-            .attr("class", (d: Task) => {
-                if (d.isCritical) return "task-bar critical";
-                if (d.isNearCritical) return "task-bar near-critical";
-                return "task-bar normal";
-            })
+            .each(function (d: Task) {
+                const start = d.manualStartDate ?? d.startDate;
+                const finish = d.manualFinishDate ?? d.finishDate;
+                if (start instanceof Date && !isNaN(start.getTime()) && finish instanceof Date && !isNaN(finish.getTime()) && finish >= start) {
+                    d3.select(this).append("rect")
+                        .attr("class", (d: Task) => {
+                            if (d.isCritical) return "task-bar critical";
+                            if (d.isNearCritical) return "task-bar near-critical";
+                            return "task-bar normal";
+                        })
 
-            .attr("role", "button")
-            .attr("aria-label", (d: Task) => {
-                const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
-                const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
-                return `${d.name}, ${statusText} task, Start: ${this.formatDate(d.startDate)}, Finish: ${this.formatDate(d.finishDate)}${selectedText}. Press Enter or Space to select.`;
-            })
-            .attr("tabindex", 0)
-            .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
-            .attr("x", (d: Task) => xScale(d.startDate!))
-            .attr("y", 0)
-            .attr("width", (d: Task) => getTaskBarWidth(d))
-            .attr("height", taskHeight)
+                        .attr("role", "button")
+                        .attr("aria-label", (d: Task) => {
+                            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+                            const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
+                            return `${d.name}, ${statusText} task, Start: ${self.formatDate(start)}, Finish: ${self.formatDate(finish)}${selectedText}. Press Enter or Space to select.`;
+                        })
+                        .attr("tabindex", 0)
+                        .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
+                        .attr("x", (d: Task) => xScale(start!))
+                        .attr("y", 0)
+                        .attr("width", (d: Task) => getTaskBarWidth(d))
+                        .attr("height", taskHeight)
 
-            .attr("rx", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
-            .attr("ry", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
-            .style("fill", (d: Task) => getTaskFillColor(d, taskColor))
+                        .attr("rx", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
+                        .attr("ry", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
+                        .style("fill", (d: Task) => getTaskFillColor(d, taskColor))
 
-            .style("stroke", (d: Task) => {
-                if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
+                        .style("stroke", (d: Task) => {
+                            if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
 
-                if (this.legendDataExists) {
-                    if (d.isCritical) return criticalColor;
-                    if (d.isNearCritical) return nearCriticalColor;
+                            if (self.legendDataExists) {
+                                if (d.isCritical) return criticalColor;
+                                if (d.isNearCritical) return nearCriticalColor;
+                            }
+
+                            // Use custom stroke color if set, otherwise use foreground color
+                            return taskBarStrokeColor || self.getForegroundColor();
+                        })
+                        .style("stroke-width", (d: Task) => {
+                            const barWidth = getTaskBarWidth(d);
+                            // Use custom stroke width setting as base
+                            let baseWidth = taskBarStrokeWidth > 0 ? taskBarStrokeWidth : 0.5;
+
+                            if (d.internalId === self.selectedTaskId) {
+                                baseWidth = 3;
+                            } else if (self.legendDataExists) {
+                                if (d.isCritical) baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
+                                else if (d.isNearCritical) baseWidth = self.settings.criticalPath.nearCriticalBorderWidth.value;
+                            } else if (d.isCritical) {
+                                baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
+                            }
+
+                            if (barWidth < minBarWidthForStrongStroke) {
+                                return Math.min(baseWidth, 1);
+                            }
+                            return baseWidth;
+                        })
+                        .style("filter", (d: Task) => {
+                            const barWidth = getTaskBarWidth(d);
+                            if (barWidth < minBarWidthForGlow) return "none";
+
+                            if (self.legendDataExists) {
+                                if (d.isCritical) {
+                                    const rgb = self.hexToRgb(criticalColor);
+                                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                                }
+                                if (d.isNearCritical) {
+                                    const nearColor = nearCriticalColor;
+                                    const rgb = self.hexToRgb(nearColor);
+                                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                                }
+                            }
+
+                            return `drop-shadow(${self.UI_TOKENS.shadow[2]})`;
+                        });
                 }
-
-                // Use custom stroke color if set, otherwise use foreground color
-                return taskBarStrokeColor || this.getForegroundColor();
-            })
-            .style("stroke-width", (d: Task) => {
-                const barWidth = getTaskBarWidth(d);
-                // Use custom stroke width setting as base
-                let baseWidth = taskBarStrokeWidth > 0 ? taskBarStrokeWidth : 0.5;
-
-                if (d.internalId === this.selectedTaskId) {
-                    baseWidth = 3;
-                } else if (this.legendDataExists) {
-                    if (d.isCritical) baseWidth = this.settings.criticalPath.criticalBorderWidth.value;
-                    else if (d.isNearCritical) baseWidth = this.settings.criticalPath.nearCriticalBorderWidth.value;
-                } else if (d.isCritical) {
-                    baseWidth = this.settings.criticalPath.criticalBorderWidth.value;
-                }
-
-                if (barWidth < minBarWidthForStrongStroke) {
-                    return Math.min(baseWidth, 1);
-                }
-                return baseWidth;
-            })
-
-            .style("filter", (d: Task) => {
-                const barWidth = getTaskBarWidth(d);
-                if (barWidth < minBarWidthForGlow) return "none";
-
-                if (this.legendDataExists) {
-                    if (d.isCritical) {
-                        const rgb = this.hexToRgb(criticalColor);
-                        return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
-                    }
-                    if (d.isNearCritical) {
-                        const nearColor = nearCriticalColor;
-                        const rgb = this.hexToRgb(nearColor);
-                        return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
-                    }
-                }
-
-                return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
             });
 
         allTaskGroups.filter((d: Task) =>
-            (d.type === 'TT_Mile' || d.type === 'TT_FinMile') &&
-            ((d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ||
-                (d.finishDate instanceof Date && !isNaN(d.finishDate.getTime())))
+            (d.type === 'TT_Mile' || d.type === 'TT_FinMile')
         )
-            .append("path")
-            .attr("class", (d: Task) => {
-                if (d.isCritical) return "milestone critical";
-                if (d.isNearCritical) return "milestone near-critical";
-                return "milestone normal";
-            })
+            .each(function (d: Task) {
+                const mDate = (d.manualStartDate ?? d.startDate) || (d.manualFinishDate ?? d.finishDate);
+                if (mDate instanceof Date && !isNaN(mDate.getTime())) {
+                    d3.select(this).append("path")
+                        .attr("class", (d: Task) => {
+                            if (d.isCritical) return "milestone critical";
+                            if (d.isNearCritical) return "milestone near-critical";
+                            return "milestone normal";
+                        })
 
-            .attr("role", "button")
-            .attr("aria-label", (d: Task) => {
-                const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
-                const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
-                const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
-                return `${d.name}, ${statusText} milestone, Date: ${this.formatDate(milestoneDate)}${selectedText}. Press Enter or Space to select.`;
-            })
-            .attr("tabindex", 0)
-            .attr("aria-pressed", (d: Task) => d.internalId === this.selectedTaskId ? "true" : "false")
-            .attr("transform", (d: Task) => {
-                const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
-                const x = (milestoneDate instanceof Date && !isNaN(milestoneDate.getTime())) ? xScale(milestoneDate) : 0;
-                const y = taskHeight / 2;
-                if (isNaN(x)) console.warn(`Invalid X position for milestone ${d.internalId}`);
-                return `translate(${x}, ${y})`;
-            })
-            .attr("d", () => {
-                const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-                // Support different milestone shapes from settings
-                switch (milestoneShape) {
-                    case "circle":
-                        // Approximate circle with SVG path (8-point circle approximation)
-                        const r = size / 2;
-                        return `M ${r},0 A ${r},${r} 0 1,1 -${r},0 A ${r},${r} 0 1,1 ${r},0`;
-                    case "square":
-                        const halfSize = size / 2;
-                        return `M -${halfSize},-${halfSize} L ${halfSize},-${halfSize} L ${halfSize},${halfSize} L -${halfSize},${halfSize} Z`;
-                    case "diamond":
-                    default:
-                        return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
+                        .attr("role", "button")
+                        .attr("aria-label", (d: Task) => {
+                            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+                            const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
+                            return `${d.name}, ${statusText} milestone, Date: ${self.formatDate(mDate)}${selectedText}. Press Enter or Space to select.`;
+                        })
+                        .attr("tabindex", 0)
+                        .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
+                        .attr("transform", (d: Task) => {
+                            const x = xScale(mDate);
+                            const y = taskHeight / 2;
+                            if (isNaN(x)) console.warn(`Invalid X position for milestone ${d.internalId}`);
+                            return `translate(${x}, ${y})`;
+                        })
+                        .attr("d", () => {
+                            const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                            // Support different milestone shapes from settings
+                            switch (milestoneShape) {
+                                case "circle":
+                                    // Approximate circle with SVG path (8-point circle approximation)
+                                    const r = size / 2;
+                                    return `M ${r},0 A ${r},${r} 0 1,1 -${r},0 A ${r},${r} 0 1,1 ${r},0`;
+                                case "square":
+                                    const halfSize = size / 2;
+                                    return `M -${halfSize},-${halfSize} L ${halfSize},-${halfSize} L ${halfSize},${halfSize} L -${halfSize},${halfSize} Z`;
+                                case "diamond":
+                                default:
+                                    return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
+                            }
+                        })
+                        .style("fill", (d: Task) => getTaskFillColor(d, milestoneColor))
+
+                        .style("stroke", (d: Task) => {
+                            if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
+
+                            if (self.legendDataExists) {
+                                if (d.isCritical) return criticalColor;
+                                if (d.isNearCritical) return nearCriticalColor;
+                            }
+
+                            return self.getForegroundColor();
+                        })
+                        .style("stroke-width", (d: Task) => {
+                            if (d.internalId === self.selectedTaskId) return 3;
+
+                            if (self.legendDataExists) {
+                                if (d.isCritical) return self.settings.criticalPath.criticalBorderWidth.value;
+                                if (d.isNearCritical) return self.settings.criticalPath.nearCriticalBorderWidth.value;
+                            }
+
+                            return 1.5;
+                        })
+
+                        .style("filter", (d: Task) => {
+
+                            if (self.legendDataExists) {
+                                if (d.isCritical) {
+                                    const rgb = self.hexToRgb(criticalColor);
+                                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                                }
+                                if (d.isNearCritical) {
+                                    const nearColor = nearCriticalColor;
+                                    const rgb = self.hexToRgb(nearColor);
+                                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                                }
+                            }
+
+                            return `drop-shadow(${self.UI_TOKENS.shadow[2]})`;
+                        });
                 }
-            })
-            .style("fill", (d: Task) => getTaskFillColor(d, milestoneColor))
-
-            .style("stroke", (d: Task) => {
-                if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-
-                if (this.legendDataExists) {
-                    if (d.isCritical) return criticalColor;
-                    if (d.isNearCritical) return nearCriticalColor;
-                }
-
-                return this.getForegroundColor();
-            })
-            .style("stroke-width", (d: Task) => {
-                if (d.internalId === this.selectedTaskId) return 3;
-
-                if (this.legendDataExists) {
-                    if (d.isCritical) return this.settings.criticalPath.criticalBorderWidth.value;
-                    if (d.isNearCritical) return this.settings.criticalPath.nearCriticalBorderWidth.value;
-                }
-
-                return 1.5;
-            })
-
-            .style("filter", (d: Task) => {
-
-                if (this.legendDataExists) {
-                    if (d.isCritical) {
-                        const rgb = this.hexToRgb(criticalColor);
-                        return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
-                    }
-                    if (d.isNearCritical) {
-                        const nearColor = nearCriticalColor;
-                        const rgb = this.hexToRgb(nearColor);
-                        return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
-                    }
-                }
-
-                return `drop-shadow(${this.UI_TOKENS.shadow[2]})`;
             });
 
         this.drawTaskLabelsLayer(
@@ -5857,13 +5888,13 @@ export class Visual implements IVisual {
                 .style("font-weight", "500")
                 .style("pointer-events", "none")
                 .attr("x", (d: Task): number | null => {
-                    const startX = xScale(d.startDate!);
-                    const finishX = xScale(d.finishDate!);
+                    const startX = xScale(d.manualStartDate ?? d.startDate!);
+                    const finishX = xScale(d.manualFinishDate ?? d.finishDate!);
                     return (isNaN(startX) || isNaN(finishX)) ? null : startX + (finishX - startX) / 2;
                 })
                 .text((d: Task): string => {
-                    const startX = xScale(d.startDate!);
-                    const finishX = xScale(d.finishDate!);
+                    const startX = xScale(d.manualStartDate ?? d.startDate!);
+                    const finishX = xScale(d.manualFinishDate ?? d.finishDate!);
                     if (isNaN(startX) || isNaN(finishX)) return "";
                     const barWidth = finishX - startX;
                     const textContent = `${Math.round(d.duration || 0)}d`;
@@ -6232,12 +6263,18 @@ export class Visual implements IVisual {
 
             // Render Start Date
             if (showStart) {
-                appendColumnText(mergedGroups, startOffset, startWidth, (d: Task) => d.startDate ? this.formatColumnDate(d.startDate) : "", "middle");
+                appendColumnText(mergedGroups, startOffset, startWidth, (d: Task) => {
+                    const date = d.manualStartDate ?? d.startDate;
+                    return date ? this.formatColumnDate(date) : "";
+                }, "middle");
             }
 
             // Render Finish Date
             if (showFinish) {
-                appendColumnText(mergedGroups, finishOffset, finishWidth, (d: Task) => d.finishDate ? this.formatColumnDate(d.finishDate) : "", "middle");
+                appendColumnText(mergedGroups, finishOffset, finishWidth, (d: Task) => {
+                    const date = d.manualFinishDate ?? d.finishDate;
+                    return date ? this.formatColumnDate(date) : "";
+                }, "middle");
             }
 
             // Render Duration
@@ -6524,7 +6561,8 @@ export class Visual implements IVisual {
                     if (task.isCritical) strokeWidth = 1;
                 }
 
-                const widthVal = (task.startDate && task.finishDate) ? (xScale(task.finishDate) - xScale(task.startDate)) : 0;
+                const widthVal = ((task.manualStartDate ?? task.startDate) && (task.manualFinishDate ?? task.finishDate))
+                    ? (xScale(task.manualFinishDate ?? task.finishDate!) - xScale(task.manualStartDate ?? task.startDate!)) : 0;
                 if (widthVal >= minBarWidthForGlow || task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
                     if (this.legendDataExists) {
                         if (task.isCritical) {
@@ -6552,7 +6590,7 @@ export class Visual implements IVisual {
             const styleKey = `${fillColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
 
             if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-                const mDate = task.startDate || task.finishDate;
+                const mDate = (task.manualStartDate ?? task.startDate) || (task.manualFinishDate ?? task.finishDate);
                 if (mDate) {
                     const x = Math.round(xScale(mDate));
                     const y = Math.round(yPos + taskHeight / 2);
@@ -6561,9 +6599,11 @@ export class Visual implements IVisual {
                     if (!milestoneBatches.has(styleKey)) milestoneBatches.set(styleKey, []);
                     milestoneBatches.get(styleKey)!.push({ x, y, size, rotated: true });
                 }
-            } else if (task.startDate && task.finishDate) {
-                const x = Math.round(xScale(task.startDate));
-                const w = Math.round(Math.max(1, xScale(task.finishDate) - xScale(task.startDate)));
+            } else if ((task.manualStartDate ?? task.startDate) && (task.manualFinishDate ?? task.finishDate)) {
+                const start = task.manualStartDate ?? task.startDate!;
+                const finish = task.manualFinishDate ?? task.finishDate!;
+                const x = Math.round(xScale(start));
+                const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
                 const h = Math.round(taskHeight);
                 const r = Math.min(5, Math.round(h * 0.15), Math.round(w / 2));
 
@@ -6892,20 +6932,25 @@ export class Visual implements IVisual {
                 let baseStartDate: Date | null | undefined = null;
                 let baseEndDate: Date | null | undefined = null;
 
+                const predStart = pred.manualStartDate ?? pred.startDate;
+                const predFinish = pred.manualFinishDate ?? pred.finishDate;
+                const succStart = succ.manualStartDate ?? succ.startDate;
+                const succFinish = succ.manualFinishDate ?? succ.finishDate;
+
                 switch (relType) {
                     case 'FS': case 'FF':
-                        baseStartDate = predIsMilestone ? (pred.startDate ?? pred.finishDate) : pred.finishDate;
+                        baseStartDate = predIsMilestone ? (predStart ?? predFinish) : predFinish;
                         break;
                     case 'SS': case 'SF':
-                        baseStartDate = pred.startDate;
+                        baseStartDate = predStart;
                         break;
                 }
                 switch (relType) {
                     case 'FS': case 'SS':
-                        baseEndDate = succ.startDate;
+                        baseEndDate = succStart;
                         break;
                     case 'FF': case 'SF':
-                        baseEndDate = succIsMilestone ? (succ.startDate ?? succ.finishDate) : succ.finishDate;
+                        baseEndDate = succIsMilestone ? (succStart ?? succFinish) : succFinish;
                         break;
                 }
 
@@ -7217,13 +7262,18 @@ export class Visual implements IVisual {
                 let baseStartDate: Date | null | undefined = null;
                 let baseEndDate: Date | null | undefined = null;
 
+                const predStart = pred.manualStartDate ?? pred.startDate;
+                const predFinish = pred.manualFinishDate ?? pred.finishDate;
+                const succStart = succ.manualStartDate ?? succ.startDate;
+                const succFinish = succ.manualFinishDate ?? succ.finishDate;
+
                 switch (relType) {
-                    case 'FS': case 'FF': baseStartDate = predIsMilestone ? (pred.startDate ?? pred.finishDate) : pred.finishDate; break;
-                    case 'SS': case 'SF': baseStartDate = pred.startDate; break;
+                    case 'FS': case 'FF': baseStartDate = predIsMilestone ? (predStart ?? predFinish) : predFinish; break;
+                    case 'SS': case 'SF': baseStartDate = predStart; break;
                 }
                 switch (relType) {
-                    case 'FS': case 'SS': baseEndDate = succ.startDate; break;
-                    case 'FF': case 'SF': baseEndDate = succIsMilestone ? (succ.startDate ?? succ.finishDate) : succ.finishDate; break;
+                    case 'FS': case 'SS': baseEndDate = succStart; break;
+                    case 'FF': case 'SF': baseEndDate = succIsMilestone ? (succStart ?? succFinish) : succFinish; break;
                 }
 
                 let startX: number | null = null;
@@ -7346,10 +7396,13 @@ export class Visual implements IVisual {
                 const relType = rel.type || 'FS';
                 const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
 
+                const predStart = pred.manualStartDate ?? pred.startDate;
+                const predFinish = pred.manualFinishDate ?? pred.finishDate;
+
                 let baseStartDate: Date | null | undefined = null;
                 switch (relType) {
-                    case 'FS': case 'FF': baseStartDate = predIsMilestone ? (pred.startDate ?? pred.finishDate) : pred.finishDate; break;
-                    case 'SS': case 'SF': baseStartDate = pred.startDate; break;
+                    case 'FS': case 'FF': baseStartDate = predIsMilestone ? (predStart ?? predFinish) : predFinish; break;
+                    case 'SS': case 'SF': baseStartDate = predStart; break;
                 }
 
                 if (baseStartDate instanceof Date && !isNaN(baseStartDate.getTime())) {
@@ -7389,10 +7442,13 @@ export class Visual implements IVisual {
                 const relType = rel.type || 'FS';
                 const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
 
+                const succStart = succ.manualStartDate ?? succ.startDate;
+                const succFinish = succ.manualFinishDate ?? succ.finishDate;
+
                 let baseEndDate: Date | null | undefined = null;
                 switch (relType) {
-                    case 'FS': case 'SS': baseEndDate = succ.startDate; break;
-                    case 'FF': case 'SF': baseEndDate = succIsMilestone ? (succ.startDate ?? succ.finishDate) : succ.finishDate; break;
+                    case 'FS': case 'SS': baseEndDate = succStart; break;
+                    case 'FF': case 'SF': baseEndDate = succIsMilestone ? (succStart ?? succFinish) : succFinish; break;
                 }
 
                 if (baseEndDate instanceof Date && !isNaN(baseEndDate.getTime())) {
@@ -7615,7 +7671,7 @@ export class Visual implements IVisual {
         const labelBackgroundOpacity = 1 - (labelBackgroundTransparency / 100);
 
         const latestFinishDate = settings.show.value
-            ? this.getLatestFinishDate(allTasks, (t: Task) => t.finishDate)
+            ? this.getLatestFinishDate(allTasks, (t: Task) => t.manualFinishDate ?? t.finishDate)
             : null;
 
         this.drawFinishLine({
@@ -7961,6 +8017,10 @@ export class Visual implements IVisual {
      */
     private identifyDrivingRelationships(): void {
 
+        // Check if user has provided Relationship Free Float for ANY relationship
+        // Uses flag calculated in DataProcessor to avoid O(N) iteration here
+        const hasUserProvidedFloat = this.hasUserProvidedFloat;
+
         for (const rel of this.relationships) {
             const pred = this.taskIdToTask.get(rel.predecessorId);
             const succ = this.taskIdToTask.get(rel.successorId);
@@ -7972,11 +8032,23 @@ export class Visual implements IVisual {
                 continue;
             }
 
-            let relFloat: number;
-
-            if (rel.freeFloat !== null && rel.freeFloat !== undefined) {
-                relFloat = rel.freeFloat;
+            // STRICT FILTERING LOGIC
+            if (hasUserProvidedFloat) {
+                if (rel.freeFloat !== null && rel.freeFloat !== undefined) {
+                    rel.relationshipFloat = rel.freeFloat;
+                    // It is driving if float <= 0 (or tolerance). 
+                    // We set isDriving immediately here for strict mode to avoid downstream ambiguity
+                    // But to respect the 'minFloat' logic below for standard groups, we can just set the float
+                    // can let the group logic handle it?
+                    // The user said: "only calcualte the driving paths using the provided values... filter out any relationship where ... blank"
+                    // If it's blank (else block), we ignore it.
+                } else {
+                    // Blank value in strict mode -> Ignore this relationship for driving purposes
+                    rel.relationshipFloat = Infinity;
+                }
             } else {
+                // Legacy / Fallback Mode (No user provided float found in dataset)
+                let relFloat: number;
 
                 if (!pred.startDate || !pred.finishDate ||
                     !succ.startDate || !succ.finishDate) {
@@ -8002,9 +8074,11 @@ export class Visual implements IVisual {
                     case 'FF': relFloat = succFinish - (predFinish + lag); break;
                     case 'SF': relFloat = succFinish - (predStart + lag); break;
                 }
+
+                rel.relationshipFloat = relFloat;
             }
 
-            rel.relationshipFloat = relFloat;
+            // Allow downstream logic to set isDriving based on minFloat unless strictly excluded
             rel.isDriving = false;
             rel.isCritical = false;
         }
@@ -9270,7 +9344,11 @@ export class Visual implements IVisual {
 
                 const directTasks = group.tasks
                     .filter(t => taskSet.has(t.internalId))
-                    .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+                    .sort((a, b) => {
+                        const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
+                        const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                        return aStart - bStart;
+                    });
 
                 for (const task of directTasks) {
                     orderedTasks.push(task);
@@ -9285,7 +9363,11 @@ export class Visual implements IVisual {
 
         const tasksWithoutWbs = tasks
             .filter(t => !t.wbsGroupId)
-            .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+            .sort((a, b) => {
+                const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
+                const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                return aStart - bStart;
+            });
 
         for (const task of tasksWithoutWbs) {
             orderedTasks.push(task);
@@ -9347,30 +9429,37 @@ export class Visual implements IVisual {
 
                 if (!filteredTaskIds.has(task.internalId)) continue;
 
-                if (task.startDate && (!minStart || task.startDate < minStart)) {
-                    minStart = task.startDate;
+                const visualStart = task.manualStartDate ?? task.startDate;
+                const visualFinish = task.manualFinishDate ?? task.finishDate;
+
+                // Filter out invalid or extremely old dates (likely placeholders)
+                const isValidStart = visualStart && visualStart.getFullYear() > 1980;
+                const isValidFinish = visualFinish && visualFinish.getFullYear() > 1980;
+
+                if (isValidStart && (!minStart || visualStart! < minStart)) {
+                    minStart = visualStart;
                 }
-                if (task.finishDate && (!maxFinish || task.finishDate > maxFinish)) {
-                    maxFinish = task.finishDate;
+                if (isValidFinish && (!maxFinish || visualFinish! > maxFinish)) {
+                    maxFinish = visualFinish;
                 }
 
                 if (task.isCritical) {
                     hasCritical = true;
-                    if (task.startDate && (!criticalMinStart || task.startDate < criticalMinStart)) {
-                        criticalMinStart = task.startDate;
+                    if (visualStart && (!criticalMinStart || visualStart < criticalMinStart)) {
+                        criticalMinStart = visualStart;
                     }
-                    if (task.finishDate && (!criticalMaxFinish || task.finishDate > criticalMaxFinish)) {
-                        criticalMaxFinish = task.finishDate;
+                    if (visualFinish && (!criticalMaxFinish || visualFinish > criticalMaxFinish)) {
+                        criticalMaxFinish = visualFinish;
                     }
                 }
 
                 if (task.isNearCritical) {
                     hasNearCritical = true;
-                    if (task.startDate && (!nearCriticalMinStart || task.startDate < nearCriticalMinStart)) {
-                        nearCriticalMinStart = task.startDate;
+                    if (visualStart && (!nearCriticalMinStart || visualStart < nearCriticalMinStart)) {
+                        nearCriticalMinStart = visualStart;
                     }
-                    if (task.finishDate && (!nearCriticalMaxFinish || task.finishDate > nearCriticalMaxFinish)) {
-                        nearCriticalMaxFinish = task.finishDate;
+                    if (visualFinish && (!nearCriticalMaxFinish || visualFinish > nearCriticalMaxFinish)) {
+                        nearCriticalMaxFinish = visualFinish;
                     }
                 }
 
@@ -9526,7 +9615,11 @@ export class Visual implements IVisual {
 
                 const directVisibleTasks = group.tasks
                     .filter(t => visibleTaskIds.has(t.internalId))
-                    .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+                    .sort((a, b) => {
+                        const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
+                        const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                        return aStart - bStart;
+                    });
 
                 for (const task of directVisibleTasks) {
                     task.yOrder = currentYOrder++;
@@ -9541,7 +9634,11 @@ export class Visual implements IVisual {
 
         const tasksWithoutWbs = tasksToShow
             .filter(t => !t.wbsGroupId)
-            .sort((a, b) => (a.startDate?.getTime() ?? 0) - (b.startDate?.getTime() ?? 0));
+            .sort((a, b) => {
+                const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
+                const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                return aStart - bStart;
+            });
 
         for (const task of tasksWithoutWbs) {
             task.yOrder = currentYOrder++;
@@ -9635,6 +9732,10 @@ export class Visual implements IVisual {
                 .attr('class', 'wbs-group-header')
                 .attr('data-group-id', group.id)
                 .style('cursor', 'pointer');
+
+            // DEBUG: Print summary date
+            // const debugDate = group.summaryStartDate ? group.summaryStartDate.toISOString().split('T')[0] : "None";
+            // console.log(`Group ${group.name} Start: ${debugDate}`);
 
             const bgOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
 

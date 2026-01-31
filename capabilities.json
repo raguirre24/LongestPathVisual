@@ -32,15 +32,27 @@
         },
         {
             "name": "startDate",
-            "displayName": "Start Date",
+            "displayName": "Early Start",
             "kind": "GroupingOrMeasure",
-            "description": "Actual/Forecast start date"
+            "description": "Calculated or Actual/Forecast start date"
         },
         {
             "name": "finishDate",
+            "displayName": "Early Finish",
+            "kind": "GroupingOrMeasure",
+            "description": "Calculated or Actual/Forecast finish date"
+        },
+        {
+            "name": "manualStartDate",
+            "displayName": "Start Date",
+            "kind": "GroupingOrMeasure",
+            "description": "User-defined start date for visualization (does not affect calculation)"
+        },
+        {
+            "name": "manualFinishDate",
             "displayName": "Finish Date",
             "kind": "GroupingOrMeasure",
-            "description": "Actual/Forecast finish date"
+            "description": "User-defined finish date for visualization (does not affect calculation)"
         },
         {
             "name": "baselineStartDate",
@@ -1918,6 +1930,12 @@
                     "finishDate": {
                         "max": 1
                     },
+                    "manualStartDate": {
+                        "max": 1
+                    },
+                    "manualFinishDate": {
+                        "max": 1
+                    },
                     "baselineStartDate": {
                         "max": 1
                     },
@@ -1987,6 +2005,16 @@
                         {
                             "for": {
                                 "in": "finishDate"
+                            }
+                        },
+                        {
+                            "for": {
+                                "in": "manualStartDate"
+                            }
+                        },
+                        {
+                            "for": {
+                                "in": "manualFinishDate"
                             }
                         },
                         {

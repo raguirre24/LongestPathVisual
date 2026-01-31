@@ -28,6 +28,8 @@ export interface Task {
     isNearCritical?: boolean;
     startDate?: Date | null;
     finishDate?: Date | null;
+    manualStartDate?: Date | null;
+    manualFinishDate?: Date | null;
     baselineStartDate?: Date | null;
     baselineFinishDate?: Date | null;
     previousUpdateStartDate?: Date | null;

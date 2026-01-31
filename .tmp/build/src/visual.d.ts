@@ -148,6 +148,7 @@ export declare class Visual implements IVisual {
     private helpOverlayContainer;
     private isHelpOverlayVisible;
     private relationshipIndex;
+    private hasUserProvidedFloat;
     private allDrivingChains;
     private selectedPathIndex;
     private readonly VIEWPORT_CHANGE_THRESHOLD;

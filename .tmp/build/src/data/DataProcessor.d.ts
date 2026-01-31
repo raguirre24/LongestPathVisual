@@ -26,6 +26,7 @@ export interface ProcessedData {
     taskIdColumn: string | null;
     wbsLevelColumnIndices: number[];
     wbsLevelColumnNames: string[];
+    hasUserProvidedFloat: boolean;
 }
 export declare class DataProcessor {
     private debug;

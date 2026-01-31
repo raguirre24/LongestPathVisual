@@ -34,6 +34,9 @@ export interface ProcessedData {
     taskIdColumn: string | null;
     wbsLevelColumnIndices: number[];
     wbsLevelColumnNames: string[];
+
+    // Calculation Flags
+    hasUserProvidedFloat: boolean;
 }
 
 export class DataProcessor {
@@ -89,7 +92,8 @@ export class DataProcessor {
             taskIdTable: null,
             taskIdColumn: null,
             wbsLevelColumnIndices: [],
-            wbsLevelColumnNames: []
+            wbsLevelColumnNames: [],
+            hasUserProvidedFloat: false
         };
 
         if (!dataView.table?.rows || !dataView.metadata?.columns) {
@@ -226,6 +230,11 @@ export class DataProcessor {
                         if (!isNaN(parsedFreeFloat) && isFinite(parsedFreeFloat)) {
                             relFreeFloat = parsedFreeFloat;
                         }
+                    }
+
+                    // Optimization: Check if user provided ANY valid float
+                    if (relFreeFloat !== null && relFreeFloat !== undefined && result.hasUserProvidedFloat === false) {
+                        result.hasUserProvidedFloat = true;
                     }
 
                     const existingRel = taskData.relationships.find(
@@ -418,6 +427,8 @@ export class DataProcessor {
         const baselineFinishDateIdx = this.getColumnIndex(dataView, 'baselineFinishDate');
         const previousUpdateStartDateIdx = this.getColumnIndex(dataView, 'previousUpdateStartDate');
         const previousUpdateFinishDateIdx = this.getColumnIndex(dataView, 'previousUpdateFinishDate');
+        const manualStartDateIdx = this.getColumnIndex(dataView, 'manualStartDate');
+        const manualFinishDateIdx = this.getColumnIndex(dataView, 'manualFinishDate');
 
         const taskName = (nameIdx !== -1 && row[nameIdx] != null)
             ? String(row[nameIdx]).trim()
@@ -476,6 +487,21 @@ export class DataProcessor {
             ? this.parseDate(row[previousUpdateFinishDateIdx])
             : null;
 
+
+        const manualStartDate = (manualStartDateIdx !== -1 && row[manualStartDateIdx] != null)
+            ? this.parseDate(row[manualStartDateIdx])
+            : null;
+        const manualFinishDate = (manualFinishDateIdx !== -1 && row[manualFinishDateIdx] != null)
+            ? this.parseDate(row[manualFinishDateIdx])
+            : null;
+
+        if (rowIndex < 5) {
+            console.log(`[DEBUG] Task ${taskId} - manualStartIdx: ${manualStartDateIdx}, manualFinishIdx: ${manualFinishDateIdx}`);
+            console.log(`[DEBUG] Task ${taskId} - manualStartVal: ${row[manualStartDateIdx]}, manualFinishVal: ${row[manualFinishDateIdx]}`);
+            console.log(`[DEBUG] Task ${taskId} - parsedStart: ${manualStartDate}, parsedFinish: ${manualFinishDate}`);
+        }
+
+
         const legendIdx = this.getColumnIndex(dataView, 'legend');
         const legendValue = (legendIdx !== -1 && row[legendIdx] != null)
             ? String(row[legendIdx])
@@ -525,6 +551,8 @@ export class DataProcessor {
             baselineFinishDate: baselineFinishDate,
             previousUpdateStartDate: previousUpdateStartDate,
             previousUpdateFinishDate: previousUpdateFinishDate,
+            manualStartDate: manualStartDate,
+            manualFinishDate: manualFinishDate,
             tooltipData: tooltipData,
             selectionId: selectionId,
             legendValue: legendValue,
@@ -825,11 +853,14 @@ export class DataProcessor {
             let prevUpdateMaxFinish: Date | null = null;
 
             for (const task of group.allTasks) {
-                if (task.startDate) {
-                    if (!minStart || task.startDate < minStart) minStart = task.startDate;
+                const visualStart = task.manualStartDate ?? task.startDate;
+                const visualFinish = task.manualFinishDate ?? task.finishDate;
+
+                if (visualStart) {
+                    if (!minStart || visualStart < minStart) minStart = visualStart;
                 }
-                if (task.finishDate) {
-                    if (!maxFinish || task.finishDate > maxFinish) maxFinish = task.finishDate;
+                if (visualFinish) {
+                    if (!maxFinish || visualFinish > maxFinish) maxFinish = visualFinish;
                 }
                 if (task.baselineStartDate) {
                     if (!baselineMinStart || task.baselineStartDate < baselineMinStart) baselineMinStart = task.baselineStartDate;
@@ -844,8 +875,8 @@ export class DataProcessor {
                     if (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish) prevUpdateMaxFinish = task.previousUpdateFinishDate;
                 }
                 if (task.isNearCritical) {
-                    if (task.startDate && (!nearCriticalMinStart || task.startDate < nearCriticalMinStart)) nearCriticalMinStart = task.startDate;
-                    if (task.finishDate && (!nearCriticalMaxFinish || task.finishDate > nearCriticalMaxFinish)) nearCriticalMaxFinish = task.finishDate;
+                    if (visualStart && (!nearCriticalMinStart || visualStart < nearCriticalMinStart)) nearCriticalMinStart = visualStart;
+                    if (visualFinish && (!nearCriticalMaxFinish || visualFinish > nearCriticalMaxFinish)) nearCriticalMaxFinish = visualFinish;
                 }
             }
 
