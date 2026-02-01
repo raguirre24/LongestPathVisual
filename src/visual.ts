@@ -6082,38 +6082,53 @@ export class Visual implements IVisual {
                         const beforeWidth = Math.max(0, dataDateX - startX);
                         const afterWidth = Math.max(0, finishX - dataDateX);
 
-                        // Only render before portion if it has width
+                        // Create a unique clip path ID for this bar
+                        const clipId = `bar-clip-${d.internalId}`;
+                        const taskGroup = d3.select(this);
+
+                        // Add clip path definition for rounded rectangle shape
+                        let defs = taskGroup.select("defs");
+                        if (defs.empty()) {
+                            defs = taskGroup.append("defs");
+                        }
+                        defs.selectAll(`#${clipId}`).remove();
+                        const clipPath = defs.append("clipPath").attr("id", clipId);
+                        clipPath.append("rect")
+                            .attr("x", startX)
+                            .attr("y", barYOffset)
+                            .attr("width", barWidth)
+                            .attr("height", actualBarHeight)
+                            .attr("rx", cornerRadius)
+                            .attr("ry", cornerRadius);
+
+                        // Render before portion (clipped to rounded shape)
                         if (beforeWidth > 0) {
-                            d3.select(this).append("rect")
+                            taskGroup.append("rect")
                                 .attr("class", "task-bar-before")
                                 .attr("x", startX)
                                 .attr("y", barYOffset)
                                 .attr("width", beforeWidth)
                                 .attr("height", actualBarHeight)
-                                .attr("rx", cornerRadius)
-                                .attr("ry", cornerRadius)
                                 .style("fill", beforeDataDateColor)
                                 .style("stroke", "none")
-                                .attr("clip-path", `inset(0 ${Math.max(0, cornerRadius - beforeWidth)}px 0 0)`);
+                                .attr("clip-path", `url(#${clipId})`);
                         }
 
-                        // Only render after portion if it has width
+                        // Render after portion (clipped to rounded shape)
                         if (afterWidth > 0) {
-                            d3.select(this).append("rect")
+                            taskGroup.append("rect")
                                 .attr("class", "task-bar-after")
                                 .attr("x", dataDateX)
                                 .attr("y", barYOffset)
                                 .attr("width", afterWidth)
                                 .attr("height", actualBarHeight)
-                                .attr("rx", cornerRadius)
-                                .attr("ry", cornerRadius)
                                 .style("fill", normalFillColor)
                                 .style("stroke", "none")
-                                .attr("clip-path", `inset(0 0 0 ${Math.max(0, cornerRadius - afterWidth)}px)`);
+                                .attr("clip-path", `url(#${clipId})`);
                         }
 
                         // Add a stroke-only rect spanning the entire bar for a unified border
-                        d3.select(this).append("rect")
+                        taskGroup.append("rect")
                             .attr("class", barClass + " task-bar-stroke")
                             .attr("role", "button")
                             .attr("aria-label", ariaLabel)
@@ -10342,7 +10357,23 @@ export class Visual implements IVisual {
                     const beforeWidth = Math.max(0, dataDateX - startX);
                     const afterWidth = Math.max(0, finishX - dataDateX);
 
-                    // Render before portion in override color
+                    // Create a unique clip path ID for this WBS bar
+                    const wbsClipId = `wbs-bar-clip-${group.id}`;
+                    let defs = barsGroup.select("defs");
+                    if (defs.empty()) {
+                        defs = barsGroup.append("defs");
+                    }
+                    defs.selectAll(`#${wbsClipId}`).remove();
+                    const clipPath = defs.append("clipPath").attr("id", wbsClipId);
+                    clipPath.append("rect")
+                        .attr("x", startX)
+                        .attr("y", barY)
+                        .attr("width", barWidth)
+                        .attr("height", barHeight)
+                        .attr("rx", barRadius)
+                        .attr("ry", barRadius);
+
+                    // Render before portion in override color (clipped to rounded shape)
                     if (beforeWidth > 0) {
                         barsGroup.append('rect')
                             .attr('class', 'wbs-summary-bar-before')
@@ -10350,14 +10381,13 @@ export class Visual implements IVisual {
                             .attr('y', barY)
                             .attr('width', beforeWidth)
                             .attr('height', barHeight)
-                            .attr('rx', barRadius)
-                            .attr('ry', barRadius)
                             .style('fill', beforeDataDateColor)
                             .style('opacity', barOpacity)
-                            .style('stroke', 'none');
+                            .style('stroke', 'none')
+                            .attr('clip-path', `url(#${wbsClipId})`);
                     }
 
-                    // Render after portion in normal color
+                    // Render after portion in normal color (clipped to rounded shape)
                     if (afterWidth > 0) {
                         barsGroup.append('rect')
                             .attr('class', 'wbs-summary-bar-after')
@@ -10365,11 +10395,10 @@ export class Visual implements IVisual {
                             .attr('y', barY)
                             .attr('width', afterWidth)
                             .attr('height', barHeight)
-                            .attr('rx', barRadius)
-                            .attr('ry', barRadius)
                             .style('fill', summaryFillColor)
                             .style('opacity', barOpacity)
-                            .style('stroke', 'none');
+                            .style('stroke', 'none')
+                            .attr('clip-path', `url(#${wbsClipId})`);
                     }
 
                     // Add unified stroke rect spanning entire bar
