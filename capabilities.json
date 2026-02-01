@@ -1182,6 +1182,22 @@
                     "type": {
                         "numeric": true
                     }
+                },
+                "enableBarColorOverride": {
+                    "displayName": "Enable Data Date Color Override",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "beforeDataDateColor": {
+                    "displayName": "Before Data Date Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
                 }
             }
         },
