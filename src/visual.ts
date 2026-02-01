@@ -5844,6 +5844,14 @@ export class Visual implements IVisual {
         const minBarWidthForStrongStroke = 8;
         const minBarWidthForGlow = 10;
 
+        // Data Date Bar Color Override settings
+        const dataDateSettings = this.settings.dataDateLine;
+        const enableBarColorOverride = dataDateSettings?.enableBarColorOverride?.value ?? false;
+        const beforeDataDateColor = this.resolveColor(dataDateSettings?.beforeDataDateColor?.value?.value ?? "#1A3A6B", "foreground");
+        const hasValidDataDate = this.dataDate instanceof Date && !isNaN(this.dataDate.getTime());
+        const dataDateX = hasValidDataDate ? xScale(this.dataDate) : null;
+        const shouldApplyDataDateOverride = enableBarColorOverride && hasValidDataDate && dataDateX !== null && isFinite(dataDateX);
+
         // Task bar styling from settings
         const taskBarCornerRadius = this.settings.taskBars.taskBarCornerRadius.value;
         const taskBarStrokeColor = this.settings.taskBars.taskBarStrokeColor.value.value;
@@ -5990,7 +5998,53 @@ export class Visual implements IVisual {
             allTaskGroups.selectAll(".baseline-bar").remove();
         }
 
-        allTaskGroups.selectAll(".task-bar, .milestone").remove();
+        allTaskGroups.selectAll(".task-bar, .task-bar-before, .task-bar-after, .task-bar-stroke, .milestone").remove();
+
+        // Helper function to get stroke color for a task
+        const getTaskStrokeColor = (d: Task): string => {
+            if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
+            if (self.legendDataExists) {
+                if (d.isCritical) return criticalColor;
+                if (d.isNearCritical) return nearCriticalColor;
+            }
+            return taskBarStrokeColor || self.getForegroundColor();
+        };
+
+        // Helper function to get stroke width for a task
+        const getTaskStrokeWidth = (d: Task): number => {
+            const barWidth = getTaskBarWidth(d);
+            let baseWidth = taskBarStrokeWidth > 0 ? taskBarStrokeWidth : 0.5;
+            if (d.internalId === self.selectedTaskId) {
+                baseWidth = 3;
+            } else if (self.legendDataExists) {
+                if (d.isCritical) baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
+                else if (d.isNearCritical) baseWidth = self.settings.criticalPath.nearCriticalBorderWidth.value;
+            } else if (d.isCritical) {
+                baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
+            }
+            if (barWidth < minBarWidthForStrongStroke) {
+                return Math.min(baseWidth, 1);
+            }
+            return baseWidth;
+        };
+
+        // Helper function to get filter for a task
+        const getTaskFilter = (d: Task): string => {
+            const barWidth = getTaskBarWidth(d);
+            if (barWidth < minBarWidthForGlow) return "none";
+            if (self.legendDataExists) {
+                if (d.isCritical) {
+                    const rgb = self.hexToRgb(criticalColor);
+                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                }
+                if (d.isNearCritical) {
+                    const nearColor = nearCriticalColor;
+                    const rgb = self.hexToRgb(nearColor);
+                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                }
+            }
+            return `drop-shadow(${self.UI_TOKENS.shadow[2]})`;
+        };
 
         allTaskGroups.filter((d: Task) =>
             (d.type !== 'TT_Mile' && d.type !== 'TT_FinMile')
@@ -5999,78 +6053,103 @@ export class Visual implements IVisual {
                 const start = d.manualStartDate ?? d.startDate;
                 const finish = d.manualFinishDate ?? d.finishDate;
                 if (start instanceof Date && !isNaN(start.getTime()) && finish instanceof Date && !isNaN(finish.getTime()) && finish >= start) {
-                    d3.select(this).append("rect")
-                        .attr("class", (d: Task) => {
-                            if (d.isCritical) return "task-bar critical";
-                            if (d.isNearCritical) return "task-bar near-critical";
-                            return "task-bar normal";
-                        })
+                    const startX = xScale(start);
+                    const finishX = xScale(finish);
+                    const barWidth = Math.max(self.minTaskWidthPixels, finishX - startX);
+                    const cornerRadius = Math.min(taskBarCornerRadius, barWidth / 2);
+                    const normalFillColor = getTaskFillColor(d, taskColor);
+                    const strokeColor = getTaskStrokeColor(d);
+                    const strokeWidth = getTaskStrokeWidth(d);
+                    const filterStyle = getTaskFilter(d);
 
-                        .attr("role", "button")
-                        .attr("aria-label", (d: Task) => {
-                            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
-                            const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
-                            return `${d.name}, ${statusText} task, Start: ${self.formatDate(start)}, Finish: ${self.formatDate(finish)}${selectedText}. Press Enter or Space to select.`;
-                        })
-                        .attr("tabindex", 0)
-                        .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
-                        .attr("x", (d: Task) => xScale(start!))
-                        .attr("y", barYOffset)
-                        .attr("width", (d: Task) => getTaskBarWidth(d))
-                        .attr("height", actualBarHeight)
+                    const barClass = d.isCritical ? "task-bar critical" : d.isNearCritical ? "task-bar near-critical" : "task-bar normal";
+                    const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+                    const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
+                    const ariaLabel = `${d.name}, ${statusText} task, Start: ${self.formatDate(start)}, Finish: ${self.formatDate(finish)}${selectedText}. Press Enter or Space to select.`;
 
-                        .attr("rx", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
-                        .attr("ry", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
-                        .style("fill", (d: Task) => getTaskFillColor(d, taskColor))
+                    // Check if data date color override applies to this bar
+                    const barStartTime = start.getTime();
+                    const barFinishTime = finish.getTime();
+                    const dataDateTime = self.dataDate?.getTime() ?? 0;
 
-                        .style("stroke", (d: Task) => {
-                            if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
+                    // Determine bar position relative to data date
+                    const isEntirelyBefore = shouldApplyDataDateOverride && barFinishTime <= dataDateTime;
+                    const isEntirelyAfter = shouldApplyDataDateOverride && barStartTime >= dataDateTime;
+                    const spansSplit = shouldApplyDataDateOverride && !isEntirelyBefore && !isEntirelyAfter && dataDateX !== null;
 
-                            if (self.legendDataExists) {
-                                if (d.isCritical) return criticalColor;
-                                if (d.isNearCritical) return nearCriticalColor;
-                            }
+                    if (spansSplit && dataDateX !== null) {
+                        // Bar spans the data date - need to split into two portions
+                        const beforeWidth = Math.max(0, dataDateX - startX);
+                        const afterWidth = Math.max(0, finishX - dataDateX);
 
-                            // Use custom stroke color if set, otherwise use foreground color
-                            return taskBarStrokeColor || self.getForegroundColor();
-                        })
-                        .style("stroke-width", (d: Task) => {
-                            const barWidth = getTaskBarWidth(d);
-                            // Use custom stroke width setting as base
-                            let baseWidth = taskBarStrokeWidth > 0 ? taskBarStrokeWidth : 0.5;
+                        // Only render before portion if it has width
+                        if (beforeWidth > 0) {
+                            d3.select(this).append("rect")
+                                .attr("class", "task-bar-before")
+                                .attr("x", startX)
+                                .attr("y", barYOffset)
+                                .attr("width", beforeWidth)
+                                .attr("height", actualBarHeight)
+                                .attr("rx", cornerRadius)
+                                .attr("ry", cornerRadius)
+                                .style("fill", beforeDataDateColor)
+                                .style("stroke", "none")
+                                .attr("clip-path", `inset(0 ${Math.max(0, cornerRadius - beforeWidth)}px 0 0)`);
+                        }
 
-                            if (d.internalId === self.selectedTaskId) {
-                                baseWidth = 3;
-                            } else if (self.legendDataExists) {
-                                if (d.isCritical) baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
-                                else if (d.isNearCritical) baseWidth = self.settings.criticalPath.nearCriticalBorderWidth.value;
-                            } else if (d.isCritical) {
-                                baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
-                            }
+                        // Only render after portion if it has width
+                        if (afterWidth > 0) {
+                            d3.select(this).append("rect")
+                                .attr("class", "task-bar-after")
+                                .attr("x", dataDateX)
+                                .attr("y", barYOffset)
+                                .attr("width", afterWidth)
+                                .attr("height", actualBarHeight)
+                                .attr("rx", cornerRadius)
+                                .attr("ry", cornerRadius)
+                                .style("fill", normalFillColor)
+                                .style("stroke", "none")
+                                .attr("clip-path", `inset(0 0 0 ${Math.max(0, cornerRadius - afterWidth)}px)`);
+                        }
 
-                            if (barWidth < minBarWidthForStrongStroke) {
-                                return Math.min(baseWidth, 1);
-                            }
-                            return baseWidth;
-                        })
-                        .style("filter", (d: Task) => {
-                            const barWidth = getTaskBarWidth(d);
-                            if (barWidth < minBarWidthForGlow) return "none";
+                        // Add a stroke-only rect spanning the entire bar for a unified border
+                        d3.select(this).append("rect")
+                            .attr("class", barClass + " task-bar-stroke")
+                            .attr("role", "button")
+                            .attr("aria-label", ariaLabel)
+                            .attr("tabindex", 0)
+                            .attr("aria-pressed", d.internalId === self.selectedTaskId ? "true" : "false")
+                            .attr("x", startX)
+                            .attr("y", barYOffset)
+                            .attr("width", barWidth)
+                            .attr("height", actualBarHeight)
+                            .attr("rx", cornerRadius)
+                            .attr("ry", cornerRadius)
+                            .style("fill", "none")
+                            .style("stroke", strokeColor)
+                            .style("stroke-width", strokeWidth)
+                            .style("filter", filterStyle);
+                    } else {
+                        // Bar is entirely on one side of data date, or data date override is disabled
+                        const fillColor = isEntirelyBefore ? beforeDataDateColor : normalFillColor;
 
-                            if (self.legendDataExists) {
-                                if (d.isCritical) {
-                                    const rgb = self.hexToRgb(criticalColor);
-                                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
-                                }
-                                if (d.isNearCritical) {
-                                    const nearColor = nearCriticalColor;
-                                    const rgb = self.hexToRgb(nearColor);
-                                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
-                                }
-                            }
-
-                            return `drop-shadow(${self.UI_TOKENS.shadow[2]})`;
-                        });
+                        d3.select(this).append("rect")
+                            .attr("class", barClass)
+                            .attr("role", "button")
+                            .attr("aria-label", ariaLabel)
+                            .attr("tabindex", 0)
+                            .attr("aria-pressed", d.internalId === self.selectedTaskId ? "true" : "false")
+                            .attr("x", startX)
+                            .attr("y", barYOffset)
+                            .attr("width", barWidth)
+                            .attr("height", actualBarHeight)
+                            .attr("rx", cornerRadius)
+                            .attr("ry", cornerRadius)
+                            .style("fill", fillColor)
+                            .style("stroke", strokeColor)
+                            .style("stroke-width", strokeWidth)
+                            .style("filter", filterStyle);
+                    }
                 }
             });
 
@@ -6080,6 +6159,11 @@ export class Visual implements IVisual {
             .each(function (d: Task) {
                 const mDate = (d.manualStartDate ?? d.startDate) || (d.manualFinishDate ?? d.finishDate);
                 if (mDate instanceof Date && !isNaN(mDate.getTime())) {
+                    // Check if data date color override applies to this milestone
+                    const milestoneTime = mDate.getTime();
+                    const dataDateTime = self.dataDate?.getTime() ?? 0;
+                    const isMilestoneBeforeOrOnDataDate = shouldApplyDataDateOverride && milestoneTime <= dataDateTime;
+
                     d3.select(this).append("path")
                         .attr("class", (d: Task) => {
                             if (d.isCritical) return "milestone critical";
@@ -6117,7 +6201,7 @@ export class Visual implements IVisual {
                                     return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
                             }
                         })
-                        .style("fill", (d: Task) => getTaskFillColor(d, milestoneColor))
+                        .style("fill", (d: Task) => isMilestoneBeforeOrOnDataDate ? beforeDataDateColor : getTaskFillColor(d, milestoneColor))
 
                         .style("stroke", (d: Task) => {
                             if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
@@ -10118,6 +10202,15 @@ export class Visual implements IVisual {
         const previousUpdateHeight = this.settings.comparisonBars.previousUpdateHeight.value;
         const previousUpdateOffset = this.settings.comparisonBars.previousUpdateOffset.value;
 
+        // Data Date Bar Color Override settings for WBS summary bars
+        const dataDateSettings = this.settings.dataDateLine;
+        const enableBarColorOverride = dataDateSettings?.enableBarColorOverride?.value ?? false;
+        const beforeDataDateColor = this.resolveColor(dataDateSettings?.beforeDataDateColor?.value?.value ?? "#1A3A6B", "foreground");
+        const hasValidDataDate = this.dataDate instanceof Date && !isNaN(this.dataDate.getTime());
+        const dataDateX = hasValidDataDate ? xScale(this.dataDate) : null;
+        const shouldApplyDataDateOverride = enableBarColorOverride && hasValidDataDate && dataDateX !== null && isFinite(dataDateX);
+        const dataDateTime = this.dataDate?.getTime() ?? 0;
+
         if (!this.wbsGroupLayer) {
             this.wbsGroupLayer = this.mainGroup.insert('g', '.arrow-layer')
                 .attr('class', 'wbs-group-layer');
@@ -10237,19 +10330,79 @@ export class Visual implements IVisual {
                         .style('opacity', barOpacity);
                 }
 
-                barsGroup.append('rect')
-                    .attr('class', 'wbs-summary-bar')
-                    .attr('x', startX)
-                    .attr('y', barY)
-                    .attr('width', barWidth)
-                    .attr('height', barHeight)
-                    .attr('rx', barRadius)
-                    .attr('ry', barRadius)
-                    .style('fill', summaryFillColor)
-                    .style('opacity', barOpacity)
-                    .style('stroke', summaryStrokeColor)
-                    .style('stroke-width', isCollapsed ? 0.8 : 0.4)
-                    .style('stroke-opacity', 0.25);
+                // Determine bar position relative to data date for WBS summary bars
+                const barStartTime = group.summaryStartDate.getTime();
+                const barFinishTime = group.summaryFinishDate.getTime();
+                const isEntirelyBefore = shouldApplyDataDateOverride && barFinishTime <= dataDateTime;
+                const isEntirelyAfter = shouldApplyDataDateOverride && barStartTime >= dataDateTime;
+                const spansSplit = shouldApplyDataDateOverride && !isEntirelyBefore && !isEntirelyAfter && dataDateX !== null;
+
+                if (spansSplit && dataDateX !== null) {
+                    // WBS summary bar spans the data date - need to split into two portions
+                    const beforeWidth = Math.max(0, dataDateX - startX);
+                    const afterWidth = Math.max(0, finishX - dataDateX);
+
+                    // Render before portion in override color
+                    if (beforeWidth > 0) {
+                        barsGroup.append('rect')
+                            .attr('class', 'wbs-summary-bar-before')
+                            .attr('x', startX)
+                            .attr('y', barY)
+                            .attr('width', beforeWidth)
+                            .attr('height', barHeight)
+                            .attr('rx', barRadius)
+                            .attr('ry', barRadius)
+                            .style('fill', beforeDataDateColor)
+                            .style('opacity', barOpacity)
+                            .style('stroke', 'none');
+                    }
+
+                    // Render after portion in normal color
+                    if (afterWidth > 0) {
+                        barsGroup.append('rect')
+                            .attr('class', 'wbs-summary-bar-after')
+                            .attr('x', dataDateX)
+                            .attr('y', barY)
+                            .attr('width', afterWidth)
+                            .attr('height', barHeight)
+                            .attr('rx', barRadius)
+                            .attr('ry', barRadius)
+                            .style('fill', summaryFillColor)
+                            .style('opacity', barOpacity)
+                            .style('stroke', 'none');
+                    }
+
+                    // Add unified stroke rect spanning entire bar
+                    barsGroup.append('rect')
+                        .attr('class', 'wbs-summary-bar wbs-summary-bar-stroke')
+                        .attr('x', startX)
+                        .attr('y', barY)
+                        .attr('width', barWidth)
+                        .attr('height', barHeight)
+                        .attr('rx', barRadius)
+                        .attr('ry', barRadius)
+                        .style('fill', 'none')
+                        .style('stroke', summaryStrokeColor)
+                        .style('stroke-width', isCollapsed ? 0.8 : 0.4)
+                        .style('stroke-opacity', 0.25);
+                } else {
+                    // Bar is entirely on one side of data date, or data date override is disabled
+                    const fillColor = isEntirelyBefore ? beforeDataDateColor : summaryFillColor;
+
+                    barsGroup.append('rect')
+                        .attr('class', 'wbs-summary-bar')
+                        .attr('x', startX)
+                        .attr('y', barY)
+                        .attr('width', barWidth)
+                        .attr('height', barHeight)
+                        .attr('rx', barRadius)
+                        .attr('ry', barRadius)
+                        .style('fill', fillColor)
+                        .style('opacity', barOpacity)
+                        .style('stroke', summaryStrokeColor)
+                        .style('stroke-width', isCollapsed ? 0.8 : 0.4)
+                        .style('stroke-opacity', 0.25);
+                }
 
                 if (barWidth > 6) {
                     const capRadius = Math.min(3, Math.max(1.5, barHeight / 3));
@@ -10273,52 +10426,77 @@ export class Visual implements IVisual {
                 }
 
                 if (showNearCriticalSummary && group.hasNearCriticalTasks && group.nearCriticalStartDate && group.nearCriticalFinishDate) {
-                    const clampedNearStartDate = group.summaryStartDate
+                    let clampedNearStartDate = group.summaryStartDate
                         ? new Date(Math.max(group.nearCriticalStartDate.getTime(), group.summaryStartDate.getTime()))
                         : group.nearCriticalStartDate;
                     const clampedNearFinishDate = group.summaryFinishDate
                         ? new Date(Math.min(group.nearCriticalFinishDate.getTime(), group.summaryFinishDate.getTime()))
                         : group.nearCriticalFinishDate;
 
+                    // When data date override is enabled, clip near-critical overlay to after data date
+                    if (shouldApplyDataDateOverride && clampedNearStartDate.getTime() < dataDateTime) {
+                        clampedNearStartDate = new Date(Math.max(clampedNearStartDate.getTime(), dataDateTime));
+                    }
+
                     if (clampedNearStartDate <= clampedNearFinishDate) {
                         const nearStartX = xScale(clampedNearStartDate);
                         const nearFinishX = xScale(clampedNearFinishDate);
                         const nearWidth = Math.max(2, nearFinishX - nearStartX);
 
-                        const nearStartsAtBeginning = nearStartX <= startX + 1;
-                        const nearEndsAtEnd = nearFinishX >= finishX - 1;
+                        // Only render if there's visible width after clipping
+                        if (nearWidth > 0) {
+                            // Re-calculate position flags with potentially clipped start
+                            const effectiveStartX = shouldApplyDataDateOverride && dataDateX !== null ? Math.max(startX, dataDateX) : startX;
+                            const nearStartsAtBeginning = nearStartX <= effectiveStartX + 1;
+                            const nearEndsAtEnd = nearFinishX >= finishX - 1;
 
-                        barsGroup.append('rect')
-                            .attr('class', 'wbs-summary-bar-near-critical')
-                            .attr('x', nearStartX)
-                            .attr('y', barY)
-                            .attr('width', nearWidth)
-                            .attr('height', barHeight)
-                            .attr('rx', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
-                            .attr('ry', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
-                            .style('fill', nearCriticalColor)
-                            .style('opacity', barOpacity);
+                            barsGroup.append('rect')
+                                .attr('class', 'wbs-summary-bar-near-critical')
+                                .attr('x', nearStartX)
+                                .attr('y', barY)
+                                .attr('width', nearWidth)
+                                .attr('height', barHeight)
+                                .attr('rx', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
+                                .attr('ry', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
+                                .style('fill', nearCriticalColor)
+                                .style('opacity', barOpacity);
+                        }
                     }
                 }
 
                 if (group.hasCriticalTasks && group.criticalStartDate && group.criticalFinishDate) {
-                    const criticalStartX = xScale(group.criticalStartDate);
-                    const criticalFinishX = xScale(group.criticalFinishDate);
-                    const criticalWidth = Math.max(2, criticalFinishX - criticalStartX);
+                    let clampedCriticalStartDate = group.criticalStartDate;
+                    const clampedCriticalFinishDate = group.criticalFinishDate;
 
-                    const criticalStartsAtBeginning = criticalStartX <= startX + 1;
-                    const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
+                    // When data date override is enabled, clip critical overlay to after data date
+                    if (shouldApplyDataDateOverride && clampedCriticalStartDate.getTime() < dataDateTime) {
+                        clampedCriticalStartDate = new Date(Math.max(clampedCriticalStartDate.getTime(), dataDateTime));
+                    }
 
-                    barsGroup.append('rect')
-                        .attr('class', 'wbs-summary-bar-critical')
-                        .attr('x', criticalStartX)
-                        .attr('y', barY)
-                        .attr('width', criticalWidth)
-                        .attr('height', barHeight)
-                        .attr('rx', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
-                        .attr('ry', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
-                        .style('fill', criticalPathColor)
-                        .style('opacity', barOpacity);
+                    if (clampedCriticalStartDate <= clampedCriticalFinishDate) {
+                        const criticalStartX = xScale(clampedCriticalStartDate);
+                        const criticalFinishX = xScale(clampedCriticalFinishDate);
+                        const criticalWidth = Math.max(2, criticalFinishX - criticalStartX);
+
+                        // Only render if there's visible width after clipping
+                        if (criticalWidth > 0) {
+                            // Re-calculate position flags with potentially clipped start
+                            const effectiveStartX = shouldApplyDataDateOverride && dataDateX !== null ? Math.max(startX, dataDateX) : startX;
+                            const criticalStartsAtBeginning = criticalStartX <= effectiveStartX + 1;
+                            const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
+
+                            barsGroup.append('rect')
+                                .attr('class', 'wbs-summary-bar-critical')
+                                .attr('x', criticalStartX)
+                                .attr('y', barY)
+                                .attr('width', criticalWidth)
+                                .attr('height', barHeight)
+                                .attr('rx', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
+                                .attr('ry', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
+                                .style('fill', criticalPathColor)
+                                .style('opacity', barOpacity);
+                        }
+                    }
                 }
             }
 

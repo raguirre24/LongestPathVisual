@@ -843,7 +843,21 @@ class DataDateLineCard extends Card {
     labelBackgroundColor = new ColorPicker({ name: "labelBackgroundColor", displayName: "Label Background", value: { value: "#FFFFFF" } });
     labelBackgroundTransparency = new NumUpDown({ name: "labelBackgroundTransparency", displayName: "Label Background Transparency (%)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 } } });
 
-    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.labelPosition, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency];
+    // Data Date Bar Color Override settings (Primavera P6 parity)
+    enableBarColorOverride = new ToggleSwitch({
+        name: "enableBarColorOverride",
+        displayName: "Enable Data Date Color Override",
+        description: "When enabled, bar portions before the data date are rendered in a uniform color (like Primavera P6)",
+        value: false
+    });
+    beforeDataDateColor = new ColorPicker({
+        name: "beforeDataDateColor",
+        displayName: "Before Data Date Color",
+        description: "Color for bar portions that fall before the data date",
+        value: { value: "#1A3A6B" }
+    });
+
+    slices: Slice[] = [this.show, this.lineColor, this.lineWidth, this.lineStyle, this.labelPosition, this.showLabel, this.labelColor, this.labelFontSize, this.showLabelPrefix, this.labelBackgroundColor, this.labelBackgroundTransparency, this.enableBarColorOverride, this.beforeDataDateColor];
 }
 
 // ============================================================================
