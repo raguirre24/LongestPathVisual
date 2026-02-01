@@ -114,10 +114,21 @@ class TaskBarsCard extends Card {
 
     taskHeight = new NumUpDown({
         name: "taskHeight",
-        displayName: "Task Height (px)",
+        displayName: "Task Height (Row Height)",
         value: 18,
         options: {
             minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 40 }
+        }
+    });
+
+    taskBarHeight = new NumUpDown({
+        name: "taskBarHeight",
+        displayName: "Bar Height (Override)",
+        description: "Override for bar height (px). Leave as 0 to match Task Height.",
+        value: 0,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
             maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 40 }
         }
     });
@@ -175,6 +186,7 @@ class TaskBarsCard extends Card {
         this.taskColor,
         this.milestoneColor,
         this.taskHeight,
+        this.taskBarHeight,
         this.taskBarCornerRadius,
         this.taskBarStrokeColor,
         this.taskBarStrokeWidth,
@@ -1074,8 +1086,9 @@ class PersistedStateCard extends Card {
     wbsManualToggledGroups = new TextInput({ name: "wbsManualToggledGroups", displayName: "", value: "", placeholder: "", visible: false });
     zoomRangeStart = new NumUpDown({ name: "zoomRangeStart", displayName: "", value: 0, visible: false });
     zoomRangeEnd = new NumUpDown({ name: "zoomRangeEnd", displayName: "", value: 1, visible: false });
+    scrollPosition = new NumUpDown({ name: "scrollPosition", displayName: "", value: 0, visible: false });
 
-    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories, this.wbsExpandLevel, this.wbsExpandedState, this.wbsManualToggledGroups, this.zoomRangeStart, this.zoomRangeEnd];
+    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories, this.wbsExpandLevel, this.wbsExpandedState, this.wbsManualToggledGroups, this.zoomRangeStart, this.zoomRangeEnd, this.scrollPosition];
 }
 
 // ============================================================================

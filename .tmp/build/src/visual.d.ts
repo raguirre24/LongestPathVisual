@@ -31,6 +31,7 @@ export declare class Visual implements IVisual {
     private labelGridLayer;
     private arrowLayer;
     private taskLayer;
+    private finishLineLayer;
     private taskLabelLayer;
     private chartClipPath;
     private chartClipRect;
@@ -158,6 +159,9 @@ export declare class Visual implements IVisual {
     private scrollPreservationUntil;
     private lastWbsToggleTimestamp;
     private wbsToggleScrollAnchor;
+    private persistedScrollPosition;
+    private scrollPersistTimeout;
+    private scrollPersistTimestamp;
     private tooltipClassName;
     private isUpdating;
     private isMarginDragging;
@@ -187,6 +191,11 @@ export declare class Visual implements IVisual {
     private zoomTouchMoveHandler;
     private zoomTouchEndHandler;
     private readonly zoomTouchListenerOptions;
+    private errorHandler;
+    private miniChartDrawBuffer;
+    private toastContainer;
+    private toastTimeout;
+    private accessibleTaskListLayer;
     private dataProcessor;
     private readonly UI_TOKENS;
     private readonly LAYOUT_BREAKPOINTS;
@@ -210,6 +219,37 @@ export declare class Visual implements IVisual {
     private debouncedUpdate;
     private requestUpdate;
     private applyPublishModeOptimizations;
+    /**
+     * Setup keyboard shortcuts for common actions
+     * Improves accessibility and power user workflow
+     */
+    private setupKeyboardShortcuts;
+    /**
+     * Setup toast notification container
+     */
+    private setupToastContainer;
+    /**
+     * Show a brief toast notification
+     * @param message - Message to display
+     * @param duration - Duration in ms (default 2000)
+     */
+    private showToast;
+    /**
+     * Clear the current selection
+     */
+    private clearSelection;
+    /**
+     * Create accessible task list for screen readers (WCAG compliance)
+     */
+    private setupAccessibleTaskList;
+    /**
+     * Generate accessible ARIA label for a task
+     */
+    private getTaskAriaLabel;
+    /**
+     * Format a date for speech/screen reader output
+     */
+    private formatDateForSpeech;
     private setupSVGRenderingHints;
     private getDataSignature;
     private hasValidPlotDates;
@@ -317,6 +357,7 @@ export declare class Visual implements IVisual {
     private updateScrollableContainerHeight;
     /**
      * Draws the mini chart preview in the zoom slider showing task distribution
+     * Optimized to batch by color and reduce GC pressure
      */
     private drawZoomSliderMiniChart;
     /**
@@ -410,6 +451,11 @@ export declare class Visual implements IVisual {
     private updateHeaderElements;
     private calculateVisibleTasks;
     private handleScroll;
+    /**
+     * Persists the current scroll position with debouncing to avoid excessive API calls.
+     * This allows scroll position to be restored when navigating back to the page.
+     */
+    private persistScrollPositionDebounced;
     private canvasHasContent;
     /**
      * Get visible tasks based on current viewport indices

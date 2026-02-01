@@ -217,7 +217,13 @@
                     }
                 },
                 "taskHeight": {
-                    "displayName": "Task Height (px)",
+                    "displayName": "Task Height (Row Height)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "taskBarHeight": {
+                    "displayName": "Bar Height (Override)",
                     "type": {
                         "numeric": true
                     }
@@ -1900,6 +1906,12 @@
                     }
                 },
                 "zoomRangeEnd": {
+                    "displayName": "",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "scrollPosition": {
                     "displayName": "",
                     "type": {
                         "numeric": true

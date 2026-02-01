@@ -19,6 +19,7 @@ declare class TaskBarsCard extends Card {
     taskColor: formattingSettings.ColorPicker;
     milestoneColor: formattingSettings.ColorPicker;
     taskHeight: formattingSettings.NumUpDown;
+    taskBarHeight: formattingSettings.NumUpDown;
     taskBarCornerRadius: formattingSettings.NumUpDown;
     taskBarStrokeColor: formattingSettings.ColorPicker;
     taskBarStrokeWidth: formattingSettings.NumUpDown;
@@ -296,6 +297,7 @@ declare class PersistedStateCard extends Card {
     wbsManualToggledGroups: formattingSettings.TextInput;
     zoomRangeStart: formattingSettings.NumUpDown;
     zoomRangeEnd: formattingSettings.NumUpDown;
+    scrollPosition: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 export declare class VisualSettings extends Model {

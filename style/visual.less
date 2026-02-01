@@ -592,3 +592,254 @@ text {
     backdrop-filter: blur(2px);
     z-index: 50;
 }
+
+// ============================================================================
+// ACCESSIBILITY - Focus Styles (WCAG 2.1 AA Compliant)
+// ============================================================================
+
+// Focus ring mixin for consistency
+.focus-ring() {
+    outline: 2px solid #0078D4;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgba(0, 120, 212, 0.3);
+}
+
+// High contrast focus ring
+.focus-ring-high-contrast() {
+    outline: 3px solid currentColor;
+    outline-offset: 2px;
+}
+
+// Apply to all interactive button elements
+.header-toggle-button,
+.wbs-expand-button,
+.zoom-handle,
+.margin-resizer,
+.legend-item,
+.dropdown-option,
+.legend-scroll-arrow,
+.help-overlay-close-button {
+    &:focus-visible {
+        .focus-ring();
+    }
+
+    @media (forced-colors: active) {
+        &:focus-visible {
+            .focus-ring-high-contrast();
+        }
+    }
+}
+
+// Zoom slider handles
+.zoom-slider-handle {
+    &:focus-visible {
+        .focus-ring();
+        background-color: #323130 !important;
+        transform: translate(-50%, -50%) scale(1.2);
+    }
+}
+
+.zoom-slider-handle-left:focus-visible {
+    transform: translate(-50%, -50%) scale(1.2);
+}
+
+.zoom-slider-handle-right:focus-visible {
+    transform: translate(50%, -50%) scale(1.2);
+}
+
+// Zoom slider selection bar
+.zoom-slider-selection:focus-visible {
+    .focus-ring();
+    background-color: #A19F9D !important;
+}
+
+// Task bars - custom focus indicator for SVG
+.task-bar {
+    &:focus-visible,
+    &.keyboard-focused {
+        stroke: #0078D4;
+        stroke-width: 3px;
+        stroke-dasharray: none;
+        filter: drop-shadow(0 0 4px rgba(0, 120, 212, 0.5));
+    }
+}
+
+// Milestone shapes
+.milestone-shape {
+    &:focus-visible,
+    &.keyboard-focused {
+        stroke: #0078D4;
+        stroke-width: 3px;
+        filter: drop-shadow(0 0 4px rgba(0, 120, 212, 0.5));
+    }
+}
+
+// Input fields
+.task-selection-input {
+    &:focus-visible {
+        outline: 2px solid #0078D4;
+        outline-offset: -2px;
+        border-color: #0078D4;
+        box-shadow: 0 0 0 4px rgba(0, 120, 212, 0.15);
+    }
+}
+
+// Dropdown options
+.task-selection-list .task-option {
+    &:focus,
+    &.focused {
+        background-color: #DEECF9;
+        outline: none;
+    }
+}
+
+// Legend items with selection state
+.legend-item {
+    &:focus-visible {
+        .focus-ring();
+    }
+
+    &.selected:focus-visible {
+        outline-color: #0078D4;
+        box-shadow: 0 0 0 4px rgba(0, 120, 212, 0.4);
+    }
+}
+
+// Skip link for keyboard navigation (sr-only until focused)
+.skip-to-content {
+    position: absolute;
+    left: -9999px;
+    z-index: 1000;
+    padding: 8px 16px;
+    background: #0078D4;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    
+    &:focus {
+        left: 8px;
+        top: 8px;
+    }
+}
+
+// Screen reader only content
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+// Accessible task list (for screen readers)
+.accessible-task-list {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+
+.accessible-task-item {
+    &:focus {
+        outline: none; // Visual focus handled elsewhere
+    }
+}
+
+// ============================================================================
+// TOAST NOTIFICATIONS
+// ============================================================================
+
+.toast-notification {
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(32, 31, 30, 0.95);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+
+    &.visible {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+// ============================================================================
+// HIGH CONTRAST MODE SUPPORT
+// ============================================================================
+
+@media (forced-colors: active) {
+    .task-bar,
+    .milestone-shape {
+        forced-color-adjust: none;
+    }
+
+    .loading-overlay {
+        background: Canvas;
+        color: CanvasText;
+    }
+
+    .toast-notification {
+        background: Canvas;
+        color: CanvasText;
+        border: 2px solid CanvasText;
+    }
+
+    .zoom-slider-selection {
+        background: Highlight !important;
+    }
+
+    .zoom-slider-handle {
+        background: ButtonText !important;
+        border: 2px solid ButtonBorder;
+    }
+
+    .legend-item.selected {
+        border: 2px solid Highlight;
+    }
+}
+
+// ============================================================================
+// REDUCED MOTION SUPPORT
+// ============================================================================
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    .toast-notification {
+        transition: none;
+    }
+
+    .loading-overlay div {
+        animation: none !important;
+    }
+
+    .zoom-slider-handle,
+    .zoom-slider-selection,
+    .legend-scroll-content {
+        transition: none;
+    }
+}

@@ -30,6 +30,9 @@ import { DataProcessor, ProcessedData } from "./data/DataProcessor";
 import { Header, HeaderCallbacks, HeaderState } from "./components/Header";
 import { Task, WBSGroup, Relationship, DropdownItem, UpdateType } from "./data/Interfaces";
 import { exportToClipboard } from "./utils/ClipboardExporter";
+import { TIME_CONSTANTS, DATA_LIMITS, LAYOUT_DEFAULTS, ANIMATION, KEYBOARD_SHORTCUTS, ERROR_CODES, SCROLL_PRESERVATION } from "./constants";
+import { Sanitizer } from "./utils/Sanitizer";
+import { ErrorHandler, ErrorSeverity, VisualError } from "./utils/ErrorHandler";
 
 
 export class Visual implements IVisual {
@@ -63,6 +66,7 @@ export class Visual implements IVisual {
     private labelGridLayer: Selection<SVGGElement, unknown, null, undefined>;
     private arrowLayer: Selection<SVGGElement, unknown, null, undefined>;
     private taskLayer: Selection<SVGGElement, unknown, null, undefined>;
+    private finishLineLayer: Selection<SVGGElement, unknown, null, undefined>;
     private taskLabelLayer: Selection<SVGGElement, unknown, null, undefined>;
     private chartClipPath: Selection<SVGClipPathElement, unknown, null, undefined>;
     private chartClipRect: Selection<SVGRectElement, unknown, null, undefined>;
@@ -217,6 +221,9 @@ export class Visual implements IVisual {
     private scrollPreservationUntil: number = 0;
     private lastWbsToggleTimestamp: number = 0;
     private wbsToggleScrollAnchor: { groupId: string; visualOffset: number } | null = null;
+    private persistedScrollPosition: number | null = null;
+    private scrollPersistTimeout: ReturnType<typeof setTimeout> | null = null;
+    private scrollPersistTimestamp: number = 0; // Time when scroll was last persisted
 
     private tooltipClassName: string;
     private isUpdating: boolean = false;
@@ -250,6 +257,19 @@ export class Visual implements IVisual {
     private zoomTouchMoveHandler: ((event: TouchEvent) => void) | null = null;
     private zoomTouchEndHandler: (() => void) | null = null;
     private readonly zoomTouchListenerOptions: AddEventListenerOptions = { passive: true };
+
+    // Error handling
+    private errorHandler: ErrorHandler;
+
+    // Object pooling for mini chart
+    private miniChartDrawBuffer: { x: number; width: number; y: number; color: string }[] = [];
+
+    // Toast notification
+    private toastContainer: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
+    private toastTimeout: any = null;
+
+    // Accessibility
+    private accessibleTaskListLayer: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
 
     private dataProcessor: DataProcessor;
     private readonly UI_TOKENS = {
@@ -712,6 +732,10 @@ export class Visual implements IVisual {
             .attr("class", "task-layer")
             .attr("clip-path", "url(#chart-area-clip)");
 
+        this.finishLineLayer = this.mainGroup.append("g")
+            .attr("class", "finish-line-layer")
+            .attr("clip-path", "url(#chart-area-clip)");
+
         this.taskLabelLayer = this.mainGroup.append("g")
             .attr("class", "task-label-layer");
 
@@ -849,6 +873,20 @@ export class Visual implements IVisual {
             this.hideTooltip();
             d3.select(this.canvasElement).style("cursor", "default");
         });
+
+        // Initialize error handler
+        this.errorHandler = new ErrorHandler({
+            logToConsole: true,
+            onCriticalError: (error) => {
+                this.displayMessage(this.errorHandler.getUserFriendlyMessage(error));
+            }
+        });
+
+        // Setup keyboard shortcuts
+        this.setupKeyboardShortcuts();
+
+        // Setup toast notification container
+        this.setupToastContainer(visualWrapper);
     }
 
     private forceCanvasRefresh(): void {
@@ -965,6 +1003,236 @@ export class Visual implements IVisual {
                 (this.target.style as any).imageRendering = '-webkit-optimize-contrast';
             }
         }
+    }
+
+    /**
+     * Setup keyboard shortcuts for common actions
+     * Improves accessibility and power user workflow
+     */
+    private setupKeyboardShortcuts(): void {
+        const shortcutHandlers: Record<string, () => void> = {
+            [KEYBOARD_SHORTCUTS.TOGGLE_CRITICAL]: () => this.toggleTaskDisplayInternal(),
+            [KEYBOARD_SHORTCUTS.TOGGLE_BASELINE]: () => this.toggleBaselineDisplayInternal(),
+            [KEYBOARD_SHORTCUTS.TOGGLE_PREVIOUS_UPDATE]: () => this.togglePreviousUpdateDisplayInternal(),
+            [KEYBOARD_SHORTCUTS.TOGGLE_CONNECTOR_LINES]: () => this.toggleConnectorLinesDisplay(),
+            [KEYBOARD_SHORTCUTS.RESET_ZOOM]: () => this.resetZoom(),
+            [KEYBOARD_SHORTCUTS.CLEAR_SELECTION]: () => this.clearSelection(),
+            [KEYBOARD_SHORTCUTS.EXPAND_ALL_WBS]: () => {
+                if (this.wbsDataExists) {
+                    // Use the cycle method with "previous" to expand (since the order is collapse -> expand)
+                    this.toggleWbsExpandCollapseDisplay();
+                }
+            },
+            [KEYBOARD_SHORTCUTS.COLLAPSE_ALL_WBS]: () => {
+                if (this.wbsDataExists) {
+                    // Use the cycle method with "next" to collapse
+                    this.toggleWbsCollapseCycleDisplay();
+                }
+            },
+        };
+
+        const shortcutLabels: Record<string, string> = {
+            [KEYBOARD_SHORTCUTS.TOGGLE_CRITICAL]: 'Critical Path toggled',
+            [KEYBOARD_SHORTCUTS.TOGGLE_BASELINE]: 'Baseline toggled',
+            [KEYBOARD_SHORTCUTS.TOGGLE_PREVIOUS_UPDATE]: 'Previous Update toggled',
+            [KEYBOARD_SHORTCUTS.TOGGLE_CONNECTOR_LINES]: 'Connector Lines toggled',
+            [KEYBOARD_SHORTCUTS.RESET_ZOOM]: 'Zoom reset',
+            [KEYBOARD_SHORTCUTS.CLEAR_SELECTION]: 'Selection cleared',
+            [KEYBOARD_SHORTCUTS.EXPAND_ALL_WBS]: 'All WBS groups expanded',
+            [KEYBOARD_SHORTCUTS.COLLAPSE_ALL_WBS]: 'All WBS groups collapsed',
+        };
+
+        d3.select(this.target)
+            .attr('tabindex', '0')
+            .on('keydown', (event: KeyboardEvent) => {
+                // Don't handle if focused on an input element
+                const targetTag = (event.target as HTMLElement).tagName.toLowerCase();
+                if (targetTag === 'input' || targetTag === 'textarea' || targetTag === 'select') {
+                    return;
+                }
+
+                // Don't handle with modifier keys (except for specific shortcuts)
+                if (event.ctrlKey || event.altKey || event.metaKey) {
+                    return;
+                }
+
+                const key = event.key;
+                const handler = shortcutHandlers[key];
+
+                if (handler) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handler();
+
+                    const label = shortcutLabels[key];
+                    if (label) {
+                        this.showToast(label);
+                    }
+                }
+            });
+    }
+
+    /**
+     * Setup toast notification container
+     */
+    private setupToastContainer(visualWrapper: Selection<HTMLDivElement, unknown, null, undefined>): void {
+        this.toastContainer = visualWrapper.append('div')
+            .attr('class', 'toast-notification')
+            .attr('role', 'status')
+            .attr('aria-live', 'polite')
+            .style('position', 'absolute')
+            .style('bottom', '80px')
+            .style('left', '50%')
+            .style('transform', 'translateX(-50%) translateY(20px)')
+            .style('background', 'rgba(32, 31, 30, 0.95)')
+            .style('color', 'white')
+            .style('padding', '10px 20px')
+            .style('border-radius', '8px')
+            .style('font-family', 'Segoe UI, sans-serif')
+            .style('font-size', '13px')
+            .style('font-weight', '500')
+            .style('box-shadow', '0 4px 12px rgba(0,0,0,0.3)')
+            .style('z-index', '1000')
+            .style('pointer-events', 'none')
+            .style('opacity', '0')
+            .style('transition', 'opacity 0.2s ease, transform 0.2s ease');
+    }
+
+    /**
+     * Show a brief toast notification
+     * @param message - Message to display
+     * @param duration - Duration in ms (default 2000)
+     */
+    private showToast(message: string, duration: number = 2000): void {
+        if (!this.toastContainer) return;
+
+        // Clear any existing timeout
+        if (this.toastTimeout) {
+            clearTimeout(this.toastTimeout);
+        }
+
+        // Show toast
+        this.toastContainer
+            .text(message)
+            .style('opacity', '1')
+            .style('transform', 'translateX(-50%) translateY(0)');
+
+        // Hide after duration
+        this.toastTimeout = setTimeout(() => {
+            if (this.toastContainer) {
+                this.toastContainer
+                    .style('opacity', '0')
+                    .style('transform', 'translateX(-50%) translateY(20px)');
+            }
+        }, duration);
+    }
+
+    /**
+     * Clear the current selection
+     */
+    private clearSelection(): void {
+        this.selectTask(null, null);
+        if (this.dropdownInput) {
+            this.dropdownInput.property('value', '');
+        }
+    }
+
+    /**
+     * Create accessible task list for screen readers (WCAG compliance)
+     */
+    private setupAccessibleTaskList(tasks: Task[]): void {
+        // Create or get the accessible layer
+        if (!this.accessibleTaskListLayer) {
+            this.accessibleTaskListLayer = d3.select(this.target)
+                .append('div')
+                .attr('class', 'accessible-task-list')
+                .attr('role', 'list')
+                .attr('aria-label', `Gantt chart with ${tasks.length} tasks`)
+                .style('position', 'absolute')
+                .style('left', '-9999px')
+                .style('width', '1px')
+                .style('height', '1px')
+                .style('overflow', 'hidden');
+        }
+
+        // Update aria label
+        this.accessibleTaskListLayer.attr('aria-label', `Gantt chart with ${tasks.length} tasks`);
+
+        // Limit to first 100 tasks for performance
+        const accessibleTasks = tasks.slice(0, 100);
+
+        // Update task items
+        const items = this.accessibleTaskListLayer.selectAll<HTMLDivElement, Task>('.accessible-task-item')
+            .data(accessibleTasks, (d: Task) => d.internalId);
+
+        items.exit().remove();
+
+        const enterItems = items.enter()
+            .append('div')
+            .attr('class', 'accessible-task-item')
+            .attr('role', 'listitem')
+            .attr('tabindex', '0');
+
+        enterItems.merge(items)
+            .attr('aria-label', (d: Task) => this.getTaskAriaLabel(d))
+            .on('focus', (_event: FocusEvent, d: Task) => {
+                this.setHoveredTask(d.internalId);
+            })
+            .on('blur', () => {
+                this.setHoveredTask(null);
+            })
+            .on('keydown', (event: KeyboardEvent, d: Task) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    this.selectTask(d.internalId, d.name);
+                }
+            });
+    }
+
+    /**
+     * Generate accessible ARIA label for a task
+     */
+    private getTaskAriaLabel(task: Task): string {
+        const parts: string[] = [
+            Sanitizer.sanitizeForSvgText(task.name)
+        ];
+
+        if (task.isCritical) {
+            parts.push('Critical');
+        }
+        if (task.isNearCritical) {
+            parts.push('Near Critical');
+        }
+        // Milestone is detected by zero duration
+        if (task.duration === 0) {
+            parts.push('Milestone');
+        }
+        if (task.startDate) {
+            parts.push(`starts ${this.formatDateForSpeech(task.startDate)}`);
+        }
+        if (task.finishDate) {
+            parts.push(`ends ${this.formatDateForSpeech(task.finishDate)}`);
+        }
+        if (task.duration !== undefined && task.duration !== null) {
+            parts.push(`duration ${task.duration} days`);
+        }
+        if (task.totalFloat !== undefined && task.totalFloat !== Infinity && isFinite(task.totalFloat)) {
+            parts.push(`total float ${task.totalFloat} days`);
+        }
+
+        return parts.join(', ');
+    }
+
+    /**
+     * Format a date for speech/screen reader output
+     */
+    private formatDateForSpeech(date: Date): string {
+        return date.toLocaleDateString(undefined, {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
     }
 
     private setupSVGRenderingHints(): void {
@@ -2036,6 +2304,7 @@ export class Visual implements IVisual {
 
     /**
      * Draws the mini chart preview in the zoom slider showing task distribution
+     * Optimized to batch by color and reduce GC pressure
      */
     private drawZoomSliderMiniChart(): void {
         if (!this.zoomSliderMiniChart || !this.fullTimelineDomain || !this.settings?.timelineZoom?.showMiniChart?.value) {
@@ -2049,15 +2318,21 @@ export class Visual implements IVisual {
         if (!rect) return;
 
         const dpr = window.devicePixelRatio || 1;
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        canvas.style.width = `${rect.width}px`;
-        canvas.style.height = `${rect.height}px`;
+        const canvasWidth = rect.width * dpr;
+        const canvasHeight = rect.height * dpr;
+
+        // Only resize if dimensions changed (reduces allocations)
+        if (canvas.width !== canvasWidth || canvas.height !== canvasHeight) {
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            canvas.style.width = `${rect.width}px`;
+            canvas.style.height = `${rect.height}px`;
+        }
 
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        ctx.scale(dpr, dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, rect.width, rect.height);
 
         const tasksToShow = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
@@ -2070,22 +2345,41 @@ export class Visual implements IVisual {
         const barHeight = Math.max(1, rect.height / Math.max(tasksToShow.length, 50));
         const criticalColor = this.settings?.criticalPath?.criticalPathColor?.value?.value ?? "#E81123";
         const taskColor = this.settings?.taskBars?.taskColor?.value?.value ?? "#0078D4";
+        const minDateMs = minDate.getTime();
+        const taskCount = tasksToShow.length;
 
         ctx.globalAlpha = 0.5;
 
-        tasksToShow.forEach((task, index) => {
-            if (!task.startDate || !task.finishDate) return;
+        // Batch by color to reduce context state changes
+        // First pass: non-critical tasks
+        ctx.fillStyle = taskColor;
+        for (let i = 0; i < taskCount; i++) {
+            const task = tasksToShow[i];
+            if (!task.startDate || !task.finishDate || task.isCritical) continue;
 
-            const startPercent = (task.startDate.getTime() - minDate.getTime()) / timeRange;
-            const endPercent = (task.finishDate.getTime() - minDate.getTime()) / timeRange;
-
+            const startPercent = (task.startDate.getTime() - minDateMs) / timeRange;
+            const endPercent = (task.finishDate.getTime() - minDateMs) / timeRange;
             const x = startPercent * rect.width;
             const width = Math.max(1, (endPercent - startPercent) * rect.width);
-            const y = (index / tasksToShow.length) * rect.height;
+            const y = (i / taskCount) * rect.height;
 
-            ctx.fillStyle = task.isCritical ? criticalColor : taskColor;
             ctx.fillRect(x, y, width, barHeight);
-        });
+        }
+
+        // Second pass: critical tasks (on top)
+        ctx.fillStyle = criticalColor;
+        for (let i = 0; i < taskCount; i++) {
+            const task = tasksToShow[i];
+            if (!task.startDate || !task.finishDate || !task.isCritical) continue;
+
+            const startPercent = (task.startDate.getTime() - minDateMs) / timeRange;
+            const endPercent = (task.finishDate.getTime() - minDateMs) / timeRange;
+            const x = startPercent * rect.width;
+            const width = Math.max(1, (endPercent - startPercent) * rect.width);
+            const y = (i / taskCount) * rect.height;
+
+            ctx.fillRect(x, y, width, barHeight);
+        }
 
         ctx.globalAlpha = 1;
     }
@@ -2264,13 +2558,13 @@ export class Visual implements IVisual {
         this.updateExportButtonState(true);
 
         try {
-            // Generate filename with timestamp
+            // Generate filename with timestamp (sanitized)
             const now = new Date();
             const timestamp = now.toISOString()
                 .replace(/[:.]/g, '-')
                 .replace('T', '-')
                 .slice(0, 19);
-            const filename = `gantt-export-${timestamp}.pdf`;
+            const filename = Sanitizer.sanitizeFilename(`gantt-export-${timestamp}`) + '.pdf';
 
             // Generate PDF content
             console.log('[PDF Export] Generating PDF content...');
@@ -2295,6 +2589,7 @@ export class Visual implements IVisual {
 
                         if (result.downloadCompleted) {
                             console.log('[PDF Export] Download completed successfully:', result.fileName);
+                            this.showToast('PDF exported successfully');
                             return; // Success!
                         } else {
                             console.warn('[PDF Export] Download may not have completed, trying fallback...');
@@ -2315,8 +2610,17 @@ export class Visual implements IVisual {
             this.fallbackDownload(pdfBase64, filename);
 
         } catch (error) {
-            console.error('[PDF Export] Export failed:', error);
-            alert('PDF export failed. Please check the console for details.');
+            // Use structured error handling
+            const visualError = this.errorHandler.handle(
+                error,
+                ERROR_CODES.ERR_PDF_EXPORT,
+                {
+                    taskCount: this.allTasksData.length,
+                    viewport: this.lastViewport
+                }
+            );
+
+            alert(this.errorHandler.getUserFriendlyMessage(visualError));
         } finally {
             this.isExporting = false;
             this.updateExportButtonState(false);
@@ -2707,9 +3011,11 @@ export class Visual implements IVisual {
                 const now = Date.now();
                 const inCooldownPeriod = now < this.scrollPreservationUntil;
                 const wbsToggleRecent = this.lastWbsToggleTimestamp > 0 && (now - this.lastWbsToggleTimestamp) < 2000;
-                const shouldPreserveScroll = this.preserveScrollOnUpdate || inCooldownPeriod || wbsToggleRecent;
+                // Also preserve scroll if we recently persisted scroll position (to handle the update triggered by persistProperties)
+                const scrollPersistRecent = this.scrollPersistTimestamp > 0 && (now - this.scrollPersistTimestamp) < 2000;
+                const shouldPreserveScroll = this.preserveScrollOnUpdate || inCooldownPeriod || wbsToggleRecent || scrollPersistRecent;
 
-                this.debugLog(`Scroll preservation check: flag=${this.preserveScrollOnUpdate}, inCooldown=${inCooldownPeriod}, wbsRecent=${wbsToggleRecent}, shouldPreserve=${shouldPreserveScroll}, scrollTop=${node.scrollTop}`);
+                this.debugLog(`Scroll preservation check: flag=${this.preserveScrollOnUpdate}, inCooldown=${inCooldownPeriod}, wbsRecent=${wbsToggleRecent}, persistRecent=${scrollPersistRecent}, shouldPreserve=${shouldPreserveScroll}, scrollTop=${node.scrollTop}`);
 
                 this.preserveScrollOnUpdate = false;
 
@@ -2910,6 +3216,14 @@ export class Visual implements IVisual {
                         this.zoomRangeStart = persistedStart;
                         this.zoomRangeEnd = persistedEnd;
                         this.debugLog(`Restored zoom range: ${persistedStart} - ${persistedEnd}`);
+                    }
+                }
+                // Restore persisted scroll position
+                if (this.settings?.persistedState?.scrollPosition !== undefined) {
+                    const persistedScroll = this.settings.persistedState.scrollPosition.value;
+                    if (typeof persistedScroll === 'number' && persistedScroll > 0) {
+                        this.persistedScrollPosition = persistedScroll;
+                        this.debugLog(`Will restore scroll position: ${persistedScroll}`);
                     }
                 }
                 this.isInitialLoad = false;
@@ -3174,9 +3488,20 @@ export class Visual implements IVisual {
             }
 
             if (wbsGroupingEnabled) {
-                // Ensure the WBS expansion level defaults are applied if a global level is set
-                // (Custom overrides are handled by wbsExpandedState in processData, but global levels need explicit application)
-                if (this.wbsExpandToLevel !== undefined) {
+                // Apply WBS expansion states
+                // If in manual override mode, just restore saved states; don't recalculate based on level
+                if (this.wbsManualExpansionOverride && this.wbsExpandedState.size > 0) {
+                    // In manual mode: apply saved states directly to all groups
+                    for (const group of this.wbsGroups) {
+                        const savedState = this.wbsExpandedState.get(group.id);
+                        if (savedState !== undefined) {
+                            group.isExpanded = savedState;
+                        }
+                        // Groups not in wbsExpandedState keep their current isExpanded value
+                        // (which was set during group creation in DataProcessor)
+                    }
+                } else if (this.wbsExpandToLevel !== undefined) {
+                    // Not in manual mode: apply global level-based expansion
                     this.applyWbsExpandLevel(this.wbsExpandToLevel);
                 }
                 this.updateWbsFilteredCounts(tasksAfterLegendFilter);
@@ -3289,6 +3614,9 @@ export class Visual implements IVisual {
             this.updateZoomSliderUI();
             this.drawZoomSliderMiniChart();
             this.updateZoomSliderTrackMargins();
+
+            // Setup accessible task list for screen readers (WCAG compliance)
+            this.setupAccessibleTaskList(tasksToShow);
 
             const renderEndTime = performance.now();
             this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
@@ -4262,8 +4590,9 @@ export class Visual implements IVisual {
 
         for (const item of dataItems) {
             const row = tooltip.append("div");
-            row.append("strong").text(`${item.displayName}: `);
-            row.append("span").text(item.value || "");
+            // Sanitize display name and value for defense-in-depth
+            row.append("strong").text(`${Sanitizer.sanitizeTooltipDisplayName(item.displayName)}: `);
+            row.append("span").text(Sanitizer.sanitizeTooltipValue(item.value));
         }
 
         this.positionTooltip(tooltip.node(), event);
@@ -4374,6 +4703,44 @@ export class Visual implements IVisual {
             canvasNeedsRedraw) {
             this.redrawVisibleTasks();
         }
+
+        // Debounced persistence of scroll position for page navigation restoration
+        this.persistScrollPositionDebounced();
+    }
+
+    /**
+     * Persists the current scroll position with debouncing to avoid excessive API calls.
+     * This allows scroll position to be restored when navigating back to the page.
+     */
+    private persistScrollPositionDebounced(): void {
+        // Clear any existing timeout
+        if (this.scrollPersistTimeout) {
+            clearTimeout(this.scrollPersistTimeout);
+        }
+
+        // Debounce: only persist after scrolling stops for 500ms
+        this.scrollPersistTimeout = setTimeout(() => {
+            if (!this.scrollableContainer?.node()) return;
+
+            const scrollTop = this.scrollableContainer.node().scrollTop;
+
+            // Persist scroll position (including 0 to overwrite previous values)
+            if (scrollTop >= 0) {
+                // Set timestamp to prevent this update from resetting scroll position
+                this.scrollPersistTimestamp = Date.now();
+
+                this.host.persistProperties({
+                    merge: [{
+                        objectName: "persistedState",
+                        properties: {
+                            scrollPosition: Math.round(scrollTop)
+                        },
+                        selector: null
+                    }]
+                });
+                this.debugLog(`Persisted scroll position: ${Math.round(scrollTop)}`);
+            }
+        }, 500);
     }
 
     private canvasHasContent(): boolean {
@@ -4710,11 +5077,12 @@ export class Visual implements IVisual {
 
         // Use getTasksForFinishLines to properly collect underlying tasks from visible WBS groups
         const tasksForProjectEnd = this.getTasksForFinishLines();
+        this.finishLineLayer.selectAll("*").remove();
         this.drawBaselineAndPreviousEndLines(
             xScale,
             tasksForProjectEnd,
             yScale.range()[1],
-            this.gridLayer,
+            this.finishLineLayer,
             this.headerGridLayer
         );
         this.drawProjectEndLine(
@@ -4723,7 +5091,7 @@ export class Visual implements IVisual {
             renderableTasks,
             tasksForProjectEnd,
             yScale.range()[1],
-            this.gridLayer,
+            this.finishLineLayer,
             this.headerGridLayer
         );
 
@@ -4731,7 +5099,7 @@ export class Visual implements IVisual {
             xScale.range()[1],
             xScale,
             yScale.range()[1],
-            this.gridLayer,
+            this.finishLineLayer,
             this.headerGridLayer
         );
     }
@@ -5063,11 +5431,13 @@ export class Visual implements IVisual {
 
             this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
 
+            this.finishLineLayer.selectAll("*").remove();
+
             this.drawDataDateLine(
                 chartWidth,
                 xScale,
                 chartHeight,
-                this.gridLayer,
+                this.finishLineLayer,
                 this.headerGridLayer
             );
         }
@@ -5081,11 +5451,11 @@ export class Visual implements IVisual {
             xScale,
             tasksForProjectEnd,
             chartHeight,
-            this.gridLayer,
+            this.finishLineLayer,
             this.headerGridLayer
         );
         this.drawProjectEndLine(chartWidth, xScale, renderableTasks, tasksForProjectEnd, chartHeight,
-            this.gridLayer, this.headerGridLayer);
+            this.finishLineLayer, this.headerGridLayer);
     }
 
     private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
@@ -5436,6 +5806,11 @@ export class Visual implements IVisual {
             return;
         }
 
+        const barHeightOverride = this.settings.taskBars.taskBarHeight.value;
+        const actualBarHeight = (barHeightOverride > 0 && barHeightOverride <= taskHeight) ? barHeightOverride : taskHeight;
+        const barYOffset = (taskHeight - actualBarHeight) / 2;
+        const barBottomOffset = barYOffset + actualBarHeight;
+
         const showTooltips = this.settings.generalSettings.showTooltips.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
@@ -5554,7 +5929,7 @@ export class Visual implements IVisual {
                 .append("rect")
                 .attr("class", "previous-update-bar")
                 .attr("x", (d: Task) => xScale(d.previousUpdateStartDate!))
-                .attr("y", taskHeight + previousUpdateOffset)
+                .attr("y", barBottomOffset + previousUpdateOffset)
                 .attr("width", (d: Task) => {
                     const startPos = xScale(d.previousUpdateStartDate!);
                     const finishPos = xScale(d.previousUpdateFinishDate!);
@@ -5579,13 +5954,13 @@ export class Visual implements IVisual {
             const baselineRadius = Math.min(3, baselineHeight / 2);
             const baselineOutline = this.getContrastColor(baselineColor);
 
-            let baselineY = taskHeight;
+            let baselineY = barBottomOffset;
             if (showPreviousUpdate) {
                 const previousUpdateHeight = this.settings.comparisonBars.previousUpdateHeight.value;
                 const previousUpdateOffset = this.settings.comparisonBars.previousUpdateOffset.value;
-                baselineY = taskHeight + previousUpdateOffset + previousUpdateHeight + baselineOffset;
+                baselineY = barBottomOffset + previousUpdateOffset + previousUpdateHeight + baselineOffset;
             } else {
-                baselineY = taskHeight + baselineOffset;
+                baselineY = barBottomOffset + baselineOffset;
             }
 
             allTaskGroups.selectAll(".baseline-bar").remove();
@@ -5640,9 +6015,9 @@ export class Visual implements IVisual {
                         .attr("tabindex", 0)
                         .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
                         .attr("x", (d: Task) => xScale(start!))
-                        .attr("y", 0)
+                        .attr("y", barYOffset)
                         .attr("width", (d: Task) => getTaskBarWidth(d))
-                        .attr("height", taskHeight)
+                        .attr("height", actualBarHeight)
 
                         .attr("rx", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
                         .attr("ry", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
@@ -6476,6 +6851,11 @@ export class Visual implements IVisual {
     ): void {
         if (!this.canvasContext || !this.canvasElement) return;
 
+        const barHeightOverride = this.settings.taskBars.taskBarHeight.value;
+        const actualBarHeight = (barHeightOverride > 0 && barHeightOverride <= taskHeight) ? barHeightOverride : taskHeight;
+        const barYOffset = (taskHeight - actualBarHeight) / 2;
+        const barBottomOffset = barYOffset + actualBarHeight;
+
         const ctx = this.canvasContext;
 
         ctx.save();
@@ -6509,7 +6889,7 @@ export class Visual implements IVisual {
                 const x = Math.round(xScale(task.previousUpdateStartDate));
                 const w = Math.round(Math.max(1, xScale(task.previousUpdateFinishDate) - x));
                 const h = Math.round(this.settings.comparisonBars.previousUpdateHeight.value);
-                const y = Math.round(yPos + taskHeight + this.settings.comparisonBars.previousUpdateOffset.value);
+                const y = Math.round(yPos + barBottomOffset + this.settings.comparisonBars.previousUpdateOffset.value);
                 const r = Math.min(3, h / 2);
                 prevUpdateBatch.push({ x, y, w, h, r });
             }
@@ -6517,9 +6897,9 @@ export class Visual implements IVisual {
             if (showBaseline && task.baselineStartDate && task.baselineFinishDate && task.baselineFinishDate >= task.baselineStartDate) {
                 let yBase: number;
                 if (showPreviousUpdate) {
-                    yBase = yPos + taskHeight + this.settings.comparisonBars.previousUpdateOffset.value + this.settings.comparisonBars.previousUpdateHeight.value + this.settings.comparisonBars.baselineOffset.value;
+                    yBase = yPos + barBottomOffset + this.settings.comparisonBars.previousUpdateOffset.value + this.settings.comparisonBars.previousUpdateHeight.value + this.settings.comparisonBars.baselineOffset.value;
                 } else {
-                    yBase = yPos + taskHeight + this.settings.comparisonBars.baselineOffset.value;
+                    yBase = yPos + barBottomOffset + this.settings.comparisonBars.baselineOffset.value;
                 }
                 const x = Math.round(xScale(task.baselineStartDate));
                 const w = Math.round(Math.max(1, xScale(task.baselineFinishDate) - x));
@@ -6609,11 +6989,11 @@ export class Visual implements IVisual {
                 const finish = task.manualFinishDate ?? task.finishDate!;
                 const x = Math.round(xScale(start));
                 const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
-                const h = Math.round(taskHeight);
+                const h = Math.round(actualBarHeight);
                 const r = Math.min(5, Math.round(h * 0.15), Math.round(w / 2));
 
                 if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
-                taskBatches.get(styleKey)!.push({ x, y: yPos, w, h, r });
+                taskBatches.get(styleKey)!.push({ x, y: yPos + barYOffset, w, h, r });
             }
         }
 
@@ -7537,8 +7917,31 @@ export class Visual implements IVisual {
             collectTasksFromGroup(group);
         }
 
-        // If we found tasks from WBS groups, use those; otherwise fall back to allTasksData
-        return tasksFromGroups.length > 0 ? tasksFromGroups : this.allTasksData;
+        if (tasksFromGroups.length === 0) {
+            return this.allTasksData;
+        }
+
+        // Apply visual filters (Trace Mode, Legend, Search) to the WBS-collected tasks
+        // so the finish line matches the visible task set.
+        let resultTasks = tasksFromGroups;
+
+        // 1. Trace Mode / Critical Path Filter (Show Critical Only)
+        if (!this.showAllTasksInternal) {
+            resultTasks = resultTasks.filter(t => t.isCritical || t.isNearCritical);
+        }
+
+        // 2. Legend Filter
+        if (this.selectedLegendCategories && this.selectedLegendCategories.size > 0) {
+            resultTasks = resultTasks.filter(t => t.legendValue && this.selectedLegendCategories.has(t.legendValue));
+        }
+
+        // 3. Search Filter
+        if (this.filterKeyword && this.filterKeyword.trim().length > 0) {
+            const lowerFilter = this.filterKeyword.toLowerCase();
+            resultTasks = resultTasks.filter(t => (t.name || "").toLowerCase().includes(lowerFilter));
+        }
+
+        return resultTasks;
     }
 
 
@@ -9039,18 +9442,23 @@ export class Visual implements IVisual {
 
     private getWbsExpandedStatePayload(): Record<string, boolean> {
         const payload: Record<string, boolean> = {};
+
         if (this.wbsGroups.length > 0) {
-            this.wbsExpandedState.clear();
+            // Update the state map with current group states WITHOUT clearing first
+            // This preserves any existing entries for groups that may not be in the current render
             for (const group of this.wbsGroups) {
                 this.wbsExpandedState.set(group.id, group.isExpanded);
                 payload[group.id] = group.isExpanded;
             }
-            return payload;
         }
 
+        // Also include any existing entries not in current groups (for persistence)
         for (const [groupId, expanded] of this.wbsExpandedState.entries()) {
-            payload[groupId] = expanded;
+            if (!(groupId in payload)) {
+                payload[groupId] = expanded;
+            }
         }
+
         return payload;
     }
 
@@ -9292,6 +9700,22 @@ export class Visual implements IVisual {
             const clampedScrollTop = Math.max(0, Math.min(targetScrollTop, maxScroll));
 
             this.debugLog(`Strict scroll restoration: target=${targetScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
+
+            containerNode.scrollTop = clampedScrollTop;
+
+            void containerNode.scrollTop;
+
+            return;
+        }
+
+        // Restore persisted scroll position (from page navigation)
+        if (this.persistedScrollPosition !== null && this.persistedScrollPosition > 0) {
+            const targetScrollTop = this.persistedScrollPosition;
+            this.persistedScrollPosition = null; // Clear after use
+
+            const clampedScrollTop = Math.max(0, Math.min(targetScrollTop, maxScroll));
+
+            this.debugLog(`Persisted scroll restoration: target=${targetScrollTop}, clamped=${clampedScrollTop}, maxScroll=${maxScroll}`);
 
             containerNode.scrollTop = clampedScrollTop;
 
