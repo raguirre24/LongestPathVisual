@@ -8350,7 +8350,8 @@ export class Visual implements IVisual {
 
         this.pathInfoLabel
             .style("padding", isCompact ? `0 ${this.UI_TOKENS.spacing.xs}px` : `0 ${this.UI_TOKENS.spacing.sm}px`)
-            .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`);
+            .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`)
+            .attr("title", "Current Path Information: Path Number | Total Tasks | Total Duration");
 
         this.pathInfoLabel.selectAll("*").remove();
 
@@ -8394,6 +8395,9 @@ export class Visual implements IVisual {
 
         if (hasMultiplePaths) {
             prevButton
+                .attr("role", "button")
+                .attr("tabindex", "0")
+                .attr("aria-label", buttonTitle)
                 .on("mouseover", function () {
                     d3.select(this)
                         .style("background-color", self.UI_TOKENS.color.primary.light)
@@ -8415,6 +8419,14 @@ export class Visual implements IVisual {
                 event.stopPropagation();
                 self.navigateToPreviousPath();
             });
+
+            prevButton.on("keydown", function (event: KeyboardEvent) {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    self.navigateToPreviousPath();
+                }
+            });
         }
 
         const infoContainer = this.pathInfoLabel.append("div")
@@ -8427,26 +8439,31 @@ export class Visual implements IVisual {
         infoContainer.append("span")
             .style("font-weight", "700")
             .style("letter-spacing", "0.15px")
-            .text(isCompact ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`);
+            .text(isCompact ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`)
+            .attr("aria-label", `Currently viewing path ${pathNumber} of ${totalPaths}`);
 
         if (!isCompact) {
             infoContainer.append("span")
                 .style("color", this.UI_TOKENS.color.primary.default)
                 .style("font-weight", "600")
+                .attr("aria-hidden", "true")
                 .text("|");
 
             infoContainer.append("span")
                 .style("font-weight", "500")
+                .attr("aria-label", `${taskCount} tasks in this path`)
                 .text(`${taskCount} tasks`);
 
             if (!isMedium) {
                 infoContainer.append("span")
                     .style("color", this.UI_TOKENS.color.primary.default)
                     .style("font-weight", "600")
+                    .attr("aria-hidden", "true")
                     .text("|");
 
                 infoContainer.append("span")
                     .style("font-weight", "500")
+                    .attr("aria-label", `Total duration ${duration} days`)
                     .text(`${duration} days`);
             }
         }
@@ -8481,6 +8498,9 @@ export class Visual implements IVisual {
 
         if (hasMultiplePaths) {
             nextButton
+                .attr("role", "button")
+                .attr("tabindex", "0")
+                .attr("aria-label", nextButtonTitle)
                 .on("mouseover", function () {
                     d3.select(this)
                         .style("background-color", self.UI_TOKENS.color.primary.light)
@@ -8501,6 +8521,14 @@ export class Visual implements IVisual {
             nextButton.on("click", function (event) {
                 event.stopPropagation();
                 self.navigateToNextPath();
+            });
+
+            nextButton.on("keydown", function (event: KeyboardEvent) {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    self.navigateToNextPath();
+                }
             });
         }
 
@@ -10517,12 +10545,13 @@ export class Visual implements IVisual {
             .attr("class", "trace-mode-toggle")
             .attr("role", "radiogroup")
             .attr("aria-label", this.getLocalizedString("ui.traceModeLabel", "Trace Mode"))
+            .attr("title", this.getLocalizedString("ui.traceModeTooltip", "Select direction to trace dependencies from the selected task"))
             .style("position", "absolute")
             .style("top", "40px")
             .style("left", `${secondRowLayout.traceModeToggle.left}px`)
             .style("display", "inline-flex")
             .style("align-items", "center")
-            .style("height", `${this.UI_TOKENS.height.compact}px`)
+            .style("height", `${this.UI_TOKENS.height.compact}px`) // 24px
             .style("padding", "2px")
             .style("gap", "2px")
             .style("background-color", this.UI_TOKENS.color.neutral.white)
@@ -10533,10 +10562,10 @@ export class Visual implements IVisual {
             .style("user-select", "none");
 
         const self = this;
-        const setMode = (mode: string): void => {
+        // Function to handle mode change logic
+        const setMode = (mode: string) => {
             if (self.traceMode === mode) return;
             self.traceMode = mode;
-
             self.host.persistProperties({
                 merge: [{
                     objectName: "persistedState",
@@ -10544,7 +10573,6 @@ export class Visual implements IVisual {
                     selector: null
                 }]
             });
-
             self.captureScrollPosition();
             self.forceFullUpdate = true;
             if (self.lastUpdateOptions) {
@@ -10553,12 +10581,22 @@ export class Visual implements IVisual {
         };
 
         const options = [
-            { value: "backward", label: labelBackward, title: "Trace backward from the selected task" },
-            { value: "forward", label: labelForward, title: "Trace forward from the selected task" }
+            {
+                value: "backward",
+                title: "Trace backward from the selected task",
+                path: "M 10 3 L 4 8 L 10 13" // Left arrow
+            },
+            {
+                value: "forward",
+                title: "Trace forward from the selected task",
+                path: "M 6 3 L 12 8 L 6 13" // Right arrow
+            }
         ];
 
         for (const option of options) {
             const isActive = option.value === currentMode;
+            const buttonSize = this.UI_TOKENS.height.compact - 6; // ~18px
+
             const button = container.append("div")
                 .attr("class", `trace-mode-option ${option.value}`)
                 .attr("role", "radio")
@@ -10568,17 +10606,26 @@ export class Visual implements IVisual {
                 .style("display", "flex")
                 .style("align-items", "center")
                 .style("justify-content", "center")
-                .style("height", `${this.UI_TOKENS.height.compact - 6}px`)
-                .style("padding", `0 ${isCompact ? this.UI_TOKENS.spacing.sm : this.UI_TOKENS.spacing.md}px`)
+                .style("width", `${buttonSize + 8}px`) // Slightly wider than tall for easier clicking
+                .style("height", `${buttonSize}px`)
                 .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
-                .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-                .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
-                .style("font-weight", isActive ? this.UI_TOKENS.fontWeight.semibold.toString() : this.UI_TOKENS.fontWeight.medium.toString())
-                .style("color", isActive ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
                 .style("background-color", isActive ? this.UI_TOKENS.color.primary.default : "transparent")
                 .style("cursor", "pointer")
-                .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
-                .text(option.label);
+                .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+
+            const svg = button.append("svg")
+                .attr("width", "16")
+                .attr("height", "16")
+                .attr("viewBox", "0 0 16 16")
+                .style("display", "block");
+
+            svg.append("path")
+                .attr("d", option.path)
+                .attr("fill", "none")
+                .attr("stroke", isActive ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
+                .attr("stroke-width", "2")
+                .attr("stroke-linecap", "round")
+                .attr("stroke-linejoin", "round");
 
             button.append("title").text(option.title);
 
@@ -10586,15 +10633,17 @@ export class Visual implements IVisual {
                 .on("mouseover", function () {
                     if (option.value !== self.traceMode) {
                         d3.select(this)
-                            .style("background-color", self.UI_TOKENS.color.primary.light)
-                            .style("color", self.UI_TOKENS.color.primary.default);
+                            .style("background-color", self.UI_TOKENS.color.primary.light);
+                        d3.select(this).select("path")
+                            .attr("stroke", self.UI_TOKENS.color.primary.default);
                     }
                 })
                 .on("mouseout", function () {
                     if (option.value !== self.traceMode) {
                         d3.select(this)
-                            .style("background-color", "transparent")
-                            .style("color", self.UI_TOKENS.color.neutral.grey130);
+                            .style("background-color", "transparent");
+                        d3.select(this).select("path")
+                            .attr("stroke", self.UI_TOKENS.color.neutral.grey130);
                     }
                 })
                 .on("click", function (event) {
@@ -10604,10 +10653,12 @@ export class Visual implements IVisual {
                 .on("keydown", function (event: KeyboardEvent) {
                     if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
+                        event.stopPropagation();
                         setMode(option.value);
                     }
                 });
         }
+
     }
     /**
      * Populates the task dropdown with tasks from the dataset

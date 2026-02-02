@@ -174,8 +174,9 @@ export class Header {
         const btn = this.container.append("button")
             .attr("class", "toggle-button-group")
             .attr("type", "button")
-            .attr("aria-label", isShowingCritical ? "Show critical path only" : "Show all tasks")
-            .attr("aria-pressed", (!isShowingCritical).toString())
+            .attr("aria-label", isShowingCritical ? "Show all tasks" : "Show critical path only")
+            .attr("title", isShowingCritical ? "Show all tasks" : "Show critical path only")
+            .attr("aria-pressed", isShowingCritical.toString())
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -207,42 +208,52 @@ export class Header {
             .style("left", "0")
             .style("pointer-events", "none");
 
-        svg.append("circle")
-            .attr("cx", iconPadding)
-            .attr("cy", buttonHeight / 2)
-            .attr("r", 10)
-            .style("fill", isShowingCritical ? UI_TOKENS.color.success.subtle : UI_TOKENS.color.danger.subtle);
+        const iconCenterX = buttonWidth / 2;
+        const iconCenterY = buttonHeight / 2;
 
-        svg.append("path")
-            .attr("d", isShowingCritical
-                ? "M1.5,-3 L8,-3 M1.5,0 L8.5,0 M1.5,3 L8,3"
-                : "M2.5,-1.5 L5,-3.5 L7.5,-1.5 L7.5,0 L5,2 L2.5,0 Z")
-            .attr("transform", `translate(${iconPadding}, ${buttonHeight / 2})`)
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 2.25)
-            .attr("fill", isShowingCritical ? "none" : iconColor)
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round");
+        // Draw filter/funnel-like icon for critical path
+        if (isShowingCritical) {
+            // "Show All" icon (list view)
+            svg.append("rect")
+                .attr("x", iconCenterX - 6)
+                .attr("y", iconCenterY - 6)
+                .attr("width", 12)
+                .attr("height", 2)
+                .attr("rx", 1)
+                .attr("fill", iconColor);
+            svg.append("rect")
+                .attr("x", iconCenterX - 6)
+                .attr("y", iconCenterY - 1)
+                .attr("width", 12)
+                .attr("height", 2)
+                .attr("rx", 1)
+                .attr("fill", iconColor);
+            svg.append("rect")
+                .attr("x", iconCenterX - 6)
+                .attr("y", iconCenterY + 4)
+                .attr("width", 8) // slightly shorter
+                .attr("height", 2)
+                .attr("rx", 1)
+                .attr("fill", iconColor);
+        } else {
+            // "Critical Path" icon (diamond/warning or highlight)
+            svg.append("path")
+                .attr("d", "M-5,0 L0,-5 L5,0 L0,5 Z")
+                .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`)
+                .attr("fill", UI_TOKENS.color.danger.default);
 
-        // Text
-        const buttonText = isShowingCritical
-            ? (buttonWidth >= 160 ? "Show All Tasks" : "Show All")
-            : (buttonWidth >= 160 ? "Critical Path Only" : "Show Critical");
-
-        const textX = iconPadding + 24;
-
-        if (buttonWidth > 50) {
-            svg.append("text")
-                .attr("x", textX)
-                .attr("y", buttonHeight / 2)
-                .attr("dominant-baseline", "central")
-                .style("font-family", "Segoe UI, sans-serif")
-                .style("font-size", `${UI_TOKENS.fontSize.md}px`)
-                .style("fill", UI_TOKENS.color.neutral.grey160)
-                .style("font-weight", UI_TOKENS.fontWeight.semibold.toString())
-                .style("letter-spacing", "0.2px")
-                .text(buttonText);
+            svg.append("line")
+                .attr("x1", iconCenterX - 2)
+                .attr("y1", iconCenterY + 5)
+                .attr("x2", iconCenterX + 8)
+                .attr("y2", iconCenterY + 5)
+                .attr("stroke", UI_TOKENS.color.danger.default)
+                .attr("stroke-width", 2)
+                .attr("stroke-linecap", "round");
         }
+
+        btn.append("title")
+            .text(isShowingCritical ? "Show All Tasks" : "Show Critical Path Only");
 
         // Hover effects
         btn.on("mouseover", function () {
@@ -294,6 +305,9 @@ export class Header {
             .attr("class", "baseline-toggle-group")
             .attr("type", "button")
             .attr("aria-label", `${showBaseline ? 'Hide' : 'Show'} baseline task bars`)
+            .attr("title", isAvailable
+                ? (showBaseline ? 'Hide baseline task bars' : 'Show baseline task bars')
+                : "Requires Baseline Start Date and Baseline Finish Date fields to be mapped")
             .attr("aria-pressed", showBaseline.toString())
             .attr("aria-disabled", (!isAvailable).toString())
             .property("disabled", !isAvailable)
@@ -429,6 +443,9 @@ export class Header {
             .attr("class", "previous-update-toggle-group")
             .attr("type", "button")
             .attr("aria-label", `${showPreviousUpdate ? 'Hide' : 'Show'} previous update task bars`)
+            .attr("title", isAvailable
+                ? (showPreviousUpdate ? 'Hide previous update task bars' : 'Show previous update task bars')
+                : "Requires Previous Update Start and Finish Date fields to be mapped")
             .attr("aria-pressed", showPreviousUpdate.toString())
             .attr("aria-disabled", (!isAvailable).toString())
             .property("disabled", !isAvailable)
@@ -567,15 +584,15 @@ export class Header {
         const gap = mode === 'wide' ? 12 : (mode === 'medium' ? 8 : (mode === 'narrow' ? 6 : 4));
         // Using UI_TOKENS for sizes would be ideal but logic uses hardcoded numbers in visual.ts mostly
         // We can map them:
-        const iconButtonSize = mode === 'very-narrow' ? 28 : (mode === 'compact' ? 30 : 36);
-        const smallIconSize = mode === 'very-narrow' ? 24 : 28;
+        const iconButtonSize = UI_TOKENS.height.standard;
+        const smallIconSize = UI_TOKENS.height.standard;
 
         // Calculate dimensions for each button type based on mode
-        const showAllWidth = mode === 'wide' ? 140 : (mode === 'medium' ? 120 : (mode === 'narrow' ? 100 : (mode === 'compact' ? 80 : 70)));
-        const modeWidth = mode === 'wide' ? 150 : (mode === 'medium' ? 130 : (mode === 'narrow' ? 110 : (mode === 'compact' ? 90 : 80)));
-        const baselineWidth = (mode === 'wide' || mode === 'medium') ? (mode === 'wide' ? 125 : 105) : iconButtonSize;
-        const prevWidth = (mode === 'wide' || mode === 'medium') ? (mode === 'wide' ? 125 : 105) : iconButtonSize;
-        const wbsEnableWidth = mode === 'wide' ? 70 : (mode === 'medium' ? 65 : 60);
+        const showAllWidth = iconButtonSize; // Force icon-only
+        const modeWidth = mode === 'wide' ? 150 : (mode === 'medium' ? 130 : iconButtonSize); // Keep mode somewhat wide or icon
+        const baselineWidth = iconButtonSize;
+        const prevWidth = iconButtonSize;
+        const wbsEnableWidth = iconButtonSize;
 
         // Calculate total width needed for all buttons
         const allButtonWidths = [
@@ -693,7 +710,7 @@ export class Header {
         const showAllCritical = {
             x,
             width: showAllWidth,
-            showText: mode !== 'very-narrow',
+            showText: false,
             visible: visibleButtons.showAll
         };
         if (visibleButtons.showAll) x += showAllWidth + gap;
@@ -709,7 +726,7 @@ export class Header {
         const baseline = {
             x,
             width: baselineWidth,
-            iconOnly: mode !== 'wide' && mode !== 'medium',
+            iconOnly: true,
             visible: visibleButtons.baseline
         };
         if (visibleButtons.baseline) x += baselineWidth + gap;
@@ -717,7 +734,7 @@ export class Header {
         const previousUpdate = {
             x,
             width: prevWidth,
-            iconOnly: mode !== 'wide' && mode !== 'medium',
+            iconOnly: true,
             visible: visibleButtons.previousUpdate
         };
         if (visibleButtons.previousUpdate) x += prevWidth + gap;
@@ -815,6 +832,7 @@ export class Header {
             .attr("class", "connector-toggle-group")
             .attr("type", "button")
             .attr("aria-label", `${showConnectorLines ? 'Hide' : 'Show'} connector lines between tasks`)
+            .attr("title", showConnectorLines ? "Click to hide connector lines between dependent tasks" : "Click to show connector lines between dependent tasks")
             .attr("aria-pressed", showConnectorLines.toString())
             .classed("header-toggle-button", true)
             .style("position", "absolute")
@@ -920,6 +938,9 @@ export class Header {
             .attr("class", "wbs-expand-toggle-group")
             .attr("type", "button")
             .attr("aria-label", isCustom
+                ? "Custom (manual overrides). Click to expand and clear overrides"
+                : `Level ${currentLevel} (click to expand)`)
+            .attr("title", isCustom
                 ? "Custom (manual overrides). Click to expand and clear overrides"
                 : `Level ${currentLevel} (click to expand)`)
             .attr("aria-pressed", wbsExpanded.toString())
@@ -1031,6 +1052,9 @@ export class Header {
             .attr("aria-label", isCustom
                 ? "Custom (manual overrides). Click to collapse and clear overrides"
                 : `Level ${currentLevel} (click to collapse)`)
+            .attr("title", isCustom
+                ? "Custom (manual overrides). Click to collapse and clear overrides"
+                : `Level ${currentLevel} (click to collapse)`)
             .attr("aria-pressed", isCollapsed.toString())
             .classed("header-toggle-button", true)
             .style("position", "absolute")
@@ -1136,6 +1160,7 @@ export class Header {
             .attr("class", "float-threshold-wrapper")
             .attr("role", "group")
             .attr("aria-label", "Near-critical threshold setting")
+            .attr("title", "Tasks with Total Float less than or equal to this value will be highlighted as Near-Critical.")
             .style("position", "absolute")
             .style("right", "10px")
             .style("top", "6px")
@@ -1187,6 +1212,7 @@ export class Header {
             .attr("step", "1")
             .attr("value", this.currentState.floatThreshold)
             .attr("aria-label", "Near-critical threshold in days")
+            .attr("title", "Tasks with Total Float less than or equal to this value will be highlighted as Near-Critical.")
             .style("width", `${inputWidth}px`)
             .style("height", "18px")
             .style("padding", "0 4px")
@@ -1216,6 +1242,8 @@ export class Header {
             .style("display", "flex")
             .style("align-items", "center")
             .style("cursor", "help")
+            .attr("role", "img")
+            .attr("aria-label", "Help: Tasks with Total Float less than or equal to this value will be highlighted as Near-Critical.")
             .attr("title", "Tasks with Total Float less than or equal to this value will be highlighted as Near-Critical.");
 
         const helpIconSize = 14;
@@ -1251,6 +1279,7 @@ export class Header {
             .attr("class", "mode-toggle-group")
             .attr("type", "button")
             .attr("aria-label", `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`)
+            .attr("title", `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`)
             .attr("aria-pressed", isFloatBased.toString())
             .classed("header-toggle-button", true)
             .style("position", "absolute")
@@ -1275,56 +1304,84 @@ export class Header {
             .attr("height", buttonHeight)
             .style("pointer-events", "none");
 
-        const pillWidth = Math.min(106, buttonWidth - 20);
-        const pillHeight = 22;
-        const pillG = svg.append("g")
-            .attr("transform", `translate(${(buttonWidth - pillWidth) / 2}, ${buttonHeight / 2})`);
+        if (buttonWidth < 80) {
+            // Compact Mode: Show simple icon/text
+            const iconG = svg.append("g")
+                .attr("transform", `translate(${buttonWidth / 2}, ${buttonHeight / 2})`);
 
-        const pillX = isFloatBased ? pillWidth / 2 : 0;
+            // Background circle/rounded rect for state indication
+            iconG.append("rect")
+                .attr("x", -12)
+                .attr("y", -10)
+                .attr("width", 24)
+                .attr("height", 20)
+                .attr("rx", 6)
+                .attr("fill", isFloatBased ? UI_TOKENS.color.warning.default : UI_TOKENS.color.primary.default);
 
-        pillG.append("rect")
-            .attr("x", 0)
-            .attr("y", -pillHeight / 2)
-            .attr("width", pillWidth)
-            .attr("height", pillHeight)
-            .attr("rx", UI_TOKENS.radius.large)
-            .attr("ry", UI_TOKENS.radius.large)
-            .style("fill", UI_TOKENS.color.neutral.grey20)
-            .style("opacity", 0.8);
+            // Text code (LP or FL)
+            iconG.append("text")
+                .attr("text-anchor", "middle")
+                .attr("dominant-baseline", "central")
+                .attr("y", 1)
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", "10px")
+                .style("font-weight", "bold")
+                .style("fill", UI_TOKENS.color.neutral.white)
+                .text(isFloatBased ? "FL" : "LP");
 
-        pillG.append("rect")
-            .attr("x", pillX)
-            .attr("y", -pillHeight / 2)
-            .attr("width", pillWidth / 2)
-            .attr("height", pillHeight)
-            .attr("rx", UI_TOKENS.radius.large)
-            .attr("ry", UI_TOKENS.radius.large)
-            .style("fill", borderColor)
-            .style("transition", `all ${UI_TOKENS.motion.duration.slow}ms ${UI_TOKENS.motion.easing.smooth}`);
+        } else {
+            // Wide/Medium Mode: Pill Toggle
+            const pillWidth = Math.min(106, buttonWidth - 20);
+            const pillHeight = 22;
+            const pillG = svg.append("g")
+                .attr("transform", `translate(${(buttonWidth - pillWidth) / 2}, ${buttonHeight / 2})`);
 
-        pillG.append("text")
-            .attr("x", pillWidth / 4)
-            .attr("y", 0)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", `${UI_TOKENS.fontSize.md}px`)
-            .style("font-weight", isFloatBased ? UI_TOKENS.fontWeight.medium : UI_TOKENS.fontWeight.bold)
-            .style("fill", isFloatBased ? UI_TOKENS.color.neutral.grey130 : UI_TOKENS.color.neutral.white)
-            .style("pointer-events", "none")
-            .text("LP");
+            const pillX = isFloatBased ? pillWidth / 2 : 0;
 
-        pillG.append("text")
-            .attr("x", 3 * pillWidth / 4)
-            .attr("y", 0)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", `${UI_TOKENS.fontSize.md}px`)
-            .style("font-weight", isFloatBased ? UI_TOKENS.fontWeight.bold : UI_TOKENS.fontWeight.medium)
-            .style("fill", isFloatBased ? UI_TOKENS.color.neutral.white : UI_TOKENS.color.neutral.grey130)
-            .style("pointer-events", "none")
-            .text("Float");
+            pillG.append("rect")
+                .attr("x", 0)
+                .attr("y", -pillHeight / 2)
+                .attr("width", pillWidth)
+                .attr("height", pillHeight)
+                .attr("rx", UI_TOKENS.radius.large)
+                .attr("ry", UI_TOKENS.radius.large)
+                .style("fill", UI_TOKENS.color.neutral.grey20)
+                .style("opacity", 0.8);
+
+            pillG.append("rect")
+                .attr("x", pillX)
+                .attr("y", -pillHeight / 2)
+                .attr("width", pillWidth / 2)
+                .attr("height", pillHeight)
+                .attr("rx", UI_TOKENS.radius.large)
+                .attr("ry", UI_TOKENS.radius.large)
+                .style("fill", borderColor)
+                .style("transition", `all ${UI_TOKENS.motion.duration.slow}ms ${UI_TOKENS.motion.easing.smooth}`);
+
+            pillG.append("text")
+                .attr("x", pillWidth / 4)
+                .attr("y", 0)
+                .attr("text-anchor", "middle")
+                .attr("dominant-baseline", "central")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", `${UI_TOKENS.fontSize.md}px`)
+                .style("font-weight", isFloatBased ? UI_TOKENS.fontWeight.medium : UI_TOKENS.fontWeight.bold)
+                .style("fill", isFloatBased ? UI_TOKENS.color.neutral.grey130 : UI_TOKENS.color.neutral.white)
+                .style("pointer-events", "none")
+                .text("LP");
+
+            pillG.append("text")
+                .attr("x", 3 * pillWidth / 4)
+                .attr("y", 0)
+                .attr("text-anchor", "middle")
+                .attr("dominant-baseline", "central")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", `${UI_TOKENS.fontSize.md}px`)
+                .style("font-weight", isFloatBased ? UI_TOKENS.fontWeight.bold : UI_TOKENS.fontWeight.medium)
+                .style("fill", isFloatBased ? UI_TOKENS.color.neutral.white : UI_TOKENS.color.neutral.grey130)
+                .style("pointer-events", "none")
+                .text("Float");
+        }
 
         // Hover effects
         btn.on("mouseover", function () {
@@ -1350,6 +1407,7 @@ export class Header {
             .attr("class", "column-toggle-group")
             .attr("type", "button")
             .attr("aria-label", showColumns ? "Hide data columns" : "Show data columns")
+            .attr("title", showColumns ? "Hide data columns" : "Show data columns")
             .attr("aria-pressed", showColumns.toString())
             .classed("header-toggle-button", true)
             .style("position", "absolute")
@@ -1436,12 +1494,13 @@ export class Header {
 
         const fill = isEnabled ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white;
         const stroke = isEnabled ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60;
-        const textColor = isEnabled ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey130;
 
         const btn = this.container.append("button")
             .attr("class", "wbs-enable-toggle-group")
             .attr("type", "button")
-            .attr("role", "button")
+            .attr("aria-label", isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping")
+            .attr("title", isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping")
+            .attr("aria-pressed", isEnabled.toString())
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -1451,6 +1510,7 @@ export class Header {
             .style("padding", "0")
             .style("display", "flex")
             .style("align-items", "center")
+            .style("justify-content", "center")
             .style("border", `1.5px solid ${stroke}`)
             .style("border-width", isEnabled ? "2px" : "1.5px")
             .style("background-color", fill)
@@ -1466,22 +1526,25 @@ export class Header {
             .attr("height", buttonHeight)
             .style("pointer-events", "none");
 
-        svg.append("circle")
-            .attr("cx", 10)
-            .attr("cy", buttonHeight / 2)
-            .attr("r", 4)
-            .style("fill", isEnabled ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60);
+        const iconCenterX = buttonWidth / 2;
+        const iconCenterY = buttonHeight / 2;
 
-        svg.append("text")
-            .attr("x", buttonWidth / 2 + 6)
-            .attr("y", buttonHeight / 2)
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", `${UI_TOKENS.fontSize.md}px`)
-            .style("font-weight", UI_TOKENS.fontWeight.semibold)
-            .style("fill", textColor)
-            .text("WBS");
+        // New WBS Icon (hierarchical structure)
+        const iconG = svg.append("g")
+            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
+
+        const wbsColor = isEnabled ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey130;
+
+        // Top node
+        iconG.append("rect").attr("x", -2).attr("y", -7).attr("width", 4).attr("height", 4).attr("fill", wbsColor);
+        // Link
+        iconG.append("path").attr("d", "M0,-3 L0,0 M-5,0 L5,0 M-5,0 L-5,3 M5,0 L5,3").attr("stroke", wbsColor).attr("stroke-width", 1.5).attr("fill", "none");
+        // Leaf nodes
+        iconG.append("rect").attr("x", -7).attr("y", 3).attr("width", 4).attr("height", 4).attr("fill", wbsColor);
+        iconG.append("rect").attr("x", 3).attr("y", 3).attr("width", 4).attr("height", 4).attr("fill", wbsColor);
+
+        btn.append("title")
+            .text(isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping");
 
         btn.on("mouseover", function () {
             d3.select(this).style("box-shadow", UI_TOKENS.shadow[8]);
@@ -1504,6 +1567,8 @@ export class Header {
         const btn = this.container.append("button")
             .attr("class", "copy-data-button-group")
             .attr("type", "button")
+            .attr("aria-label", "Copy data to clipboard")
+            .attr("title", "Copy data to clipboard")
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -1560,6 +1625,8 @@ export class Header {
         const btn = this.container.append("button")
             .attr("class", "export-button-group")
             .attr("type", "button")
+            .attr("aria-label", "Export data to CSV")
+            .attr("title", "Export data to CSV")
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -1631,6 +1698,8 @@ export class Header {
         const btn = this.container.append("button")
             .attr("class", "help-button-group")
             .attr("type", "button")
+            .attr("aria-label", "Show help information")
+            .attr("title", "Show help information")
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
