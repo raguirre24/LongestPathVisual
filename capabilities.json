@@ -271,6 +271,27 @@
                 }
             }
         },
+        "dataDateColorOverride": {
+            "displayName": "Data Date Color Override",
+            "properties": {
+                "enableP6Style": {
+                    "displayName": "Enable Data Date Color Override",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "beforeDataDateColor": {
+                    "displayName": "Before Data Date Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "criticalPath": {
             "displayName": "Critical Path",
             "properties": {

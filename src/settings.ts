@@ -835,6 +835,30 @@ class DataDateLineCard extends Card {
 }
 
 // ============================================================================
+// 12.5. DATA DATE COLOR OVERRIDE
+// ============================================================================
+class DataDateColorOverrideCard extends Card {
+    name: string = "dataDateColorOverride";
+    displayName: string = "Data Date Color Override";
+
+    enableP6Style = new ToggleSwitch({
+        name: "enableP6Style",
+        displayName: "Enable Data Date Color Override",
+        description: "Color bars before data date differently (P6 style)",
+        value: false
+    });
+
+    beforeDataDateColor = new ColorPicker({
+        name: "beforeDataDateColor",
+        displayName: "Before Data Date Color",
+        description: "Color for bar portions before the data date",
+        value: { value: "#1A3A6B" }
+    });
+
+    slices: Slice[] = [this.enableP6Style, this.beforeDataDateColor];
+}
+
+// ============================================================================
 // 13. PATH SELECTION - Task selection and multi-path
 // ============================================================================
 class PathSelectionCard extends Card {
@@ -1103,6 +1127,8 @@ export class VisualSettings extends Model {
     timelineZoom = new TimelineZoomCard();
     persistedState = new PersistedStateCard();
 
+    dataDateColorOverride = new DataDateColorOverrideCard();
+
     cards: Card[] = [
         this.generalSettings,
         this.taskBars,
@@ -1117,6 +1143,7 @@ export class VisualSettings extends Model {
         this.baselineFinishLine,
         this.previousUpdateFinishLine,
         this.dataDateLine,
+        this.dataDateColorOverride,
         this.pathSelection,
         this.wbsGrouping,
         this.wbsLevelStyles,

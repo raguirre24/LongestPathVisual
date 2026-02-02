@@ -5623,79 +5623,102 @@ export class Visual implements IVisual {
             .each(function (d: Task) {
                 const start = d.manualStartDate ?? d.startDate;
                 const finish = d.manualFinishDate ?? d.finishDate;
+
                 if (start instanceof Date && !isNaN(start.getTime()) && finish instanceof Date && !isNaN(finish.getTime()) && finish >= start) {
-                    d3.select(this).append("rect")
-                        .attr("class", (d: Task) => {
-                            if (d.isCritical) return "task-bar critical";
-                            if (d.isNearCritical) return "task-bar near-critical";
-                            return "task-bar normal";
-                        })
 
-                        .attr("role", "button")
-                        .attr("aria-label", (d: Task) => {
-                            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
-                            const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
-                            return `${d.name}, ${statusText} task, Start: ${self.formatDate(start)}, Finish: ${self.formatDate(finish)}${selectedText}. Press Enter or Space to select.`;
-                        })
-                        .attr("tabindex", 0)
-                        .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
-                        .attr("x", (d: Task) => xScale(start!))
-                        .attr("y", 0)
-                        .attr("width", (d: Task) => getTaskBarWidth(d))
-                        .attr("height", taskHeight)
+                    const parts: { s: Date, f: Date, color: string | null }[] = [];
+                    const enableOverride = self.settings.dataDateColorOverride.enableP6Style.value;
+                    const dataDate = self.dataDate;
 
-                        .attr("rx", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
-                        .attr("ry", (d: Task) => Math.min(taskBarCornerRadius, getTaskBarWidth(d) / 2))
-                        .style("fill", (d: Task) => getTaskFillColor(d, taskColor))
+                    if (enableOverride && dataDate) {
+                        const ddTime = dataDate.getTime();
+                        const startTime = start.getTime();
+                        const finishTime = finish.getTime();
+                        const overrideColor = self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
 
-                        .style("stroke", (d: Task) => {
-                            if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
+                        if (finishTime <= ddTime) {
+                            parts.push({ s: start, f: finish, color: overrideColor });
+                        } else if (startTime >= ddTime) {
+                            parts.push({ s: start, f: finish, color: null });
+                        } else {
+                            parts.push({ s: start, f: dataDate, color: overrideColor });
+                            parts.push({ s: dataDate, f: finish, color: null });
+                        }
+                    } else {
+                        parts.push({ s: start, f: finish, color: null });
+                    }
 
-                            if (self.legendDataExists) {
-                                if (d.isCritical) return criticalColor;
-                                if (d.isNearCritical) return nearCriticalColor;
-                            }
+                    function runRoundedLogic(w: number) {
+                        return Math.min(taskBarCornerRadius, w / 2);
+                    }
 
-                            // Use custom stroke color if set, otherwise use foreground color
-                            return taskBarStrokeColor || self.getForegroundColor();
-                        })
-                        .style("stroke-width", (d: Task) => {
-                            const barWidth = getTaskBarWidth(d);
-                            // Use custom stroke width setting as base
-                            let baseWidth = taskBarStrokeWidth > 0 ? taskBarStrokeWidth : 0.5;
+                    parts.forEach(part => {
+                        const partWidth = Math.max(1, xScale(part.f) - xScale(part.s));
 
-                            if (d.internalId === self.selectedTaskId) {
-                                baseWidth = 3;
-                            } else if (self.legendDataExists) {
-                                if (d.isCritical) baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
-                                else if (d.isNearCritical) baseWidth = self.settings.criticalPath.nearCriticalBorderWidth.value;
-                            } else if (d.isCritical) {
-                                baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
-                            }
+                        d3.select(this).append("rect")
+                            .attr("class", (d: Task) => {
+                                if (d.isCritical) return "task-bar critical";
+                                if (d.isNearCritical) return "task-bar near-critical";
+                                return "task-bar normal";
+                            })
+                            .attr("role", "button")
+                            .attr("aria-label", (d: Task) => {
+                                const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+                                const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
+                                return `${d.name}, ${statusText} task, Start: ${self.formatDate(start)}, Finish: ${self.formatDate(finish)}${selectedText}. Press Enter or Space to select.`;
+                            })
+                            .attr("tabindex", 0)
+                            .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
+                            .attr("x", xScale(part.s))
+                            .attr("y", 0)
+                            .attr("width", partWidth)
+                            .attr("height", taskHeight)
+                            .attr("rx", runRoundedLogic(partWidth))
+                            .attr("ry", runRoundedLogic(partWidth))
+                            .style("fill", part.color ? part.color : getTaskFillColor(d, taskColor))
+                            .style("stroke", (d: Task) => {
+                                if (part.color) return self.getContrastColor(part.color);
 
-                            if (barWidth < minBarWidthForStrongStroke) {
-                                return Math.min(baseWidth, 1);
-                            }
-                            return baseWidth;
-                        })
-                        .style("filter", (d: Task) => {
-                            const barWidth = getTaskBarWidth(d);
-                            if (barWidth < minBarWidthForGlow) return "none";
-
-                            if (self.legendDataExists) {
-                                if (d.isCritical) {
-                                    const rgb = self.hexToRgb(criticalColor);
-                                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                                if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
+                                if (self.legendDataExists) {
+                                    if (d.isCritical) return criticalColor;
+                                    if (d.isNearCritical) return nearCriticalColor;
                                 }
-                                if (d.isNearCritical) {
-                                    const nearColor = nearCriticalColor;
-                                    const rgb = self.hexToRgb(nearColor);
-                                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
-                                }
-                            }
+                                return taskBarStrokeColor || self.getForegroundColor();
+                            })
+                            .style("stroke-width", (d: Task) => {
+                                if (part.color) return 0.5;
 
-                            return `drop-shadow(${self.UI_TOKENS.shadow[2]})`;
-                        });
+                                let baseWidth = taskBarStrokeWidth > 0 ? taskBarStrokeWidth : 0.5;
+                                if (d.internalId === self.selectedTaskId) {
+                                    baseWidth = 3;
+                                } else if (self.legendDataExists) {
+                                    if (d.isCritical) baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
+                                    else if (d.isNearCritical) baseWidth = self.settings.criticalPath.nearCriticalBorderWidth.value;
+                                } else if (d.isCritical) {
+                                    baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
+                                }
+                                if (partWidth < minBarWidthForStrongStroke) {
+                                    return Math.min(baseWidth, 1);
+                                }
+                                return baseWidth;
+                            })
+                            .style("filter", (d: Task) => {
+                                if (partWidth < minBarWidthForGlow) return "none";
+                                if (self.legendDataExists) {
+                                    if (d.isCritical) {
+                                        const rgb = self.hexToRgb(criticalColor);
+                                        return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
+                                    }
+                                    if (d.isNearCritical) {
+                                        const nearColor = nearCriticalColor;
+                                        const rgb = self.hexToRgb(nearColor);
+                                        return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
+                                    }
+                                }
+                                return `drop-shadow(${self.UI_TOKENS.shadow[2]})`;
+                            });
+                    });
                 }
             });
 
@@ -5742,7 +5765,17 @@ export class Visual implements IVisual {
                                     return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
                             }
                         })
-                        .style("fill", (d: Task) => getTaskFillColor(d, milestoneColor))
+                        .style("fill", (d: Task) => {
+                            const enableOverride = self.settings.dataDateColorOverride.enableP6Style.value;
+                            const dataDate = self.dataDate;
+                            if (enableOverride && dataDate) {
+                                const mDate = (d.manualStartDate ?? d.startDate) || (d.manualFinishDate ?? d.finishDate);
+                                if (mDate instanceof Date && !isNaN(mDate.getTime()) && mDate.getTime() <= dataDate.getTime()) {
+                                    return self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
+                                }
+                            }
+                            return getTaskFillColor(d, milestoneColor);
+                        })
 
                         .style("stroke", (d: Task) => {
                             if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
@@ -6601,19 +6634,124 @@ export class Visual implements IVisual {
                     const y = Math.round(yPos + taskHeight / 2);
                     const size = Math.round(Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9)));
 
-                    if (!milestoneBatches.has(styleKey)) milestoneBatches.set(styleKey, []);
-                    milestoneBatches.get(styleKey)!.push({ x, y, size, rotated: true });
+                    let overrideColor = null;
+                    // Check if milestone is before data date for color override
+                    if (this.settings.dataDateColorOverride.enableP6Style.value && this.dataDate && mDate.getTime() <= this.dataDate.getTime()) {
+                        overrideColor = this.settings.dataDateColorOverride.beforeDataDateColor.value.value;
+                    }
+
+                    // For milestones, we might need a separate key if color is overridden, or just modify the fill/stroke in the key
+                    // But current batching uses styleKey. So we just compute styleKey with the overridden color.
+                    // If overridden, we likely want to override fill and stroke (or at least fill).
+                    // Let's assume override applies to fill. Stroke might remain or also change?
+                    // P6 usually overrides the whole appearance. Let's override fill and use a contrasting or default stroke.
+
+                    if (overrideColor) {
+                        fillColor = overrideColor;
+                        // Optionally override stroke too?
+                        // strokeColor = this.getContrastColor(overrideColor);
+                    }
+
+                    // Re-compute styleKey with potentially new fillColor
+                    const overriddenStyleKey = `${fillColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
+
+                    if (!milestoneBatches.has(overriddenStyleKey)) milestoneBatches.set(overriddenStyleKey, []);
+                    milestoneBatches.get(overriddenStyleKey)!.push({ x, y, size, rotated: true });
                 }
             } else if ((task.manualStartDate ?? task.startDate) && (task.manualFinishDate ?? task.finishDate)) {
                 const start = task.manualStartDate ?? task.startDate!;
                 const finish = task.manualFinishDate ?? task.finishDate!;
-                const x = Math.round(xScale(start));
-                const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
-                const h = Math.round(taskHeight);
-                const r = Math.min(5, Math.round(h * 0.15), Math.round(w / 2));
 
-                if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
-                taskBatches.get(styleKey)!.push({ x, y: yPos, w, h, r });
+                // Data Date Override Logic
+                const enableOverride = this.settings.dataDateColorOverride.enableP6Style.value;
+                const dataDate = this.dataDate;
+
+                if (enableOverride && dataDate) {
+                    const ddTime = dataDate.getTime();
+                    const startTime = start.getTime();
+                    const finishTime = finish.getTime();
+                    const overrideColor = this.settings.dataDateColorOverride.beforeDataDateColor.value.value;
+
+                    if (finishTime <= ddTime) {
+                        // Case 1: Entire bar is before data date
+                        fillColor = overrideColor;
+                        const overriddenStyleKey = `${fillColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
+
+                        const x = Math.round(xScale(start));
+                        const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
+                        const h = Math.round(taskHeight);
+                        const r = Math.min(5, Math.round(h * 0.15), Math.round(w / 2));
+
+                        if (!taskBatches.has(overriddenStyleKey)) taskBatches.set(overriddenStyleKey, []);
+                        taskBatches.get(overriddenStyleKey)!.push({ x, y: yPos, w, h, r });
+
+                    } else if (startTime >= ddTime) {
+                        // Case 2: Entire bar is after data date -> Normal rendering (already handled by default variables)
+                        const x = Math.round(xScale(start));
+                        const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
+                        const h = Math.round(taskHeight);
+                        const r = Math.min(5, Math.round(h * 0.15), Math.round(w / 2));
+
+                        if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
+                        taskBatches.get(styleKey)!.push({ x, y: yPos, w, h, r });
+                    } else {
+                        // Case 3: Bar spans the data date -> Split it
+                        // Left part (Before Data Date)
+                        const leftFinish = dataDate;
+                        const leftX = Math.round(xScale(start));
+                        const leftW = Math.round(Math.max(1, xScale(leftFinish) - xScale(start)));
+                        const h = Math.round(taskHeight);
+                        // Left rect radius: rounded on left, square on right? Or just rounded.
+                        // To look smooth, maybe rounded left, square right.
+                        // But simple rounded rect is easier. Let's try separate rects first.
+                        // If we want it to look like one split bar, internal corners should be sharp.
+                        // Let's assume standard rounded corners for the whole bar, so split point implies...
+                        // Actually, simple rects with established radius is fine.
+
+                        const leftR = Math.min(5, Math.round(h * 0.15), Math.round(leftW / 2));
+
+                        const leftFill = overrideColor;
+                        const leftStroke = this.getContrastColor(leftFill);
+                        const leftStrokeWidth = 0.5;
+                        const leftStyleKey = `${leftFill}|${leftStroke}|${leftStrokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
+
+                        if (!taskBatches.has(leftStyleKey)) taskBatches.set(leftStyleKey, []);
+
+                        // Fix: Render left part
+                        // Note: We might want explicit control over corners to avoid "double rounded" look in middle.
+                        // `pathRoundedRect` draws all corners rounded.
+                        // For now, simply drawing two rounded rects.
+                        taskBatches.get(leftStyleKey)!.push({ x: leftX, y: yPos, w: leftW, h, r: leftR });
+
+
+                        // Right part (After Data Date)
+                        const rightStart = dataDate;
+                        const rightX = Math.round(xScale(rightStart));
+                        const rightW = Math.round(Math.max(1, xScale(finish) - xScale(rightStart)));
+                        // Avoid 1px overlap or gap: Math.round can cause 1px issues.
+                        // xScale(dataDate) is the split point.
+                        // leftW = round(scale(dd) - scale(start))
+                        // rightX = round(scale(dd))
+                        // rightW = round(scale(finish) - scale(dd))
+                        // This seems consistent.
+
+                        const rightR = Math.min(5, Math.round(h * 0.15), Math.round(rightW / 2));
+
+                        // Right uses original styleKey
+                        if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
+                        taskBatches.get(styleKey)!.push({ x: rightX, y: yPos, w: rightW, h, r: rightR });
+                    }
+
+                } else {
+                    // Normal rendering (No override enabled or no data date)
+                    const x = Math.round(xScale(start));
+                    const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
+                    const h = Math.round(taskHeight);
+                    const r = Math.min(5, Math.round(h * 0.15), Math.round(w / 2));
+
+                    if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
+                    taskBatches.get(styleKey)!.push({ x, y: yPos, w, h, r });
+                }
             }
         }
 
@@ -9841,19 +9979,103 @@ export class Visual implements IVisual {
                         .style('opacity', barOpacity);
                 }
 
-                barsGroup.append('rect')
-                    .attr('class', 'wbs-summary-bar')
-                    .attr('x', startX)
-                    .attr('y', barY)
-                    .attr('width', barWidth)
-                    .attr('height', barHeight)
-                    .attr('rx', barRadius)
-                    .attr('ry', barRadius)
-                    .style('fill', summaryFillColor)
-                    .style('opacity', barOpacity)
-                    .style('stroke', summaryStrokeColor)
-                    .style('stroke-width', isCollapsed ? 0.8 : 0.4)
-                    .style('stroke-opacity', 0.25);
+                const enableOverride = self.settings.dataDateColorOverride.enableP6Style.value;
+                const dataDate = self.dataDate;
+                let drawnLeft = false;
+                let drawnRight = false;
+                let overrideColor = self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
+
+                if (enableOverride && dataDate && group.summaryStartDate && group.summaryFinishDate) {
+                    const ddTime = dataDate.getTime();
+                    const sTime = group.summaryStartDate.getTime();
+                    const fTime = group.summaryFinishDate.getTime();
+
+                    if (fTime <= ddTime) {
+                        // Entirely before
+                        barsGroup.append('rect')
+                            .attr('class', 'wbs-summary-bar')
+                            .attr('x', startX)
+                            .attr('y', barY)
+                            .attr('width', barWidth)
+                            .attr('height', barHeight)
+                            .attr('rx', barRadius)
+                            .attr('ry', barRadius)
+                            .style('fill', overrideColor)
+                            .style('opacity', barOpacity)
+                            .style('stroke', summaryStrokeColor)
+                            .style('stroke-width', isCollapsed ? 0.8 : 0.4)
+                            .style('stroke-opacity', 0.25);
+                        drawnLeft = true;
+                    } else if (sTime >= ddTime) {
+                        // Entirely after
+                        barsGroup.append('rect')
+                            .attr('class', 'wbs-summary-bar')
+                            .attr('x', startX)
+                            .attr('y', barY)
+                            .attr('width', barWidth)
+                            .attr('height', barHeight)
+                            .attr('rx', barRadius)
+                            .attr('ry', barRadius)
+                            .style('fill', summaryFillColor)
+                            .style('opacity', barOpacity)
+                            .style('stroke', summaryStrokeColor)
+                            .style('stroke-width', isCollapsed ? 0.8 : 0.4)
+                            .style('stroke-opacity', 0.25);
+                        drawnRight = true;
+                    } else {
+                        // Split
+                        const splitX = xScale(dataDate);
+                        const leftW = Math.max(1, splitX - startX);
+                        const rightW = Math.max(1, finishX - splitX);
+
+                        // Left Part
+                        barsGroup.append('rect')
+                            .attr('class', 'wbs-summary-bar-left')
+                            .attr('x', startX)
+                            .attr('y', barY)
+                            .attr('width', leftW)
+                            .attr('height', barHeight)
+                            .attr('rx', barRadius)
+                            .attr('ry', barRadius)
+                            .style('fill', overrideColor)
+                            .style('opacity', barOpacity)
+                            .style('stroke', summaryStrokeColor)
+                            .style('stroke-width', isCollapsed ? 0.8 : 0.4)
+                            .style('stroke-opacity', 0.25);
+                        drawnLeft = true;
+
+                        // Right Part
+                        barsGroup.append('rect')
+                            .attr('class', 'wbs-summary-bar-right')
+                            .attr('x', splitX)
+                            .attr('y', barY)
+                            .attr('width', rightW)
+                            .attr('height', barHeight)
+                            .attr('rx', barRadius)
+                            .attr('ry', barRadius)
+                            .style('fill', summaryFillColor)
+                            .style('opacity', barOpacity)
+                            .style('stroke', summaryStrokeColor)
+                            .style('stroke-width', isCollapsed ? 0.8 : 0.4)
+                            .style('stroke-opacity', 0.25);
+                        drawnRight = true;
+                    }
+                } else {
+                    barsGroup.append('rect')
+                        .attr('class', 'wbs-summary-bar')
+                        .attr('x', startX)
+                        .attr('y', barY)
+                        .attr('width', barWidth)
+                        .attr('height', barHeight)
+                        .attr('rx', barRadius)
+                        .attr('ry', barRadius)
+                        .style('fill', summaryFillColor)
+                        .style('opacity', barOpacity)
+                        .style('stroke', summaryStrokeColor)
+                        .style('stroke-width', isCollapsed ? 0.8 : 0.4)
+                        .style('stroke-opacity', 0.25);
+                    drawnRight = true; // Use normal color for caps
+                }
 
                 if (barWidth > 6) {
                     const capRadius = Math.min(3, Math.max(1.5, barHeight / 3));
@@ -9876,10 +10098,17 @@ export class Visual implements IVisual {
                         .style('opacity', capOpacity);
                 }
 
+                // Declarations moved to top of loop, accessed here directly
+
                 if (showNearCriticalSummary && group.hasNearCriticalTasks && group.nearCriticalStartDate && group.nearCriticalFinishDate) {
+                    let effectiveNearStart = group.nearCriticalStartDate;
+                    if (enableOverride && dataDate && effectiveNearStart < dataDate) {
+                        effectiveNearStart = dataDate;
+                    }
+
                     const clampedNearStartDate = group.summaryStartDate
-                        ? new Date(Math.max(group.nearCriticalStartDate.getTime(), group.summaryStartDate.getTime()))
-                        : group.nearCriticalStartDate;
+                        ? new Date(Math.max(effectiveNearStart.getTime(), group.summaryStartDate.getTime()))
+                        : effectiveNearStart;
                     const clampedNearFinishDate = group.summaryFinishDate
                         ? new Date(Math.min(group.nearCriticalFinishDate.getTime(), group.summaryFinishDate.getTime()))
                         : group.nearCriticalFinishDate;
@@ -9892,37 +10121,51 @@ export class Visual implements IVisual {
                         const nearStartsAtBeginning = nearStartX <= startX + 1;
                         const nearEndsAtEnd = nearFinishX >= finishX - 1;
 
+                        // If clipped by Data Date, force sharp left edge unless it aligns with start
+                        const forceSquareStart = enableOverride && dataDate && effectiveNearStart.getTime() === dataDate.getTime();
+
                         barsGroup.append('rect')
                             .attr('class', 'wbs-summary-bar-near-critical')
                             .attr('x', nearStartX)
                             .attr('y', barY)
                             .attr('width', nearWidth)
                             .attr('height', barHeight)
-                            .attr('rx', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
-                            .attr('ry', (nearStartsAtBeginning || nearEndsAtEnd) ? barRadius : 0)
+                            .attr('rx', (nearStartsAtBeginning && !forceSquareStart) || nearEndsAtEnd ? barRadius : 0)
+                            .attr('ry', (nearStartsAtBeginning && !forceSquareStart) || nearEndsAtEnd ? barRadius : 0)
                             .style('fill', nearCriticalColor)
                             .style('opacity', barOpacity);
                     }
                 }
 
                 if (group.hasCriticalTasks && group.criticalStartDate && group.criticalFinishDate) {
-                    const criticalStartX = xScale(group.criticalStartDate);
+                    let effectiveCriticalStart = group.criticalStartDate;
+                    if (enableOverride && dataDate && effectiveCriticalStart < dataDate) {
+                        effectiveCriticalStart = dataDate;
+                    }
+
+                    const criticalStartX = xScale(effectiveCriticalStart);
                     const criticalFinishX = xScale(group.criticalFinishDate);
-                    const criticalWidth = Math.max(2, criticalFinishX - criticalStartX);
+                    // Ensure valid width
+                    if (criticalFinishX > criticalStartX) {
+                        const criticalWidth = Math.max(2, criticalFinishX - criticalStartX);
 
-                    const criticalStartsAtBeginning = criticalStartX <= startX + 1;
-                    const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
+                        const criticalStartsAtBeginning = criticalStartX <= startX + 1;
+                        const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
 
-                    barsGroup.append('rect')
-                        .attr('class', 'wbs-summary-bar-critical')
-                        .attr('x', criticalStartX)
-                        .attr('y', barY)
-                        .attr('width', criticalWidth)
-                        .attr('height', barHeight)
-                        .attr('rx', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
-                        .attr('ry', (criticalStartsAtBeginning || criticalEndsAtEnd) ? barRadius : 0)
-                        .style('fill', criticalPathColor)
-                        .style('opacity', barOpacity);
+                        // If clipped by Data Date, force sharp left edge
+                        const forceSquareStart = enableOverride && dataDate && effectiveCriticalStart.getTime() === dataDate.getTime();
+
+                        barsGroup.append('rect')
+                            .attr('class', 'wbs-summary-bar-critical')
+                            .attr('x', criticalStartX)
+                            .attr('y', barY)
+                            .attr('width', criticalWidth)
+                            .attr('height', barHeight)
+                            .attr('rx', (criticalStartsAtBeginning && !forceSquareStart) || criticalEndsAtEnd ? barRadius : 0)
+                            .attr('ry', (criticalStartsAtBeginning && !forceSquareStart) || criticalEndsAtEnd ? barRadius : 0)
+                            .style('fill', criticalPathColor)
+                            .style('opacity', barOpacity);
+                    }
                 }
             }
 

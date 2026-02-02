@@ -183,6 +183,13 @@ declare class DataDateLineCard extends Card {
     labelBackgroundTransparency: formattingSettings.NumUpDown;
     slices: Slice[];
 }
+declare class DataDateColorOverrideCard extends Card {
+    name: string;
+    displayName: string;
+    enableP6Style: formattingSettings.ToggleSwitch;
+    beforeDataDateColor: formattingSettings.ColorPicker;
+    slices: Slice[];
+}
 declare class PathSelectionCard extends Card {
     name: string;
     displayName: string;
@@ -319,6 +326,7 @@ export declare class VisualSettings extends Model {
     legendColors: LegendColorsCard;
     timelineZoom: TimelineZoomCard;
     persistedState: PersistedStateCard;
+    dataDateColorOverride: DataDateColorOverrideCard;
     cards: Card[];
 }
 export {};
