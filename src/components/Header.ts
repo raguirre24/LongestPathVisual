@@ -236,20 +236,33 @@ export class Header {
                 .attr("rx", 1)
                 .attr("fill", iconColor);
         } else {
-            // "Critical Path" icon (diamond/warning or highlight)
-            svg.append("path")
-                .attr("d", "M-5,0 L0,-5 L5,0 L0,5 Z")
-                .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`)
-                .attr("fill", UI_TOKENS.color.danger.default);
+            // "Critical Path" icon - Network Path Style
+            const iconG = svg.append("g")
+                .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
 
-            svg.append("line")
-                .attr("x1", iconCenterX - 2)
-                .attr("y1", iconCenterY + 5)
-                .attr("x2", iconCenterX + 8)
-                .attr("y2", iconCenterY + 5)
+            // Connection Line (Zig-zag)
+            iconG.append("path")
+                .attr("d", "M -6,3 L 0,-3 L 6,3")
+                .attr("fill", "none")
                 .attr("stroke", UI_TOKENS.color.danger.default)
-                .attr("stroke-width", 2)
+                .attr("stroke-width", 1.8)
+                .attr("stroke-linejoin", "round")
                 .attr("stroke-linecap", "round");
+
+            // Nodes (Start, Middle, End)
+            const circles = [
+                { cx: -6, cy: 3 },
+                { cx: 0, cy: -3 },
+                { cx: 6, cy: 3 }
+            ];
+
+            circles.forEach(c => {
+                iconG.append("circle")
+                    .attr("cx", c.cx)
+                    .attr("cy", c.cy)
+                    .attr("r", 1.8)
+                    .attr("fill", UI_TOKENS.color.danger.default);
+            });
         }
 
         btn.append("title")

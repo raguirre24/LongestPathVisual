@@ -118,6 +118,7 @@ export class Visual implements IVisual {
     private fullDateFormatter: Intl.DateTimeFormat;
     private lastLocale: string | null = null;
     private dataDate: Date | null = null;
+    private resizeObserver: ResizeObserver | null = null;
 
     private xScale: ScaleTime<number, number> | null = null;
     private yScale: ScaleBand<string> | null = null;
@@ -849,6 +850,37 @@ export class Visual implements IVisual {
             this.hideTooltip();
             d3.select(this.canvasElement).style("cursor", "default");
         });
+
+        // Initialize ResizeObserver to handle container resizing events that PBI host update might miss or delay
+        // This ensures the visual always fills the available space
+        if (typeof ResizeObserver !== 'undefined' && this.target) {
+            this.resizeObserver = new ResizeObserver((entries) => {
+                for (const entry of entries) {
+                    if (entry.contentRect) {
+                        const newWidth = entry.contentRect.width;
+                        const newHeight = entry.contentRect.height;
+
+                        // Check if dimensions actually changed significantly from what we last rendered
+                        if (this.lastViewport) {
+                            const widthDiff = Math.abs(newWidth - this.lastViewport.width);
+                            const heightDiff = Math.abs(newHeight - this.lastViewport.height);
+
+                            // If difference is significant (>2px to avoid sub-pixel jitter loops), trigger update
+                            if (widthDiff > 2 || heightDiff > 2) {
+                                this.debugLog(`ResizeObserver detected change: [${newWidth}x${newHeight}]. Requesting update.`);
+                                this.requestUpdate(true);
+                            }
+                        } else if (newWidth > 0 && newHeight > 0) {
+                            // Initial state or lost viewport
+                            this.debugLog(`ResizeObserver detected initial size: [${newWidth}x${newHeight}]. Requesting update.`);
+                            this.requestUpdate(true);
+                        }
+                    }
+                }
+            });
+            this.resizeObserver.observe(this.target);
+            this.debugLog("ResizeObserver initialized and monitoring target element.");
+        }
     }
 
     private forceCanvasRefresh(): void {
@@ -1110,6 +1142,12 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
+
+        // Cleanup ResizeObserver
+        if (this.resizeObserver) {
+            this.resizeObserver.disconnect();
+            this.resizeObserver = null;
+        }
 
         if (this.updateDebounceTimeout) {
             clearTimeout(this.updateDebounceTimeout);
@@ -3313,16 +3351,7 @@ export class Visual implements IVisual {
                 this.debugLog("Scroll handler restored in finally block");
             }
 
-            // Post-update size check: detect if container resized during/after update (Focus Mode timing fix)
-            requestAnimationFrame(() => {
-                if (this.target && this.lastViewport) {
-                    const currentContainerWidth = this.target.clientWidth;
-                    if (Math.abs(currentContainerWidth - this.lastViewport.width) > 10) {
-                        this.debugLog(`Post-update size mismatch: rendered=${this.lastViewport.width}, container=${currentContainerWidth}. Triggering re-render.`);
-                        this.requestUpdate(true);
-                    }
-                }
-            });
+
         }
     }
 
@@ -5675,6 +5704,7 @@ export class Visual implements IVisual {
                             .attr("height", taskHeight)
                             .attr("rx", runRoundedLogic(partWidth))
                             .attr("ry", runRoundedLogic(partWidth))
+                            .attr("data-override-color", part.color || "")
                             .style("fill", part.color ? part.color : getTaskFillColor(d, taskColor))
                             .style("stroke", (d: Task) => {
                                 if (part.color) return self.getContrastColor(part.color);
@@ -5949,12 +5979,16 @@ export class Visual implements IVisual {
                     self.setHoveredTask(d.internalId);
 
                     if (d.internalId !== self.selectedTaskId) {
+                        const target = d3.select(event.currentTarget as Element);
+                        const overrideColor = target.attr("data-override-color");
 
                         let hoverStrokeColor = self.getForegroundColor();
                         let hoverStrokeWidth = "2px";
 
-                        if (self.legendDataExists) {
-
+                        if (overrideColor) {
+                            hoverStrokeColor = self.getContrastColor(overrideColor);
+                            hoverStrokeWidth = "0.5px"; // Keep thin border for overridden parts
+                        } else if (self.legendDataExists) {
                             if (d.isCritical) {
                                 hoverStrokeColor = criticalColor;
                                 hoverStrokeWidth = String(self.settings.criticalPath.criticalBorderWidth.value);
@@ -5963,13 +5997,12 @@ export class Visual implements IVisual {
                                 hoverStrokeWidth = String(self.settings.criticalPath.nearCriticalBorderWidth.value);
                             }
                         } else {
-
                             if (d.isCritical) {
                                 hoverStrokeWidth = "1.5px";
                             }
                         }
 
-                        d3.select(event.currentTarget as Element)
+                        target
                             .style("stroke", hoverStrokeColor)
                             .style("stroke-width", hoverStrokeWidth);
                     }
@@ -5988,12 +6021,16 @@ export class Visual implements IVisual {
                     self.setHoveredTask(null);
 
                     if (d.internalId !== self.selectedTaskId) {
+                        const target = d3.select(event.currentTarget as Element);
+                        const overrideColor = target.attr("data-override-color");
 
                         let defaultStrokeColor = self.getForegroundColor();
                         let defaultStrokeWidth = "0.5";
 
-                        if (self.legendDataExists) {
-
+                        if (overrideColor) {
+                            defaultStrokeColor = self.getContrastColor(overrideColor);
+                            defaultStrokeWidth = "0.5";
+                        } else if (self.legendDataExists) {
                             if (d.isCritical) {
                                 defaultStrokeColor = criticalColor;
                                 defaultStrokeWidth = String(self.settings.criticalPath.criticalBorderWidth.value);
@@ -6002,13 +6039,12 @@ export class Visual implements IVisual {
                                 defaultStrokeWidth = String(self.settings.criticalPath.nearCriticalBorderWidth.value);
                             }
                         } else {
-
                             if (d.isCritical) {
                                 defaultStrokeWidth = "1";
                             }
                         }
 
-                        d3.select(event.currentTarget as Element)
+                        target
                             .style("stroke", defaultStrokeColor)
                             .style("stroke-width", defaultStrokeWidth);
                     }

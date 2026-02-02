@@ -275,6 +275,10 @@ export class DataProcessor {
 
             const task = taskData.task;
 
+            if (task.userProvidedTotalFloat !== undefined && !result.hasUserProvidedFloat) {
+                result.hasUserProvidedFloat = true;
+            }
+
             if (!result.predecessorIndex.has(taskId)) {
                 result.predecessorIndex.set(taskId, new Set());
             }
@@ -651,7 +655,8 @@ export class DataProcessor {
         }
 
         data.legendFieldName = legendColumn.displayName || "Legend";
-        data.legendDataExists = true;
+        data.legendFieldName = legendColumn.displayName || "Legend";
+        // data.legendDataExists = true; // Moved after checking categories
 
         const legendValueSet = new Set<string>();
         for (const task of data.allTasksData) {
@@ -661,6 +666,7 @@ export class DataProcessor {
         }
 
         data.legendCategories = Array.from(legendValueSet);
+        data.legendDataExists = data.legendCategories.length > 0;
 
         const sortOrder = settings?.legend?.sortOrder?.value?.value || "none";
         if (sortOrder === "ascending") {

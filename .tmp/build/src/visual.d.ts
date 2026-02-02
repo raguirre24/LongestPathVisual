@@ -80,6 +80,7 @@ export declare class Visual implements IVisual {
     private fullDateFormatter;
     private lastLocale;
     private dataDate;
+    private resizeObserver;
     private xScale;
     private yScale;
     private selectedTaskId;
