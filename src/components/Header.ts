@@ -183,11 +183,13 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonWidth}px`)
             .style("height", `${buttonHeight}px`)
+            .style("height", `${buttonHeight}px`)
             .style("padding", "0")
+            .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("border", `1.5px solid ${UI_TOKENS.color.neutral.grey60}`)
-            .style("background-color", UI_TOKENS.color.neutral.white)
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .on("click", (event) => {
                 event.stopPropagation();
@@ -207,6 +209,18 @@ export class Header {
             .style("top", "0")
             .style("left", "0")
             .style("pointer-events", "none");
+
+        // Background Rect (acting as button body)
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonWidth - 1)
+            .attr("height", buttonHeight - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", UI_TOKENS.color.neutral.white)
+            .attr("stroke", UI_TOKENS.color.neutral.grey60)
+            .attr("stroke-width", 1);
 
         const iconCenterX = buttonWidth / 2;
         const iconCenterY = buttonHeight / 2;
@@ -270,28 +284,18 @@ export class Header {
 
         // Hover effects
         btn.on("mouseover", function () {
-            d3.select(this)
-                .style("background-color", UI_TOKENS.color.neutral.grey10)
-                .style("border-color", UI_TOKENS.color.neutral.grey90)
-                .style("border-width", "2px")
-                .style("box-shadow", UI_TOKENS.shadow[8]);
+            bgRect.attr("fill", UI_TOKENS.color.neutral.grey10)
+                .attr("stroke", UI_TOKENS.color.neutral.grey90);
         })
             .on("mouseout", function () {
-                d3.select(this)
-                    .style("background-color", UI_TOKENS.color.neutral.white)
-                    .style("border-color", UI_TOKENS.color.neutral.grey60)
-                    .style("border-width", "1.5px")
-                    .style("box-shadow", UI_TOKENS.shadow[2]);
+                bgRect.attr("fill", UI_TOKENS.color.neutral.white)
+                    .attr("stroke", UI_TOKENS.color.neutral.grey60);
             })
             .on("mousedown", function () {
-                d3.select(this)
-                    .style("transform", "scale(0.96)")
-                    .style("box-shadow", UI_TOKENS.shadow[4]);
+                d3.select(this).style("transform", "scale(0.96)");
             })
             .on("mouseup", function () {
-                d3.select(this)
-                    .style("transform", "scale(1)")
-                    .style("box-shadow", UI_TOKENS.shadow[8]);
+                d3.select(this).style("transform", "scale(1)");
             });
     }
 
@@ -331,12 +335,13 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonWidth}px`)
             .style("height", `${buttonHeight}px`)
+            .style("height", `${buttonHeight}px`)
             .style("padding", "0")
+            .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("border", `1.5px solid ${baselineColor}`)
-            .style("border-width", showBaseline ? "2px" : "1.5px")
-            .style("background-color", showBaseline ? lightBaselineColor : UI_TOKENS.color.neutral.white)
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .on("click", (event) => {
                 event.stopPropagation();
@@ -353,6 +358,18 @@ export class Header {
             .style("top", "0")
             .style("left", "0")
             .style("pointer-events", "none");
+
+        // Background Rect
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonWidth - 1)
+            .attr("height", buttonHeight - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", showBaseline ? lightBaselineColor : UI_TOKENS.color.neutral.white)
+            .attr("stroke", baselineColor)
+            .attr("stroke-width", showBaseline ? 1.5 : 1);
 
         const iconX = iconOnly ? (buttonWidth / 2 - 8) : (UI_TOKENS.spacing.lg + 2);
         const iconY = buttonHeight / 2;
@@ -409,26 +426,18 @@ export class Header {
 
         if (isAvailable) {
             btn.on("mouseover", function () {
-                d3.select(this)
-                    .style("background-color", showBaseline ? hoverBaselineColor : UI_TOKENS.color.neutral.grey20)
-                    .style("border-width", "2.5px")
-                    .style("box-shadow", UI_TOKENS.shadow[8]);
+                bgRect.attr("fill", showBaseline ? hoverBaselineColor : UI_TOKENS.color.neutral.grey20)
+                    .attr("stroke-width", 2);
             })
                 .on("mouseout", function () {
-                    d3.select(this)
-                        .style("background-color", showBaseline ? lightBaselineColor : UI_TOKENS.color.neutral.white)
-                        .style("border-width", showBaseline ? "2px" : "1.5px")
-                        .style("box-shadow", UI_TOKENS.shadow[2]);
+                    bgRect.attr("fill", showBaseline ? lightBaselineColor : UI_TOKENS.color.neutral.white)
+                        .attr("stroke-width", showBaseline ? 1.5 : 1);
                 })
                 .on("mousedown", function () {
-                    d3.select(this)
-                        .style("transform", "scale(0.98)")
-                        .style("box-shadow", UI_TOKENS.shadow[4]);
+                    d3.select(this).style("transform", "scale(0.98)");
                 })
                 .on("mouseup", function () {
-                    d3.select(this)
-                        .style("transform", "scale(1)")
-                        .style("box-shadow", UI_TOKENS.shadow[8]);
+                    d3.select(this).style("transform", "scale(1)");
                 });
         }
     }
@@ -469,12 +478,13 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonWidth}px`)
             .style("height", `${buttonHeight}px`)
+            .style("height", `${buttonHeight}px`)
             .style("padding", "0")
+            .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("border", `1.5px solid ${previousUpdateColor}`)
-            .style("border-width", showPreviousUpdate ? "2px" : "1.5px")
-            .style("background-color", showPreviousUpdate ? lightPreviousUpdateColor : UI_TOKENS.color.neutral.white)
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .on("click", (event) => {
                 event.stopPropagation();
@@ -491,6 +501,18 @@ export class Header {
             .style("top", "0")
             .style("left", "0")
             .style("pointer-events", "none");
+
+        // Background Rect
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonWidth - 1)
+            .attr("height", buttonHeight - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", showPreviousUpdate ? lightPreviousUpdateColor : UI_TOKENS.color.neutral.white)
+            .attr("stroke", previousUpdateColor)
+            .attr("stroke-width", showPreviousUpdate ? 1.5 : 1);
 
         const iconX = iconOnly ? (buttonWidth / 2 - 8) : (UI_TOKENS.spacing.lg + 2);
         const iconY = buttonHeight / 2;
@@ -547,26 +569,18 @@ export class Header {
 
         if (isAvailable) {
             btn.on("mouseover", function () {
-                d3.select(this)
-                    .style("background-color", showPreviousUpdate ? hoverPreviousUpdateColor : UI_TOKENS.color.neutral.grey20)
-                    .style("border-width", "2.5px")
-                    .style("box-shadow", UI_TOKENS.shadow[8]);
+                bgRect.attr("fill", showPreviousUpdate ? hoverPreviousUpdateColor : UI_TOKENS.color.neutral.grey20)
+                    .attr("stroke-width", 2);
             })
                 .on("mouseout", function () {
-                    d3.select(this)
-                        .style("background-color", showPreviousUpdate ? lightPreviousUpdateColor : UI_TOKENS.color.neutral.white)
-                        .style("border-width", showPreviousUpdate ? "2px" : "1.5px")
-                        .style("box-shadow", UI_TOKENS.shadow[2]);
+                    bgRect.attr("fill", showPreviousUpdate ? lightPreviousUpdateColor : UI_TOKENS.color.neutral.white)
+                        .attr("stroke-width", showPreviousUpdate ? 1.5 : 1);
                 })
                 .on("mousedown", function () {
-                    d3.select(this)
-                        .style("transform", "scale(0.98)")
-                        .style("box-shadow", UI_TOKENS.shadow[4]);
+                    d3.select(this).style("transform", "scale(0.98)");
                 })
                 .on("mouseup", function () {
-                    d3.select(this)
-                        .style("transform", "scale(1)")
-                        .style("box-shadow", UI_TOKENS.shadow[8]);
+                    d3.select(this).style("transform", "scale(1)");
                 });
         }
     }
@@ -853,13 +867,14 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonSize}px`) // Square button
             .style("height", `${buttonSize}px`)
+            .style("height", `${buttonSize}px`)
             .style("padding", "0")
+            .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("align-items", "center")
             .style("justify-content", "center")
-            .style("border", `1.5px solid ${showConnectorLines ? UI_TOKENS.color.success.default : UI_TOKENS.color.neutral.grey60}`)
-            .style("border-width", showConnectorLines ? "2px" : "1.5px")
-            .style("background-color", showConnectorLines ? UI_TOKENS.color.success.light : UI_TOKENS.color.neutral.white)
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .on("click", (event) => {
                 event.stopPropagation();
@@ -869,7 +884,22 @@ export class Header {
         const svg = btn.append("svg")
             .attr("width", buttonSize)
             .attr("height", buttonSize)
-            .style("pointer-events", "none");
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        // Background Rect
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonSize - 1)
+            .attr("height", buttonSize - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", showConnectorLines ? UI_TOKENS.color.success.light : UI_TOKENS.color.neutral.white)
+            .attr("stroke", showConnectorLines ? UI_TOKENS.color.success.default : UI_TOKENS.color.neutral.grey60)
+            .attr("stroke-width", showConnectorLines ? 1.5 : 1);
 
         const iconCenter = (buttonSize / 2) - 2;
         const iconG = svg.append("g")
@@ -900,25 +930,22 @@ export class Header {
                 ? "Click to hide connector lines between dependent tasks"
                 : "Click to show connector lines between dependent tasks");
 
-        const self = this;
         btn.on("mouseover", function () {
-            d3.select(this)
-                .style("background-color", showConnectorLines ? UI_TOKENS.color.success.default : UI_TOKENS.color.neutral.grey20)
-                .style("box-shadow", UI_TOKENS.shadow[8]);
+            bgRect.attr("fill", showConnectorLines ? UI_TOKENS.color.success.default : UI_TOKENS.color.neutral.grey20)
+                .attr("stroke-width", 2);
 
             if (showConnectorLines) {
-                d3.select(this).select("path").attr("stroke", UI_TOKENS.color.neutral.white);
-                d3.select(this).selectAll("circle").attr("fill", UI_TOKENS.color.neutral.white);
+                iconG.select("path").attr("stroke", UI_TOKENS.color.neutral.white);
+                iconG.selectAll("circle").attr("fill", UI_TOKENS.color.neutral.white);
             }
         })
             .on("mouseout", function () {
-                d3.select(this)
-                    .style("background-color", showConnectorLines ? UI_TOKENS.color.success.light : UI_TOKENS.color.neutral.white)
-                    .style("box-shadow", UI_TOKENS.shadow[2]);
+                bgRect.attr("fill", showConnectorLines ? UI_TOKENS.color.success.light : UI_TOKENS.color.neutral.white)
+                    .attr("stroke-width", showConnectorLines ? 1.5 : 1);
 
                 if (showConnectorLines) {
-                    d3.select(this).select("path").attr("stroke", UI_TOKENS.color.success.default);
-                    d3.select(this).selectAll("circle").attr("fill", UI_TOKENS.color.success.default);
+                    iconG.select("path").attr("stroke", UI_TOKENS.color.success.default);
+                    iconG.selectAll("circle").attr("fill", UI_TOKENS.color.success.default);
                 }
             })
             .on("mousedown", function () {
@@ -963,13 +990,14 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonSize}px`)
             .style("height", `${buttonSize}px`)
+            .style("height", `${buttonSize}px`)
             .style("padding", "0")
+            .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("align-items", "center")
             .style("justify-content", "center")
-            .style("border", `1.5px solid ${wbsExpanded ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60}`)
-            .style("border-width", wbsExpanded ? "2px" : "1.5px")
-            .style("background-color", wbsExpanded ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .on("click", (event) => {
                 event.stopPropagation();
@@ -979,7 +1007,22 @@ export class Header {
         const svg = btn.append("svg")
             .attr("width", buttonSize)
             .attr("height", buttonSize)
-            .style("pointer-events", "none");
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        // Background Rect
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonSize - 1)
+            .attr("height", buttonSize - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", wbsExpanded ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+            .attr("stroke", wbsExpanded ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60)
+            .attr("stroke-width", wbsExpanded ? 1.5 : 1);
 
         const iconCenterX = buttonSize / 2;
         const iconCenterY = (buttonSize / 2) - 4;
@@ -1007,7 +1050,7 @@ export class Header {
 
         const badgeText = isCustom ? "C" : `L${currentLevel}`;
 
-        svg.append("text")
+        const textEl = svg.append("text")
             .attr("class", "toggle-text")
             .attr("x", buttonSize / 2)
             .attr("y", buttonSize - 10)
@@ -1021,22 +1064,20 @@ export class Header {
 
         const self = this;
         btn.on("mouseover", function () {
-            d3.select(this)
-                .style("background-color", wbsExpanded ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey20)
-                .style("box-shadow", UI_TOKENS.shadow[8]);
+            bgRect.attr("fill", wbsExpanded ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey20)
+                .attr("stroke-width", 2);
 
             if (wbsExpanded) {
-                d3.select(this).selectAll("path").attr("stroke", UI_TOKENS.color.neutral.white);
-                d3.select(this).selectAll(".toggle-text").style("fill", UI_TOKENS.color.neutral.white);
+                iconG.selectAll("path").attr("stroke", UI_TOKENS.color.neutral.white);
+                textEl.style("fill", UI_TOKENS.color.neutral.white);
             }
         }).on("mouseout", function () {
-            d3.select(this)
-                .style("background-color", wbsExpanded ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
-                .style("box-shadow", UI_TOKENS.shadow[2]);
+            bgRect.attr("fill", wbsExpanded ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+                .attr("stroke-width", wbsExpanded ? 1.5 : 1);
 
             if (wbsExpanded) {
-                d3.select(this).selectAll("path").attr("stroke", UI_TOKENS.color.primary.default);
-                d3.select(this).selectAll(".toggle-text").style("fill", iconColor);
+                iconG.selectAll("path").attr("stroke", UI_TOKENS.color.primary.default);
+                textEl.style("fill", iconColor);
             }
         });
     }
@@ -1075,13 +1116,14 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonSize}px`)
             .style("height", `${buttonSize}px`)
+            .style("height", `${buttonSize}px`)
             .style("padding", "0")
+            .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("align-items", "center")
             .style("justify-content", "center")
-            .style("border", `1.5px solid ${isCollapsed ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60}`)
-            .style("border-width", isCollapsed ? "2px" : "1.5px")
-            .style("background-color", isCollapsed ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .on("click", (event) => {
                 event.stopPropagation();
@@ -1091,7 +1133,22 @@ export class Header {
         const svg = btn.append("svg")
             .attr("width", buttonSize)
             .attr("height", buttonSize)
-            .style("pointer-events", "none");
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        // Background Rect
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonSize - 1)
+            .attr("height", buttonSize - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", isCollapsed ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+            .attr("stroke", isCollapsed ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60)
+            .attr("stroke-width", isCollapsed ? 1.5 : 1);
 
         const iconCenterX = buttonSize / 2;
         const iconCenterY = (buttonSize / 2) - 4;
@@ -1119,7 +1176,7 @@ export class Header {
 
         const badgeText = isCustom ? "C" : `L${currentLevel}`;
 
-        svg.append("text")
+        const textEl = svg.append("text")
             .attr("class", "toggle-text")
             .attr("x", buttonSize / 2)
             .attr("y", buttonSize - 10)
@@ -1133,22 +1190,20 @@ export class Header {
 
         const self = this;
         btn.on("mouseover", function () {
-            d3.select(this)
-                .style("background-color", isCollapsed ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey20)
-                .style("box-shadow", UI_TOKENS.shadow[8]);
+            bgRect.attr("fill", isCollapsed ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey20)
+                .attr("stroke-width", 2);
 
             if (isCollapsed) {
-                d3.select(this).selectAll("path").attr("stroke", UI_TOKENS.color.neutral.white);
-                d3.select(this).selectAll(".toggle-text").style("fill", UI_TOKENS.color.neutral.white);
+                iconG.selectAll("path").attr("stroke", UI_TOKENS.color.neutral.white);
+                textEl.style("fill", UI_TOKENS.color.neutral.white);
             }
         }).on("mouseout", function () {
-            d3.select(this)
-                .style("background-color", isCollapsed ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
-                .style("box-shadow", UI_TOKENS.shadow[2]);
+            bgRect.attr("fill", isCollapsed ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+                .attr("stroke-width", isCollapsed ? 1.5 : 1);
 
             if (isCollapsed) {
-                d3.select(this).selectAll("path").attr("stroke", UI_TOKENS.color.primary.default);
-                d3.select(this).selectAll(".toggle-text").style("fill", iconColor);
+                iconG.selectAll("path").attr("stroke", UI_TOKENS.color.primary.default);
+                textEl.style("fill", iconColor);
             }
         });
     }
@@ -1303,8 +1358,9 @@ export class Header {
             .style("padding", "0")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("border", `1.5px solid ${borderColor}`)
-            .style("background-color", bgColor)
+            .style("box-sizing", "border-box")
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.pill}px`)
             .on("click", (event) => {
                 event.stopPropagation();
@@ -1315,7 +1371,10 @@ export class Header {
         const svg = btn.append("svg")
             .attr("width", buttonWidth)
             .attr("height", buttonHeight)
-            .style("pointer-events", "none");
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
 
         if (buttonWidth < 80) {
             // Compact Mode: Show simple icon/text
@@ -1323,13 +1382,14 @@ export class Header {
                 .attr("transform", `translate(${buttonWidth / 2}, ${buttonHeight / 2})`);
 
             // Background circle/rounded rect for state indication
-            iconG.append("rect")
+            const bgCompact = iconG.append("rect")
                 .attr("x", -12)
                 .attr("y", -10)
                 .attr("width", 24)
                 .attr("height", 20)
                 .attr("rx", 6)
-                .attr("fill", isFloatBased ? UI_TOKENS.color.warning.default : UI_TOKENS.color.primary.default);
+                .attr("fill", isFloatBased ? UI_TOKENS.color.warning.default : UI_TOKENS.color.primary.default)
+                .attr("stroke", "none");
 
             // Text code (LP or FL)
             iconG.append("text")
@@ -1342,8 +1402,28 @@ export class Header {
                 .style("fill", UI_TOKENS.color.neutral.white)
                 .text(isFloatBased ? "FL" : "LP");
 
+            // Hover effects
+            btn.on("mouseover", function () {
+                bgCompact.attr("opacity", 0.9); // Slight dim on hover
+            })
+                .on("mouseout", function () {
+                    bgCompact.attr("opacity", 1);
+                });
+
         } else {
-            // Wide/Medium Mode: Pill Toggle
+            // Wide/Medium Mode: Pill Toggle using SVG
+            // Outer Border/Background Rect
+            const bgRect = svg.append("rect")
+                .attr("x", 0.5)
+                .attr("y", 0.5)
+                .attr("width", buttonWidth - 1)
+                .attr("height", buttonHeight - 1)
+                .attr("rx", UI_TOKENS.radius.pill)
+                .attr("ry", UI_TOKENS.radius.pill)
+                .attr("fill", bgColor)
+                .attr("stroke", borderColor)
+                .attr("stroke-width", 1);
+
             const pillWidth = Math.min(106, buttonWidth - 20);
             const pillHeight = 22;
             const pillG = svg.append("g")
@@ -1394,15 +1474,15 @@ export class Header {
                 .style("fill", isFloatBased ? UI_TOKENS.color.neutral.white : UI_TOKENS.color.neutral.grey130)
                 .style("pointer-events", "none")
                 .text("Float");
-        }
 
-        // Hover effects
-        btn.on("mouseover", function () {
-            d3.select(this).style("box-shadow", UI_TOKENS.shadow[8]);
-        })
-            .on("mouseout", function () {
-                d3.select(this).style("box-shadow", "none");
-            });
+            // Hover effects
+            btn.on("mouseover", function () {
+                bgRect.attr("stroke-width", 2);
+            })
+                .on("mouseout", function () {
+                    bgRect.attr("stroke-width", 1);
+                });
+        }
     }
 
     private createColumnDisplayToggleButton(): void {
@@ -1428,13 +1508,14 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonSize}px`)
             .style("height", `${buttonSize}px`)
+            .style("height", `${buttonSize}px`)
             .style("padding", "0")
+            .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("align-items", "center")
             .style("justify-content", "center")
-            .style("border", `1.5px solid ${showColumns ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60}`)
-            .style("border-width", showColumns ? "2px" : "1.5px")
-            .style("background-color", showColumns ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .on("click", (event) => {
                 event.stopPropagation();
@@ -1444,7 +1525,22 @@ export class Header {
         const svg = btn.append("svg")
             .attr("width", buttonSize)
             .attr("height", buttonSize)
-            .style("pointer-events", "none");
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        // Background Rect
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonSize - 1)
+            .attr("height", buttonSize - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", showColumns ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+            .attr("stroke", showColumns ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60)
+            .attr("stroke-width", showColumns ? 1.5 : 1);
 
         const iconG = svg.append("g")
             .attr("transform", `translate(${buttonSize / 2}, ${buttonSize / 2})`);
@@ -1470,23 +1566,23 @@ export class Header {
         }
 
         btn.on("mouseover", function () {
-            d3.select(this)
-                .style("background-color", showColumns ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey20)
-                .style("box-shadow", UI_TOKENS.shadow[8]);
+            bgRect.attr("fill", showColumns ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey20)
+                .attr("stroke-width", 2);
+
             if (!showColumns) {
-                d3.select(this).select("path").attr("stroke", UI_TOKENS.color.neutral.grey160);
+                iconG.select("path").attr("stroke", UI_TOKENS.color.neutral.grey160);
             } else {
-                d3.select(this).select("path").attr("stroke", UI_TOKENS.color.neutral.white);
+                iconG.select("path").attr("stroke", UI_TOKENS.color.neutral.white);
             }
         })
             .on("mouseout", function () {
-                d3.select(this)
-                    .style("background-color", showColumns ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
-                    .style("box-shadow", "none");
+                bgRect.attr("fill", showColumns ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+                    .attr("stroke-width", showColumns ? 1.5 : 1);
+
                 if (!showColumns) {
-                    d3.select(this).select("path").attr("stroke", iconColor);
+                    iconG.select("path").attr("stroke", iconColor);
                 } else {
-                    d3.select(this).select("path").attr("stroke", iconColor);
+                    iconG.select("path").attr("stroke", iconColor);
                 }
             });
     }
@@ -1520,13 +1616,14 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonWidth}px`)
             .style("height", `${buttonHeight}px`)
+            .style("height", `${buttonHeight}px`)
             .style("padding", "0")
+            .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("align-items", "center")
             .style("justify-content", "center")
-            .style("border", `1.5px solid ${stroke}`)
-            .style("border-width", isEnabled ? "2px" : "1.5px")
-            .style("background-color", fill)
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("cursor", "pointer")
             .on("click", (event) => {
@@ -1537,7 +1634,22 @@ export class Header {
         const svg = btn.append("svg")
             .attr("width", buttonWidth)
             .attr("height", buttonHeight)
-            .style("pointer-events", "none");
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        // Background Rect
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonWidth - 1)
+            .attr("height", buttonHeight - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", fill)
+            .attr("stroke", stroke)
+            .attr("stroke-width", isEnabled ? 1.5 : 1);
 
         const iconCenterX = buttonWidth / 2;
         const iconCenterY = buttonHeight / 2;
@@ -1560,10 +1672,28 @@ export class Header {
             .text(isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping");
 
         btn.on("mouseover", function () {
-            d3.select(this).style("box-shadow", UI_TOKENS.shadow[8]);
+            bgRect.attr("fill", UI_TOKENS.color.primary.default)
+                .attr("stroke-width", 2);
+
+            if (isEnabled) {
+                // Inverted
+                iconG.selectAll("rect").attr("fill", UI_TOKENS.color.neutral.white);
+                iconG.selectAll("path").attr("stroke", UI_TOKENS.color.neutral.white);
+            } else {
+                // Just hover gray
+                bgRect.attr("fill", UI_TOKENS.color.neutral.grey20);
+            }
         })
             .on("mouseout", function () {
-                d3.select(this).style("box-shadow", "none");
+                bgRect.attr("fill", fill)
+                    .attr("stroke-width", isEnabled ? 1.5 : 1);
+
+                if (isEnabled) {
+                    iconG.selectAll("rect").attr("fill", UI_TOKENS.color.primary.default);
+                    iconG.selectAll("path").attr("stroke", UI_TOKENS.color.primary.default);
+                } else {
+                    bgRect.attr("fill", UI_TOKENS.color.neutral.white);
+                }
             });
     }
 
@@ -1588,12 +1718,14 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonSize}px`)
             .style("height", `${buttonSize}px`)
+            .style("height", `${buttonSize}px`)
             .style("padding", "0")
+            .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("align-items", "center")
             .style("justify-content", "center")
-            .style("border", `1.5px solid ${UI_TOKENS.color.neutral.grey60}`)
-            .style("background-color", UI_TOKENS.color.neutral.white)
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("cursor", "pointer")
             .on("click", (event) => {
@@ -1604,7 +1736,22 @@ export class Header {
         const svg = btn.append("svg")
             .attr("width", buttonSize)
             .attr("height", buttonSize)
-            .style("pointer-events", "none");
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        // Background Rect
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonSize - 1)
+            .attr("height", buttonSize - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", UI_TOKENS.color.neutral.white)
+            .attr("stroke", UI_TOKENS.color.neutral.grey60)
+            .attr("stroke-width", 1);
 
         const iconG = svg.append('g')
             .attr('transform', `translate(${buttonSize / 2}, ${buttonSize / 2})`);
@@ -1618,10 +1765,12 @@ export class Header {
             .attr('stroke-linejoin', 'round');
 
         btn.on("mouseover", function () {
-            d3.select(this).style("box-shadow", UI_TOKENS.shadow[8]);
+            bgRect.attr("fill", UI_TOKENS.color.neutral.grey10)
+                .attr("stroke", UI_TOKENS.color.neutral.grey90);
         })
             .on("mouseout", function () {
-                d3.select(this).style("box-shadow", "none");
+                bgRect.attr("fill", UI_TOKENS.color.neutral.white)
+                    .attr("stroke", UI_TOKENS.color.neutral.grey60);
             });
     }
 
@@ -1647,11 +1796,12 @@ export class Header {
             .style("width", `${buttonSize}px`)
             .style("height", `${buttonSize}px`)
             .style("padding", "0")
+            .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("align-items", "center")
             .style("justify-content", "center")
-            .style("border", `1.5px solid ${UI_TOKENS.color.neutral.grey60}`)
-            .style("background-color", UI_TOKENS.color.neutral.white)
+            .style("border", "none")
+            .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("cursor", "pointer")
             .on("click", (event) => {
@@ -1663,7 +1813,22 @@ export class Header {
             .attr("class", "export-icon-svg")
             .attr("width", buttonSize)
             .attr("height", buttonSize)
-            .style("pointer-events", "none");
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        // Background Rect
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonSize - 1)
+            .attr("height", buttonSize - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", UI_TOKENS.color.neutral.white)
+            .attr("stroke", UI_TOKENS.color.neutral.grey60)
+            .attr("stroke-width", 1);
 
         const iconG = svg.append('g')
             .attr('class', 'export-icon-g')
@@ -1691,10 +1856,12 @@ export class Header {
             .attr('stroke-linecap', 'round');
 
         btn.on("mouseover", function () {
-            d3.select(this).style("box-shadow", UI_TOKENS.shadow[8]);
+            bgRect.attr("fill", UI_TOKENS.color.neutral.grey10)
+                .attr("stroke", UI_TOKENS.color.neutral.grey90);
         })
             .on("mouseout", function () {
-                d3.select(this).style("box-shadow", "none");
+                bgRect.attr("fill", UI_TOKENS.color.neutral.white)
+                    .attr("stroke", UI_TOKENS.color.neutral.grey60);
             });
     }
 

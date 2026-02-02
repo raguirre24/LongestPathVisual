@@ -3351,6 +3351,23 @@ export class Visual implements IVisual {
                 this.debugLog("Scroll handler restored in finally block");
             }
 
+            // Safe-guard for iOS/Late-settling containers:
+            // Sometime webviews report 0 or incorrect size initially, and even ResizeObserver might race.
+            // A short delay double-check ensures we catch these late layout settlements.
+            setTimeout(() => {
+                if (this.target && this.lastViewport) {
+                    const currentWidth = this.target.clientWidth;
+                    const currentHeight = this.target.clientHeight;
+
+                    if (Math.abs(currentWidth - this.lastViewport.width) > 5 ||
+                        Math.abs(currentHeight - this.lastViewport.height) > 5) {
+
+                        this.debugLog(`[Safeguard] Size mismatch detected after delay: Rendered=[${this.lastViewport.width}x${this.lastViewport.height}], Actual=[${currentWidth}x${currentHeight}]. Forcing update.`);
+                        this.requestUpdate(true);
+                    }
+                }
+            }, 250);
+
 
         }
     }

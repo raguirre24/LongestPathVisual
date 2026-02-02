@@ -7,6 +7,18 @@
     overflow: visible; // Allow elements like labels to go outside the main SVG bounds if needed
 }
 
+// Fix for sticky header flickering/blurriness
+.sticky-header-container {
+    // Ensure it sits above other content but doesn't block interactions unnecessarily
+    pointer-events: none;
+    // Strict isolation to prevent layout/paint ripples to the rest of the visual
+    contain: layout paint style;
+
+    &>* {
+        pointer-events: auto;
+    }
+}
+
 // Styles for SVG text elements (labels, dates, etc.)
 text {
     fill: #333; // Default text color
@@ -480,6 +492,8 @@ text {
 .header-toggle-button {
     position: absolute;
     padding: 0;
+    box-sizing: border-box; // Fixes jitter when border width changes
+    will-change: transform; // Hint for compositor
     border-style: solid;
     border-radius: 4px; // Matches UI_TOKENS.radius.medium typical value
     box-shadow: 0 1.6px 3.6px 0 rgba(0, 0, 0, 0.132), 0 0.3px 0.9px 0 rgba(0, 0, 0, 0.108); // Matches UI_TOKENS.shadow[2] typical value
