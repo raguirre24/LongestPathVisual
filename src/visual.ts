@@ -5295,7 +5295,7 @@ export class Visual implements IVisual {
 
         // Determine granularity based on pixel density
         // Granularity levels: monthly → bi-weekly → weekly → daily
-        type GranularityLevel = 'day' | 'week' | 'biweek' | 'month';
+        type GranularityLevel = 'day' | 'week' | 'biweek' | 'triweek' | 'month';
         let granularity: GranularityLevel = 'month';
         let ticks: Date[] = [];
 
@@ -5370,7 +5370,24 @@ export class Visual implements IVisual {
                     const spacing = xScale(ticks[i]) - xScale(ticks[i - 1]);
                     if (!isNaN(spacing)) minSpacing = Math.min(minSpacing, spacing);
                 }
-                // If bi-weekly doesn't fit, fall back to monthly
+                // If bi-weekly doesn't fit, fall back to tri-weekly
+                if (minSpacing < weekLabelWidth) granularity = 'triweek';
+            } else {
+                granularity = 'triweek';
+            }
+        }
+
+        if (granularity === 'triweek') {
+            // Tri-weekly ticks starting on Mondays (every 3 weeks)
+            try { ticks = xScale.ticks(timeMonday.every(3)); }
+            catch (e) { ticks = []; }
+            if (ticks.length >= 2) {
+                let minSpacing = Infinity;
+                for (let i = 1; i < ticks.length; i++) {
+                    const spacing = xScale(ticks[i]) - xScale(ticks[i - 1]);
+                    if (!isNaN(spacing)) minSpacing = Math.min(minSpacing, spacing);
+                }
+                // If tri-weekly doesn't fit, fall back to monthly
                 if (minSpacing < weekLabelWidth) granularity = 'month';
             } else {
                 granularity = 'month';
@@ -5419,26 +5436,61 @@ export class Visual implements IVisual {
             .style("stroke-width", lineWidth)
             .style("stroke-dasharray", lineDashArray);
 
-        // Draw labels with appropriate formatting based on granularity
+        // Draw labels with two-tier formatting
         if (showMonthLabels) {
-            const formatLabel = (d: Date): string => {
+            // --- MAJOR TIER (Top) ---
+            let majorTicks: Date[] = [];
+            let formatMajor: (d: Date) => string;
+
+            if (granularity === 'month') {
+                try { majorTicks = xScale.ticks(d3.timeYear); } catch (e) { majorTicks = []; }
+                formatMajor = d3.timeFormat("%Y");
+            } else {
+                try { majorTicks = xScale.ticks(d3.timeMonth); } catch (e) { majorTicks = []; }
+                formatMajor = d3.timeFormat("%B %Y");
+            }
+
+            // Ensure we cover the full domain if ticks don't (optional, D3 ticks usually suffice)
+
+            headerLayer.selectAll<SVGTextElement, Date>(".major-grid-label")
+                .data(majorTicks, (d: Date) => d.getTime())
+                .join(
+                    enter => enter.append("text")
+                        .attr("class", "major-grid-label")
+                        .attr("text-anchor", "start")
+                        .style("pointer-events", "none")
+                        .style("font-weight", "bold"),
+                    update => update,
+                    exit => exit.remove()
+                )
+                .attr("x", (d: Date) => {
+                    const x = xScale(d);
+                    // If label starts off-screen left, clamp it? 
+                    // For now, let's just render at accurate date position + minimal padding
+                    return x + 5;
+                })
+                .attr("y", this.headerHeight - 38)
+                .style("font-family", this.getFontFamily())
+                .style("font-size", `${labelFontSize + 1}pt`)
+                .style("fill", labelColor)
+                .text((d: Date) => {
+                    // Hide if way off screen to the left? 
+                    // Since we align "start", if x < -100 it's gone anyway.
+                    return formatMajor(d);
+                });
+
+            // --- MINOR TIER (Bottom) ---
+            const formatMinor = (d: Date): string => {
                 const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
                 if (granularity === 'day') {
-                    // Format: "02-May" for daily (no year to save space)
-                    const day = String(d.getDate()).padStart(2, '0');
-                    const month = monthNames[d.getMonth()];
-                    return `${day}-${month}`;
-                } else if (granularity === 'week' || granularity === 'biweek') {
-                    // Format: "02-May-26" for weekly/bi-weekly (DD-Mon-YY)
-                    const day = String(d.getDate()).padStart(2, '0');
-                    const month = monthNames[d.getMonth()];
-                    const year = String(d.getFullYear()).slice(-2);
-                    return `${day}-${month}-${year}`;
+                    return String(d.getDate()).padStart(2, '0');
+                } else if (granularity === 'week' || granularity === 'biweek' || granularity === 'triweek') {
+                    return String(d.getDate()).padStart(2, '0');
                 } else {
-                    // Format: "May-26" for monthly (Mon-YY)
-                    return this.monthYearFormatter.format(d);
+                    // Monthly granularity -> "Jan", "Feb"
+                    return monthNames[d.getMonth()];
                 }
             };
 
@@ -5457,9 +5509,13 @@ export class Visual implements IVisual {
                 .style("font-family", this.getFontFamily())
                 .style("font-size", `${labelFontSize}pt`)
                 .style("fill", labelColor)
-                .text((d: Date) => formatLabel(d));
+                .text((d: Date) => {
+                    if (xScale(d) < 35) return "";
+                    return formatMinor(d);
+                });
         } else {
             headerLayer.selectAll(".vertical-grid-label").remove();
+            headerLayer.selectAll(".major-grid-label").remove();
         }
     }
 
@@ -6209,7 +6265,7 @@ export class Visual implements IVisual {
                 const domainKey = d.yOrder?.toString() ?? "";
                 const yPosition = yScale(domainKey);
                 if (yPosition === undefined || isNaN(yPosition)) return null;
-                return `translate(0, ${yPosition})`;
+                return `translate(0, ${Math.round(yPosition)})`;
             })
             .filter(function () { return d3.select(this).attr("transform") !== null; });
 
@@ -6219,7 +6275,7 @@ export class Visual implements IVisual {
             const domainKey = d.yOrder?.toString() ?? "";
             const yPosition = yScale(domainKey);
             if (yPosition === undefined || isNaN(yPosition)) return null;
-            return `translate(0, ${yPosition})`;
+            return `translate(0, ${Math.round(yPosition)})`;
         });
 
         mergedGroups.filter(function () {
@@ -6240,7 +6296,7 @@ export class Visual implements IVisual {
                     const indent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
                     return -currentLeftMargin + this.labelPaddingLeft + indent;
                 })
-                .attr("y", taskHeight / 2)
+                .attr("y", Math.round(taskHeight / 2))
                 .attr("text-anchor", "start")
                 .style("font-family", this.getFontFamily())
                 .style("font-size", `${taskNameFontSize}pt`)
@@ -6324,7 +6380,7 @@ export class Visual implements IVisual {
         // This is outside the check, so columns remain visible even if Task Name is hidden
         const renderColumns = () => {
             const columnFontSize = taskNameFontSize * 0.9;
-            const colY = taskHeight / 2;
+            const colY = Math.round(taskHeight / 2);
 
             // Helper to append column text
             const appendColumnText = (
@@ -6337,7 +6393,7 @@ export class Visual implements IVisual {
             ) => {
                 selection.append("text")
                     .attr("class", "column-label")
-                    .attr("x", -xOffsetFromRight - (align === "end" ? 5 : (align === "start" ? colWidth - 5 : colWidth / 2)))
+                    .attr("x", Math.round(-xOffsetFromRight - (align === "end" ? 5 : (align === "start" ? colWidth - 5 : colWidth / 2))))
                     .attr("y", colY)
                     .attr("text-anchor", align)
                     .attr("dominant-baseline", "central")
@@ -6425,7 +6481,7 @@ export class Visual implements IVisual {
 
         const fontSize = this.settings.textAndLabels.taskNameFontSize.value;
         const color = this.resolveColor(this.settings.textAndLabels.labelColor.value.value, "foreground");
-        const yPos = headerHeight - 15;
+        const yPos = Math.round(headerHeight - 15);
 
         // Draw Task Name Header
         const remainingWidth = Math.max(0, currentLeftMargin - occupiedWidth);
@@ -6433,7 +6489,7 @@ export class Visual implements IVisual {
 
         if (showExtra && remainingWidth > 35) { // Only draw if space permits and columns are enabled
             colHeaderLayer.append("text")
-                .attr("x", taskNameCenter)
+                .attr("x", Math.round(taskNameCenter))
                 .attr("y", yPos)
                 .attr("text-anchor", "middle")
                 .style("font-size", `${fontSize}pt`)
@@ -6447,7 +6503,7 @@ export class Visual implements IVisual {
             // Position from right to left starting at currentLeftMargin
             const centerX = currentLeftMargin - item.offset - (item.width / 2);
             colHeaderLayer.append("text")
-                .attr("x", centerX)
+                .attr("x", Math.round(centerX))
                 .attr("y", yPos)
                 .attr("text-anchor", "middle")
                 .style("font-size", `${fontSize}pt`)
@@ -6458,8 +6514,8 @@ export class Visual implements IVisual {
             // Divider line (at left edge of column)
             const lineX = currentLeftMargin - item.offset - item.width;
             colHeaderLayer.append("line")
-                .attr("x1", lineX)
-                .attr("x2", lineX)
+                .attr("x1", Math.round(lineX))
+                .attr("x2", Math.round(lineX))
                 .attr("y1", yPos - 15)
                 .attr("y2", yPos + 5)
                 .style("stroke", "#ccc")
@@ -6470,8 +6526,8 @@ export class Visual implements IVisual {
         if (showExtra) {
             const taskNameDividerX = currentLeftMargin - occupiedWidth;
             colHeaderLayer.append("line")
-                .attr("x1", taskNameDividerX)
-                .attr("x2", taskNameDividerX)
+                .attr("x1", Math.round(taskNameDividerX))
+                .attr("x2", Math.round(taskNameDividerX))
                 .attr("y1", yPos - 15)
                 .attr("y2", yPos + 5)
                 .style("stroke", "#ccc")
@@ -6523,8 +6579,8 @@ export class Visual implements IVisual {
             const lineX = -item.offset - item.width;
             layer.append("line")
                 .attr("class", "label-column-separator")
-                .attr("x1", lineX)
-                .attr("x2", lineX)
+                .attr("x1", Math.round(lineX))
+                .attr("x2", Math.round(lineX))
                 .attr("y1", 0)
                 .attr("y2", chartHeight)
                 .style("stroke", "#ccc")
@@ -6537,8 +6593,8 @@ export class Visual implements IVisual {
             const taskNameDividerX = -occupiedWidth;
             layer.append("line")
                 .attr("class", "label-column-separator")
-                .attr("x1", taskNameDividerX)
-                .attr("x2", taskNameDividerX)
+                .attr("x1", Math.round(taskNameDividerX))
+                .attr("x2", Math.round(taskNameDividerX))
                 .attr("y1", 0)
                 .attr("y2", chartHeight)
                 .style("stroke", "#ccc")
@@ -9937,7 +9993,7 @@ export class Visual implements IVisual {
 
             if (bandStart === undefined) continue;
 
-            const bandCenter = bandStart + taskHeight / 2;
+            const bandCenter = Math.round(bandStart + taskHeight / 2);
 
             const indent = Math.max(0, (group.level - 1) * indentPerLevel);
             const levelStyle = this.getWbsLevelStyle(group.level, defaultGroupHeaderColor, defaultGroupNameColor);
@@ -9963,11 +10019,11 @@ export class Visual implements IVisual {
             if (showGroupSummary && group.taskCount > 0 &&
                 group.summaryStartDate && group.summaryFinishDate) {
                 const isCollapsed = !group.isExpanded;
-                const startX = xScale(group.summaryStartDate);
-                const finishX = xScale(group.summaryFinishDate);
-                const barWidth = Math.max(2, finishX - startX);
+                const startX = Math.round(xScale(group.summaryStartDate));
+                const finishX = Math.round(xScale(group.summaryFinishDate));
+                const barWidth = Math.round(Math.max(2, finishX - startX));
                 const barHeight = Math.max(2, taskHeight * (isCollapsed ? 0.65 : 0.35));
-                const barY = bandCenter - barHeight / 2;
+                const barY = Math.round(bandCenter - barHeight / 2);
                 const barRadius = Math.min(3, Math.max(1, barHeight / 2));
 
                 const baseOpacity = isCollapsed ? 0.78 : 0.25;
@@ -10228,8 +10284,8 @@ export class Visual implements IVisual {
 
             headerGroup.append('text')
                 .attr('class', 'wbs-expand-icon')
-                .attr('x', -currentLeftMargin + indent + 8)
-                .attr('y', bandCenter - 2)
+                .attr('x', Math.round(-currentLeftMargin + indent + 8))
+                .attr('y', Math.round(bandCenter - 2))
                 .style('font-size', `${taskNameFontSize}px`)
                 .style('font-family', this.getFontFamily())
                 .style('fill', iconColor)
@@ -10260,8 +10316,8 @@ export class Visual implements IVisual {
             const textElement = headerGroup.append('text')
                 .attr('class', 'wbs-group-name')
                 .attr('clip-path', 'url(#clip-left-margin)')
-                .attr('x', textX)
-                .attr('y', textY)
+                .attr('x', Math.round(textX))
+                .attr('y', Math.round(textY))
                 // vertical alignment handled via dy to support iOS
                 .style('font-size', `${groupNameFontSize}px`)
                 .style('font-family', this.getFontFamily())
@@ -10273,8 +10329,8 @@ export class Visual implements IVisual {
             let word: string | undefined;
             let line: string[] = [];
             let firstTspan = textElement.text(null).append('tspan')
-                .attr('x', textX)
-                .attr('y', textY)
+                .attr('x', Math.round(textX))
+                .attr('y', Math.round(textY))
                 .attr('dy', '0.35em');
             let tspan = firstTspan;
             let lineCount = 1;
@@ -10324,8 +10380,8 @@ export class Visual implements IVisual {
 
             headerGroup.insert('rect', ':first-child')
                 .attr('class', 'wbs-header-bg')
-                .attr('x', -currentLeftMargin + indent)
-                .attr('y', bgY)
+                .attr('x', Math.round(-currentLeftMargin + indent))
+                .attr('y', Math.round(bgY))
                 .attr('width', currentLeftMargin - indent - 5)
                 .attr('height', bgHeight)
                 .style('fill', groupHeaderColor)
