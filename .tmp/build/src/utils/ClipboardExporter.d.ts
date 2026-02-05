@@ -15,6 +15,11 @@ export interface ClipboardExportConfig {
     showBaseline: boolean;
     /** Whether to include previous update date columns */
     showPreviousUpdate: boolean;
+    /** Map of WBS Group ID to summary dates */
+    wbsGroupDates?: Map<string, {
+        start: Date | null;
+        finish: Date | null;
+    }>;
     /** Callback when copy succeeds */
     onSuccess?: (count: number) => void;
     /** Callback when copy fails */

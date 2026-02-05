@@ -10308,11 +10308,90 @@ export class Visual implements IVisual {
             const textColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
             const textOpacity = (group.visibleTaskCount === 0) ? 0.65 : 1.0;
 
+            // ----- WBS Summary Dates Rendering -----
+            const cols = this.settings.columns;
+            const showExtra = this.showExtraColumnsInternal;
+            const showStart = showExtra && cols.showStartDate.value;
+            const startWidth = cols.startDateWidth.value;
+            const showFinish = showExtra && cols.showFinishDate.value;
+            const finishWidth = cols.finishDateWidth.value;
+            const showDur = showExtra && cols.showDuration.value;
+            const durWidth = cols.durationWidth.value;
+            const showFloat = showExtra && cols.showTotalFloat.value;
+            const floatWidth = cols.totalFloatWidth.value;
+
+            let occupiedWidth = 0;
+            let collisionWidth = 0;
+            const columnPadding = 20;
+            occupiedWidth += columnPadding;
+            collisionWidth += columnPadding;
+
+            const floatOffset = showFloat ? occupiedWidth : 0;
+            if (showFloat) {
+                occupiedWidth += floatWidth;
+                collisionWidth += floatWidth;
+            }
+
+            const durOffset = showDur ? occupiedWidth : 0;
+            if (showDur) {
+                occupiedWidth += durWidth;
+                collisionWidth += durWidth;
+            }
+
+            // Enforce minimum width ONLY for collision calculation (text wrapping)
+            const MIN_DATE_WIDTH = 80;
+
+            const finishOffset = showFinish ? occupiedWidth : 0;
+            if (showFinish) {
+                occupiedWidth += finishWidth;
+                collisionWidth += Math.max(finishWidth, MIN_DATE_WIDTH);
+            }
+
+            const startOffset = showStart ? occupiedWidth : 0;
+            if (showStart) {
+                occupiedWidth += startWidth;
+                collisionWidth += Math.max(startWidth, MIN_DATE_WIDTH);
+            }
+
             const textX = -currentLeftMargin + indent + 22;
             const textY = bandCenter;
-            const availableWidth = currentLeftMargin - indent - 30;
+
+            // Use collisionWidth for strict text wrapping
+            const availableWidth = currentLeftMargin - indent - collisionWidth - 35;
+
             const lineHeight = '1.1em';
             const maxLines = 2;
+
+            const dateFontSize = Math.max(7, groupNameFontSize * 0.9);
+
+            if (showStart && group.summaryStartDate) {
+                headerGroup.append('text')
+                    .attr('class', 'wbs-summary-date')
+                    .attr('x', Math.round(-startOffset - startWidth / 2))
+                    .attr('y', Math.round(bandCenter))
+                    .attr('text-anchor', 'middle')
+                    .attr('dominant-baseline', 'central')
+                    .style('font-size', `${dateFontSize}px`)
+                    .style('font-family', this.getFontFamily())
+                    .style('fill', textColor)
+                    .style('opacity', textOpacity)
+                    .text(this.formatDate(group.summaryStartDate));
+            }
+
+            if (showFinish && group.summaryFinishDate) {
+                headerGroup.append('text')
+                    .attr('class', 'wbs-summary-date')
+                    .attr('x', Math.round(-finishOffset - finishWidth / 2))
+                    .attr('y', Math.round(bandCenter))
+                    .attr('text-anchor', 'middle')
+                    .attr('dominant-baseline', 'central')
+                    .style('font-size', `${dateFontSize}px`)
+                    .style('font-family', this.getFontFamily())
+                    .style('fill', textColor)
+                    .style('opacity', textOpacity)
+                    .text(this.formatDate(group.summaryFinishDate));
+            }
+            // ---------------------------------------
 
             const textElement = headerGroup.append('text')
                 .attr('class', 'wbs-group-name')
@@ -12743,8 +12822,8 @@ export class Visual implements IVisual {
                 html += `<td style="padding: 2px;"></td>`;
                 html += `<td style="padding: 2px;"></td>`;
             }
-            html += `<td style="padding: 2px;"></td>`; // Start Date - empty
-            html += `<td style="padding: 2px;"></td>`; // Finish Date - empty
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : ""}</td>`;
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : ""}</td>`;
             html += `<td style="padding: 2px;"></td>`; // Duration - empty
             html += `<td style="padding: 2px;"></td>`; // Total Float - empty
             html += `<td style="padding: 2px;"></td>`; // Is Critical - empty
@@ -12857,9 +12936,22 @@ export class Visual implements IVisual {
 
         const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
 
+        const wbsGroupDates = new Map<string, { start: Date | null, finish: Date | null }>();
+        if (showWbs && this.wbsGroups) {
+            this.wbsGroups.forEach(group => {
+                if (group.id) {
+                    wbsGroupDates.set(group.id, {
+                        start: group.summaryStartDate ?? null,
+                        finish: group.summaryFinishDate ?? null
+                    });
+                }
+            });
+        }
+
         exportToClipboard({
             tasks: this.allFilteredTasks,
             showWbs,
+            wbsGroupDates,
             showBaseline: this.showBaselineInternal,
             showPreviousUpdate: this.showPreviousUpdateInternal,
             onSuccess: (count) => this.showCopySuccess(count),

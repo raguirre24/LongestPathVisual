@@ -18,6 +18,8 @@ export interface ClipboardExportConfig {
     showBaseline: boolean;
     /** Whether to include previous update date columns */
     showPreviousUpdate: boolean;
+    /** Map of WBS Group ID to summary dates */
+    wbsGroupDates?: Map<string, { start: Date | null, finish: Date | null }>;
     /** Callback when copy succeeds */
     onSuccess?: (count: number) => void;
     /** Callback when copy fails */
@@ -34,7 +36,7 @@ const WBS_COLORS = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // G
  * Exports task data to clipboard in both TSV (for plain text) and HTML (for rich paste) formats
  */
 export async function exportToClipboard(config: ClipboardExportConfig): Promise<void> {
-    const { tasks, showWbs, showBaseline, showPreviousUpdate, onSuccess, onError } = config;
+    const { tasks, showWbs, showBaseline, showPreviousUpdate, wbsGroupDates, onSuccess, onError } = config;
 
     try {
         if (!tasks || tasks.length === 0) {
@@ -52,7 +54,7 @@ export async function exportToClipboard(config: ClipboardExportConfig): Promise<
         const tsvContent = generateTsvContent(tasks, maxWbsDepth, showBaseline, showPreviousUpdate, dateFormatter);
 
         // Generate HTML content (hierarchical if WBS on, flat otherwise)
-        const htmlContent = generateHtmlContent(tasks, maxWbsDepth, showWbs, showBaseline, showPreviousUpdate, dateFormatter);
+        const htmlContent = generateHtmlContent(tasks, maxWbsDepth, showWbs, showBaseline, showPreviousUpdate, dateFormatter, wbsGroupDates);
 
         // Copy to clipboard
         await copyToClipboard(tsvContent, htmlContent, tasks.length, onSuccess, onError);
@@ -142,7 +144,8 @@ function generateHtmlContent(
     showWbs: boolean,
     showBaseline: boolean,
     showPreviousUpdate: boolean,
-    dateFormatter: (date: Date) => string
+    dateFormatter: (date: Date) => string,
+    wbsGroupDates?: Map<string, { start: Date | null, finish: Date | null }>
 ): string {
     // Build headers
     const headers = ["Index", "Task ID", "Task Name", "Task Type"];
@@ -160,6 +163,24 @@ function generateHtmlContent(
     html += `<tr style="background-color: #f0f0f0; font-weight: bold; text-align: center;">${headers.map(h => `<th style="padding: 4px; white-space: nowrap;">${h}</th>`).join("")}</tr>`;
 
     let previousLevels: string[] = [];
+
+    // Calculate column indices for data injection
+    // Base indices: Index(0), ID(1), Name(2), Type(3)
+    let colIndex = 4;
+    // Skip optional columns
+    if (showBaseline) colIndex += 2;
+    if (showPreviousUpdate) colIndex += 2;
+    // Start Date is at colIndex, Finish Date is at colIndex + 1
+    // The group name spans from column 2 (Name) up to start date column
+    // Columns to cover: Name, Type, + optionals
+    // Count = (startDateIndex) - 2
+    const nameColSpan = colIndex - 2;
+
+    // Remaining columns after finish date: Duration, Float, Critical
+    // Total cols = headers.length
+    // Start/Finish take 2 cols
+    // Remaining = Total - (colIndex + 2)
+    const trailColSpan = headers.length - (colIndex + 2);
 
     // Generate rows
     tasks.forEach((task, index) => {
@@ -180,11 +201,42 @@ function generateHtmlContent(
                 const indent = i * 15;
                 const color = WBS_COLORS[i % WBS_COLORS.length];
                 const groupName = currentLevels[i];
-                const colSpan = headers.length - 2;
+
+                // Reconstruct the WBS Path ID used in DataProcessor
+                // Format: L1:Name|L2:Name...
+                const pathParts: string[] = [];
+                for (let j = 0; j <= i; j++) {
+                    pathParts.push(`L${j + 1}:${currentLevels[j]}`);
+                }
+                const pathId = pathParts.join('|');
+
+                let startText = "";
+                let finishText = "";
+                if (wbsGroupDates && wbsGroupDates.has(pathId)) {
+                    const dates = wbsGroupDates.get(pathId);
+                    if (dates) {
+                        startText = dates.start ? dateFormatter(dates.start) : "";
+                        finishText = dates.finish ? dateFormatter(dates.finish) : "";
+                    }
+                }
 
                 html += `<tr style="background-color: ${color}; font-weight: bold;">`;
                 html += `<td></td><td></td>`; // Skip Index and ID
-                html += `<td colspan="${colSpan}" style="padding-left: ${indent}px; white-space: nowrap;">${groupName}</td>`;
+
+                // Group Name Span
+                html += `<td colspan="${nameColSpan}" style="padding-left: ${indent}px; white-space: nowrap;">${groupName}</td>`;
+
+                // Start Date
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${startText}</td>`;
+
+                // Finish Date
+                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${finishText}</td>`;
+
+                // Trailing columns (Duration, Float, Critical) - currently empty for groups
+                if (trailColSpan > 0) {
+                    html += `<td colspan="${trailColSpan}"></td>`;
+                }
+
                 html += `</tr>`;
             }
             previousLevels = currentLevels;
