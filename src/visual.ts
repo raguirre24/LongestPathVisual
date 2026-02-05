@@ -12927,14 +12927,28 @@ export class Visual implements IVisual {
     /**
      * Copies the currently visible data to the clipboard in a format suitable for Excel.
      * Delegates to ClipboardExporter module for the actual export logic.
+     * 
+     * When WBS is enabled but no tasks are visible (WBS groups are collapsed),
+     * exports the visible WBS groups "as-is" on the screen.
      */
     private copyVisibleDataToClipboard(): void {
-        if (!this.allFilteredTasks || this.allFilteredTasks.length === 0) {
+        const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
+
+        // Detect if any tasks are visible on screen (have yOrder assigned)
+        const tasksWithYOrder = this.allFilteredTasks?.filter(t => t.yOrder !== undefined) || [];
+        const areTasksVisible = tasksWithYOrder.length > 0;
+
+        // Collect visible WBS groups (those with yOrder assigned)
+        let visibleWbsGroups: typeof this.wbsGroups = [];
+        if (showWbs && this.wbsGroups) {
+            visibleWbsGroups = this.wbsGroups.filter(g => g.yOrder !== undefined);
+        }
+
+        // If no tasks visible and no WBS groups visible, nothing to copy
+        if (!areTasksVisible && visibleWbsGroups.length === 0) {
             console.warn("No visible data to copy.");
             return;
         }
-
-        const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
 
         const wbsGroupDates = new Map<string, { start: Date | null, finish: Date | null }>();
         if (showWbs && this.wbsGroups) {
@@ -12949,9 +12963,11 @@ export class Visual implements IVisual {
         }
 
         exportToClipboard({
-            tasks: this.allFilteredTasks,
+            tasks: this.allFilteredTasks || [],
             showWbs,
             wbsGroupDates,
+            visibleWbsGroups,
+            areTasksVisible,
             showBaseline: this.showBaselineInternal,
             showPreviousUpdate: this.showPreviousUpdateInternal,
             onSuccess: (count) => this.showCopySuccess(count),

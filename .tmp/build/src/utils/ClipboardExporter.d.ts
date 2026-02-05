@@ -1,8 +1,9 @@
 /**
  * ClipboardExporter - Handles exporting task data to clipboard in TSV and HTML formats
  * Supports both flat (WBS OFF) and hierarchical (WBS ON) export modes
+ * Also supports WBS-only export when tasks are not visible
  */
-import { Task } from '../data/Interfaces';
+import { Task, WBSGroup } from '../data/Interfaces';
 /**
  * Configuration for clipboard export
  */
@@ -20,6 +21,10 @@ export interface ClipboardExportConfig {
         start: Date | null;
         finish: Date | null;
     }>;
+    /** Visible WBS groups when no tasks are shown (WBS-only export mode) */
+    visibleWbsGroups?: WBSGroup[];
+    /** Whether any tasks are currently visible on screen */
+    areTasksVisible?: boolean;
     /** Callback when copy succeeds */
     onSuccess?: (count: number) => void;
     /** Callback when copy fails */

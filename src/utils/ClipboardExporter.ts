@@ -1,9 +1,10 @@
 /**
  * ClipboardExporter - Handles exporting task data to clipboard in TSV and HTML formats
  * Supports both flat (WBS OFF) and hierarchical (WBS ON) export modes
+ * Also supports WBS-only export when tasks are not visible
  */
 
-import { Task } from '../data/Interfaces';
+import { Task, WBSGroup } from '../data/Interfaces';
 import * as d3 from 'd3';
 
 /**
@@ -20,6 +21,10 @@ export interface ClipboardExportConfig {
     showPreviousUpdate: boolean;
     /** Map of WBS Group ID to summary dates */
     wbsGroupDates?: Map<string, { start: Date | null, finish: Date | null }>;
+    /** Visible WBS groups when no tasks are shown (WBS-only export mode) */
+    visibleWbsGroups?: WBSGroup[];
+    /** Whether any tasks are currently visible on screen */
+    areTasksVisible?: boolean;
     /** Callback when copy succeeds */
     onSuccess?: (count: number) => void;
     /** Callback when copy fails */
@@ -36,16 +41,26 @@ const WBS_COLORS = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // G
  * Exports task data to clipboard in both TSV (for plain text) and HTML (for rich paste) formats
  */
 export async function exportToClipboard(config: ClipboardExportConfig): Promise<void> {
-    const { tasks, showWbs, showBaseline, showPreviousUpdate, wbsGroupDates, onSuccess, onError } = config;
+    const { tasks, showWbs, showBaseline, showPreviousUpdate, wbsGroupDates, visibleWbsGroups, areTasksVisible, onSuccess, onError } = config;
 
     try {
+        // Format as ISO 8601 (yyyy-mm-dd)
+        const dateFormatter = d3.timeFormat("%Y-%m-%d");
+
+        // WBS-only export mode: When WBS is enabled but no tasks are visible
+        if (showWbs && areTasksVisible === false && visibleWbsGroups && visibleWbsGroups.length > 0) {
+            console.log("[ClipboardExporter] WBS-only mode: Exporting visible WBS groups without tasks");
+
+            const { tsvContent, htmlContent } = generateWbsOnlyContent(visibleWbsGroups, dateFormatter);
+            await copyToClipboard(tsvContent, htmlContent, visibleWbsGroups.length, onSuccess, onError);
+            return;
+        }
+
+        // Standard export mode: Export tasks
         if (!tasks || tasks.length === 0) {
             console.warn("[ClipboardExporter] No tasks to export.");
             return;
         }
-
-        // Format as ISO 8601 (yyyy-mm-dd)
-        const dateFormatter = d3.timeFormat("%Y-%m-%d");
 
         // Calculate max WBS depth
         const maxWbsDepth = tasks.reduce((max, task) => Math.max(max, task.wbsLevels?.length || 0), 0);
@@ -287,6 +302,59 @@ function generateHtmlContent(
 
     html += `</table>`;
     return html;
+}
+
+/**
+ * Generates TSV and HTML content for WBS-only export mode
+ * Used when WBS is enabled but no tasks are visible (groups are collapsed)
+ */
+function generateWbsOnlyContent(
+    visibleWbsGroups: WBSGroup[],
+    dateFormatter: (date: Date) => string
+): { tsvContent: string; htmlContent: string } {
+    // Sort groups by yOrder to maintain visual display order
+    const sortedGroups = [...visibleWbsGroups].sort((a, b) => (a.yOrder ?? 0) - (b.yOrder ?? 0));
+
+    // TSV Headers
+    const tsvHeaders = ["Index", "WBS Name", "Start Date", "Finish Date"];
+    const tsvRows: string[][] = [];
+
+    // HTML Headers
+    let html = `<table border="1" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
+    html += `<tr style="background-color: #f0f0f0; font-weight: bold; text-align: center;">`;
+    html += `<th style="padding: 4px; white-space: nowrap;">Index</th>`;
+    html += `<th style="padding: 4px; white-space: nowrap;">WBS Name</th>`;
+    html += `<th style="padding: 4px; white-space: nowrap;">Start Date</th>`;
+    html += `<th style="padding: 4px; white-space: nowrap;">Finish Date</th>`;
+    html += `</tr>`;
+
+    sortedGroups.forEach((group, index) => {
+        const indent = (group.level - 1) * 15;
+        const color = WBS_COLORS[(group.level - 1) % WBS_COLORS.length];
+        const startText = group.summaryStartDate ? dateFormatter(group.summaryStartDate) : "";
+        const finishText = group.summaryFinishDate ? dateFormatter(group.summaryFinishDate) : "";
+
+        // TSV row (flat, with full path for clarity)
+        tsvRows.push([
+            (index + 1).toString(),
+            group.name,
+            startText,
+            finishText
+        ]);
+
+        // HTML row with hierarchical indentation and color
+        html += `<tr style="background-color: ${color}; font-weight: bold;">`;
+        html += `<td style="text-align: right; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
+        html += `<td style="padding: 2px; padding-left: ${indent}px; white-space: nowrap;">${group.name}</td>`;
+        html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${startText}</td>`;
+        html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${finishText}</td>`;
+        html += `</tr>`;
+    });
+
+    html += `</table>`;
+
+    const tsvContent = [tsvHeaders, ...tsvRows].map(row => row.join('\t')).join('\n');
+    return { tsvContent, htmlContent: html };
 }
 
 /**

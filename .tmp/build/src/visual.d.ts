@@ -745,6 +745,9 @@ export declare class Visual implements IVisual {
     /**
      * Copies the currently visible data to the clipboard in a format suitable for Excel.
      * Delegates to ClipboardExporter module for the actual export logic.
+     *
+     * When WBS is enabled but no tasks are visible (WBS groups are collapsed),
+     * exports the visible WBS groups "as-is" on the screen.
      */
     private copyVisibleDataToClipboard;
     /**
