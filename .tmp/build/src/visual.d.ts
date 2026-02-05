@@ -67,6 +67,7 @@ export declare class Visual implements IVisual {
     private debug;
     private margin;
     private headerHeight;
+    private readonly SECOND_ROW_TOP;
     private legendFooterHeight;
     private dateLabelOffset;
     private floatTolerance;

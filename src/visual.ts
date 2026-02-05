@@ -105,6 +105,7 @@ export class Visual implements IVisual {
 
     private margin = { top: 10, right: 100, bottom: 40, left: 280 };
     private headerHeight = 110;
+    private readonly SECOND_ROW_TOP = 42; // Unified top position for second row elements
     private legendFooterHeight = 60;
     private dateLabelOffset = 8;
     private floatTolerance = 0.001;
@@ -10661,7 +10662,7 @@ export class Visual implements IVisual {
 
         this.dropdownContainer
             .style("position", "absolute")
-            .style("top", "40px")
+            .style("top", `${this.SECOND_ROW_TOP}px`)
             .style("left", `${secondRowLayout.dropdown.left}px`)
             .style("right", "auto")
             .style("transform", "none")
@@ -10899,16 +10900,17 @@ export class Visual implements IVisual {
             .attr("aria-label", this.getLocalizedString("ui.traceModeLabel", "Trace Mode"))
             .attr("title", this.getLocalizedString("ui.traceModeTooltip", "Select direction to trace dependencies from the selected task"))
             .style("position", "absolute")
-            .style("top", "40px")
+            .style("top", `${this.SECOND_ROW_TOP}px`)
             .style("left", `${secondRowLayout.traceModeToggle.left}px`)
             .style("display", "inline-flex")
             .style("align-items", "center")
             .style("height", `${this.UI_TOKENS.height.compact}px`) // 24px
-            .style("padding", "2px")
+            .style("padding", "0 2px")
             .style("gap", "2px")
             .style("background-color", this.UI_TOKENS.color.neutral.white)
             .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
             .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
+            .style("box-sizing", "border-box")
             .style("box-shadow", this.UI_TOKENS.shadow[2])
             .style("z-index", "25")
             .style("user-select", "none");
