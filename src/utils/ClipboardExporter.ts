@@ -44,8 +44,8 @@ export async function exportToClipboard(config: ClipboardExportConfig): Promise<
     const { tasks, showWbs, showBaseline, showPreviousUpdate, wbsGroupDates, visibleWbsGroups, areTasksVisible, onSuccess, onError } = config;
 
     try {
-        // Format as ISO 8601 (yyyy-mm-dd)
-        const dateFormatter = d3.timeFormat("%Y-%m-%d");
+        // Format as DD-Mon-YY (e.g., "16-Jun-26") for consistent display
+        const dateFormatter = d3.timeFormat("%d-%b-%y");
 
         // WBS-only export mode: When WBS is enabled but no tasks are visible
         if (showWbs && areTasksVisible === false && visibleWbsGroups && visibleWbsGroups.length > 0) {

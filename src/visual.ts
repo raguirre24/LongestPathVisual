@@ -10504,17 +10504,25 @@ export class Visual implements IVisual {
 
     private formatColumnDate(date: Date): string {
         if (!date || isNaN(date.getTime())) return "";
+        // Format as DD-Mon-YY (e.g., "16-Jun-26") for consistent display
         const day = date.getDate().toString().padStart(2, '0');
-        const month = (date.getMonth() + 1).toString().padStart(2, '0');
-        const year = date.getFullYear();
-        return `${day}/${month}/${year}`;
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = monthNames[date.getMonth()];
+        const year = date.getFullYear().toString().slice(-2);
+        return `${day}-${month}-${year}`;
     }
 
     private formatDate(date: Date | null | undefined): string {
         if (!date || !(date instanceof Date) || isNaN(date.getTime())) return "";
         try {
-            this.refreshDateFormatters();
-            return this.fullDateFormatter.format(date);
+            // Format as DD-Mon-YY (e.g., "16-Jun-26") for consistent display
+            const day = String(date.getDate()).padStart(2, '0');
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const month = monthNames[date.getMonth()];
+            const year = String(date.getFullYear()).slice(-2);
+            return `${day}-${month}-${year}`;
         } catch (e) {
             console.error("Error formatting date:", e);
             return "Invalid Date";
