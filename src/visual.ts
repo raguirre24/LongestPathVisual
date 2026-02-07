@@ -8329,15 +8329,10 @@ export class Visual implements IVisual {
             rel.isCritical = false;
         }
 
-        const successorGroups = new Map<string, Relationship[]>();
-        for (const rel of this.relationships) {
-            if (!successorGroups.has(rel.successorId)) {
-                successorGroups.set(rel.successorId, []);
-            }
-            successorGroups.get(rel.successorId)!.push(rel);
-        }
-
-        for (const [successorId, rels] of successorGroups) {
+        // Use the pre-built relationshipIndex (successorId -> Relationship[]) instead of
+        // rebuilding a successor map from scratch on every call — O(1) lookup vs O(R) rebuild
+        let drivingCount = 0;
+        for (const [successorId, rels] of this.relationshipIndex) {
             let minFloat = Infinity;
             for (const rel of rels) {
                 const relFloat = rel.relationshipFloat ?? Infinity;
@@ -8350,11 +8345,11 @@ export class Visual implements IVisual {
                 const relFloat = rel.relationshipFloat ?? Infinity;
                 if (Math.abs(relFloat - minFloat) <= this.floatTolerance) {
                     rel.isDriving = true;
+                    drivingCount++;
                 }
             }
         }
 
-        const drivingCount = this.relationships.filter(r => r.isDriving).length;
         this.debugLog(`Identified ${drivingCount} driving relationships`);
     }
 
@@ -8428,9 +8423,8 @@ export class Visual implements IVisual {
                 return;
             }
 
-            const drivingPreds = this.relationships.filter(rel =>
-                rel.successorId === taskId && rel.isDriving
-            );
+            // Use pre-built index for O(k) lookup instead of O(R) full-array scan
+            const drivingPreds = (this.relationshipIndex.get(taskId) || []).filter(r => r.isDriving);
 
             if (drivingPreds.length === 0) {
 
@@ -9090,9 +9084,8 @@ export class Visual implements IVisual {
 
             const taskDuration = currentDuration + task.duration;
 
-            const drivingSuccs = this.relationships.filter(rel =>
-                rel.predecessorId === taskId && rel.isDriving
-            );
+            // Use pre-built index for O(k) lookup instead of O(R) full-array scan
+            const drivingSuccs = (this.relationshipByPredecessor.get(taskId) || []).filter(r => r.isDriving);
 
             if (drivingSuccs.length === 0) {
 
@@ -9116,9 +9109,8 @@ export class Visual implements IVisual {
         currentPath.add(sourceTaskId);
         visited.add(sourceTaskId);
 
-        const drivingSuccs = this.relationships.filter(rel =>
-            rel.predecessorId === sourceTaskId && rel.isDriving
-        );
+        // Use pre-built index for O(k) lookup instead of O(R) full-array scan
+        const drivingSuccs = (this.relationshipByPredecessor.get(sourceTaskId) || []).filter(r => r.isDriving);
 
         if (drivingSuccs.length === 0) {
 
