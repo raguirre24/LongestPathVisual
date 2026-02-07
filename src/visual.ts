@@ -9362,6 +9362,12 @@ export class Visual implements IVisual {
         if (idx === -1) {
             return sequence[0];
         }
+
+        // Cycle logic: if at the end, go back to start
+        if (idx === sequence.length - 1) {
+            return sequence[0];
+        }
+
         const nextIdx = Math.min(idx + 1, sequence.length - 1);
         return sequence[nextIdx];
     }
@@ -9377,6 +9383,12 @@ export class Visual implements IVisual {
         if (idx === -1) {
             return sequence[0];
         }
+
+        // Cycle logic: if at the start, go to end (expand all)
+        if (idx === 0) {
+            return sequence[sequence.length - 1];
+        }
+
         const prevIdx = Math.max(idx - 1, 0);
         return sequence[prevIdx];
     }
