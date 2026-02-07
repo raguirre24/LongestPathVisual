@@ -108,20 +108,72 @@ export class Header {
     public showCopySuccess(): void {
         const btn = this.container.select('.copy-data-button-group');
         if (!btn.empty()) {
-            // Store original styles
+            // Button feedback (keep existing)
             const originalBorder = btn.style('border');
             const originalBg = btn.style('background-color');
 
-            // Apply success styles
             btn.style('border', `2px solid ${UI_TOKENS.color.success.default}`)
                 .style('background-color', UI_TOKENS.color.success.light);
 
-            // Revert after 2 seconds
             setTimeout(() => {
                 btn.style('border', originalBorder)
                     .style('background-color', originalBg);
             }, 2000);
         }
+
+        // Centered Toast Notification
+        // Remove any existing notification first to avoid duplicates
+        this.container.selectAll(".copy-notification-overlay").remove();
+
+        const overlay = this.container.append("div")
+            .attr("class", "copy-notification-overlay")
+            .style("position", "fixed") // Use fixed to center relative to viewport/iframe
+            .style("top", "50%")
+            .style("left", "50%")
+            .style("transform", "translate(-50%, -50%)")
+            .style("background-color", UI_TOKENS.color.neutral.white)
+            .style("padding", "16px 24px")
+            .style("border-radius", "8px")
+            .style("box-shadow", "0 4px 12px rgba(0,0,0,0.15)")
+            .style("border", `1px solid ${UI_TOKENS.color.neutral.grey20}`)
+            .style("z-index", "10000")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", "12px")
+            .style("opacity", "0")
+            .style("transition", "opacity 0.2s ease-in-out");
+
+        // Icon
+        const iconSvg = overlay.append("svg")
+            .attr("width", "24")
+            .attr("height", "24")
+            .attr("viewBox", "0 0 24 24")
+            .style("flex-shrink", "0");
+
+        iconSvg.append("path")
+            .attr("d", "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z")
+            .attr("fill", UI_TOKENS.color.success.default);
+
+        // Text
+        overlay.append("div")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "14px")
+            .style("font-weight", "600")
+            .style("color", UI_TOKENS.color.neutral.grey160)
+            .text("Data copied to clipboard");
+
+        // Animate in
+        requestAnimationFrame(() => {
+            overlay.style("opacity", "1");
+        });
+
+        // Remove after delay
+        setTimeout(() => {
+            overlay.style("opacity", "0");
+            setTimeout(() => {
+                overlay.remove();
+            }, 200);
+        }, 2000);
     }
 
 
@@ -250,33 +302,34 @@ export class Header {
                 .attr("rx", 1)
                 .attr("fill", iconColor);
         } else {
-            // "Critical Path" icon - Network Path Style
+            // "Critical Path" icon - Warning Triangle Style
             const iconG = svg.append("g")
                 .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
 
-            // Connection Line (Zig-zag)
+            // Triangle Body (Red)
             iconG.append("path")
-                .attr("d", "M -6,3 L 0,-3 L 6,3")
-                .attr("fill", "none")
+                .attr("d", "M 0,-7 L 8,7 L -8,7 Z")
+                .attr("fill", UI_TOKENS.color.danger.default)
                 .attr("stroke", UI_TOKENS.color.danger.default)
-                .attr("stroke-width", 1.8)
+                .attr("stroke-width", 4) // Thicker stroke for rounded effect
                 .attr("stroke-linejoin", "round")
                 .attr("stroke-linecap", "round");
 
-            // Nodes (Start, Middle, End)
-            const circles = [
-                { cx: -6, cy: 3 },
-                { cx: 0, cy: -3 },
-                { cx: 6, cy: 3 }
-            ];
+            // Exclamation Mark - Top Bar (White)
+            iconG.append("rect")
+                .attr("x", -1.25)
+                .attr("y", -3)
+                .attr("width", 2.5)
+                .attr("height", 5.5)
+                .attr("rx", 1.25)
+                .attr("fill", UI_TOKENS.color.neutral.white);
 
-            circles.forEach(c => {
-                iconG.append("circle")
-                    .attr("cx", c.cx)
-                    .attr("cy", c.cy)
-                    .attr("r", 1.8)
-                    .attr("fill", UI_TOKENS.color.danger.default);
-            });
+            // Exclamation Mark - Dot (White)
+            iconG.append("circle")
+                .attr("cx", 0)
+                .attr("cy", 5)
+                .attr("r", 1.5)
+                .attr("fill", UI_TOKENS.color.neutral.white);
         }
 
         btn.append("title")
