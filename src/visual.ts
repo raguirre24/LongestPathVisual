@@ -966,7 +966,6 @@ export class Visual implements IVisual {
                 }
                 .criticalPathVisual text {
                     text-rendering: geometricPrecision !important;
-                    shape-rendering: crispEdges !important;
                 }
                 .criticalPathVisual .canvas-layer {
                     image-rendering: -webkit-optimize-contrast !important;
@@ -1015,7 +1014,8 @@ export class Visual implements IVisual {
         }
 
         [this.mainGroup, this.gridLayer, this.arrowLayer, this.taskLayer,
-        this.headerGridLayer, this.toggleButtonGroup].forEach(group => {
+        this.headerGridLayer, this.toggleButtonGroup,
+        this.taskLabelLayer, this.wbsGroupLayer].forEach(group => {
             if (group) {
                 group.attr("shape-rendering", "geometricPrecision");
             }
@@ -5466,11 +5466,11 @@ export class Visual implements IVisual {
                 )
                 .attr("x", (d: Date) => {
                     const x = xScale(d);
-                    // If label starts off-screen left, clamp it? 
+                    // If label starts off-screen left, clamp it?
                     // For now, let's just render at accurate date position + minimal padding
-                    return x + 5;
+                    return Math.round(x + 5);
                 })
-                .attr("y", this.headerHeight - 38)
+                .attr("y", Math.round(this.headerHeight - 38))
                 .style("font-family", this.getFontFamily())
                 .style("font-size", `${labelFontSize + 1}pt`)
                 .style("fill", labelColor)
@@ -5505,8 +5505,8 @@ export class Visual implements IVisual {
                     update => update,
                     exit => exit.remove()
                 )
-                .attr("x", (d: Date) => xScale(d))
-                .attr("y", this.headerHeight - 15)
+                .attr("x", (d: Date) => Math.round(xScale(d)))
+                .attr("y", Math.round(this.headerHeight - 15))
                 .style("font-family", this.getFontFamily())
                 .style("font-size", `${labelFontSize}pt`)
                 .style("fill", labelColor)
@@ -5621,7 +5621,7 @@ export class Visual implements IVisual {
                     console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
                     return null;
                 }
-                return `translate(0, ${yPosition})`;
+                return `translate(0, ${Math.round(yPosition)})`;
             })
             .filter(function () {
                 return d3.select(this).attr("transform") !== null;
@@ -5634,7 +5634,7 @@ export class Visual implements IVisual {
                 console.warn(`Skipping task ${d.internalId} due to invalid yPosition (yOrder: ${domainKey}).`);
                 return null;
             }
-            return `translate(0, ${yPosition})`;
+            return `translate(0, ${Math.round(yPosition)})`;
         });
 
         const allTaskGroups = enterGroups.merge(taskGroupsSelection);
@@ -5946,7 +5946,7 @@ export class Visual implements IVisual {
 
             const dateTextSelection = dateTextGroups.append("text")
                 .attr("class", "finish-date")
-                .attr("y", taskHeight / 2)
+                .attr("y", Math.round(taskHeight / 2))
                 .attr("text-anchor", "start")
                 .attr("dominant-baseline", "central")
                 .style("font-size", `${dateTextFontSize}pt`)
@@ -6022,7 +6022,7 @@ export class Visual implements IVisual {
             )
                 .append("text")
                 .attr("class", "duration-text")
-                .attr("y", taskHeight / 2)
+                .attr("y", Math.round(taskHeight / 2))
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
                 .style("font-size", `${durationFontSize}pt`)
