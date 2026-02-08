@@ -962,10 +962,11 @@ export class Visual implements IVisual {
                 .criticalPathVisual {
                     -webkit-font-smoothing: antialiased !important;
                     -moz-osx-font-smoothing: grayscale !important;
-                    text-rendering: optimizeLegibility !important;
+                    text-rendering: geometricPrecision !important;
                 }
                 .criticalPathVisual text {
                     text-rendering: geometricPrecision !important;
+                    -webkit-font-smoothing: antialiased;
                 }
                 .criticalPathVisual .canvas-layer {
                     image-rendering: -webkit-optimize-contrast !important;
@@ -984,7 +985,8 @@ export class Visual implements IVisual {
                     transform: translateZ(0) !important;
                     -webkit-transform: translateZ(0) !important;
                 }
-                svg rect, svg path, svg line {
+                /* Only apply crispEdges to grid lines and separators, not all SVG shapes */
+                svg .grid-line, svg .label-grid-line, svg .label-column-separator {
                     shape-rendering: crispEdges !important;
                     vector-effect: non-scaling-stroke !important;
                 }
@@ -1001,20 +1003,30 @@ export class Visual implements IVisual {
 
     private setupSVGRenderingHints(): void {
 
+        // Use geometricPrecision as default for smooth rendering of bars, connectors,
+        // and milestones. Only grid layers use crispEdges for pixel-perfect alignment.
         if (this.mainSvg) {
             this.mainSvg
-                .attr("shape-rendering", "crispEdges")
-                .attr("text-rendering", "optimizeLegibility");
+                .attr("shape-rendering", "geometricPrecision")
+                .attr("text-rendering", "geometricPrecision");
         }
 
         if (this.headerSvg) {
             this.headerSvg
-                .attr("shape-rendering", "crispEdges")
-                .attr("text-rendering", "optimizeLegibility");
+                .attr("shape-rendering", "geometricPrecision")
+                .attr("text-rendering", "geometricPrecision");
         }
 
-        [this.mainGroup, this.gridLayer, this.arrowLayer, this.taskLayer,
-        this.headerGridLayer, this.toggleButtonGroup, this.taskLabelLayer, this.wbsGroupLayer].forEach(group => {
+        // Grid layers use crispEdges for pixel-perfect grid lines
+        [this.gridLayer, this.headerGridLayer].forEach(layer => {
+            if (layer) {
+                layer.attr("shape-rendering", "crispEdges");
+            }
+        });
+
+        // Task/label layers use geometricPrecision for smooth rendering
+        [this.mainGroup, this.arrowLayer, this.taskLayer,
+        this.toggleButtonGroup, this.taskLabelLayer, this.wbsGroupLayer].forEach(group => {
             if (group) {
                 group.attr("shape-rendering", "geometricPrecision");
             }
@@ -5106,17 +5118,20 @@ export class Visual implements IVisual {
                 labelColor, showDuration, taskHeight,
                 dateBgColor, dateBgOpacity
             );
-
-            this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
-
-            this.drawDataDateLine(
-                chartWidth,
-                xScale,
-                chartHeight,
-                this.gridLayer,
-                this.headerGridLayer
-            );
         }
+
+        // Common rendering for both Canvas and SVG modes:
+        // WBS group headers and data date line must render in both modes
+        // (they use SVG layers that remain visible regardless of rendering mode)
+        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
+
+        this.drawDataDateLine(
+            chartWidth,
+            xScale,
+            chartHeight,
+            this.gridLayer,
+            this.headerGridLayer
+        );
 
         // Use getTasksForFinishLines to properly collect underlying tasks from visible WBS groups
         const tasksForProjectEnd = this.getTasksForFinishLines();
@@ -5733,9 +5748,11 @@ export class Visual implements IVisual {
                     const dataDate = self.dataDate;
 
                     if (enableOverride && dataDate) {
-                        const ddTime = dataDate.getTime();
-                        const startTime = start.getTime();
-                        const finishTime = finish.getTime();
+                        // Normalize to start-of-day for consistent day-level comparison
+                        // This prevents time-component mismatches between task dates and data date
+                        const ddTime = self.normalizeToStartOfDay(dataDate);
+                        const startTime = self.normalizeToStartOfDay(start);
+                        const finishTime = self.normalizeToStartOfDay(finish);
                         const overrideColor = self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
 
                         if (finishTime <= ddTime) {
@@ -5873,7 +5890,7 @@ export class Visual implements IVisual {
                             const dataDate = self.dataDate;
                             if (enableOverride && dataDate) {
                                 const mDate = (d.manualStartDate ?? d.startDate) || (d.manualFinishDate ?? d.finishDate);
-                                if (mDate instanceof Date && !isNaN(mDate.getTime()) && mDate.getTime() <= dataDate.getTime()) {
+                                if (mDate instanceof Date && !isNaN(mDate.getTime()) && self.normalizeToStartOfDay(mDate) <= self.normalizeToStartOfDay(dataDate)) {
                                     return self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
                                 }
                             }
@@ -5948,6 +5965,7 @@ export class Visual implements IVisual {
                 .attr("y", Math.round(taskHeight / 2))
                 .attr("text-anchor", "start")
                 .attr("dominant-baseline", "central")
+                .style("font-family", self.getFontFamily())
                 .style("font-size", `${dateTextFontSize}pt`)
                 .style("fill", labelColor)
                 .style("pointer-events", "none")
@@ -6024,6 +6042,7 @@ export class Visual implements IVisual {
                 .attr("y", Math.round(taskHeight / 2))
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
+                .style("font-family", this.getFontFamily())
                 .style("font-size", `${durationFontSize}pt`)
                 .style("fill", (d: Task) => this.getDurationTextColor(getTaskFillColor(d, taskColor)))
                 .style("font-weight", "500")
@@ -6397,6 +6416,7 @@ export class Visual implements IVisual {
                     .attr("y", colY)
                     .attr("text-anchor", align)
                     .attr("dominant-baseline", "central")
+                    .style("font-family", this.getFontFamily())
                     .style("font-size", `${columnFontSize}pt`)
                     .style("fill", (d: Task) => {
                         if (isFloat) {
@@ -6487,11 +6507,14 @@ export class Visual implements IVisual {
         const remainingWidth = Math.max(0, currentLeftMargin - occupiedWidth);
         const taskNameCenter = remainingWidth / 2;
 
+        const fontFamily = this.getFontFamily();
+
         if (showExtra && remainingWidth > 35) { // Only draw if space permits and columns are enabled
             colHeaderLayer.append("text")
                 .attr("x", Math.round(taskNameCenter))
                 .attr("y", yPos)
                 .attr("text-anchor", "middle")
+                .style("font-family", fontFamily)
                 .style("font-size", `${fontSize}pt`)
                 .style("font-weight", "bold")
                 .style("fill", color)
@@ -6506,6 +6529,7 @@ export class Visual implements IVisual {
                 .attr("x", Math.round(centerX))
                 .attr("y", yPos)
                 .attr("text-anchor", "middle")
+                .style("font-family", fontFamily)
                 .style("font-size", `${fontSize}pt`)
                 .style("font-weight", "bold")
                 .style("fill", color)
@@ -6745,7 +6769,8 @@ export class Visual implements IVisual {
 
                     let overrideColor = null;
                     // Check if milestone is before data date for color override
-                    if (this.settings.dataDateColorOverride.enableP6Style.value && this.dataDate && mDate.getTime() <= this.dataDate.getTime()) {
+                    // Normalize to start-of-day for consistent day-level comparison
+                    if (this.settings.dataDateColorOverride.enableP6Style.value && this.dataDate && this.normalizeToStartOfDay(mDate) <= this.normalizeToStartOfDay(this.dataDate)) {
                         overrideColor = this.settings.dataDateColorOverride.beforeDataDateColor.value.value;
                     }
 
@@ -6776,9 +6801,10 @@ export class Visual implements IVisual {
                 const dataDate = this.dataDate;
 
                 if (enableOverride && dataDate) {
-                    const ddTime = dataDate.getTime();
-                    const startTime = start.getTime();
-                    const finishTime = finish.getTime();
+                    // Normalize to start-of-day for consistent day-level comparison
+                    const ddTime = this.normalizeToStartOfDay(dataDate);
+                    const startTime = this.normalizeToStartOfDay(start);
+                    const finishTime = this.normalizeToStartOfDay(finish);
                     const overrideColor = this.settings.dataDateColorOverride.beforeDataDateColor.value.value;
 
                     if (finishTime <= ddTime) {
@@ -7864,9 +7890,10 @@ export class Visual implements IVisual {
 
             const textElement = labelGroup.append("text")
                 .attr("class", `${className}-label`)
-                .attr("x", labelX)
-                .attr("y", labelY)
+                .attr("x", Math.round(labelX))
+                .attr("y", Math.round(labelY))
                 .attr("text-anchor", anchor)
+                .style("font-family", this.getFontFamily())
                 .style("fill", labelColor)
                 .style("font-size", `${labelFontSize}pt`)
                 .style("font-weight", "600")
@@ -8021,9 +8048,10 @@ export class Visual implements IVisual {
 
             const textElement = labelGroup.append("text")
                 .attr("class", "data-date-label")
-                .attr("x", labelX)
-                .attr("y", labelY)
+                .attr("x", Math.round(labelX))
+                .attr("y", Math.round(labelY))
                 .attr("text-anchor", anchor)
+                .style("font-family", this.getFontFamily())
                 .style("fill", labelColor)
                 .style("font-size", labelFontSize + "pt")
                 .style("font-weight", "600")
@@ -10099,9 +10127,10 @@ export class Visual implements IVisual {
                 let overrideColor = self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
 
                 if (enableOverride && dataDate && group.summaryStartDate && group.summaryFinishDate) {
-                    const ddTime = dataDate.getTime();
-                    const sTime = group.summaryStartDate.getTime();
-                    const fTime = group.summaryFinishDate.getTime();
+                    // Normalize to start-of-day for consistent day-level comparison
+                    const ddTime = self.normalizeToStartOfDay(dataDate);
+                    const sTime = self.normalizeToStartOfDay(group.summaryStartDate);
+                    const fTime = self.normalizeToStartOfDay(group.summaryFinishDate);
 
                     if (fTime <= ddTime) {
                         // Entirely before
@@ -11802,6 +11831,17 @@ export class Visual implements IVisual {
     /**
      * Convert hex color to RGB object
      */
+    /**
+     * Normalizes a Date to midnight (start of day) UTC for consistent day-level comparisons.
+     * This prevents time-component mismatches between task dates and the data date
+     * when comparing whether a task falls before/after the data date boundary.
+     */
+    private normalizeToStartOfDay(date: Date): number {
+        const d = new Date(date.getTime());
+        d.setUTCHours(0, 0, 0, 0);
+        return d.getTime();
+    }
+
     private hexToRgb(hex: string): { r: number; g: number; b: number } {
 
         hex = hex.replace(/^#/, '');
