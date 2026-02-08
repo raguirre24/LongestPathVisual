@@ -962,10 +962,11 @@ export class Visual implements IVisual {
                 .criticalPathVisual {
                     -webkit-font-smoothing: antialiased !important;
                     -moz-osx-font-smoothing: grayscale !important;
-                    text-rendering: optimizeLegibility !important;
+                    text-rendering: geometricPrecision !important;
                 }
                 .criticalPathVisual text {
                     text-rendering: geometricPrecision !important;
+                    -webkit-font-smoothing: antialiased;
                 }
                 .criticalPathVisual .canvas-layer {
                     image-rendering: -webkit-optimize-contrast !important;
@@ -984,7 +985,8 @@ export class Visual implements IVisual {
                     transform: translateZ(0) !important;
                     -webkit-transform: translateZ(0) !important;
                 }
-                svg rect, svg path, svg line {
+                /* Only apply crispEdges to grid lines and separators, not all SVG shapes */
+                svg .grid-line, svg .label-grid-line, svg .label-column-separator {
                     shape-rendering: crispEdges !important;
                     vector-effect: non-scaling-stroke !important;
                 }
@@ -1001,20 +1003,30 @@ export class Visual implements IVisual {
 
     private setupSVGRenderingHints(): void {
 
+        // Use geometricPrecision as default for smooth rendering of bars, connectors,
+        // and milestones. Only grid layers use crispEdges for pixel-perfect alignment.
         if (this.mainSvg) {
             this.mainSvg
-                .attr("shape-rendering", "crispEdges")
-                .attr("text-rendering", "optimizeLegibility");
+                .attr("shape-rendering", "geometricPrecision")
+                .attr("text-rendering", "geometricPrecision");
         }
 
         if (this.headerSvg) {
             this.headerSvg
-                .attr("shape-rendering", "crispEdges")
-                .attr("text-rendering", "optimizeLegibility");
+                .attr("shape-rendering", "geometricPrecision")
+                .attr("text-rendering", "geometricPrecision");
         }
 
-        [this.mainGroup, this.gridLayer, this.arrowLayer, this.taskLayer,
-        this.headerGridLayer, this.toggleButtonGroup, this.taskLabelLayer, this.wbsGroupLayer].forEach(group => {
+        // Grid layers use crispEdges for pixel-perfect grid lines
+        [this.gridLayer, this.headerGridLayer].forEach(layer => {
+            if (layer) {
+                layer.attr("shape-rendering", "crispEdges");
+            }
+        });
+
+        // Task/label layers use geometricPrecision for smooth rendering
+        [this.mainGroup, this.arrowLayer, this.taskLayer,
+        this.toggleButtonGroup, this.taskLabelLayer, this.wbsGroupLayer].forEach(group => {
             if (group) {
                 group.attr("shape-rendering", "geometricPrecision");
             }
@@ -5106,17 +5118,20 @@ export class Visual implements IVisual {
                 labelColor, showDuration, taskHeight,
                 dateBgColor, dateBgOpacity
             );
-
-            this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
-
-            this.drawDataDateLine(
-                chartWidth,
-                xScale,
-                chartHeight,
-                this.gridLayer,
-                this.headerGridLayer
-            );
         }
+
+        // Common rendering for both Canvas and SVG modes:
+        // WBS group headers and data date line must render in both modes
+        // (they use SVG layers that remain visible regardless of rendering mode)
+        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
+
+        this.drawDataDateLine(
+            chartWidth,
+            xScale,
+            chartHeight,
+            this.gridLayer,
+            this.headerGridLayer
+        );
 
         // Use getTasksForFinishLines to properly collect underlying tasks from visible WBS groups
         const tasksForProjectEnd = this.getTasksForFinishLines();
@@ -5733,9 +5748,11 @@ export class Visual implements IVisual {
                     const dataDate = self.dataDate;
 
                     if (enableOverride && dataDate) {
-                        const ddTime = dataDate.getTime();
-                        const startTime = start.getTime();
-                        const finishTime = finish.getTime();
+                        // Normalize to start-of-day for consistent day-level comparison
+                        // This prevents time-component mismatches between task dates and data date
+                        const ddTime = self.normalizeToStartOfDay(dataDate);
+                        const startTime = self.normalizeToStartOfDay(start);
+                        const finishTime = self.normalizeToStartOfDay(finish);
                         const overrideColor = self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
 
                         if (finishTime <= ddTime) {
@@ -5873,7 +5890,7 @@ export class Visual implements IVisual {
                             const dataDate = self.dataDate;
                             if (enableOverride && dataDate) {
                                 const mDate = (d.manualStartDate ?? d.startDate) || (d.manualFinishDate ?? d.finishDate);
-                                if (mDate instanceof Date && !isNaN(mDate.getTime()) && mDate.getTime() <= dataDate.getTime()) {
+                                if (mDate instanceof Date && !isNaN(mDate.getTime()) && self.normalizeToStartOfDay(mDate) <= self.normalizeToStartOfDay(dataDate)) {
                                     return self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
                                 }
                             }
@@ -5948,6 +5965,7 @@ export class Visual implements IVisual {
                 .attr("y", Math.round(taskHeight / 2))
                 .attr("text-anchor", "start")
                 .attr("dominant-baseline", "central")
+                .style("font-family", self.getFontFamily())
                 .style("font-size", `${dateTextFontSize}pt`)
                 .style("fill", labelColor)
                 .style("pointer-events", "none")
@@ -6024,6 +6042,7 @@ export class Visual implements IVisual {
                 .attr("y", Math.round(taskHeight / 2))
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
+                .style("font-family", this.getFontFamily())
                 .style("font-size", `${durationFontSize}pt`)
                 .style("fill", (d: Task) => this.getDurationTextColor(getTaskFillColor(d, taskColor)))
                 .style("font-weight", "500")
@@ -6397,6 +6416,7 @@ export class Visual implements IVisual {
                     .attr("y", colY)
                     .attr("text-anchor", align)
                     .attr("dominant-baseline", "central")
+                    .style("font-family", this.getFontFamily())
                     .style("font-size", `${columnFontSize}pt`)
                     .style("fill", (d: Task) => {
                         if (isFloat) {
@@ -6487,11 +6507,14 @@ export class Visual implements IVisual {
         const remainingWidth = Math.max(0, currentLeftMargin - occupiedWidth);
         const taskNameCenter = remainingWidth / 2;
 
+        const fontFamily = this.getFontFamily();
+
         if (showExtra && remainingWidth > 35) { // Only draw if space permits and columns are enabled
             colHeaderLayer.append("text")
                 .attr("x", Math.round(taskNameCenter))
                 .attr("y", yPos)
                 .attr("text-anchor", "middle")
+                .style("font-family", fontFamily)
                 .style("font-size", `${fontSize}pt`)
                 .style("font-weight", "bold")
                 .style("fill", color)
@@ -6506,6 +6529,7 @@ export class Visual implements IVisual {
                 .attr("x", Math.round(centerX))
                 .attr("y", yPos)
                 .attr("text-anchor", "middle")
+                .style("font-family", fontFamily)
                 .style("font-size", `${fontSize}pt`)
                 .style("font-weight", "bold")
                 .style("fill", color)
@@ -6627,6 +6651,18 @@ export class Visual implements IVisual {
 
         const milestoneSizeSetting = this.settings.taskBars.milestoneSize.value;
         const minBarWidthForGlow = 10;
+        const minBarWidthForStrongStroke = 8;
+        const minInlineDurationWidth = 28;
+
+        // Task bar styling from settings (matching SVG drawTasks)
+        const taskBarCornerRadius = this.settings.taskBars.taskBarCornerRadius.value;
+        const taskBarStrokeColor = this.settings.taskBars.taskBarStrokeColor.value.value;
+        const taskBarStrokeWidth = this.settings.taskBars.taskBarStrokeWidth.value;
+        const milestoneShape = this.settings.taskBars.milestoneShape.value?.value ?? "diamond";
+        const nearCriticalColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
+        const selectionHighlightColor = this.getSelectionColor();
+        const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
+        const generalFontSize = this.settings.textAndLabels.fontSize.value;
 
         const showPreviousUpdate = this.showPreviousUpdateInternal;
         const showBaseline = this.showBaselineInternal;
@@ -6647,16 +6683,22 @@ export class Visual implements IVisual {
 
             const yPos = Math.round(yPosition);
 
-            if (showPreviousUpdate && task.previousUpdateStartDate && task.previousUpdateFinishDate && task.previousUpdateFinishDate >= task.previousUpdateStartDate) {
+            if (showPreviousUpdate &&
+                task.previousUpdateStartDate instanceof Date && !isNaN(task.previousUpdateStartDate.getTime()) &&
+                task.previousUpdateFinishDate instanceof Date && !isNaN(task.previousUpdateFinishDate.getTime()) &&
+                task.previousUpdateFinishDate >= task.previousUpdateStartDate) {
                 const x = Math.round(xScale(task.previousUpdateStartDate));
-                const w = Math.round(Math.max(1, xScale(task.previousUpdateFinishDate) - x));
+                const w = Math.round(Math.max(this.minTaskWidthPixels, xScale(task.previousUpdateFinishDate) - x));
                 const h = Math.round(this.settings.comparisonBars.previousUpdateHeight.value);
                 const y = Math.round(yPos + taskHeight + this.settings.comparisonBars.previousUpdateOffset.value);
                 const r = Math.min(3, h / 2);
                 prevUpdateBatch.push({ x, y, w, h, r });
             }
 
-            if (showBaseline && task.baselineStartDate && task.baselineFinishDate && task.baselineFinishDate >= task.baselineStartDate) {
+            if (showBaseline &&
+                task.baselineStartDate instanceof Date && !isNaN(task.baselineStartDate.getTime()) &&
+                task.baselineFinishDate instanceof Date && !isNaN(task.baselineFinishDate.getTime()) &&
+                task.baselineFinishDate >= task.baselineStartDate) {
                 let yBase: number;
                 if (showPreviousUpdate) {
                     yBase = yPos + taskHeight + this.settings.comparisonBars.previousUpdateOffset.value + this.settings.comparisonBars.previousUpdateHeight.value + this.settings.comparisonBars.baselineOffset.value;
@@ -6664,7 +6706,7 @@ export class Visual implements IVisual {
                     yBase = yPos + taskHeight + this.settings.comparisonBars.baselineOffset.value;
                 }
                 const x = Math.round(xScale(task.baselineStartDate));
-                const w = Math.round(Math.max(1, xScale(task.baselineFinishDate) - x));
+                const w = Math.round(Math.max(this.minTaskWidthPixels, xScale(task.baselineFinishDate) - x));
                 const h = Math.round(this.settings.comparisonBars.baselineHeight.value);
                 const y = Math.round(yBase);
                 const r = Math.min(3, h / 2);
@@ -6672,17 +6714,18 @@ export class Visual implements IVisual {
             }
 
             let fillColor = taskColor;
-            let strokeColor = this.getForegroundColor();
-            let strokeWidth = 0.5;
+            let strokeColor = taskBarStrokeColor || this.getForegroundColor();
+            let strokeWidth = taskBarStrokeWidth > 0 ? taskBarStrokeWidth : 0.5;
             let shadowBlur = 0;
             let shadowColor = 'transparent';
             let shadowOffset = 0;
+            const isMilestone = task.type === 'TT_Mile' || task.type === 'TT_FinMile';
 
             const isSelected = task.internalId === this.selectedTaskId;
 
             if (isSelected) {
-                fillColor = this.getSelectionColor();
-                strokeColor = this.getSelectionColor();
+                fillColor = selectionHighlightColor;
+                strokeColor = selectionHighlightColor;
                 strokeWidth = 3;
                 shadowColor = 'rgba(0, 0, 0, 0.15)';
                 shadowBlur = 6;
@@ -6693,7 +6736,7 @@ export class Visual implements IVisual {
                     fillColor = task.legendColor;
                 } else if (!this.legendDataExists) {
                     if (task.isCritical) fillColor = criticalColor;
-                    else if (task.isNearCritical) fillColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
+                    else if (task.isNearCritical) fillColor = nearCriticalColor;
                 }
 
                 if (this.legendDataExists) {
@@ -6701,24 +6744,37 @@ export class Visual implements IVisual {
                         strokeColor = criticalColor;
                         strokeWidth = this.settings.criticalPath.criticalBorderWidth.value;
                     } else if (task.isNearCritical) {
-                        strokeColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
+                        strokeColor = nearCriticalColor;
                         strokeWidth = this.settings.criticalPath.nearCriticalBorderWidth.value;
                     }
                 } else {
-                    if (task.isCritical) strokeWidth = 1;
+                    if (task.isCritical) {
+                        strokeWidth = this.settings.criticalPath.criticalBorderWidth.value;
+                    }
+                }
+
+                // Milestones use heavier stroke like SVG (1.5 default)
+                if (isMilestone && !this.legendDataExists && !task.isCritical && !task.isNearCritical) {
+                    strokeColor = this.getForegroundColor();
+                    strokeWidth = 1.5;
                 }
 
                 const widthVal = ((task.manualStartDate ?? task.startDate) && (task.manualFinishDate ?? task.finishDate))
                     ? (xScale(task.manualFinishDate ?? task.finishDate!) - xScale(task.manualStartDate ?? task.startDate!)) : 0;
-                if (widthVal >= minBarWidthForGlow || task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+
+                // Reduce stroke for narrow bars (matching SVG)
+                if (!isMilestone && widthVal < minBarWidthForStrongStroke) {
+                    strokeWidth = Math.min(strokeWidth, 1);
+                }
+
+                if (widthVal >= minBarWidthForGlow || isMilestone) {
                     if (this.legendDataExists) {
                         if (task.isCritical) {
                             const rgb = this.hexToRgb(criticalColor);
                             shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35)`;
                             shadowBlur = 3;
                         } else if (task.isNearCritical) {
-                            const ncColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
-                            const rgb = this.hexToRgb(ncColor);
+                            const rgb = this.hexToRgb(nearCriticalColor);
                             shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25)`;
                             shadowBlur = 2;
                         } else {
@@ -6745,7 +6801,8 @@ export class Visual implements IVisual {
 
                     let overrideColor = null;
                     // Check if milestone is before data date for color override
-                    if (this.settings.dataDateColorOverride.enableP6Style.value && this.dataDate && mDate.getTime() <= this.dataDate.getTime()) {
+                    // Normalize to start-of-day for consistent day-level comparison
+                    if (this.settings.dataDateColorOverride.enableP6Style.value && this.dataDate && this.normalizeToStartOfDay(mDate) <= this.normalizeToStartOfDay(this.dataDate)) {
                         overrideColor = this.settings.dataDateColorOverride.beforeDataDateColor.value.value;
                     }
 
@@ -6776,20 +6833,22 @@ export class Visual implements IVisual {
                 const dataDate = this.dataDate;
 
                 if (enableOverride && dataDate) {
-                    const ddTime = dataDate.getTime();
-                    const startTime = start.getTime();
-                    const finishTime = finish.getTime();
+                    // Normalize to start-of-day for consistent day-level comparison
+                    const ddTime = this.normalizeToStartOfDay(dataDate);
+                    const startTime = this.normalizeToStartOfDay(start);
+                    const finishTime = this.normalizeToStartOfDay(finish);
                     const overrideColor = this.settings.dataDateColorOverride.beforeDataDateColor.value.value;
 
                     if (finishTime <= ddTime) {
                         // Case 1: Entire bar is before data date
                         fillColor = overrideColor;
-                        const overriddenStyleKey = `${fillColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
+                        const overrideStroke = this.getContrastColor(overrideColor);
+                        const overriddenStyleKey = `${fillColor}|${overrideStroke}|0.5|${shadowBlur}|${shadowColor}|${shadowOffset}`;
 
                         const x = Math.round(xScale(start));
                         const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
                         const h = Math.round(taskHeight);
-                        const r = Math.min(5, Math.round(h * 0.15), Math.round(w / 2));
+                        const r = Math.min(taskBarCornerRadius, Math.round(w / 2));
 
                         if (!taskBatches.has(overriddenStyleKey)) taskBatches.set(overriddenStyleKey, []);
                         taskBatches.get(overriddenStyleKey)!.push({ x, y: yPos, w, h, r });
@@ -6799,7 +6858,7 @@ export class Visual implements IVisual {
                         const x = Math.round(xScale(start));
                         const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
                         const h = Math.round(taskHeight);
-                        const r = Math.min(5, Math.round(h * 0.15), Math.round(w / 2));
+                        const r = Math.min(taskBarCornerRadius, Math.round(w / 2));
 
                         if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
                         taskBatches.get(styleKey)!.push({ x, y: yPos, w, h, r });
@@ -6856,7 +6915,7 @@ export class Visual implements IVisual {
                     const x = Math.round(xScale(start));
                     const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
                     const h = Math.round(taskHeight);
-                    const r = Math.min(5, Math.round(h * 0.15), Math.round(w / 2));
+                    const r = Math.min(taskBarCornerRadius, Math.round(w / 2));
 
                     if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
                     taskBatches.get(styleKey)!.push({ x, y: yPos, w, h, r });
@@ -6950,20 +7009,148 @@ export class Visual implements IVisual {
                 ctx.shadowColor = 'transparent';
             }
 
-            ctx.beginPath();
             for (const m of batch) {
                 const half = m.size / 2;
-                ctx.moveTo(m.x, m.y - half);
-                ctx.lineTo(m.x + half, m.y);
-                ctx.lineTo(m.x, m.y + half);
-                ctx.lineTo(m.x - half, m.y);
-                ctx.closePath();
+                ctx.beginPath();
+                switch (milestoneShape) {
+                    case "circle": {
+                        ctx.arc(m.x, m.y, half, 0, Math.PI * 2);
+                        break;
+                    }
+                    case "square": {
+                        ctx.rect(m.x - half, m.y - half, m.size, m.size);
+                        break;
+                    }
+                    case "diamond":
+                    default: {
+                        ctx.moveTo(m.x, m.y - half);
+                        ctx.lineTo(m.x + half, m.y);
+                        ctx.lineTo(m.x, m.y + half);
+                        ctx.lineTo(m.x - half, m.y);
+                        ctx.closePath();
+                        break;
+                    }
+                }
+                ctx.fill();
+                if (strokeWidth > 0) ctx.stroke();
             }
-            ctx.fill();
 
             ctx.shadowColor = 'transparent';
-            if (strokeWidth > 0) ctx.stroke();
         });
+
+        // Draw duration text on task bars (matching SVG)
+        if (showDuration) {
+            const durationFontSize = Math.max(7, generalFontSize * 0.8);
+            ctx.save();
+            ctx.font = `500 ${durationFontSize}pt ${this.getFontFamily()}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            for (const task of tasks) {
+                if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') continue;
+                if (!task.startDate || !task.finishDate || task.finishDate < task.startDate) continue;
+                if (!(task.startDate instanceof Date) || !(task.finishDate instanceof Date)) continue;
+                if (!task.duration || task.duration <= 0) continue;
+
+                const domainKey = task.yOrder?.toString() ?? '';
+                const yPosition = yScale(domainKey);
+                if (yPosition === undefined || isNaN(yPosition)) continue;
+
+                const start = task.manualStartDate ?? task.startDate;
+                const finish = task.manualFinishDate ?? task.finishDate;
+                const startX = xScale(start);
+                const finishX = xScale(finish);
+                if (isNaN(startX) || isNaN(finishX)) continue;
+
+                const barWidth = finishX - startX;
+                const textContent = `${Math.round(task.duration)}d`;
+                const estimatedTextWidth = textContent.length * (durationFontSize * 0.6);
+                const minWidth = Math.max(minInlineDurationWidth, estimatedTextWidth + 8);
+                if (barWidth < minWidth) continue;
+
+                const taskFill = (task.internalId === this.selectedTaskId) ? selectionHighlightColor :
+                    (this.legendDataExists && task.legendColor) ? task.legendColor :
+                    (!this.legendDataExists && task.isCritical) ? criticalColor :
+                    (!this.legendDataExists && task.isNearCritical) ? nearCriticalColor :
+                    taskColor;
+                ctx.fillStyle = this.getDurationTextColor(taskFill);
+                ctx.fillText(textContent, startX + barWidth / 2, Math.round(yPosition) + taskHeight / 2);
+            }
+            ctx.restore();
+        }
+
+        // Draw finish date labels (matching SVG)
+        if (showFinishDates) {
+            const viewportWidth = (xScale && xScale.range() && xScale.range().length > 1) ? xScale.range()[1] : (this.lastUpdateOptions?.viewport?.width ?? 0);
+            const reduceLabelDensity = this.getLayoutMode(viewportWidth) === 'narrow';
+            const dateTextFontSize = Math.max(7, generalFontSize * (reduceLabelDensity ? 0.75 : 0.85));
+            const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
+            const dateBgPaddingV = this.dateBackgroundPadding.vertical;
+
+            ctx.save();
+            ctx.font = `${dateTextFontSize}pt ${this.getFontFamily()}`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+
+            for (const task of tasks) {
+                // In narrow mode, only show labels for selected/critical/milestone tasks
+                if (reduceLabelDensity) {
+                    if (task.internalId !== this.selectedTaskId && !task.isCritical &&
+                        task.type !== 'TT_Mile' && task.type !== 'TT_FinMile') continue;
+                }
+
+                const dateToUse = task.finishDate;
+                if (!(dateToUse instanceof Date) || isNaN(dateToUse.getTime())) continue;
+
+                const domainKey = task.yOrder?.toString() ?? '';
+                const yPosition = yScale(domainKey);
+                if (yPosition === undefined || isNaN(yPosition)) continue;
+
+                let xPos: number | null = null;
+                if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+                    const milestoneMarkerDate = (task.startDate instanceof Date && !isNaN(task.startDate.getTime())) ? task.startDate : task.finishDate;
+                    if (milestoneMarkerDate instanceof Date && !isNaN(milestoneMarkerDate.getTime())) {
+                        const milestoneX = xScale(milestoneMarkerDate);
+                        if (!isNaN(milestoneX)) {
+                            const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                            xPos = milestoneX + size / 2;
+                        }
+                    }
+                } else {
+                    const finishX = xScale(dateToUse);
+                    if (!isNaN(finishX)) xPos = finishX;
+                }
+
+                if (xPos === null || isNaN(xPos)) continue;
+                xPos += this.dateLabelOffset;
+
+                const labelText = this.formatDate(dateToUse);
+                const textMetrics = ctx.measureText(labelText);
+                const textWidth = textMetrics.width;
+                const textHeight = dateTextFontSize * 1.4; // approximate
+                const yCenter = Math.round(yPosition) + taskHeight / 2;
+
+                // Draw background box
+                if (dateBackgroundOpacity > 0) {
+                    const bgX = xPos - dateBgPaddingH;
+                    const bgY = yCenter - textHeight / 2 - dateBgPaddingV;
+                    const bgW = textWidth + dateBgPaddingH * 2;
+                    const bgH = textHeight + dateBgPaddingV * 2;
+
+                    ctx.fillStyle = dateBackgroundColor;
+                    ctx.globalAlpha = dateBackgroundOpacity;
+                    ctx.beginPath();
+                    this.pathRoundedRect(ctx, bgX, bgY, bgW, bgH, 4);
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                }
+
+                // Draw text
+                ctx.fillStyle = labelColor;
+                ctx.fillText(labelText, xPos, yCenter);
+            }
+            ctx.restore();
+        }
 
         ctx.restore();
     }
@@ -7282,14 +7469,11 @@ export class Visual implements IVisual {
                     switch (relType) {
                         case 'FS':
 
-                            if (Math.abs(effectiveStartX - effectiveStartX) > cornerRadius * 2 &&
-                                Math.abs(succY - predY) > cornerRadius * 2) {
-                                const verticalStart = predY + (isGoingDown ? cornerRadius : -cornerRadius);
-                                const horizontalStart = effectiveStartX;
-                                const horizontalEnd = effectiveEndX - (effectiveEndX > effectiveStartX ? cornerRadius : -cornerRadius);
+                            if (Math.abs(succY - predY) > cornerRadius * 2) {
+                                const verticalEnd = succY - (isGoingDown ? cornerRadius : -cornerRadius);
 
-                                ctx.lineTo(effectiveStartX, verticalStart);
-                                ctx.arcTo(effectiveStartX, succY, horizontalEnd, succY, cornerRadius);
+                                ctx.lineTo(effectiveStartX, verticalEnd);
+                                ctx.arcTo(effectiveStartX, succY, effectiveStartX + cornerRadius, succY, cornerRadius);
                                 ctx.lineTo(effectiveEndX, succY);
                             } else {
 
@@ -7364,6 +7548,49 @@ export class Visual implements IVisual {
                 }
 
                 ctx.stroke();
+
+                // Draw arrowhead at the end point (matching SVG marker-end)
+                ctx.setLineDash([]); // Arrowheads are always solid
+                const arrowSize = isCritical ? 5 : 4;
+                const arrowAngle = Math.PI / 6; // 30 degrees
+                // Determine incoming direction to the end point
+                // The line always arrives at (effectiveEndX, succY) horizontally
+                const arrowDirX = (relType === 'FS' || relType === 'SS') ? -1 : 1;
+                ctx.beginPath();
+                ctx.moveTo(effectiveEndX, succY);
+                ctx.lineTo(effectiveEndX + arrowDirX * arrowSize, succY - arrowSize * Math.tan(arrowAngle));
+                ctx.lineTo(effectiveEndX + arrowDirX * arrowSize, succY + arrowSize * Math.tan(arrowAngle));
+                ctx.closePath();
+                ctx.fillStyle = isCritical ? criticalColor : connectorColor;
+                ctx.fill();
+
+                // Draw connection dots at start and end (matching SVG)
+                const dotRadius = isCritical ? 2.5 : 2;
+                const dotColor = isCritical ? criticalColor : connectorColor;
+                const dotOpacity = this.getConnectorOpacity(rel);
+
+                // Start dot
+                ctx.beginPath();
+                ctx.arc(effectiveStartX, predY, dotRadius, 0, Math.PI * 2);
+                ctx.fillStyle = dotColor;
+                ctx.globalAlpha = dotOpacity;
+                ctx.fill();
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 0.5;
+                ctx.globalAlpha = dotOpacity * 0.6;
+                ctx.stroke();
+
+                // End dot
+                ctx.beginPath();
+                ctx.arc(effectiveEndX, succY, dotRadius, 0, Math.PI * 2);
+                ctx.fillStyle = dotColor;
+                ctx.globalAlpha = dotOpacity;
+                ctx.fill();
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 0.5;
+                ctx.globalAlpha = dotOpacity * 0.6;
+                ctx.stroke();
+
                 ctx.setLineDash([]); // Reset line dash for next connector
                 ctx.globalAlpha = previousAlpha;
             });
@@ -7864,9 +8091,10 @@ export class Visual implements IVisual {
 
             const textElement = labelGroup.append("text")
                 .attr("class", `${className}-label`)
-                .attr("x", labelX)
-                .attr("y", labelY)
+                .attr("x", Math.round(labelX))
+                .attr("y", Math.round(labelY))
                 .attr("text-anchor", anchor)
+                .style("font-family", this.getFontFamily())
                 .style("fill", labelColor)
                 .style("font-size", `${labelFontSize}pt`)
                 .style("font-weight", "600")
@@ -8021,9 +8249,10 @@ export class Visual implements IVisual {
 
             const textElement = labelGroup.append("text")
                 .attr("class", "data-date-label")
-                .attr("x", labelX)
-                .attr("y", labelY)
+                .attr("x", Math.round(labelX))
+                .attr("y", Math.round(labelY))
                 .attr("text-anchor", anchor)
+                .style("font-family", this.getFontFamily())
                 .style("fill", labelColor)
                 .style("font-size", labelFontSize + "pt")
                 .style("font-weight", "600")
@@ -10099,9 +10328,10 @@ export class Visual implements IVisual {
                 let overrideColor = self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
 
                 if (enableOverride && dataDate && group.summaryStartDate && group.summaryFinishDate) {
-                    const ddTime = dataDate.getTime();
-                    const sTime = group.summaryStartDate.getTime();
-                    const fTime = group.summaryFinishDate.getTime();
+                    // Normalize to start-of-day for consistent day-level comparison
+                    const ddTime = self.normalizeToStartOfDay(dataDate);
+                    const sTime = self.normalizeToStartOfDay(group.summaryStartDate);
+                    const fTime = self.normalizeToStartOfDay(group.summaryFinishDate);
 
                     if (fTime <= ddTime) {
                         // Entirely before
@@ -11802,6 +12032,17 @@ export class Visual implements IVisual {
     /**
      * Convert hex color to RGB object
      */
+    /**
+     * Normalizes a Date to midnight (start of day) UTC for consistent day-level comparisons.
+     * This prevents time-component mismatches between task dates and the data date
+     * when comparing whether a task falls before/after the data date boundary.
+     */
+    private normalizeToStartOfDay(date: Date): number {
+        const d = new Date(date.getTime());
+        d.setUTCHours(0, 0, 0, 0);
+        return d.getTime();
+    }
+
     private hexToRgb(hex: string): { r: number; g: number; b: number } {
 
         hex = hex.replace(/^#/, '');

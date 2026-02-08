@@ -24,6 +24,8 @@ text {
     fill: #333; // Default text color
     dominant-baseline: middle; // Vertically center text
     text-anchor: start; // Align text to the start (left)
+    // Use geometricPrecision for sharp text across all DPI/zoom levels
+    text-rendering: geometricPrecision;
 }
 
 // Specific style for task duration text inside bars
