@@ -671,6 +671,12 @@ export declare class Visual implements IVisual {
     /**
      * Convert hex color to RGB object
      */
+    /**
+     * Normalizes a Date to midnight (start of day) UTC for consistent day-level comparisons.
+     * This prevents time-component mismatches between task dates and the data date
+     * when comparing whether a task falls before/after the data date boundary.
+     */
+    private normalizeToStartOfDay;
     private hexToRgb;
     private rgbToHex;
     private blendColors;
