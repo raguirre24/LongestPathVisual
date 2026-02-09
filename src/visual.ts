@@ -3448,40 +3448,7 @@ export class Visual implements IVisual {
             this.xScale.range([0, chartWidth]);
             this.debugLog(`Updated X scale range to [0, ${chartWidth}]`);
 
-            // Explicitly update task bar positions to sync with new xScale
-            // This ensures bars update immediately on resize without waiting for full redraw
-            const xScale = this.xScale;
-            const minTaskWidth = this.minTaskWidthPixels;
 
-            this.taskLayer?.selectAll<SVGRectElement, Task>(".task-bar")
-                .attr("x", (d: Task) => xScale(d.manualStartDate ?? d.startDate!))
-                .attr("width", (d: Task) => {
-                    const startPos = xScale(d.manualStartDate ?? d.startDate!);
-                    const finishPos = xScale(d.manualFinishDate ?? d.finishDate!);
-                    return Math.max(minTaskWidth, finishPos - startPos);
-                });
-
-            this.taskLayer?.selectAll<SVGPolygonElement, Task>(".milestone")
-                .attr("transform", (d: Task) => {
-                    const x = xScale((d.manualStartDate ?? d.startDate) || (d.manualFinishDate ?? d.finishDate!));
-                    return `translate(${x}, 0)`;
-                });
-
-            this.taskLayer?.selectAll<SVGRectElement, Task>(".baseline-bar")
-                .attr("x", (d: Task) => xScale(d.baselineStartDate!))
-                .attr("width", (d: Task) => {
-                    const startPos = xScale(d.baselineStartDate!);
-                    const finishPos = xScale(d.baselineFinishDate!);
-                    return Math.max(minTaskWidth, finishPos - startPos);
-                });
-
-            this.taskLayer?.selectAll<SVGRectElement, Task>(".previous-update-bar")
-                .attr("x", (d: Task) => xScale(d.previousUpdateStartDate!))
-                .attr("width", (d: Task) => {
-                    const startPos = xScale(d.previousUpdateStartDate!);
-                    const finishPos = xScale(d.previousUpdateFinishDate!);
-                    return Math.max(minTaskWidth, finishPos - startPos);
-                });
         }
 
         this.calculateVisibleTasks();
