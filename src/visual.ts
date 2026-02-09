@@ -7037,9 +7037,9 @@ export class Visual implements IVisual {
 
                 const taskFill = (task.internalId === this.selectedTaskId) ? selectionHighlightColor :
                     (this.legendDataExists && task.legendColor) ? task.legendColor :
-                    (!this.legendDataExists && task.isCritical) ? criticalColor :
-                    (!this.legendDataExists && task.isNearCritical) ? nearCriticalColor :
-                    taskColor;
+                        (!this.legendDataExists && task.isCritical) ? criticalColor :
+                            (!this.legendDataExists && task.isNearCritical) ? nearCriticalColor :
+                                taskColor;
                 ctx.fillStyle = this.getDurationTextColor(taskFill);
                 ctx.fillText(textContent, startX + barWidth / 2, Math.round(yPosition) + taskHeight / 2);
             }
@@ -12866,6 +12866,21 @@ export class Visual implements IVisual {
             .style('margin-bottom', '8px');
         togglePara.append('strong').text('How to use: ');
         togglePara.append('span').text('Click the mode toggle button in the header to switch between modes.');
+
+
+        // ========== Data Date & Progress ==========
+        const dataDateSection = createSection('📅', 'Data Date & Progress');
+        addParagraph(dataDateSection, 'The Data Date represents the status date of the project. Tasks interacting with this date are visualized to show progress.');
+
+        addSubtitle(dataDateSection, 'Data Date Line');
+        addParagraph(dataDateSection, 'A vertical dashed line indicates the current Data Date. This serves as the reference point for project progress.');
+
+        addSubtitle(dataDateSection, 'Progress Coloring (P6 Style)');
+        addParagraph(dataDateSection, 'When "Before Data Date Color Override" is enabled in settings:');
+
+        const dataDateList = createList(dataDateSection);
+        addListItem(dataDateList, 'Before Data Date', 'Portions of tasks before the data date are colored (e.g., blue) to indicate completed work or passed time.');
+        addListItem(dataDateList, 'After Data Date', 'Portions after the data date remain in their standard color (Critical/Normal) to show remaining work.');
 
         // ========== Display Toggles ==========
         const displaySection = createSection('👁️', 'Display Toggles');
