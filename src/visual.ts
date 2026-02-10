@@ -5537,7 +5537,21 @@ export class Visual implements IVisual {
         const taskBarCornerRadius = this.settings.taskBars.taskBarCornerRadius.value;
         const taskBarStrokeColor = this.settings.taskBars.taskBarStrokeColor.value.value;
         const taskBarStrokeWidth = this.settings.taskBars.taskBarStrokeWidth.value;
-        const milestoneShape = this.settings.taskBars.milestoneShape.value?.value ?? "diamond";
+        const milestoneShape = (this.settings.taskBars.milestoneShape.value?.value ?? "diamond") as string;
+
+        const getMilestonePath = (shape: string, size: number): string => {
+            switch (shape) {
+                case "circle":
+                    const r = size / 2;
+                    return `M ${r},0 A ${r},${r} 0 1,1 -${r},0 A ${r},${r} 0 1,1 ${r},0`;
+                case "square":
+                    const halfSize = size / 2;
+                    return `M -${halfSize},-${halfSize} L ${halfSize},-${halfSize} L ${halfSize},${halfSize} L -${halfSize},${halfSize} Z`;
+                case "diamond":
+                default:
+                    return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
+            }
+        };
 
         const getTaskBarWidth = (d: Task): number => {
             const start = d.manualStartDate ?? d.startDate;
@@ -5610,11 +5624,14 @@ export class Visual implements IVisual {
 
             allTaskGroups.selectAll(".previous-update-bar").remove();
 
-            allTaskGroups.filter((d: Task) =>
+            const previousUpdateData = allTaskGroups.filter((d: Task) =>
                 d.previousUpdateStartDate instanceof Date && !isNaN(d.previousUpdateStartDate.getTime()) &&
                 d.previousUpdateFinishDate instanceof Date && !isNaN(d.previousUpdateFinishDate.getTime()) &&
                 d.previousUpdateFinishDate >= d.previousUpdateStartDate
-            )
+            );
+
+            // Draw bars for non-milestone tasks
+            previousUpdateData.filter((d: Task) => d.type !== 'TT_Mile' && d.type !== 'TT_FinMile')
                 .append("rect")
                 .attr("class", "previous-update-bar")
                 .attr("x", (d: Task) => xScale(d.previousUpdateStartDate!))
@@ -5627,6 +5644,21 @@ export class Visual implements IVisual {
                 .attr("height", previousUpdateHeight)
                 .attr("rx", previousUpdateRadius)
                 .attr("ry", previousUpdateRadius)
+                .style("fill", previousUpdateColor)
+                .style("stroke", previousUpdateOutline)
+                .style("stroke-opacity", 0.25)
+                .style("stroke-width", 0.6);
+
+            // Draw icons for milestone tasks
+            previousUpdateData.filter((d: Task) => d.type === 'TT_Mile' || d.type === 'TT_FinMile')
+                .append("path")
+                .attr("class", "previous-update-bar")
+                .attr("d", () => getMilestonePath(milestoneShape, Math.max(previousUpdateHeight + 2, 6)))
+                .attr("transform", (d: Task) => {
+                    const x = xScale(d.previousUpdateStartDate!);
+                    const y = taskHeight + previousUpdateOffset + previousUpdateHeight / 2;
+                    return `translate(${x}, ${y})`;
+                })
                 .style("fill", previousUpdateColor)
                 .style("stroke", previousUpdateOutline)
                 .style("stroke-opacity", 0.25)
@@ -5654,11 +5686,14 @@ export class Visual implements IVisual {
 
             allTaskGroups.selectAll(".baseline-bar").remove();
 
-            allTaskGroups.filter((d: Task) =>
+            const baselineData = allTaskGroups.filter((d: Task) =>
                 d.baselineStartDate instanceof Date && !isNaN(d.baselineStartDate.getTime()) &&
                 d.baselineFinishDate instanceof Date && !isNaN(d.baselineFinishDate.getTime()) &&
                 d.baselineFinishDate >= d.baselineStartDate
-            )
+            );
+
+            // Draw bars for non-milestone tasks
+            baselineData.filter((d: Task) => d.type !== 'TT_Mile' && d.type !== 'TT_FinMile')
                 .append("rect")
                 .attr("class", "baseline-bar")
                 .attr("x", (d: Task) => xScale(d.baselineStartDate!))
@@ -5671,6 +5706,21 @@ export class Visual implements IVisual {
                 .attr("height", baselineHeight)
                 .attr("rx", baselineRadius)
                 .attr("ry", baselineRadius)
+                .style("fill", baselineColor)
+                .style("stroke", baselineOutline)
+                .style("stroke-opacity", 0.25)
+                .style("stroke-width", 0.6);
+
+            // Draw icons for milestone tasks
+            baselineData.filter((d: Task) => d.type === 'TT_Mile' || d.type === 'TT_FinMile')
+                .append("path")
+                .attr("class", "baseline-bar")
+                .attr("d", () => getMilestonePath(milestoneShape, Math.max(baselineHeight + 2, 6)))
+                .attr("transform", (d: Task) => {
+                    const x = xScale(d.baselineStartDate!);
+                    const y = baselineY + baselineHeight / 2;
+                    return `translate(${x}, ${y})`;
+                })
                 .style("fill", baselineColor)
                 .style("stroke", baselineOutline)
                 .style("stroke-opacity", 0.25)
