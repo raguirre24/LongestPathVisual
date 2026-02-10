@@ -4528,7 +4528,9 @@ export class Visual implements IVisual {
                     this.settings.criticalPath.criticalPathColor.value.value,
                     this.settings.textAndLabels.labelColor.value.value,
                     this.settings.textAndLabels.showDuration.value,
+
                     this.settings.taskBars.taskHeight.value,
+                    this.settings.taskBars.taskBarHeight.value,
                     this.settings.textAndLabels.dateBackgroundColor.value.value,
                     1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
                 );
@@ -4653,6 +4655,7 @@ export class Visual implements IVisual {
                 this.settings.textAndLabels.labelColor.value.value,
                 this.settings.textAndLabels.showDuration.value,
                 this.settings.taskBars.taskHeight.value,
+                this.settings.taskBars.taskBarHeight.value,
                 this.settings.textAndLabels.dateBackgroundColor.value.value,
                 1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
             );
@@ -4924,6 +4927,7 @@ export class Visual implements IVisual {
         const milestoneColor = this.resolveColor(this.settings.taskBars.milestoneColor.value.value, "foreground");
         const labelColor = this.resolveColor(this.settings.textAndLabels.labelColor.value.value, "foreground");
         const taskHeight = this.settings.taskBars.taskHeight.value;
+        const taskBarHeight = this.settings.taskBars.taskBarHeight.value;
         const connectorColor = this.resolveColor(this.settings.connectorLines.connectorColor.value.value, "foreground");
         const connectorWidth = this.settings.connectorLines.connectorWidth.value;
         const criticalConnectorWidth = this.settings.connectorLines.criticalConnectorWidth.value;
@@ -5008,7 +5012,7 @@ export class Visual implements IVisual {
                 this.drawTasksCanvas(
                     renderableTasks, xScale, yScale,
                     taskColor, milestoneColor, criticalColor,
-                    labelColor, showDuration, taskHeight,
+                    labelColor, showDuration, taskHeight, taskBarHeight,
                     dateBgColor, dateBgOpacity
                 );
 
@@ -5062,7 +5066,7 @@ export class Visual implements IVisual {
             this.drawTasks(
                 renderableTasks, xScale, yScale,
                 taskColor, milestoneColor, criticalColor,
-                labelColor, showDuration, taskHeight,
+                labelColor, showDuration, taskHeight, taskBarHeight,
                 dateBgColor, dateBgOpacity
             );
         }
@@ -5492,6 +5496,7 @@ export class Visual implements IVisual {
         labelColor: string,
         showDuration: boolean,
         taskHeight: number,
+        taskBarHeight: number,
         dateBackgroundColor: string,
         dateBackgroundOpacity: number
     ): void {
@@ -5538,6 +5543,10 @@ export class Visual implements IVisual {
         const taskBarStrokeColor = this.settings.taskBars.taskBarStrokeColor.value.value;
         const taskBarStrokeWidth = this.settings.taskBars.taskBarStrokeWidth.value;
         const milestoneShape = (this.settings.taskBars.milestoneShape.value?.value ?? "diamond") as string;
+
+        // Calculate vertical centering
+        const barHeight = Math.min(taskBarHeight, taskHeight);
+        const barYOffset = (taskHeight - barHeight) / 2;
 
         const getMilestonePath = (shape: string, size: number): string => {
             switch (shape) {
@@ -5786,9 +5795,9 @@ export class Visual implements IVisual {
                             .attr("tabindex", 0)
                             .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
                             .attr("x", xScale(part.s))
-                            .attr("y", 0)
+                            .attr("y", barYOffset)
                             .attr("width", partWidth)
-                            .attr("height", taskHeight)
+                            .attr("height", barHeight)
                             .attr("rx", runRoundedLogic(partWidth))
                             .attr("ry", runRoundedLogic(partWidth))
                             .attr("data-override-color", part.color || "")
@@ -5862,12 +5871,12 @@ export class Visual implements IVisual {
                         .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
                         .attr("transform", (d: Task) => {
                             const x = xScale(mDate);
-                            const y = taskHeight / 2;
                             if (isNaN(x)) console.warn(`Invalid X position for milestone ${d.internalId}`);
-                            return `translate(${x}, ${y})`;
+                            // Center text vertically
+                            return `translate(${x}, ${taskBarHeight / 2})`;
                         })
                         .attr("d", () => {
-                            const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                            const size = Math.max(4, Math.min(milestoneSizeSetting, taskBarHeight * 0.9));
                             // Support different milestone shapes from settings
                             switch (milestoneShape) {
                                 case "circle":
@@ -6634,6 +6643,7 @@ export class Visual implements IVisual {
         labelColor: string,
         showDuration: boolean,
         taskHeight: number,
+        taskBarHeight: number,
         dateBackgroundColor: string,
         dateBackgroundOpacity: number
     ): void {
@@ -6650,6 +6660,10 @@ export class Visual implements IVisual {
         const minBarWidthForGlow = 10;
         const minBarWidthForStrongStroke = 8;
         const minInlineDurationWidth = 28;
+
+        // Calculate vertical centering for bars
+        const barHeight = Math.min(taskBarHeight, taskHeight);
+        const barYOffset = (taskHeight - barHeight) / 2;
 
         // Task bar styling from settings (matching SVG drawTasks)
         const taskBarCornerRadius = this.settings.taskBars.taskBarCornerRadius.value;
@@ -6792,8 +6806,10 @@ export class Visual implements IVisual {
             if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
                 const mDate = (task.manualStartDate ?? task.startDate) || (task.manualFinishDate ?? task.finishDate);
                 if (mDate) {
+
                     const x = Math.round(xScale(mDate));
                     const y = Math.round(yPos + taskHeight / 2);
+                    // Ensure milestone size doesn't exceed row height or bar height significantly if valid
                     const size = Math.round(Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9)));
 
                     let overrideColor = null;
@@ -6838,87 +6854,64 @@ export class Visual implements IVisual {
 
                     if (finishTime <= ddTime) {
                         // Case 1: Entire bar is before data date
-                        fillColor = overrideColor;
-                        const overrideStroke = this.getContrastColor(overrideColor);
-                        const overriddenStyleKey = `${fillColor}|${overrideStroke}|0.5|${shadowBlur}|${shadowColor}|${shadowOffset}`;
-
                         const x = Math.round(xScale(start));
-                        const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
-                        const h = Math.round(taskHeight);
-                        const r = Math.min(taskBarCornerRadius, Math.round(w / 2));
+                        const w = Math.round(Math.max(1, xScale(finish) - x));
+                        const h = Math.round(barHeight);
+                        const y = Math.round(yPos + barYOffset);
+                        const r = Math.min(taskBarCornerRadius, w / 2, h / 2);
 
-                        if (!taskBatches.has(overriddenStyleKey)) taskBatches.set(overriddenStyleKey, []);
-                        taskBatches.get(overriddenStyleKey)!.push({ x, y: yPos, w, h, r });
+                        // Use override color
+                        const overrideStyleKey = `${overrideColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
 
+                        if (!taskBatches.has(overrideStyleKey)) taskBatches.set(overrideStyleKey, []);
+                        taskBatches.get(overrideStyleKey)!.push({ x, y, w, h, r });
+                        continue;
                     } else if (startTime >= ddTime) {
-                        // Case 2: Entire bar is after data date -> Normal rendering (already handled by default variables)
+                        // Case 2: Entire bar is after data date (normal color)
                         const x = Math.round(xScale(start));
-                        const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
-                        const h = Math.round(taskHeight);
-                        const r = Math.min(taskBarCornerRadius, Math.round(w / 2));
+                        const w = Math.round(Math.max(1, xScale(finish) - x));
+                        const h = Math.round(barHeight);
+                        const y = Math.round(yPos + barYOffset);
+                        const r = Math.min(taskBarCornerRadius, w / 2, h / 2);
 
                         if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
-                        taskBatches.get(styleKey)!.push({ x, y: yPos, w, h, r });
+                        taskBatches.get(styleKey)!.push({ x, y, w, h, r });
+                        continue;
                     } else {
-                        // Case 3: Bar spans the data date -> Split it
-                        // Left part (Before Data Date)
-                        const leftFinish = dataDate;
-                        const leftX = Math.round(xScale(start));
-                        const leftW = Math.round(Math.max(1, xScale(leftFinish) - xScale(start)));
-                        const h = Math.round(taskHeight);
-                        // Left rect radius: rounded on left, square on right? Or just rounded.
-                        // To look smooth, maybe rounded left, square right.
-                        // But simple rounded rect is easier. Let's try separate rects first.
-                        // If we want it to look like one split bar, internal corners should be sharp.
-                        // Let's assume standard rounded corners for the whole bar, so split point implies...
-                        // Actually, simple rects with established radius is fine.
+                        // Case 3: Split bar
+                        // Part 1: Start to Data Date (Override Color)
+                        const x1 = Math.round(xScale(start));
+                        const w1 = Math.round(Math.max(1, xScale(dataDate) - x1));
+                        const h = Math.round(barHeight);
+                        const y = Math.round(yPos + barYOffset);
+                        const r1 = Math.min(taskBarCornerRadius, w1 / 2, h / 2);
 
-                        const leftR = Math.min(5, Math.round(h * 0.15), Math.round(leftW / 2));
+                        const overrideStyleKey = `${overrideColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
+                        if (!taskBatches.has(overrideStyleKey)) taskBatches.set(overrideStyleKey, []);
+                        taskBatches.get(overrideStyleKey)!.push({ x: x1, y, w: w1, h, r: r1 });
 
-                        const leftFill = overrideColor;
-                        const leftStroke = this.getContrastColor(leftFill);
-                        const leftStrokeWidth = 0.5;
-                        const leftStyleKey = `${leftFill}|${leftStroke}|${leftStrokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
+                        // Part 2: Data Date to Finish (Normal Color)
+                        const x2 = Math.round(xScale(dataDate));
+                        const w2 = Math.round(Math.max(1, xScale(finish) - x2));
+                        const r2 = Math.min(taskBarCornerRadius, w2 / 2, h / 2);
 
-                        if (!taskBatches.has(leftStyleKey)) taskBatches.set(leftStyleKey, []);
-
-                        // Fix: Render left part
-                        // Note: We might want explicit control over corners to avoid "double rounded" look in middle.
-                        // `pathRoundedRect` draws all corners rounded.
-                        // For now, simply drawing two rounded rects.
-                        taskBatches.get(leftStyleKey)!.push({ x: leftX, y: yPos, w: leftW, h, r: leftR });
-
-
-                        // Right part (After Data Date)
-                        const rightStart = dataDate;
-                        const rightX = Math.round(xScale(rightStart));
-                        const rightW = Math.round(Math.max(1, xScale(finish) - xScale(rightStart)));
-                        // Avoid 1px overlap or gap: Math.round can cause 1px issues.
-                        // xScale(dataDate) is the split point.
-                        // leftW = round(scale(dd) - scale(start))
-                        // rightX = round(scale(dd))
-                        // rightW = round(scale(finish) - scale(dd))
-                        // This seems consistent.
-
-                        const rightR = Math.min(5, Math.round(h * 0.15), Math.round(rightW / 2));
-
-                        // Right uses original styleKey
                         if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
-                        taskBatches.get(styleKey)!.push({ x: rightX, y: yPos, w: rightW, h, r: rightR });
+                        taskBatches.get(styleKey)!.push({ x: x2, y, w: w2, h, r: r2 });
+                        continue;
                     }
-
                 } else {
-                    // Normal rendering (No override enabled or no data date)
+                    // Normal logic (No override or no data date)
                     const x = Math.round(xScale(start));
-                    const w = Math.round(Math.max(1, xScale(finish) - xScale(start)));
-                    const h = Math.round(taskHeight);
-                    const r = Math.min(taskBarCornerRadius, Math.round(w / 2));
+                    const w = Math.round(Math.max(1, xScale(finish) - x));
+                    const h = Math.round(barHeight);
+                    const y = Math.round(yPos + barYOffset);
+                    const r = Math.min(taskBarCornerRadius, w / 2, h / 2);
 
                     if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
-                    taskBatches.get(styleKey)!.push({ x, y: yPos, w, h, r });
+                    taskBatches.get(styleKey)!.push({ x, y, w, h, r });
                 }
             }
-        }
+        } // Close for loop
 
         if (prevUpdateBatch.length > 0) {
             const pColor = this.resolveColor(this.settings.comparisonBars.previousUpdateColor.value.value, "foreground");

@@ -217,7 +217,13 @@
                     }
                 },
                 "taskHeight": {
-                    "displayName": "Task Height (px)",
+                    "displayName": "Row Height (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "taskBarHeight": {
+                    "displayName": "Task Bar Height (px)",
                     "type": {
                         "numeric": true
                     }

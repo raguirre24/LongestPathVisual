@@ -114,10 +114,22 @@ class TaskBarsCard extends Card {
 
     taskHeight = new NumUpDown({
         name: "taskHeight",
-        displayName: "Task Height (px)",
+        displayName: "Row Height (px)",
+        description: "Height of the row (and maximum height available for the task bar)",
         value: 18,
         options: {
             minValue: { type: powerbi.visuals.ValidatorType.Min, value: 5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 60 }
+        }
+    });
+
+    taskBarHeight = new NumUpDown({
+        name: "taskBarHeight",
+        displayName: "Task Bar Height (px)",
+        description: "Height/Thickness of the task bar itself. Must be less than or equal to Row Height.",
+        value: 12,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 2 },
             maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 40 }
         }
     });
@@ -175,6 +187,7 @@ class TaskBarsCard extends Card {
         this.taskColor,
         this.milestoneColor,
         this.taskHeight,
+        this.taskBarHeight,
         this.taskBarCornerRadius,
         this.taskBarStrokeColor,
         this.taskBarStrokeWidth,

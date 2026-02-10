@@ -19,6 +19,7 @@ declare class TaskBarsCard extends Card {
     taskColor: formattingSettings.ColorPicker;
     milestoneColor: formattingSettings.ColorPicker;
     taskHeight: formattingSettings.NumUpDown;
+    taskBarHeight: formattingSettings.NumUpDown;
     taskBarCornerRadius: formattingSettings.NumUpDown;
     taskBarStrokeColor: formattingSettings.ColorPicker;
     taskBarStrokeWidth: formattingSettings.NumUpDown;
