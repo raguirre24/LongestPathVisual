@@ -739,9 +739,7 @@ export class Visual implements IVisual {
         this.canvasElement.style.display = 'none';
         this.canvasElement.style.visibility = 'hidden';
 
-        this.canvasElement.style.imageRendering = '-webkit-optimize-contrast';
-        this.canvasElement.style.imageRendering = 'crisp-edges';
-        (this.canvasElement.style as any).msInterpolationMode = 'nearest-neighbor';
+        this.canvasElement.style.imageRendering = 'auto';
         this.canvasElement.style.transform = 'translate3d(0,0,0)';
         this.canvasElement.style.backfaceVisibility = 'hidden';
         this.canvasElement.style.webkitBackfaceVisibility = 'hidden';
@@ -966,26 +964,12 @@ export class Visual implements IVisual {
                 }
                 .criticalPathVisual text {
                     text-rendering: geometricPrecision !important;
-                    -webkit-font-smoothing: antialiased;
+                    -webkit-font-smoothing: antialiased !important;
+                    -moz-osx-font-smoothing: grayscale !important;
                 }
                 .criticalPathVisual .canvas-layer {
-                    image-rendering: -webkit-optimize-contrast !important;
-                    image-rendering: crisp-edges !important;
-                    -ms-interpolation-mode: nearest-neighbor !important;
-                    transform: translateZ(0) !important;
-                    backface-visibility: hidden !important;
-                    -webkit-backface-visibility: hidden !important;
-                    perspective: 1000px !important;
+                    image-rendering: auto !important;
                 }
-                .visual-wrapper {
-                    transform: translateZ(0) !important;
-                    will-change: transform !important;
-                }
-                .sticky-header-container {
-                    transform: translateZ(0) !important;
-                    -webkit-transform: translateZ(0) !important;
-                }
-                /* Only apply crispEdges to grid lines and separators, not all SVG shapes */
                 svg .grid-line, svg .label-grid-line, svg .label-column-separator {
                     shape-rendering: crispEdges !important;
                     vector-effect: non-scaling-stroke !important;
@@ -993,13 +977,9 @@ export class Visual implements IVisual {
             `;
                 document.head.appendChild(style);
             }
-
-            if (this.target) {
-                this.target.style.zoom = '1';
-                (this.target.style as any).imageRendering = '-webkit-optimize-contrast';
-            }
         }
     }
+
 
     private setupSVGRenderingHints(): void {
 
@@ -7041,7 +7021,7 @@ export class Visual implements IVisual {
                             (!this.legendDataExists && task.isNearCritical) ? nearCriticalColor :
                                 taskColor;
                 ctx.fillStyle = this.getDurationTextColor(taskFill);
-                ctx.fillText(textContent, startX + barWidth / 2, Math.round(yPosition) + taskHeight / 2);
+                ctx.fillText(textContent, Math.round(startX + barWidth / 2), Math.round(Math.round(yPosition) + taskHeight / 2));
             }
             ctx.restore();
         }
@@ -7095,7 +7075,7 @@ export class Visual implements IVisual {
                 const textMetrics = ctx.measureText(labelText);
                 const textWidth = textMetrics.width;
                 const textHeight = dateTextFontSize * 1.4; // approximate
-                const yCenter = Math.round(yPosition) + taskHeight / 2;
+                const yCenter = Math.round(Math.round(yPosition) + taskHeight / 2);
 
                 // Draw background box
                 if (dateBackgroundOpacity > 0) {
@@ -7114,7 +7094,7 @@ export class Visual implements IVisual {
 
                 // Draw text
                 ctx.fillStyle = labelColor;
-                ctx.fillText(labelText, xPos, yCenter);
+                ctx.fillText(labelText, Math.round(xPos), yCenter);
             }
             ctx.restore();
         }
@@ -7271,9 +7251,7 @@ export class Visual implements IVisual {
 
         this.canvasContext.imageSmoothingEnabled = false;
 
-        (this.canvasContext as any).textRendering = 'optimizeLegibility';
-        (this.canvasContext as any).webkitFontSmoothing = 'antialiased';
-        (this.canvasContext as any).mozOsxFontSmoothing = 'grayscale';
+
 
         this.debugLog(`Canvas setup: Ratio=${ratio}, Display=${displayWidth}x${displayHeight}, Canvas=${canvasWidth}x${canvasHeight}`);
         return true;
