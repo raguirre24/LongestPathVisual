@@ -2126,7 +2126,7 @@ export class Visual implements IVisual {
     private updateZoomSliderTrackMargins(): void {
         if (!this.zoomSliderTrack || !this.settings) return;
 
-        const leftMargin = this.settings.layoutSettings?.leftMargin?.value ?? 280;
+        const leftMargin = this.getEffectiveLeftMargin();
         const rightMargin = this.margin.right ?? 100;
 
         this.zoomSliderTrack
@@ -3289,8 +3289,9 @@ export class Visual implements IVisual {
             this.mainSvg.attr("width", viewportWidth).attr("height", totalSvgHeight);
             this.headerSvg.attr("width", viewportWidth);
 
-            this.mainGroup.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
-            this.headerGridLayer.attr("transform", `translate(${this.margin.left}, 0)`);
+            const effectiveMargin = this.getEffectiveLeftMargin();
+            this.mainGroup.attr("transform", `translate(${effectiveMargin}, ${this.margin.top})`);
+            this.headerGridLayer.attr("transform", `translate(${effectiveMargin}, 0)`);
 
             this.createMarginResizer();
 
@@ -3310,7 +3311,7 @@ export class Visual implements IVisual {
 
             const visibleTasks = this.getVisibleTasks();
 
-            this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight);
+            this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight, this.getEffectiveLeftMargin());
 
             this.renderLegend(viewportWidth, viewportHeight);
 
@@ -3411,7 +3412,7 @@ export class Visual implements IVisual {
 
         this.updateHeaderElements(viewportWidth);
 
-        const chartWidth = Math.max(10, viewportWidth - this.settings.layoutSettings.leftMargin.value - this.margin.right);
+        const chartWidth = Math.max(10, viewportWidth - this.getEffectiveLeftMargin() - this.margin.right);
         const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
         const legendOffset = legendVisible ? this.legendFooterHeight : 0;
         const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
@@ -3443,7 +3444,7 @@ export class Visual implements IVisual {
         const renderableTasks = visibleTasks.filter(t => t.yOrder !== undefined);
 
         if (showHorzGridLines && this.yScale) {
-            const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+            const currentLeftMargin = this.getEffectiveLeftMargin();
             this.drawHorizontalGridLines(renderableTasks, this.yScale, chartWidth, currentLeftMargin,
                 this.yScale.range()[1]);
         }
@@ -3459,7 +3460,8 @@ export class Visual implements IVisual {
                 this.xScale,
                 this.yScale,
                 chartWidth,
-                this.yScale.range()[1]
+                this.yScale.range()[1],
+                this.getEffectiveLeftMargin()
             );
 
             this.drawDataDateLine(
@@ -3614,7 +3616,8 @@ export class Visual implements IVisual {
                     this.xScale,
                     this.yScale,
                     chartWidth,
-                    calculatedChartHeight
+                    calculatedChartHeight,
+                    this.getEffectiveLeftMargin()
                 );
 
                 this.drawDataDateLine(
@@ -3836,7 +3839,8 @@ export class Visual implements IVisual {
         const wrapperRect = wrapperNode.getBoundingClientRect();
         const containerRect = containerNode.getBoundingClientRect();
         const resizerWidth = parseFloat(this.marginResizer.style("width")) || 8;
-        const left = containerNode.offsetLeft + this.margin.left - (resizerWidth / 2);
+        const effectiveMargin = this.getEffectiveLeftMargin();
+        const left = containerNode.offsetLeft + effectiveMargin - (resizerWidth / 2);
         const top = containerRect.top - wrapperRect.top;
         const height = containerRect.height;
 
@@ -3844,7 +3848,7 @@ export class Visual implements IVisual {
             .style("left", `${Math.max(0, Math.round(left))}px`)
             .style("top", `${Math.max(0, Math.round(top))}px`)
             .style("height", `${Math.max(0, Math.round(height))}px`)
-            .attr("aria-valuenow", Math.round(this.margin.left).toString());
+            .attr("aria-valuenow", Math.round(effectiveMargin).toString());
     }
 
     /**
@@ -3855,20 +3859,22 @@ export class Visual implements IVisual {
         if (!this.xScale || !this.yScale || !this.allTasksToShow) return;
 
         this.margin.left = newLeftMargin;
+        const effectiveMargin = this.getEffectiveLeftMargin();
+
+        // Update transforms
+        this.mainGroup.attr("transform", `translate(${effectiveMargin}, ${this.margin.top})`);
+        this.headerGridLayer.attr("transform", `translate(${effectiveMargin}, 0)`);
         if (this.settings?.layoutSettings?.leftMargin) {
             this.settings.layoutSettings.leftMargin.value = newLeftMargin;
         }
 
         const viewportWidth = this.lastViewport?.width || 0;
-        const chartWidth = Math.max(10, viewportWidth - newLeftMargin - this.margin.right);
+        const chartWidth = Math.max(10, viewportWidth - effectiveMargin - this.margin.right);
 
         // Calculate chartHeight from yScale - this is needed for finish lines to render
         const chartHeight = this.yScale.range()[1] || 0;
 
         this.xScale.range([0, chartWidth]);
-
-        this.mainGroup?.attr("transform", `translate(${this.margin.left}, ${this.margin.top})`);
-        this.headerGridLayer?.attr("transform", `translate(${this.margin.left}, 0)`);
 
         const visibleTasks = this.getVisibleTasks();
 
@@ -3884,7 +3890,8 @@ export class Visual implements IVisual {
             this.xScale,
             this.yScale,
             chartWidth,
-            chartHeight
+            chartHeight,
+            this.getEffectiveLeftMargin()
         );
 
         this.updateMarginResizerPosition();
@@ -3949,7 +3956,7 @@ export class Visual implements IVisual {
     } {
         const taskHeight = this.settings.taskBars.taskHeight.value;
         const taskPadding = this.settings.layoutSettings.taskPadding.value;
-        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        const currentLeftMargin = this.getEffectiveLeftMargin();
         const svgWidth = effectiveViewport.width;
 
         let rowCount = tasksToShow.length;
@@ -4288,6 +4295,38 @@ export class Visual implements IVisual {
         }
     }
 
+    /**
+     * Calculates the total width of *conditional* extra columns (Baseline, Previous Update).
+     * This width is added to the user's base leftMargin to preserve Task Name width.
+     */
+    private getExtraColumnWidth(): number {
+        if (!this.settings) return 0;
+
+        let extraWidth = 0;
+        const cols = this.settings.columns;
+        const comp = this.settings.comparisonBars;
+        const showExtra = this.showExtraColumnsInternal; // Based on enableColumnDisplay
+
+        if (showExtra) {
+            if (comp.showBaseline.value) {
+                extraWidth += cols.baselineStartDateWidth.value + cols.baselineFinishDateWidth.value;
+            }
+            if (comp.showPreviousUpdate.value) {
+                extraWidth += cols.previousUpdateStartDateWidth.value + cols.previousUpdateFinishDateWidth.value;
+            }
+        }
+        return extraWidth;
+    }
+
+    /**
+     * Returns the effective left margin to use for rendering.
+     * effectiveLeftMargin = userBaseMargin + extraColumnWidths
+     */
+    private getEffectiveLeftMargin(): number {
+        const baseMargin = this.settings?.layoutSettings?.leftMargin?.value ?? 0;
+        return baseMargin + this.getExtraColumnWidth();
+    }
+
     private updateHeaderElements(viewportWidth: number): void {
         const dataView = this.lastUpdateOptions?.dataViews?.[0];
         const hasBaselineStart = dataView ? this.dataProcessor.hasDataRole(dataView, 'baselineStartDate') : false;
@@ -4478,7 +4517,7 @@ export class Visual implements IVisual {
         }
 
         const showHorzGridLines = this.settings.gridLines.showHorizontalLines.value;
-        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        const currentLeftMargin = this.getEffectiveLeftMargin();
         const chartWidth = xScale.range()[1];
         const chartHeight = yScale.range()[1];
         const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
@@ -4493,7 +4532,6 @@ export class Visual implements IVisual {
         }
 
         if (this.useCanvasRendering) {
-
             if (this.canvasElement) {
                 const leftMargin = Math.round(this.margin.left);
                 const topMargin = Math.round(this.margin.top);
@@ -4510,105 +4548,7 @@ export class Visual implements IVisual {
                 this.canvasElement.style.imageRendering = 'crisp-edges';
                 this.canvasElement.style.transform = 'translateZ(0)';
             }
-
-            if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
-
-                if (showHorzGridLines) {
-                    this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
-
-                    this.drawLabelMarginGridLinesCanvasFallback(renderableTasks, yScale, currentLeftMargin);
-                }
-
-                this.drawTasksCanvas(
-                    renderableTasks,
-                    xScale,
-                    yScale,
-                    this.settings.taskBars.taskColor.value.value,
-                    this.settings.taskBars.milestoneColor.value.value,
-                    this.settings.criticalPath.criticalPathColor.value.value,
-                    this.settings.textAndLabels.labelColor.value.value,
-                    this.settings.textAndLabels.showDuration.value,
-
-                    this.settings.taskBars.taskHeight.value,
-                    this.settings.taskBars.taskBarHeight.value,
-                    this.settings.textAndLabels.dateBackgroundColor.value.value,
-                    1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
-                );
-
-                this.createAccessibleCanvasFallback(renderableTasks, yScale);
-
-                if (this.showConnectorLinesInternal) {
-
-                    this.drawArrowsCanvas(
-                        renderableTasks,
-                        xScale,
-                        yScale,
-                        this.settings.criticalPath.criticalPathColor.value.value,
-                        this.settings.connectorLines.connectorColor.value.value,
-                        this.settings.connectorLines.connectorWidth.value,
-                        this.settings.connectorLines.criticalConnectorWidth.value,
-                        this.settings.taskBars.taskHeight.value,
-                        this.settings.taskBars.milestoneSize.value,
-                    );
-                }
-
-                this.drawTaskLabelsLayer(
-                    renderableTasks,
-                    yScale,
-                    this.settings.taskBars.taskHeight.value,
-                    currentLeftMargin,
-                    labelAvailableWidth,
-                    taskNameFontSize,
-                    this.settings.textAndLabels.labelColor.value.value,
-                    selectionHighlightColor,
-                    selectionLabelColor,
-                    selectionLabelWeight,
-                    lineHeight
-                );
-
-                this.drawDataDateLine(
-                    chartWidth,
-                    xScale,
-                    chartHeight,
-                    this.gridLayer,
-                    this.headerGridLayer
-                );
-
-                if (modeChanged && this.canvasElement) {
-
-                    requestAnimationFrame(() => {
-                        if (this.canvasElement) {
-                            this.canvasElement.style.opacity = '1';
-                        }
-
-                        this.taskLayer
-                            .transition()
-                            .duration(this.MODE_TRANSITION_DURATION)
-                            .style("opacity", 0)
-                            .on("end", () => {
-                                this.taskLayer.style("display", "none");
-                                this.taskLayer.style("opacity", null);
-                                this.taskLayer?.selectAll("*").remove();
-                            });
-
-                        this.arrowLayer
-                            .transition()
-                            .duration(this.MODE_TRANSITION_DURATION)
-                            .style("opacity", 0)
-                            .on("end", () => {
-                                this.arrowLayer.style("display", "none");
-                                this.arrowLayer.style("opacity", null);
-                                this.arrowLayer?.selectAll("*").remove();
-                            });
-                    });
-                } else {
-
-                    this.taskLayer.style("display", "none");
-                    this.arrowLayer.style("display", "none");
-                }
-            }
         } else {
-
             if (modeChanged) {
                 this.taskLayer
                     .style("opacity", 0)
@@ -4624,124 +4564,46 @@ export class Visual implements IVisual {
                 this.arrowLayer.style("display", "block");
                 this.arrowLayer.style("visibility", "visible");
             }
-
             this.setupSVGRenderingHints();
-
-            if (showHorzGridLines) {
-                this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
-            }
-
-            if (this.showConnectorLinesInternal) {
-                this.drawArrows(
-                    renderableTasks,
-                    xScale,
-                    yScale,
-                    this.settings.criticalPath.criticalPathColor.value.value,
-                    this.settings.connectorLines.connectorColor.value.value,
-                    this.settings.connectorLines.connectorWidth.value,
-                    this.settings.connectorLines.criticalConnectorWidth.value,
-                    this.settings.taskBars.taskHeight.value,
-                    this.settings.taskBars.milestoneSize.value,
-                );
-            }
-
-            this.drawTasks(
-                renderableTasks,
-                xScale,
-                yScale,
-                this.settings.taskBars.taskColor.value.value,
-                this.settings.taskBars.milestoneColor.value.value,
-                this.settings.criticalPath.criticalPathColor.value.value,
-                this.settings.textAndLabels.labelColor.value.value,
-                this.settings.textAndLabels.showDuration.value,
-                this.settings.taskBars.taskHeight.value,
-                this.settings.taskBars.taskBarHeight.value,
-                this.settings.textAndLabels.dateBackgroundColor.value.value,
-                1 - (this.settings.textAndLabels.dateBackgroundTransparency.value / 100)
-            );
-
-            this.drawWbsGroupHeaders(
-                xScale,
-                yScale,
-                chartWidth,
-                this.settings.taskBars.taskHeight.value,
-                this.viewportStartIndex,
-                this.viewportEndIndex
-            );
-
-            if (modeChanged && this.canvasElement) {
-
-                requestAnimationFrame(() => {
-
-                    this.taskLayer
-                        .transition()
-                        .duration(this.MODE_TRANSITION_DURATION)
-                        .style("opacity", 1);
-
-                    this.arrowLayer
-                        .transition()
-                        .duration(this.MODE_TRANSITION_DURATION)
-                        .style("opacity", 1);
-
-                    if (this.canvasElement) {
-                        this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
-                        this.canvasElement.style.opacity = '0';
-
-                        setTimeout(() => {
-                            if (this.canvasElement) {
-                                this.canvasElement.style.display = 'none';
-                                this.canvasElement.style.transition = '';
-                            }
-
-                            if (this.canvasContext && this.canvasElement) {
-                                this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
-                            }
-                        }, this.MODE_TRANSITION_DURATION);
-                    }
-                });
-            } else if (this.canvasElement) {
-
-                this.canvasElement.style.display = 'none';
-            }
         }
 
-        if (this.useCanvasRendering) {
-            this.drawWbsGroupHeaders(
-                xScale,
-                yScale,
-                chartWidth,
-                this.settings.taskBars.taskHeight.value,
-                this.viewportStartIndex,
-                this.viewportEndIndex
-            );
-        }
-
-        // Use getTasksForFinishLines to properly collect underlying tasks from visible WBS groups
-        const tasksForProjectEnd = this.getTasksForFinishLines();
-        this.drawBaselineAndPreviousEndLines(
-            xScale,
-            tasksForProjectEnd,
-            yScale.range()[1],
-            this.gridLayer,
-            this.headerGridLayer
-        );
-        this.drawProjectEndLine(
-            xScale.range()[1],
-            xScale,
+        // Delegate to main drawing method to ensure consistency and use correct margins/columns
+        this.drawVisualElements(
             renderableTasks,
-            tasksForProjectEnd,
-            yScale.range()[1],
-            this.gridLayer,
-            this.headerGridLayer
+            xScale,
+            yScale,
+            chartWidth,
+            chartHeight,
+            currentLeftMargin
         );
 
-        this.drawDataDateLine(
-            xScale.range()[1],
-            xScale,
-            yScale.range()[1],
-            this.gridLayer,
-            this.headerGridLayer
-        );
+        if (this.useCanvasRendering && modeChanged && this.canvasElement) {
+            requestAnimationFrame(() => {
+                if (this.canvasElement) {
+                    this.canvasElement.style.opacity = '1';
+                }
+
+                this.taskLayer
+                    .transition()
+                    .duration(this.MODE_TRANSITION_DURATION)
+                    .style("opacity", 0)
+                    .on("end", () => {
+                        this.taskLayer.style("display", "none");
+                        this.taskLayer.style("opacity", null);
+                        this.taskLayer?.selectAll("*").remove();
+                    });
+
+                this.arrowLayer
+                    .transition()
+                    .duration(this.MODE_TRANSITION_DURATION)
+                    .style("opacity", 0)
+                    .on("end", () => {
+                        this.arrowLayer.style("display", "none");
+                        this.arrowLayer.style("opacity", null);
+                        this.arrowLayer?.selectAll("*").remove();
+                    });
+            });
+        }
     }
 
     private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number): void {
@@ -4899,7 +4761,8 @@ export class Visual implements IVisual {
         xScale: ScaleTime<number, number>,
         yScale: ScaleBand<string>,
         chartWidth: number,
-        chartHeight: number
+        chartHeight: number,
+        currentLeftMargin: number
     ): void {
 
         if (!(this.gridLayer?.node() && this.taskLayer?.node() && this.arrowLayer?.node() &&
@@ -4938,7 +4801,8 @@ export class Visual implements IVisual {
         const showVertGridLines = this.settings.gridLines.showVerticalLines.value;
         const showDuration = this.settings.textAndLabels.showDuration.value;
 
-        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        // Use passed argument instead of re-reading settigs
+        // const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
 
         // Fix: Clip labels to left margin
         const leftClipId = "clip-left-margin";
@@ -4974,37 +4838,25 @@ export class Visual implements IVisual {
 
 
 
-        /* Remove the unconditional SVG draw. It is handled conditionally below.
-        if (showHorzGridLines) {
-            const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-            this.drawHorizontalGridLines(tasksToShow, yScale, chartWidth, currentLeftMargin, chartHeight);
-        }
-        */
 
+        // --- 1. Draw Grid Lines ---
         if (showVertGridLines) {
-
             this.drawgridLines(xScale, chartHeight, this.gridLayer, this.headerGridLayer);
         }
 
-        // Draw Headers ALWAYS (both for SVG and Canvas modes)
+        // --- 2. Draw Column Headers ---
         this.drawColumnHeaders(this.headerHeight, currentLeftMargin);
 
+        // --- 3. Draw WBS Group Headers (bars + text) ---
+        // They need to be drawn before tasks to be behind them? Or mixed?
+        // Actually WBS group headers are in `wbsGroupLayer` which is usually above regular tasks or interleaved.
+        // In this visual, they seem to be treated as rows.
+
+        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
+
+        // --- 4. Draw Tasks ---
         if (this.useCanvasRendering) {
-
-            this.taskLayer.style("display", "none");
-            this.arrowLayer.style("display", "none");
-
-            if (this.canvasElement) {
-                this.canvasElement.style.display = 'block';
-                this.canvasElement.style.visibility = 'visible';
-                this.canvasElement.style.left = `${this.margin.left}px`;
-                this.canvasElement.style.top = `${this.margin.top}px`;
-                this.canvasElement.style.pointerEvents = 'auto';
-                this.canvasElement.style.zIndex = '1';
-            }
-
             if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
-
                 if (showHorzGridLines) {
                     this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
                 }
@@ -5039,18 +4891,7 @@ export class Visual implements IVisual {
                 );
             }
         } else {
-
-            if (this.canvasElement) {
-                this.canvasElement.style.display = 'none';
-                this.canvasElement.style.visibility = 'hidden';
-            }
-            this.taskLayer.style("display", "block");
-            this.taskLayer.style("visibility", "visible");
-            this.arrowLayer.style("display", "block");
-            this.arrowLayer.style("visibility", "visible");
-
-            this.setupSVGRenderingHints();
-
+            // SVG Rendering
             if (showHorzGridLines) {
                 this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
             }
@@ -5069,13 +4910,24 @@ export class Visual implements IVisual {
                 labelColor, showDuration, taskHeight, taskBarHeight,
                 dateBgColor, dateBgOpacity
             );
+
+            // SVG Labels
+            this.drawTaskLabelsLayer(
+                renderableTasks,
+                yScale,
+                taskHeight,
+                currentLeftMargin,
+                labelAvailableWidth,
+                taskNameFontSize,
+                labelColor,
+                selectionHighlightColor,
+                selectionLabelColor,
+                selectionLabelWeight,
+                lineHeight
+            );
         }
 
-        // Common rendering for both Canvas and SVG modes:
-        // WBS group headers and data date line must render in both modes
-        // (they use SVG layers that remain visible regardless of rendering mode)
-        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
-
+        // --- 5. Data Date Line ---
         this.drawDataDateLine(
             chartWidth,
             xScale,
@@ -5084,11 +4936,8 @@ export class Visual implements IVisual {
             this.headerGridLayer
         );
 
-        // Use getTasksForFinishLines to properly collect underlying tasks from visible WBS groups
+        // --- 6. Project Finish Line ---
         const tasksForProjectEnd = this.getTasksForFinishLines();
-        this.drawColumnHeaders(this.headerHeight, currentLeftMargin);
-        this.drawLabelColumnSeparators(chartHeight, currentLeftMargin);
-
         this.drawBaselineAndPreviousEndLines(
             xScale,
             tasksForProjectEnd,
@@ -5098,6 +4947,9 @@ export class Visual implements IVisual {
         );
         this.drawProjectEndLine(chartWidth, xScale, renderableTasks, tasksForProjectEnd, chartHeight,
             this.gridLayer, this.headerGridLayer);
+
+        // --- 7. Vertical Separators ---
+        this.drawLabelColumnSeparators(chartHeight, currentLeftMargin);
     }
 
     private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
@@ -5943,19 +5795,7 @@ export class Visual implements IVisual {
                 }
             });
 
-        this.drawTaskLabelsLayer(
-            tasks,
-            yScale,
-            taskHeight,
-            currentLeftMargin,
-            labelAvailableWidth,
-            taskNameFontSize,
-            labelColor,
-            selectionHighlightColor,
-            selectionLabelColor,
-            selectionLabelWeight,
-            this.taskLabelLineHeight
-        );
+
 
         if (showFinishDates) {
             allTaskGroups.selectAll(".date-label-group").remove();
@@ -6235,17 +6075,48 @@ export class Visual implements IVisual {
 
         // Column Settings
         const cols = this.settings.columns;
+        const comp = this.settings.comparisonBars;
         const showExtra = this.showExtraColumnsInternal;
-        const showStart = showExtra && cols.showStartDate.value;
-        const startWidth = cols.startDateWidth.value;
-        const showFinish = showExtra && cols.showFinishDate.value;
-        const finishWidth = cols.finishDateWidth.value;
-        const showDur = showExtra && cols.showDuration.value;
-        const durWidth = cols.durationWidth.value;
+
+        // 1. Calculate Widths and Offsets (Right-to-Left stacking from 0)
+
+        // Order from Grid Edge (x=0) moving Left:
+        // 1. Float
+        // 2. Duration 
+        // 3. Finish
+        // 4. Start
+        // 5. Previous Finish
+        // 6. Previous Start
+        // 7. Baseline Finish
+        // 8. Baseline Start
+
         const showFloat = showExtra && cols.showTotalFloat.value;
         const floatWidth = cols.totalFloatWidth.value;
 
-        // Calculate occupied width by columns (Right-to-Left stacking from x=0)
+        const showDur = showExtra && cols.showDuration.value;
+        const durWidth = cols.durationWidth.value;
+
+        const showFinish = showExtra && cols.showFinishDate.value;
+        const finishWidth = cols.finishDateWidth.value;
+
+        const showStart = showExtra && cols.showStartDate.value;
+        const startWidth = cols.startDateWidth.value;
+
+        // New Columns
+        const showPrev = showExtra && comp.showPreviousUpdate.value;
+        // Check if data roles are present for Previous? The toggle determines if we *want* to show it, 
+        // but if no data is mapped, it will modify layout but show empty. 
+        // Standard PowerBI behavior: if enabled in settings, show the space. 
+        // Data existence check is usually done to hide the setting, but here we reuse "Show Previous Update" toggle which controls bars too.
+        // Let's stick to the setting value.
+
+        const prevFinishWidth = cols.previousUpdateFinishDateWidth.value;
+        const prevStartWidth = cols.previousUpdateStartDateWidth.value;
+
+        const showBase = showExtra && comp.showBaseline.value;
+        const baseFinishWidth = cols.baselineFinishDateWidth.value;
+        const baseStartWidth = cols.baselineStartDateWidth.value;
+
         let occupiedWidth = 0;
 
         // Add padding between the last column (closest to chart) and the chart start
@@ -6263,6 +6134,20 @@ export class Visual implements IVisual {
 
         const startOffset = showStart ? occupiedWidth : 0;
         if (showStart) occupiedWidth += startWidth;
+
+        // Previous Update Columns
+        const prevFinishOffset = showPrev ? occupiedWidth : 0;
+        if (showPrev) occupiedWidth += prevFinishWidth;
+
+        const prevStartOffset = showPrev ? occupiedWidth : 0;
+        if (showPrev) occupiedWidth += prevStartWidth;
+
+        // Baseline Columns
+        const baseFinishOffset = showBase ? occupiedWidth : 0;
+        if (showBase) occupiedWidth += baseFinishWidth;
+
+        const baseStartOffset = showBase ? occupiedWidth : 0;
+        if (showBase) occupiedWidth += baseStartWidth;
 
         // Calculate available width for Task Name
         // Allow it to be 0 or negative to trigger hiding logic if space is insufficient
@@ -6462,6 +6347,34 @@ export class Visual implements IVisual {
                     return (val !== undefined && isFinite(val)) ? val.toFixed(0) : "-";
                 }, "middle", true);
             }
+
+            // Render Previous Update Finish
+            if (showPrev) {
+                appendColumnText(mergedGroups, prevFinishOffset, prevFinishWidth, (d: Task) => {
+                    return d.previousUpdateFinishDate ? this.formatColumnDate(d.previousUpdateFinishDate) : "";
+                }, "middle");
+            }
+
+            // Render Previous Update Start
+            if (showPrev) {
+                appendColumnText(mergedGroups, prevStartOffset, prevStartWidth, (d: Task) => {
+                    return d.previousUpdateStartDate ? this.formatColumnDate(d.previousUpdateStartDate) : "";
+                }, "middle");
+            }
+
+            // Render Baseline Finish
+            if (showBase) {
+                appendColumnText(mergedGroups, baseFinishOffset, baseFinishWidth, (d: Task) => {
+                    return d.baselineFinishDate ? this.formatColumnDate(d.baselineFinishDate) : "";
+                }, "middle");
+            }
+
+            // Render Baseline Start
+            if (showBase) {
+                appendColumnText(mergedGroups, baseStartOffset, baseStartWidth, (d: Task) => {
+                    return d.baselineStartDate ? this.formatColumnDate(d.baselineStartDate) : "";
+                }, "middle");
+            }
         };
 
         renderColumns();
@@ -6478,6 +6391,7 @@ export class Visual implements IVisual {
         colHeaderLayer.selectAll("*").remove();
 
         const cols = this.settings.columns;
+        const comp = this.settings.comparisonBars;
         let occupiedWidth = 0;
 
         // Add padding between the last column (closest to chart) and the chart start
@@ -6503,6 +6417,23 @@ export class Visual implements IVisual {
         if (showExtra && cols.showStartDate.value) {
             items.push({ text: "Start", width: cols.startDateWidth.value, offset: occupiedWidth });
             occupiedWidth += cols.startDateWidth.value;
+        }
+
+        // New Columns
+        if (showExtra && comp.showPreviousUpdate.value) {
+            items.push({ text: "Prev Finish", width: cols.previousUpdateFinishDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.previousUpdateFinishDateWidth.value;
+
+            items.push({ text: "Prev Start", width: cols.previousUpdateStartDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.previousUpdateStartDateWidth.value;
+        }
+
+        if (showExtra && comp.showBaseline.value) {
+            items.push({ text: "BL Finish", width: cols.baselineFinishDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.baselineFinishDateWidth.value;
+
+            items.push({ text: "BL Start", width: cols.baselineStartDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.baselineStartDateWidth.value;
         }
 
         const fontSize = this.settings.textAndLabels.taskNameFontSize.value;
@@ -6576,6 +6507,7 @@ export class Visual implements IVisual {
         layer.selectAll(".label-column-separator").remove();
 
         const cols = this.settings.columns;
+        const comp = this.settings.comparisonBars;
         const showExtra = this.showExtraColumnsInternal;
 
         // Utilize same width calculation logic as drawColumnHeaders
@@ -6600,6 +6532,23 @@ export class Visual implements IVisual {
         if (showExtra && cols.showStartDate.value) {
             items.push({ width: cols.startDateWidth.value, offset: occupiedWidth });
             occupiedWidth += cols.startDateWidth.value;
+        }
+
+        // New Columns
+        if (showExtra && comp.showPreviousUpdate.value) {
+            items.push({ width: cols.previousUpdateFinishDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.previousUpdateFinishDateWidth.value;
+
+            items.push({ width: cols.previousUpdateStartDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.previousUpdateStartDateWidth.value;
+        }
+
+        if (showExtra && comp.showBaseline.value) {
+            items.push({ width: cols.baselineFinishDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.baselineFinishDateWidth.value;
+
+            items.push({ width: cols.baselineStartDateWidth.value, offset: occupiedWidth });
+            occupiedWidth += cols.baselineStartDateWidth.value;
         }
 
         // Coordinates in labelGridLayer are relative to mainGroup transform (margin.left, margin.top)
@@ -10172,7 +10121,7 @@ export class Visual implements IVisual {
         const groupSummaryColor = this.resolveColor(this.settings.wbsGrouping.groupSummaryColor.value.value, "foreground");
         const nearCriticalColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
         const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
-        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
+        const currentLeftMargin = this.getEffectiveLeftMargin();
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
 
         const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
@@ -10611,6 +10560,163 @@ export class Visual implements IVisual {
                     .style('fill', textColor)
                     .style('opacity', textOpacity)
                     .text(this.formatDate(group.summaryFinishDate));
+            }
+
+            // --- Baseline Dates ---
+            // Removed duplicate declaration
+            if (showBaseline) {
+                const bStartWidth = cols.baselineStartDateWidth.value;
+                const bFinishWidth = cols.baselineFinishDateWidth.value;
+                // Calculate offsets: Start, Finish, Duration(opt), Float(opt) are already in 'occupiedWidth'
+                // But we need to check the ORDER.
+                // The order in drawColumnHeaders is:
+                // Float (Leftmost, near margin) -> Duration -> Finish -> Start -> Prev Finish -> Prev Start -> Base Finish -> Base Start
+
+                // Re-calculate occupiedWidth based on ALL columns to follow the right-to-left stacking
+                // Current occupiedWidth includes Finish, Start, Duration, Float.
+                // Order from Right (Grid Edge) to Left:
+                // 1. Float
+                // 2. Duration
+                // 3. Finish
+                // 4. Start
+                // 5. Previous Finish
+                // 6. Previous Start
+                // 7. Baseline Finish
+                // 8. Baseline Start
+
+                // Existing code at line 10653 calculates occupiedWidth for Float, Dur, Finish, Start.
+                // So now 'occupiedWidth' is at the left edge of 'Start' column.
+                // We continue adding widths for new columns.
+
+                // Previous Update Columns
+                const showPrevious = this.showPreviousUpdateInternal;
+                const pFinishWidth = cols.previousUpdateFinishDateWidth.value;
+                const pStartWidth = cols.previousUpdateStartDateWidth.value;
+
+                if (showPrevious) {
+                    // Previous Finish
+                    const pFinishOffset = occupiedWidth;
+                    occupiedWidth += pFinishWidth;
+                    collisionWidth += Math.max(pFinishWidth, MIN_DATE_WIDTH);
+
+                    if (group.summaryPreviousUpdateFinishDate) {
+                        headerGroup.append('text')
+                            .attr('class', 'wbs-summary-date')
+                            .attr('x', Math.round(-pFinishOffset - pFinishWidth / 2))
+                            .attr('y', Math.round(bandCenter))
+                            .attr('text-anchor', 'middle')
+                            .attr('dominant-baseline', 'central')
+                            .style('font-size', `${dateFontSize}px`)
+                            .style('font-family', this.getFontFamily())
+                            .style('fill', textColor)
+                            .style('opacity', textOpacity)
+                            .text(this.formatColumnDate(group.summaryPreviousUpdateFinishDate));
+                    }
+
+                    // Previous Start
+                    const pStartOffset = occupiedWidth;
+                    occupiedWidth += pStartWidth;
+                    collisionWidth += Math.max(pStartWidth, MIN_DATE_WIDTH);
+
+                    if (group.summaryPreviousUpdateStartDate) {
+                        headerGroup.append('text')
+                            .attr('class', 'wbs-summary-date')
+                            .attr('x', Math.round(-pStartOffset - pStartWidth / 2))
+                            .attr('y', Math.round(bandCenter))
+                            .attr('text-anchor', 'middle')
+                            .attr('dominant-baseline', 'central')
+                            .style('font-size', `${dateFontSize}px`)
+                            .style('font-family', this.getFontFamily())
+                            .style('fill', textColor)
+                            .style('opacity', textOpacity)
+                            .text(this.formatColumnDate(group.summaryPreviousUpdateStartDate));
+                    }
+                }
+
+                // Baseline Columns
+                // Baseline Finish
+                const bFinishOffset = occupiedWidth;
+                occupiedWidth += bFinishWidth;
+                collisionWidth += Math.max(bFinishWidth, MIN_DATE_WIDTH);
+
+                if (group.summaryBaselineFinishDate) {
+                    headerGroup.append('text')
+                        .attr('class', 'wbs-summary-date')
+                        .attr('x', Math.round(-bFinishOffset - bFinishWidth / 2))
+                        .attr('y', Math.round(bandCenter))
+                        .attr('text-anchor', 'middle')
+                        .attr('dominant-baseline', 'central')
+                        .style('font-size', `${dateFontSize}px`)
+                        .style('font-family', this.getFontFamily())
+                        .style('fill', textColor)
+                        .style('opacity', textOpacity)
+                        .text(this.formatColumnDate(group.summaryBaselineFinishDate));
+                }
+
+                // Baseline Start
+                const bStartOffset = occupiedWidth;
+                occupiedWidth += bStartWidth;
+                collisionWidth += Math.max(bStartWidth, MIN_DATE_WIDTH);
+
+                if (group.summaryBaselineStartDate) {
+                    headerGroup.append('text')
+                        .attr('class', 'wbs-summary-date')
+                        .attr('x', Math.round(-bStartOffset - bStartWidth / 2))
+                        .attr('y', Math.round(bandCenter))
+                        .attr('text-anchor', 'middle')
+                        .attr('dominant-baseline', 'central')
+                        .style('font-size', `${dateFontSize}px`)
+                        .style('font-family', this.getFontFamily())
+                        .style('fill', textColor)
+                        .style('opacity', textOpacity)
+                        .text(this.formatColumnDate(group.summaryBaselineStartDate));
+                }
+
+                // Update collisionWidth for text wrapping
+            } else if (this.showPreviousUpdateInternal) {
+                // Even if baseline is off, previous might be on.
+                // (Strictly speaking I should unnest this logic but following the structure above)
+                const showPrevious = this.showPreviousUpdateInternal;
+                const pFinishWidth = cols.previousUpdateFinishDateWidth.value;
+                const pStartWidth = cols.previousUpdateStartDateWidth.value;
+
+                // Previous Finish
+                const pFinishOffset = occupiedWidth;
+                occupiedWidth += pFinishWidth;
+                collisionWidth += Math.max(pFinishWidth, MIN_DATE_WIDTH);
+
+                if (group.summaryPreviousUpdateFinishDate) {
+                    headerGroup.append('text')
+                        .attr('class', 'wbs-summary-date')
+                        .attr('x', Math.round(-pFinishOffset - pFinishWidth / 2))
+                        .attr('y', Math.round(bandCenter))
+                        .attr('text-anchor', 'middle')
+                        .attr('dominant-baseline', 'central')
+                        .style('font-size', `${dateFontSize}px`)
+                        .style('font-family', this.getFontFamily())
+                        .style('fill', textColor)
+                        .style('opacity', textOpacity)
+                        .text(this.formatColumnDate(group.summaryPreviousUpdateFinishDate));
+                }
+
+                // Previous Start
+                const pStartOffset = occupiedWidth;
+                occupiedWidth += pStartWidth;
+                collisionWidth += Math.max(pStartWidth, MIN_DATE_WIDTH);
+
+                if (group.summaryPreviousUpdateStartDate) {
+                    headerGroup.append('text')
+                        .attr('class', 'wbs-summary-date')
+                        .attr('x', Math.round(-pStartOffset - pStartWidth / 2))
+                        .attr('y', Math.round(bandCenter))
+                        .attr('text-anchor', 'middle')
+                        .attr('dominant-baseline', 'central')
+                        .style('font-size', `${dateFontSize}px`)
+                        .style('font-family', this.getFontFamily())
+                        .style('fill', textColor)
+                        .style('opacity', textOpacity)
+                        .text(this.formatColumnDate(group.summaryPreviousUpdateStartDate));
+                }
             }
             // ---------------------------------------
 

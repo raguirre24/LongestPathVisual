@@ -579,13 +579,22 @@ class ColumnsCard extends Card {
     showTotalFloat = new ToggleSwitch({ name: "showTotalFloat", displayName: "Show Total Float", value: false });
     totalFloatWidth = new NumUpDown({ name: "totalFloatWidth", displayName: "Total Float Width (px)", value: 50, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
+    baselineStartDateWidth = new NumUpDown({ name: "baselineStartDateWidth", displayName: "Baseline Start Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    baselineFinishDateWidth = new NumUpDown({ name: "baselineFinishDateWidth", displayName: "Baseline Finish Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    previousUpdateStartDateWidth = new NumUpDown({ name: "previousUpdateStartDateWidth", displayName: "Previous Start Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    previousUpdateFinishDateWidth = new NumUpDown({ name: "previousUpdateFinishDateWidth", displayName: "Previous Finish Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+
     slices: Slice[] = [
         this.showColumnToggleButton,
         this.enableColumnDisplay,
         this.showStartDate, this.startDateWidth,
         this.showFinishDate, this.finishDateWidth,
         this.showDuration, this.durationWidth,
-        this.showTotalFloat, this.totalFloatWidth
+        this.showTotalFloat, this.totalFloatWidth,
+        this.baselineStartDateWidth,
+        this.baselineFinishDateWidth,
+        this.previousUpdateStartDateWidth,
+        this.previousUpdateFinishDateWidth
     ];
 }
 

@@ -94,6 +94,10 @@ declare class ColumnsCard extends Card {
     durationWidth: formattingSettings.NumUpDown;
     showTotalFloat: formattingSettings.ToggleSwitch;
     totalFloatWidth: formattingSettings.NumUpDown;
+    baselineStartDateWidth: formattingSettings.NumUpDown;
+    baselineFinishDateWidth: formattingSettings.NumUpDown;
+    previousUpdateStartDateWidth: formattingSettings.NumUpDown;
+    previousUpdateFinishDateWidth: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 declare class LayoutSettingsCard extends Card {

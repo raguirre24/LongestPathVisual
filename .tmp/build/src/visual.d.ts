@@ -409,6 +409,16 @@ export declare class Visual implements IVisual {
     private drawRoundedRectPath;
     private showTaskTooltip;
     private hideTooltip;
+    /**
+     * Calculates the total width of *conditional* extra columns (Baseline, Previous Update).
+     * This width is added to the user's base leftMargin to preserve Task Name width.
+     */
+    private getExtraColumnWidth;
+    /**
+     * Returns the effective left margin to use for rendering.
+     * effectiveLeftMargin = userBaseMargin + extraColumnWidths
+     */
+    private getEffectiveLeftMargin;
     private updateHeaderElements;
     private calculateVisibleTasks;
     private handleScroll;

@@ -659,6 +659,30 @@
                     "type": {
                         "numeric": true
                     }
+                },
+                "baselineStartDateWidth": {
+                    "displayName": "Baseline Start Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "baselineFinishDateWidth": {
+                    "displayName": "Baseline Finish Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "previousUpdateStartDateWidth": {
+                    "displayName": "Previous Start Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "previousUpdateFinishDateWidth": {
+                    "displayName": "Previous Finish Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
                 }
             }
         },
