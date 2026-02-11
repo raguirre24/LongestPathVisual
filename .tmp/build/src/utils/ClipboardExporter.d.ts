@@ -20,6 +20,10 @@ export interface ClipboardExportConfig {
     wbsGroupDates?: Map<string, {
         start: Date | null;
         finish: Date | null;
+        baselineStart?: Date | null;
+        baselineFinish?: Date | null;
+        previousUpdateStart?: Date | null;
+        previousUpdateFinish?: Date | null;
     }>;
     /** Visible WBS groups when no tasks are shown (WBS-only export mode) */
     visibleWbsGroups?: WBSGroup[];

@@ -20,7 +20,14 @@ export interface ClipboardExportConfig {
     /** Whether to include previous update date columns */
     showPreviousUpdate: boolean;
     /** Map of WBS Group ID to summary dates */
-    wbsGroupDates?: Map<string, { start: Date | null, finish: Date | null }>;
+    wbsGroupDates?: Map<string, {
+        start: Date | null;
+        finish: Date | null;
+        baselineStart?: Date | null;
+        baselineFinish?: Date | null;
+        previousUpdateStart?: Date | null;
+        previousUpdateFinish?: Date | null;
+    }>;
     /** Visible WBS groups when no tasks are shown (WBS-only export mode) */
     visibleWbsGroups?: WBSGroup[];
     /** Whether any tasks are currently visible on screen */
@@ -160,7 +167,14 @@ function generateHtmlContent(
     showBaseline: boolean,
     showPreviousUpdate: boolean,
     dateFormatter: (date: Date) => string,
-    wbsGroupDates?: Map<string, { start: Date | null, finish: Date | null }>
+    wbsGroupDates?: Map<string, {
+        start: Date | null;
+        finish: Date | null;
+        baselineStart?: Date | null;
+        baselineFinish?: Date | null;
+        previousUpdateStart?: Date | null;
+        previousUpdateFinish?: Date | null;
+    }>
 ): string {
     // Build headers
     const headers = ["Index", "Task ID", "Task Name", "Task Type"];
@@ -227,19 +241,41 @@ function generateHtmlContent(
 
                 let startText = "";
                 let finishText = "";
+                let baselineStartText = "";
+                let baselineFinishText = "";
+                let previousStartText = "";
+                let previousFinishText = "";
+
                 if (wbsGroupDates && wbsGroupDates.has(pathId)) {
                     const dates = wbsGroupDates.get(pathId);
                     if (dates) {
                         startText = dates.start ? dateFormatter(dates.start) : "";
                         finishText = dates.finish ? dateFormatter(dates.finish) : "";
+                        baselineStartText = dates.baselineStart ? dateFormatter(dates.baselineStart) : "";
+                        baselineFinishText = dates.baselineFinish ? dateFormatter(dates.baselineFinish) : "";
+                        previousStartText = dates.previousUpdateStart ? dateFormatter(dates.previousUpdateStart) : "";
+                        previousFinishText = dates.previousUpdateFinish ? dateFormatter(dates.previousUpdateFinish) : "";
                     }
                 }
 
                 html += `<tr style="background-color: ${color}; font-weight: bold;">`;
                 html += `<td></td><td></td>`; // Skip Index and ID
 
-                // Group Name Span
-                html += `<td colspan="${nameColSpan}" style="padding-left: ${indent}px; white-space: nowrap;">${groupName}</td>`;
+                // Group Name Span: Just Name and Type (2 cols)
+                // We do NOT span over Baseline/Previous columns if they are present, because we want to show data there.
+                // However, if we are NOT showing them, we might want to span?
+                // Actually, the structure assumes columns are present.
+                // Typically WBS headers span Name + Type.
+                html += `<td colspan="2" style="padding-left: ${indent}px; white-space: nowrap;">${groupName}</td>`;
+
+                if (showBaseline) {
+                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${baselineStartText}</td>`;
+                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${baselineFinishText}</td>`;
+                }
+                if (showPreviousUpdate) {
+                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${previousStartText}</td>`;
+                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${previousFinishText}</td>`;
+                }
 
                 // Start Date
                 html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${startText}</td>`;
@@ -315,8 +351,21 @@ function generateWbsOnlyContent(
     // Sort groups by yOrder to maintain visual display order
     const sortedGroups = [...visibleWbsGroups].sort((a, b) => (a.yOrder ?? 0) - (b.yOrder ?? 0));
 
+    // Determine if we have baseline/previous data in any group to justify showing columns?
+    // Actually, checking if any group has it is one way, but visual usually passes flags.
+    // The visual uses showBaseline/showPreviousUpdate flags in standard export.
+    // But here 'generateWbsOnlyContent' doesn't receive them. We should probably infer or modify signature.
+    // However, to keep it simple and safe for now without refactoring everything:
+    // We can check if *any* group has these dates.
+    const hasBaseline = sortedGroups.some(g => g.summaryBaselineStartDate || g.summaryBaselineFinishDate);
+    const hasPrevious = sortedGroups.some(g => g.summaryPreviousUpdateStartDate || g.summaryPreviousUpdateFinishDate);
+
     // TSV Headers
-    const tsvHeaders = ["Index", "WBS Name", "Start Date", "Finish Date"];
+    const tsvHeaders = ["Index", "WBS Name"];
+    if (hasBaseline) tsvHeaders.push("Baseline Start", "Baseline Finish");
+    if (hasPrevious) tsvHeaders.push("Previous Start", "Previous Finish");
+    tsvHeaders.push("Start Date", "Finish Date");
+
     const tsvRows: string[][] = [];
 
     // HTML Headers
@@ -324,6 +373,14 @@ function generateWbsOnlyContent(
     html += `<tr style="background-color: #f0f0f0; font-weight: bold; text-align: center;">`;
     html += `<th style="padding: 4px; white-space: nowrap;">Index</th>`;
     html += `<th style="padding: 4px; white-space: nowrap;">WBS Name</th>`;
+    if (hasBaseline) {
+        html += `<th style="padding: 4px; white-space: nowrap;">Baseline Start</th>`;
+        html += `<th style="padding: 4px; white-space: nowrap;">Baseline Finish</th>`;
+    }
+    if (hasPrevious) {
+        html += `<th style="padding: 4px; white-space: nowrap;">Previous Start</th>`;
+        html += `<th style="padding: 4px; white-space: nowrap;">Previous Finish</th>`;
+    }
     html += `<th style="padding: 4px; white-space: nowrap;">Start Date</th>`;
     html += `<th style="padding: 4px; white-space: nowrap;">Finish Date</th>`;
     html += `</tr>`;
@@ -334,18 +391,36 @@ function generateWbsOnlyContent(
         const startText = group.summaryStartDate ? dateFormatter(group.summaryStartDate) : "";
         const finishText = group.summaryFinishDate ? dateFormatter(group.summaryFinishDate) : "";
 
-        // TSV row (flat, with full path for clarity)
-        tsvRows.push([
-            (index + 1).toString(),
-            group.name,
-            startText,
-            finishText
-        ]);
+        const baselineStartText = group.summaryBaselineStartDate ? dateFormatter(group.summaryBaselineStartDate) : "";
+        const baselineFinishText = group.summaryBaselineFinishDate ? dateFormatter(group.summaryBaselineFinishDate) : "";
+        const previousStartText = group.summaryPreviousUpdateStartDate ? dateFormatter(group.summaryPreviousUpdateStartDate) : "";
+        const previousFinishText = group.summaryPreviousUpdateFinishDate ? dateFormatter(group.summaryPreviousUpdateFinishDate) : "";
 
-        // HTML row with hierarchical indentation and color
+        // TSV row
+        const row = [
+            (index + 1).toString(),
+            group.name
+        ];
+        if (hasBaseline) row.push(baselineStartText, baselineFinishText);
+        if (hasPrevious) row.push(previousStartText, previousFinishText);
+        row.push(startText, finishText);
+
+        tsvRows.push(row);
+
+        // HTML row
         html += `<tr style="background-color: ${color}; font-weight: bold;">`;
         html += `<td style="text-align: right; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
         html += `<td style="padding: 2px; padding-left: ${indent}px; white-space: nowrap;">${group.name}</td>`;
+
+        if (hasBaseline) {
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${baselineStartText}</td>`;
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${baselineFinishText}</td>`;
+        }
+        if (hasPrevious) {
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${previousStartText}</td>`;
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${previousFinishText}</td>`;
+        }
+
         html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${startText}</td>`;
         html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${finishText}</td>`;
         html += `</tr>`;

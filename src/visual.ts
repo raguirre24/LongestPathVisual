@@ -13205,13 +13205,24 @@ export class Visual implements IVisual {
             return;
         }
 
-        const wbsGroupDates = new Map<string, { start: Date | null, finish: Date | null }>();
+        const wbsGroupDates = new Map<string, {
+            start: Date | null;
+            finish: Date | null;
+            baselineStart?: Date | null;
+            baselineFinish?: Date | null;
+            previousUpdateStart?: Date | null;
+            previousUpdateFinish?: Date | null;
+        }>();
         if (showWbs && this.wbsGroups) {
             this.wbsGroups.forEach(group => {
                 if (group.id) {
                     wbsGroupDates.set(group.id, {
                         start: group.summaryStartDate ?? null,
-                        finish: group.summaryFinishDate ?? null
+                        finish: group.summaryFinishDate ?? null,
+                        baselineStart: group.summaryBaselineStartDate ?? null,
+                        baselineFinish: group.summaryBaselineFinishDate ?? null,
+                        previousUpdateStart: group.summaryPreviousUpdateStartDate ?? null,
+                        previousUpdateFinish: group.summaryPreviousUpdateFinishDate ?? null
                     });
                 }
             });
