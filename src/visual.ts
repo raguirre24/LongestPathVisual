@@ -10564,7 +10564,7 @@ export class Visual implements IVisual {
 
             // --- Baseline Dates ---
             // Removed duplicate declaration
-            if (showBaseline) {
+            if (showExtra && showBaseline) {
                 const bStartWidth = cols.baselineStartDateWidth.value;
                 const bFinishWidth = cols.baselineFinishDateWidth.value;
                 // Calculate offsets: Start, Finish, Duration(opt), Float(opt) are already in 'occupiedWidth'
@@ -10673,7 +10673,7 @@ export class Visual implements IVisual {
                 }
 
                 // Update collisionWidth for text wrapping
-            } else if (this.showPreviousUpdateInternal) {
+            } else if (showExtra && this.showPreviousUpdateInternal) {
                 // Even if baseline is off, previous might be on.
                 // (Strictly speaking I should unnest this logic but following the structure above)
                 const showPrevious = this.showPreviousUpdateInternal;
