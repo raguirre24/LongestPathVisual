@@ -568,10 +568,10 @@ class ColumnsCard extends Card {
     showColumnToggleButton = new ToggleSwitch({ name: "showColumnToggleButton", displayName: "Show Column Toggle Button", value: true });
     enableColumnDisplay = new ToggleSwitch({ name: "enableColumnDisplay", displayName: "Enable Columns", value: true });
     showStartDate = new ToggleSwitch({ name: "showStartDate", displayName: "Show Start Date", value: false });
-    startDateWidth = new NumUpDown({ name: "startDateWidth", displayName: "Start Date Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    startDateWidth = new NumUpDown({ name: "startDateWidth", displayName: "Start Date Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
     showFinishDate = new ToggleSwitch({ name: "showFinishDate", displayName: "Show Finish Date", value: false });
-    finishDateWidth = new NumUpDown({ name: "finishDateWidth", displayName: "Finish Date Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    finishDateWidth = new NumUpDown({ name: "finishDateWidth", displayName: "Finish Date Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
     showDuration = new ToggleSwitch({ name: "showDuration", displayName: "Show Duration", value: false });
     durationWidth = new NumUpDown({ name: "durationWidth", displayName: "Duration Width (px)", value: 60, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
@@ -579,10 +579,10 @@ class ColumnsCard extends Card {
     showTotalFloat = new ToggleSwitch({ name: "showTotalFloat", displayName: "Show Total Float", value: false });
     totalFloatWidth = new NumUpDown({ name: "totalFloatWidth", displayName: "Total Float Width (px)", value: 50, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
-    baselineStartDateWidth = new NumUpDown({ name: "baselineStartDateWidth", displayName: "Baseline Start Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
-    baselineFinishDateWidth = new NumUpDown({ name: "baselineFinishDateWidth", displayName: "Baseline Finish Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
-    previousUpdateStartDateWidth = new NumUpDown({ name: "previousUpdateStartDateWidth", displayName: "Previous Start Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
-    previousUpdateFinishDateWidth = new NumUpDown({ name: "previousUpdateFinishDateWidth", displayName: "Previous Finish Width (px)", value: 80, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    baselineStartDateWidth = new NumUpDown({ name: "baselineStartDateWidth", displayName: "Baseline Start Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    baselineFinishDateWidth = new NumUpDown({ name: "baselineFinishDateWidth", displayName: "Baseline Finish Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    previousUpdateStartDateWidth = new NumUpDown({ name: "previousUpdateStartDateWidth", displayName: "Previous Start Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    previousUpdateFinishDateWidth = new NumUpDown({ name: "previousUpdateFinishDateWidth", displayName: "Previous Finish Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
     slices: Slice[] = [
         this.showColumnToggleButton,

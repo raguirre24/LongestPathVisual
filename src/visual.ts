@@ -10526,6 +10526,19 @@ export class Visual implements IVisual {
             const textX = -currentLeftMargin + indent + 22;
             const textY = bandCenter;
 
+            // Pre-calculate collision width for baseline/previous columns so text wrapping is correct
+            if (showExtra && showBaseline) {
+                collisionWidth += Math.max(cols.baselineFinishDateWidth.value, MIN_DATE_WIDTH);
+                collisionWidth += Math.max(cols.baselineStartDateWidth.value, MIN_DATE_WIDTH);
+                if (showPreviousUpdate) {
+                    collisionWidth += Math.max(cols.previousUpdateFinishDateWidth.value, MIN_DATE_WIDTH);
+                    collisionWidth += Math.max(cols.previousUpdateStartDateWidth.value, MIN_DATE_WIDTH);
+                }
+            } else if (showExtra && showPreviousUpdate) {
+                collisionWidth += Math.max(cols.previousUpdateFinishDateWidth.value, MIN_DATE_WIDTH);
+                collisionWidth += Math.max(cols.previousUpdateStartDateWidth.value, MIN_DATE_WIDTH);
+            }
+
             // Use collisionWidth for strict text wrapping
             const availableWidth = currentLeftMargin - indent - collisionWidth - 35;
 
@@ -10720,64 +10733,70 @@ export class Visual implements IVisual {
             }
             // ---------------------------------------
 
-            const textElement = headerGroup.append('text')
-                .attr('class', 'wbs-group-name')
-                .attr('clip-path', 'url(#clip-left-margin)')
-                .attr('x', Math.round(textX))
-                .attr('y', Math.round(textY))
-                // vertical alignment handled via dy to support iOS
-                .style('font-size', `${groupNameFontSize}px`)
-                .style('font-family', this.getFontFamily())
-                .style('font-weight', '600')
-                .style('fill', textColor)
-                .style('opacity', textOpacity);
+            // Skip rendering group name text when margin is too narrow (matches task label behavior)
+            const showGroupName = availableWidth > 20;
 
-            const words = displayName.split(/\s+/).reverse();
-            let word: string | undefined;
-            let line: string[] = [];
-            let firstTspan = textElement.text(null).append('tspan')
-                .attr('x', Math.round(textX))
-                .attr('y', Math.round(textY))
-                .attr('dy', '0.35em');
-            let tspan = firstTspan;
-            let lineCount = 1;
+            if (showGroupName) {
+                const textElement = headerGroup.append('text')
+                    .attr('class', 'wbs-group-name')
+                    .attr('clip-path', 'url(#clip-left-margin)')
+                    .attr('x', Math.round(textX))
+                    .attr('y', Math.round(textY))
+                    // vertical alignment handled via dy to support iOS
+                    .style('font-size', `${groupNameFontSize}px`)
+                    .style('font-family', this.getFontFamily())
+                    .style('font-weight', '600')
+                    .style('fill', textColor)
+                    .style('opacity', textOpacity);
 
-            while (word = words.pop()) {
-                line.push(word);
-                tspan.text(line.join(' '));
-                try {
-                    const node = tspan.node();
-                    if (node && node.getComputedTextLength() > availableWidth && line.length > 1) {
-                        line.pop();
-                        tspan.text(line.join(' '));
+                const words = displayName.split(/\s+/).reverse();
+                let word: string | undefined;
+                let line: string[] = [];
+                let firstTspan = textElement.text(null).append('tspan')
+                    .attr('x', Math.round(textX))
+                    .attr('y', Math.round(textY))
+                    .attr('dy', '0.35em');
+                let tspan = firstTspan;
+                let lineCount = 1;
 
-                        if (lineCount < maxLines) {
-                            line = [word];
-                            tspan = textElement.append('tspan')
-                                .attr('x', textX)
-                                .attr('dy', lineHeight)
-                                .text(word);
-                            lineCount++;
-                        } else {
-
-                            const currentText = tspan.text();
-                            if (currentText.length > 3) {
-                                tspan.text(currentText.slice(0, -3) + '...');
-                            }
-                            break;
-                        }
-                    }
-                } catch (e) {
-
+                while (word = words.pop()) {
+                    line.push(word);
                     tspan.text(line.join(' '));
-                    break;
+                    try {
+                        const node = tspan.node();
+                        if (node && node.getComputedTextLength() > availableWidth && line.length > 1) {
+                            line.pop();
+                            tspan.text(line.join(' '));
+
+                            if (lineCount < maxLines) {
+                                line = [word];
+                                tspan = textElement.append('tspan')
+                                    .attr('x', textX)
+                                    .attr('dy', lineHeight)
+                                    .text(word);
+                                lineCount++;
+                            } else {
+
+                                const currentText = tspan.text();
+                                if (currentText.length > 3) {
+                                    tspan.text(currentText.slice(0, -3) + '...');
+                                }
+                                break;
+                            }
+                        }
+                    } catch (e) {
+
+                        tspan.text(line.join(' '));
+                        break;
+                    }
                 }
-            }
 
-            // Keep first line position consistent
-            // if (lineCount > 1) { firstTspan.attr('dy', '-0.2em'); }
+                // Keep first line position consistent
+                // if (lineCount > 1) { firstTspan.attr('dy', '-0.2em'); }
 
-            const lineHeightPx = groupNameFontSize * 1.1;
+                const lineHeightPx = groupNameFontSize * 1.1;
+
+            } // end if (showGroupName)
 
             // Constrain background height to available row height to prevent overlap
             const taskPadding = this.settings.layoutSettings.taskPadding.value || 5;
@@ -10785,11 +10804,19 @@ export class Visual implements IVisual {
 
             const bgY = bandStart;
 
+            // Cascading "pushed left" illusion: subtractive compression so bars merge in sync.
+            // All bars lose the same # of pixels, so a child catches up to its parent first,
+            // then they move together, creating a cascading merge effect.
+            const PUSH_THRESHOLD = 80;
+            const compression = Math.max(0, PUSH_THRESHOLD - availableWidth);
+            const bgIndent = Math.max(0, indent - compression);
+            const bgX = Math.round(-currentLeftMargin + bgIndent);
+
             headerGroup.insert('rect', ':first-child')
                 .attr('class', 'wbs-header-bg')
-                .attr('x', Math.round(-currentLeftMargin + indent))
+                .attr('x', bgX)
                 .attr('y', Math.round(bgY))
-                .attr('width', currentLeftMargin - indent - 5)
+                .attr('width', -bgX + 1) // right edge always pinned at x=1, no jitter
                 .attr('height', bgHeight)
                 .style('fill', groupHeaderColor)
                 .style('opacity', bgOpacity);
