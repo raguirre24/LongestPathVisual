@@ -223,6 +223,7 @@ export class Visual implements IVisual {
     private tooltipClassName: string;
     private isUpdating: boolean = false;
     private isMarginDragging: boolean = false;
+    private dragStartChartWidth: number = 0;
     private scrollHandlerBackup: any = null;
 
     private updateDebounceTimeout: any = null;
@@ -3775,6 +3776,10 @@ export class Visual implements IVisual {
             self.isMarginDragging = true;
             startX = clientX;
             startMargin = self.margin.left;
+            // Capture chart width at drag start for scaleX ratio during drag
+            const effMargin = self.getEffectiveLeftMargin();
+            const vpW = self.lastViewport?.width || 0;
+            self.dragStartChartWidth = Math.max(10, vpW - effMargin - self.margin.right);
             previousCursor = document.body.style.cursor;
             previousUserSelect = document.body.style.userSelect;
             document.body.style.cursor = "col-resize";
@@ -3852,48 +3857,126 @@ export class Visual implements IVisual {
     }
 
     /**
-     * Handles margin-only updates during drag for real-time visual feedback
-     * Does NOT recreate the resizer or call clearVisual() to preserve drag state
+     * Optimized handler for margin-only updates during drag.
+     * Redraws everything EXCEPT connector arrows (most expensive operation).
+     * Full redraw including arrows happens on drag end via persistProperties -> update().
      */
     private handleMarginDragUpdate(newLeftMargin: number): void {
         if (!this.xScale || !this.yScale || !this.allTasksToShow) return;
 
-        this.margin.left = newLeftMargin;
+        this.margin.left = Math.round(newLeftMargin);
         const effectiveMargin = this.getEffectiveLeftMargin();
 
-        // Update transforms
-        this.mainGroup.attr("transform", `translate(${effectiveMargin}, ${this.margin.top})`);
-        this.headerGridLayer.attr("transform", `translate(${effectiveMargin}, 0)`);
+        // 1. Update group transforms
+        this.mainGroup?.attr("transform", `translate(${effectiveMargin}, ${this.margin.top})`);
+        this.headerGridLayer?.attr("transform", `translate(${effectiveMargin}, 0)`);
         if (this.settings?.layoutSettings?.leftMargin) {
             this.settings.layoutSettings.leftMargin.value = newLeftMargin;
         }
 
+        // 2. Compute new chart dimensions
         const viewportWidth = this.lastViewport?.width || 0;
         const chartWidth = Math.max(10, viewportWidth - effectiveMargin - this.margin.right);
-
-        // Calculate chartHeight from yScale - this is needed for finish lines to render
         const chartHeight = this.yScale.range()[1] || 0;
-
         this.xScale.range([0, chartWidth]);
 
-        const visibleTasks = this.getVisibleTasks();
+        // 3. Update clip rects
+        this.updateChartClipRect(chartWidth, chartHeight);
+        const leftClipId = "clip-left-margin";
+        this.mainSvg?.select(`#${leftClipId} rect`)
+            .attr("x", -effectiveMargin)
+            .attr("width", effectiveMargin)
+            .attr("height", chartHeight + 100);
 
+        // 4. Clear layers for redraw (skip arrowLayer — arrows are deferred to drag end)
         this.gridLayer?.selectAll("*").remove();
-        this.labelGridLayer?.selectAll("*").remove();
-        this.arrowLayer?.selectAll("*").remove();
         this.taskLayer?.selectAll("*").remove();
         this.taskLabelLayer?.selectAll("*").remove();
+        this.labelGridLayer?.selectAll("*").remove();
         this.headerGridLayer?.selectAll("*").remove();
+        this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
 
-        this.drawVisualElements(
-            visibleTasks,
-            this.xScale,
-            this.yScale,
-            chartWidth,
-            chartHeight,
-            this.getEffectiveLeftMargin()
+        // 5. Redraw all visual elements except arrows
+        const visibleTasks = this.getVisibleTasks();
+        const renderableTasks = visibleTasks.filter(t => t.yOrder !== undefined);
+        const taskHeight = this.settings.taskBars.taskHeight.value;
+        const taskBarHeight = this.settings.taskBars.taskBarHeight.value;
+        const taskColor = this.resolveColor(this.settings.taskBars.taskColor.value.value, "foreground");
+        const criticalColor = this.resolveColor(this.settings.criticalPath.criticalPathColor.value.value, "foreground");
+        const milestoneColor = this.resolveColor(this.settings.taskBars.milestoneColor.value.value, "foreground");
+        const labelColor = this.resolveColor(this.settings.textAndLabels.labelColor.value.value, "foreground");
+        const showDuration = this.settings.textAndLabels.showDuration.value;
+        const dateBgColor = this.resolveColor(this.settings.textAndLabels.dateBackgroundColor.value.value, "background");
+        const dateBgTransparency = this.settings.textAndLabels.dateBackgroundTransparency.value;
+        const dateBgOpacity = 1 - (dateBgTransparency / 100);
+        const showHorzGridLines = this.settings.gridLines.showHorizontalLines.value;
+
+        // Vertical grid lines + x-axis date labels
+        this.drawgridLines(this.xScale, chartHeight, this.gridLayer, this.headerGridLayer);
+
+        // Horizontal grid lines + alternating row backgrounds
+        if (showHorzGridLines) {
+            this.drawHorizontalGridLines(renderableTasks, this.yScale, chartWidth, effectiveMargin, chartHeight);
+        }
+
+        // Column headers
+        this.drawColumnHeaders(this.headerHeight, effectiveMargin);
+
+        // WBS group headers (suppress text collisions to prevent jitter during drag)
+        this.drawWbsGroupHeaders(this.xScale, this.yScale, chartWidth, taskHeight, effectiveMargin, undefined, undefined);
+
+        // Task bars + milestones
+        this.drawTasks(
+            renderableTasks, this.xScale, this.yScale,
+            taskColor, milestoneColor, criticalColor,
+            labelColor, showDuration, taskHeight, taskBarHeight,
+            dateBgColor, dateBgOpacity
         );
 
+        // Connector arrows (Draw them so they don't look stuck, even if expensive)
+        const connectorColor = this.resolveColor(this.settings.connectorLines.connectorColor.value.value, "foreground");
+        const connectorWidth = this.settings.connectorLines.connectorWidth.value;
+        const criticalConnectorWidth = this.settings.connectorLines.criticalConnectorWidth.value;
+        const milestoneSize = this.settings.taskBars.milestoneSize.value;
+
+        if (this.showConnectorLinesInternal) {
+            this.drawArrows(
+                renderableTasks, this.xScale, this.yScale,
+                criticalColor, connectorColor, connectorWidth, criticalConnectorWidth,
+                taskHeight, milestoneSize
+            );
+        }
+
+        // Task labels (live wrapping)
+        const labelAvailableWidth = Math.max(10, effectiveMargin - this.labelPaddingLeft - 5);
+        const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+        const selectionHighlightColor = this.getSelectionColor();
+        const lineHeight = this.taskLabelLineHeight;
+
+        this.drawTaskLabelsLayer(
+            renderableTasks, this.yScale, taskHeight, effectiveMargin,
+            labelAvailableWidth, taskNameFontSize, labelColor,
+            selectionHighlightColor, selectionHighlightColor, "bold", lineHeight
+        );
+
+        // Data date line
+        this.drawDataDateLine(chartWidth, this.xScale, chartHeight, this.gridLayer, this.headerGridLayer);
+
+        // Finish lines
+        const tasksForProjectEnd = this.getTasksForFinishLines();
+        this.drawBaselineAndPreviousEndLines(
+            this.xScale, tasksForProjectEnd, chartHeight, this.gridLayer, this.headerGridLayer
+        );
+        this.drawProjectEndLine(
+            chartWidth, this.xScale, renderableTasks, tasksForProjectEnd, chartHeight,
+            this.gridLayer, this.headerGridLayer
+        );
+
+        // Label grid lines + column separators
+        this.drawLabelMarginGridLinesCanvasFallback(visibleTasks, this.yScale, effectiveMargin);
+        this.drawLabelColumnSeparators(chartHeight, effectiveMargin);
+
+        // 6. Reposition resizer and zoom slider
         this.updateMarginResizerPosition();
         this.updateZoomSliderTrackMargins();
     }
@@ -4852,7 +4935,7 @@ export class Visual implements IVisual {
         // Actually WBS group headers are in `wbsGroupLayer` which is usually above regular tasks or interleaved.
         // In this visual, they seem to be treated as rows.
 
-        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight);
+        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight, currentLeftMargin);
 
         // --- 4. Draw Tasks ---
         if (this.useCanvasRendering) {
@@ -10093,25 +10176,25 @@ export class Visual implements IVisual {
     /**
      * WBS GROUPING: Draw WBS group headers in SVG mode
      * Renders group headers with expand/collapse controls and optional summary bars
+     * Refactored to use D3 data binding to prevent DOM thrashing during drag.
      */
     private drawWbsGroupHeaders(
         xScale: ScaleTime<number, number>,
         yScale: ScaleBand<string>,
         chartWidth: number,
         taskHeight: number,
+        currentLeftMargin: number,
         viewportStartIndex?: number,
         viewportEndIndex?: number
     ): void {
 
         if (!xScale || !yScale) {
             console.warn("drawWbsGroupHeaders: Skipping render - xScale or yScale is null");
-
             this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
             return;
         }
 
         if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
-
             this.taskLayer?.selectAll('.wbs-group-header').remove();
             return;
         }
@@ -10121,7 +10204,7 @@ export class Visual implements IVisual {
         const groupSummaryColor = this.resolveColor(this.settings.wbsGrouping.groupSummaryColor.value.value, "foreground");
         const nearCriticalColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
         const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
-        const currentLeftMargin = this.getEffectiveLeftMargin();
+        // const currentLeftMargin = this.getEffectiveLeftMargin(); // Use passed argument!
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
 
         const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
@@ -10144,50 +10227,67 @@ export class Visual implements IVisual {
                 .attr('class', 'wbs-group-layer');
         }
 
-        this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
+        // 1. Prepare Data
+        const visibleGroups = this.wbsGroups.filter(group => {
+            if (group.yOrder === undefined) return false;
+            if (viewportStartIndex !== undefined && viewportEndIndex !== undefined) {
+                if (group.yOrder < viewportStartIndex || group.yOrder > viewportEndIndex) return false;
+            }
+            const domainKey = group.yOrder.toString();
+            const bandStart = yScale(domainKey);
+            return bandStart !== undefined;
+        });
+
+        // 2. Bind Data
+        const groupsSel = this.wbsGroupLayer
+            .selectAll<SVGGElement, WBSGroup>('.wbs-group-header')
+            .data(visibleGroups, (d) => d.id);
+
+        // 3. Exit
+        groupsSel.exit().remove();
+
+        // 4. Enter
+        const groupsEnter = groupsSel.enter()
+            .append('g')
+            .attr('class', 'wbs-group-header')
+            .style('cursor', 'pointer');
+
+        // Static structure in Enter selection
+        groupsEnter.append('g').attr('class', 'wbs-summary-bars').attr('clip-path', 'url(#chart-area-clip)');
+        groupsEnter.append('text').attr('class', 'wbs-expand-icon');
+        groupsEnter.append('text')
+            .attr('class', 'wbs-group-name')
+            .attr('clip-path', 'url(#clip-left-margin)') // Use clip-path for safety
+            .attr('text-anchor', 'start')
+            .style('font-weight', '600');
+
+        // 5. Merge & Update
+        const groupsUpdate = groupsEnter.merge(groupsSel);
+
+        groupsUpdate.attr('data-group-id', d => d.id);
 
         const self = this;
 
-        for (const group of this.wbsGroups) {
-
-            if (group.yOrder === undefined) continue;
-
-            if (viewportStartIndex !== undefined && viewportEndIndex !== undefined) {
-                if (group.yOrder < viewportStartIndex || group.yOrder > viewportEndIndex) {
-                    continue;
-                }
-            }
-
-            const domainKey = group.yOrder.toString();
-            const bandStart = yScale(domainKey);
-
-            if (bandStart === undefined) continue;
-
+        groupsUpdate.each(function (group) {
+            const g = d3.select(this);
+            const domainKey = group.yOrder!.toString();
+            const bandStart = yScale(domainKey)!;
             const bandCenter = Math.round(bandStart + taskHeight / 2);
 
             const indent = Math.max(0, (group.level - 1) * indentPerLevel);
-            const levelStyle = this.getWbsLevelStyle(group.level, defaultGroupHeaderColor, defaultGroupNameColor);
-            const groupHeaderColor = this.resolveColor(levelStyle.background, "background");
-            const groupNameColor = this.resolveColor(levelStyle.text, "foreground");
-            const summaryFillColor = this.blendColors(groupHeaderColor, groupSummaryColor, 0.35);
-            const summaryStrokeColor = this.getContrastColor(summaryFillColor);
-            const headerGroup = this.wbsGroupLayer.append('g')
-                .attr('class', 'wbs-group-header')
-                .attr('data-group-id', group.id)
-                .style('cursor', 'pointer');
-
-            // DEBUG: Print summary date
-            // const debugDate = group.summaryStartDate ? group.summaryStartDate.toISOString().split('T')[0] : "None";
-            // console.log(`Group ${group.name} Start: ${debugDate}`);
+            const levelStyle = self.getWbsLevelStyle(group.level, defaultGroupHeaderColor, defaultGroupNameColor);
+            const groupHeaderColor = self.resolveColor(levelStyle.background, "background");
+            const groupNameColor = self.resolveColor(levelStyle.text, "foreground");
+            const summaryFillColor = self.blendColors(groupHeaderColor, groupSummaryColor, 0.35);
+            const summaryStrokeColor = self.getContrastColor(summaryFillColor);
 
             const bgOpacity = (group.visibleTaskCount === 0) ? 0.4 : 0.8;
 
-            const barsGroup = headerGroup.append('g')
-                .attr('class', 'wbs-summary-bars')
-                .attr('clip-path', 'url(#chart-area-clip)');
+            // --- Update Summary Bars (Redraw) ---
+            const barsGroup = g.select('.wbs-summary-bars');
+            barsGroup.selectAll('*').remove(); // Clear and redraw bars (simpler than data binding for complex conditional rects)
 
-            if (showGroupSummary && group.taskCount > 0 &&
-                group.summaryStartDate && group.summaryFinishDate) {
+            if (showGroupSummary && group.taskCount > 0 && group.summaryStartDate && group.summaryFinishDate) {
                 const isCollapsed = !group.isExpanded;
                 const startX = Math.round(xScale(group.summaryStartDate));
                 const finishX = Math.round(xScale(group.summaryFinishDate));
@@ -10265,222 +10365,132 @@ export class Visual implements IVisual {
                 let overrideColor = self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
 
                 if (enableOverride && dataDate && group.summaryStartDate && group.summaryFinishDate) {
-                    // Normalize to start-of-day for consistent day-level comparison
                     const ddTime = self.normalizeToStartOfDay(dataDate);
                     const sTime = self.normalizeToStartOfDay(group.summaryStartDate);
                     const fTime = self.normalizeToStartOfDay(group.summaryFinishDate);
 
                     if (fTime <= ddTime) {
-                        // Entirely before
                         barsGroup.append('rect')
                             .attr('class', 'wbs-summary-bar')
-                            .attr('x', startX)
-                            .attr('y', barY)
-                            .attr('width', barWidth)
-                            .attr('height', barHeight)
-                            .attr('rx', barRadius)
-                            .attr('ry', barRadius)
-                            .style('fill', overrideColor)
-                            .style('opacity', barOpacity)
-                            .style('stroke', summaryStrokeColor)
-                            .style('stroke-width', isCollapsed ? 0.8 : 0.4)
-                            .style('stroke-opacity', 0.25);
+                            .attr('x', startX).attr('y', barY).attr('width', barWidth).attr('height', barHeight)
+                            .attr('rx', barRadius).attr('ry', barRadius)
+                            .style('fill', overrideColor).style('opacity', barOpacity)
+                            .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.4).style('stroke-opacity', 0.25);
                         drawnLeft = true;
                     } else if (sTime >= ddTime) {
-                        // Entirely after
                         barsGroup.append('rect')
                             .attr('class', 'wbs-summary-bar')
-                            .attr('x', startX)
-                            .attr('y', barY)
-                            .attr('width', barWidth)
-                            .attr('height', barHeight)
-                            .attr('rx', barRadius)
-                            .attr('ry', barRadius)
-                            .style('fill', summaryFillColor)
-                            .style('opacity', barOpacity)
-                            .style('stroke', summaryStrokeColor)
-                            .style('stroke-width', isCollapsed ? 0.8 : 0.4)
-                            .style('stroke-opacity', 0.25);
+                            .attr('x', startX).attr('y', barY).attr('width', barWidth).attr('height', barHeight)
+                            .attr('rx', barRadius).attr('ry', barRadius)
+                            .style('fill', summaryFillColor).style('opacity', barOpacity)
+                            .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.4).style('stroke-opacity', 0.25);
                         drawnRight = true;
                     } else {
-                        // Split
                         const splitX = xScale(dataDate);
                         const leftW = Math.max(1, splitX - startX);
                         const rightW = Math.max(1, finishX - splitX);
 
-                        // Left Part
                         barsGroup.append('rect')
                             .attr('class', 'wbs-summary-bar-left')
-                            .attr('x', startX)
-                            .attr('y', barY)
-                            .attr('width', leftW)
-                            .attr('height', barHeight)
-                            .attr('rx', barRadius)
-                            .attr('ry', barRadius)
-                            .style('fill', overrideColor)
-                            .style('opacity', barOpacity)
-                            .style('stroke', summaryStrokeColor)
-                            .style('stroke-width', isCollapsed ? 0.8 : 0.4)
-                            .style('stroke-opacity', 0.25);
+                            .attr('x', startX).attr('y', barY).attr('width', leftW).attr('height', barHeight)
+                            .attr('rx', barRadius).attr('ry', barRadius)
+                            .style('fill', overrideColor).style('opacity', barOpacity)
+                            .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.4).style('stroke-opacity', 0.25);
                         drawnLeft = true;
 
-                        // Right Part
                         barsGroup.append('rect')
                             .attr('class', 'wbs-summary-bar-right')
-                            .attr('x', splitX)
-                            .attr('y', barY)
-                            .attr('width', rightW)
-                            .attr('height', barHeight)
-                            .attr('rx', barRadius)
-                            .attr('ry', barRadius)
-                            .style('fill', summaryFillColor)
-                            .style('opacity', barOpacity)
-                            .style('stroke', summaryStrokeColor)
-                            .style('stroke-width', isCollapsed ? 0.8 : 0.4)
-                            .style('stroke-opacity', 0.25);
+                            .attr('x', splitX).attr('y', barY).attr('width', rightW).attr('height', barHeight)
+                            .attr('rx', barRadius).attr('ry', barRadius)
+                            .style('fill', summaryFillColor).style('opacity', barOpacity)
+                            .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.4).style('stroke-opacity', 0.25);
                         drawnRight = true;
                     }
                 } else {
                     barsGroup.append('rect')
                         .attr('class', 'wbs-summary-bar')
-                        .attr('x', startX)
-                        .attr('y', barY)
-                        .attr('width', barWidth)
-                        .attr('height', barHeight)
-                        .attr('rx', barRadius)
-                        .attr('ry', barRadius)
-                        .style('fill', summaryFillColor)
-                        .style('opacity', barOpacity)
-                        .style('stroke', summaryStrokeColor)
-                        .style('stroke-width', isCollapsed ? 0.8 : 0.4)
-                        .style('stroke-opacity', 0.25);
-                    drawnRight = true; // Use normal color for caps
+                        .attr('x', startX).attr('y', barY).attr('width', barWidth).attr('height', barHeight)
+                        .attr('rx', barRadius).attr('ry', barRadius)
+                        .style('fill', summaryFillColor).style('opacity', barOpacity)
+                        .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.4).style('stroke-opacity', 0.25);
+                    drawnRight = true;
                 }
 
                 if (barWidth > 6) {
                     const capRadius = Math.min(3, Math.max(1.5, barHeight / 3));
                     const capOpacity = isCollapsed ? barOpacity : Math.min(0.35, barOpacity + 0.1);
-
-                    barsGroup.append('circle')
-                        .attr('class', 'wbs-summary-cap-start')
-                        .attr('cx', startX)
-                        .attr('cy', barY + barHeight / 2)
-                        .attr('r', capRadius)
-                        .style('fill', summaryStrokeColor)
-                        .style('opacity', capOpacity);
-
-                    barsGroup.append('circle')
-                        .attr('class', 'wbs-summary-cap-end')
-                        .attr('cx', finishX)
-                        .attr('cy', barY + barHeight / 2)
-                        .attr('r', capRadius)
-                        .style('fill', summaryStrokeColor)
-                        .style('opacity', capOpacity);
+                    barsGroup.append('circle').attr('class', 'wbs-summary-cap-start')
+                        .attr('cx', startX).attr('cy', barY + barHeight / 2).attr('r', capRadius)
+                        .style('fill', summaryStrokeColor).style('opacity', capOpacity);
+                    barsGroup.append('circle').attr('class', 'wbs-summary-cap-end')
+                        .attr('cx', finishX).attr('cy', barY + barHeight / 2).attr('r', capRadius)
+                        .style('fill', summaryStrokeColor).style('opacity', capOpacity);
                 }
 
-                // Declarations moved to top of loop, accessed here directly
-
+                // Near Critical
                 if (showNearCriticalSummary && group.hasNearCriticalTasks && group.nearCriticalStartDate && group.nearCriticalFinishDate) {
                     let effectiveNearStart = group.nearCriticalStartDate;
-                    if (enableOverride && dataDate && effectiveNearStart < dataDate) {
-                        effectiveNearStart = dataDate;
-                    }
+                    if (enableOverride && dataDate && effectiveNearStart < dataDate) effectiveNearStart = dataDate;
 
-                    const clampedNearStartDate = group.summaryStartDate
-                        ? new Date(Math.max(effectiveNearStart.getTime(), group.summaryStartDate.getTime()))
-                        : effectiveNearStart;
-                    const clampedNearFinishDate = group.summaryFinishDate
-                        ? new Date(Math.min(group.nearCriticalFinishDate.getTime(), group.summaryFinishDate.getTime()))
-                        : group.nearCriticalFinishDate;
+                    const clampedNearStartDate = group.summaryStartDate ? new Date(Math.max(effectiveNearStart.getTime(), group.summaryStartDate.getTime())) : effectiveNearStart;
+                    const clampedNearFinishDate = group.summaryFinishDate ? new Date(Math.min(group.nearCriticalFinishDate.getTime(), group.summaryFinishDate.getTime())) : group.nearCriticalFinishDate;
 
                     if (clampedNearStartDate <= clampedNearFinishDate) {
                         const nearStartX = xScale(clampedNearStartDate);
                         const nearFinishX = xScale(clampedNearFinishDate);
                         const nearWidth = Math.max(2, nearFinishX - nearStartX);
-
                         const nearStartsAtBeginning = nearStartX <= startX + 1;
                         const nearEndsAtEnd = nearFinishX >= finishX - 1;
-
-                        // If clipped by Data Date, force sharp left edge unless it aligns with start
                         const forceSquareStart = enableOverride && dataDate && effectiveNearStart.getTime() === dataDate.getTime();
 
-                        barsGroup.append('rect')
-                            .attr('class', 'wbs-summary-bar-near-critical')
-                            .attr('x', nearStartX)
-                            .attr('y', barY)
-                            .attr('width', nearWidth)
-                            .attr('height', barHeight)
+                        barsGroup.append('rect').attr('class', 'wbs-summary-bar-near-critical')
+                            .attr('x', nearStartX).attr('y', barY).attr('width', nearWidth).attr('height', barHeight)
                             .attr('rx', (nearStartsAtBeginning && !forceSquareStart) || nearEndsAtEnd ? barRadius : 0)
                             .attr('ry', (nearStartsAtBeginning && !forceSquareStart) || nearEndsAtEnd ? barRadius : 0)
-                            .style('fill', nearCriticalColor)
-                            .style('opacity', barOpacity);
+                            .style('fill', nearCriticalColor).style('opacity', barOpacity);
                     }
                 }
 
+                // Critical
                 if (group.hasCriticalTasks && group.criticalStartDate && group.criticalFinishDate) {
                     let effectiveCriticalStart = group.criticalStartDate;
-                    if (enableOverride && dataDate && effectiveCriticalStart < dataDate) {
-                        effectiveCriticalStart = dataDate;
-                    }
+                    if (enableOverride && dataDate && effectiveCriticalStart < dataDate) effectiveCriticalStart = dataDate;
 
                     const criticalStartX = xScale(effectiveCriticalStart);
                     const criticalFinishX = xScale(group.criticalFinishDate);
-                    // Ensure valid width
                     if (criticalFinishX > criticalStartX) {
                         const criticalWidth = Math.max(2, criticalFinishX - criticalStartX);
-
                         const criticalStartsAtBeginning = criticalStartX <= startX + 1;
                         const criticalEndsAtEnd = criticalFinishX >= finishX - 1;
-
-                        // If clipped by Data Date, force sharp left edge
                         const forceSquareStart = enableOverride && dataDate && effectiveCriticalStart.getTime() === dataDate.getTime();
 
-                        barsGroup.append('rect')
-                            .attr('class', 'wbs-summary-bar-critical')
-                            .attr('x', criticalStartX)
-                            .attr('y', barY)
-                            .attr('width', criticalWidth)
-                            .attr('height', barHeight)
+                        barsGroup.append('rect').attr('class', 'wbs-summary-bar-critical')
+                            .attr('x', criticalStartX).attr('y', barY).attr('width', criticalWidth).attr('height', barHeight)
                             .attr('rx', (criticalStartsAtBeginning && !forceSquareStart) || criticalEndsAtEnd ? barRadius : 0)
                             .attr('ry', (criticalStartsAtBeginning && !forceSquareStart) || criticalEndsAtEnd ? barRadius : 0)
-                            .style('fill', criticalPathColor)
-                            .style('opacity', barOpacity);
+                            .style('fill', criticalPathColor).style('opacity', barOpacity);
                     }
                 }
             }
 
+            // --- Update Expand Icon ---
             const expandIcon = group.isExpanded ? '\u25BC' : '\u25B6';
-            const mutedTextColor = this.resolveColor("#777777", "foreground");
+            const mutedTextColor = self.resolveColor("#777777", "foreground");
             const iconColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
 
-            headerGroup.append('text')
-                .attr('class', 'wbs-expand-icon')
-                .attr('x', Math.round(-currentLeftMargin + indent + 8))
+            g.select('.wbs-expand-icon')
+                .attr('x', -currentLeftMargin + indent + 8)
                 .attr('y', Math.round(bandCenter - 2))
                 .style('font-size', `${taskNameFontSize}px`)
-                .style('font-family', this.getFontFamily())
+                .style('font-family', self.getFontFamily())
                 .style('fill', iconColor)
                 .text(expandIcon);
 
-            const baseName = group.name;
-            const tasksLabel = this.getLocalizedString("wbs.tasksLabel", "tasks");
-            const visibleLabel = this.getLocalizedString("wbs.visibleLabel", "visible");
-            let countSuffix = "";
-            if (group.taskCount > 0) {
-                if (group.visibleTaskCount < group.taskCount) {
-                    countSuffix = `${group.visibleTaskCount}/${group.taskCount} ${visibleLabel}`;
-                } else if (!group.isExpanded) {
-                    countSuffix = `${group.taskCount} ${tasksLabel}`;
-                }
-            }
-            const displayName = countSuffix ? `${baseName} - ${countSuffix}` : baseName;
+            // --- Update Group Name & Dates ---
 
-            const textColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
-            const textOpacity = (group.visibleTaskCount === 0) ? 0.65 : 1.0;
-
-            // ----- WBS Summary Dates Rendering -----
-            const cols = this.settings.columns;
-            const showExtra = this.showExtraColumnsInternal;
+            // Re-calculate layout cols
+            const cols = self.settings.columns;
+            const showExtra = self.showExtraColumnsInternal;
             const showStart = showExtra && cols.showStartDate.value;
             const startWidth = cols.startDateWidth.value;
             const showFinish = showExtra && cols.showFinishDate.value;
@@ -10496,37 +10506,19 @@ export class Visual implements IVisual {
             occupiedWidth += columnPadding;
             collisionWidth += columnPadding;
 
-            const floatOffset = showFloat ? occupiedWidth : 0;
-            if (showFloat) {
-                occupiedWidth += floatWidth;
-                collisionWidth += floatWidth;
-            }
+            if (showFloat) { occupiedWidth += floatWidth; collisionWidth += floatWidth; }
+            if (showDur) { occupiedWidth += durWidth; collisionWidth += durWidth; }
 
-            const durOffset = showDur ? occupiedWidth : 0;
-            if (showDur) {
-                occupiedWidth += durWidth;
-                collisionWidth += durWidth;
-            }
-
-            // Enforce minimum width ONLY for collision calculation (text wrapping)
             const MIN_DATE_WIDTH = 80;
-
             const finishOffset = showFinish ? occupiedWidth : 0;
-            if (showFinish) {
-                occupiedWidth += finishWidth;
-                collisionWidth += Math.max(finishWidth, MIN_DATE_WIDTH);
-            }
-
+            if (showFinish) { occupiedWidth += finishWidth; collisionWidth += Math.max(finishWidth, MIN_DATE_WIDTH); }
             const startOffset = showStart ? occupiedWidth : 0;
-            if (showStart) {
-                occupiedWidth += startWidth;
-                collisionWidth += Math.max(startWidth, MIN_DATE_WIDTH);
-            }
+            if (showStart) { occupiedWidth += startWidth; collisionWidth += Math.max(startWidth, MIN_DATE_WIDTH); }
 
             const textX = -currentLeftMargin + indent + 22;
             const textY = bandCenter;
 
-            // Pre-calculate collision width for baseline/previous columns so text wrapping is correct
+            // Extra collision logic for wrapper
             if (showExtra && showBaseline) {
                 collisionWidth += Math.max(cols.baselineFinishDateWidth.value, MIN_DATE_WIDTH);
                 collisionWidth += Math.max(cols.baselineStartDateWidth.value, MIN_DATE_WIDTH);
@@ -10539,267 +10531,166 @@ export class Visual implements IVisual {
                 collisionWidth += Math.max(cols.previousUpdateStartDateWidth.value, MIN_DATE_WIDTH);
             }
 
-            // Use collisionWidth for strict text wrapping
-            const availableWidth = currentLeftMargin - indent - collisionWidth - 35;
-
-            const lineHeight = '1.1em';
-            const maxLines = 2;
+            // Remove old date labels (simple remove/redraw is fine for these simple texts)
+            g.selectAll('.wbs-summary-date').remove();
 
             const dateFontSize = Math.max(7, groupNameFontSize * 0.9);
+            const textColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
+            const textOpacity = (group.visibleTaskCount === 0) ? 0.65 : 1.0;
 
-            if (showStart && group.summaryStartDate) {
-                headerGroup.append('text')
-                    .attr('class', 'wbs-summary-date')
-                    .attr('x', Math.round(-startOffset - startWidth / 2))
-                    .attr('y', Math.round(bandCenter))
-                    .attr('text-anchor', 'middle')
-                    .attr('dominant-baseline', 'central')
-                    .style('font-size', `${dateFontSize}px`)
-                    .style('font-family', this.getFontFamily())
-                    .style('fill', textColor)
-                    .style('opacity', textOpacity)
-                    .text(this.formatDate(group.summaryStartDate));
-            }
+            // Helper to draw dates
+            const drawDate = (dateVal: Date | undefined, offset: number, width: number) => {
+                if (!dateVal) return;
+                g.append('text').attr('class', 'wbs-summary-date')
+                    .attr('x', Math.round(-offset - width / 2)).attr('y', Math.round(bandCenter))
+                    .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
+                    .style('font-size', `${dateFontSize}px`).style('font-family', self.getFontFamily())
+                    .style('fill', textColor).style('opacity', textOpacity)
+                    .text(self.formatDate(dateVal));
+            };
+            const drawColDate = (dateVal: Date | undefined, offset: number, width: number) => {
+                if (!dateVal) return;
+                g.append('text').attr('class', 'wbs-summary-date')
+                    .attr('x', Math.round(-offset - width / 2)).attr('y', Math.round(bandCenter))
+                    .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
+                    .style('font-size', `${dateFontSize}px`).style('font-family', self.getFontFamily())
+                    .style('fill', textColor).style('opacity', textOpacity)
+                    .text(self.formatColumnDate(dateVal));
+            };
 
-            if (showFinish && group.summaryFinishDate) {
-                headerGroup.append('text')
-                    .attr('class', 'wbs-summary-date')
-                    .attr('x', Math.round(-finishOffset - finishWidth / 2))
-                    .attr('y', Math.round(bandCenter))
-                    .attr('text-anchor', 'middle')
-                    .attr('dominant-baseline', 'central')
-                    .style('font-size', `${dateFontSize}px`)
-                    .style('font-family', this.getFontFamily())
-                    .style('fill', textColor)
-                    .style('opacity', textOpacity)
-                    .text(this.formatDate(group.summaryFinishDate));
-            }
+            if (showStart) drawDate(group.summaryStartDate, startOffset, startWidth);
+            if (showFinish) drawDate(group.summaryFinishDate, finishOffset, finishWidth);
 
-            // --- Baseline Dates ---
-            // Removed duplicate declaration
+            // Baseline/Previous Dates Logic (Complex nesting from before, simplified here)
             if (showExtra && showBaseline) {
+                // occupiedWidth is already including Float/Dur/Finish/Start.
+                // We need to carry on.
                 const bStartWidth = cols.baselineStartDateWidth.value;
                 const bFinishWidth = cols.baselineFinishDateWidth.value;
-                // Calculate offsets: Start, Finish, Duration(opt), Float(opt) are already in 'occupiedWidth'
-                // But we need to check the ORDER.
-                // The order in drawColumnHeaders is:
-                // Float (Leftmost, near margin) -> Duration -> Finish -> Start -> Prev Finish -> Prev Start -> Base Finish -> Base Start
 
-                // Re-calculate occupiedWidth based on ALL columns to follow the right-to-left stacking
-                // Current occupiedWidth includes Finish, Start, Duration, Float.
-                // Order from Right (Grid Edge) to Left:
-                // 1. Float
-                // 2. Duration
-                // 3. Finish
-                // 4. Start
-                // 5. Previous Finish
-                // 6. Previous Start
-                // 7. Baseline Finish
-                // 8. Baseline Start
+                if (showPreviousUpdate) {
+                    const pFinishWidth = cols.previousUpdateFinishDateWidth.value;
+                    const pStartWidth = cols.previousUpdateStartDateWidth.value;
+                    const pFinishOffset = occupiedWidth; occupiedWidth += pFinishWidth;
+                    drawColDate(group.summaryPreviousUpdateFinishDate, pFinishOffset, pFinishWidth);
 
-                // Existing code at line 10653 calculates occupiedWidth for Float, Dur, Finish, Start.
-                // So now 'occupiedWidth' is at the left edge of 'Start' column.
-                // We continue adding widths for new columns.
+                    const pStartOffset = occupiedWidth; occupiedWidth += pStartWidth;
+                    drawColDate(group.summaryPreviousUpdateStartDate, pStartOffset, pStartWidth);
+                }
 
-                // Previous Update Columns
-                const showPrevious = this.showPreviousUpdateInternal;
+                const bFinishOffset = occupiedWidth; occupiedWidth += bFinishWidth;
+                drawColDate(group.summaryBaselineFinishDate, bFinishOffset, bFinishWidth);
+
+                const bStartOffset = occupiedWidth; occupiedWidth += bStartWidth;
+                drawColDate(group.summaryBaselineStartDate, bStartOffset, bStartWidth);
+
+            } else if (showExtra && showPreviousUpdate) {
                 const pFinishWidth = cols.previousUpdateFinishDateWidth.value;
                 const pStartWidth = cols.previousUpdateStartDateWidth.value;
+                const pFinishOffset = occupiedWidth; occupiedWidth += pFinishWidth;
+                drawColDate(group.summaryPreviousUpdateFinishDate, pFinishOffset, pFinishWidth);
 
-                if (showPrevious) {
-                    // Previous Finish
-                    const pFinishOffset = occupiedWidth;
-                    occupiedWidth += pFinishWidth;
-                    collisionWidth += Math.max(pFinishWidth, MIN_DATE_WIDTH);
-
-                    if (group.summaryPreviousUpdateFinishDate) {
-                        headerGroup.append('text')
-                            .attr('class', 'wbs-summary-date')
-                            .attr('x', Math.round(-pFinishOffset - pFinishWidth / 2))
-                            .attr('y', Math.round(bandCenter))
-                            .attr('text-anchor', 'middle')
-                            .attr('dominant-baseline', 'central')
-                            .style('font-size', `${dateFontSize}px`)
-                            .style('font-family', this.getFontFamily())
-                            .style('fill', textColor)
-                            .style('opacity', textOpacity)
-                            .text(this.formatColumnDate(group.summaryPreviousUpdateFinishDate));
-                    }
-
-                    // Previous Start
-                    const pStartOffset = occupiedWidth;
-                    occupiedWidth += pStartWidth;
-                    collisionWidth += Math.max(pStartWidth, MIN_DATE_WIDTH);
-
-                    if (group.summaryPreviousUpdateStartDate) {
-                        headerGroup.append('text')
-                            .attr('class', 'wbs-summary-date')
-                            .attr('x', Math.round(-pStartOffset - pStartWidth / 2))
-                            .attr('y', Math.round(bandCenter))
-                            .attr('text-anchor', 'middle')
-                            .attr('dominant-baseline', 'central')
-                            .style('font-size', `${dateFontSize}px`)
-                            .style('font-family', this.getFontFamily())
-                            .style('fill', textColor)
-                            .style('opacity', textOpacity)
-                            .text(this.formatColumnDate(group.summaryPreviousUpdateStartDate));
-                    }
-                }
-
-                // Baseline Columns
-                // Baseline Finish
-                const bFinishOffset = occupiedWidth;
-                occupiedWidth += bFinishWidth;
-                collisionWidth += Math.max(bFinishWidth, MIN_DATE_WIDTH);
-
-                if (group.summaryBaselineFinishDate) {
-                    headerGroup.append('text')
-                        .attr('class', 'wbs-summary-date')
-                        .attr('x', Math.round(-bFinishOffset - bFinishWidth / 2))
-                        .attr('y', Math.round(bandCenter))
-                        .attr('text-anchor', 'middle')
-                        .attr('dominant-baseline', 'central')
-                        .style('font-size', `${dateFontSize}px`)
-                        .style('font-family', this.getFontFamily())
-                        .style('fill', textColor)
-                        .style('opacity', textOpacity)
-                        .text(this.formatColumnDate(group.summaryBaselineFinishDate));
-                }
-
-                // Baseline Start
-                const bStartOffset = occupiedWidth;
-                occupiedWidth += bStartWidth;
-                collisionWidth += Math.max(bStartWidth, MIN_DATE_WIDTH);
-
-                if (group.summaryBaselineStartDate) {
-                    headerGroup.append('text')
-                        .attr('class', 'wbs-summary-date')
-                        .attr('x', Math.round(-bStartOffset - bStartWidth / 2))
-                        .attr('y', Math.round(bandCenter))
-                        .attr('text-anchor', 'middle')
-                        .attr('dominant-baseline', 'central')
-                        .style('font-size', `${dateFontSize}px`)
-                        .style('font-family', this.getFontFamily())
-                        .style('fill', textColor)
-                        .style('opacity', textOpacity)
-                        .text(this.formatColumnDate(group.summaryBaselineStartDate));
-                }
-
-                // Update collisionWidth for text wrapping
-            } else if (showExtra && this.showPreviousUpdateInternal) {
-                // Even if baseline is off, previous might be on.
-                // (Strictly speaking I should unnest this logic but following the structure above)
-                const showPrevious = this.showPreviousUpdateInternal;
-                const pFinishWidth = cols.previousUpdateFinishDateWidth.value;
-                const pStartWidth = cols.previousUpdateStartDateWidth.value;
-
-                // Previous Finish
-                const pFinishOffset = occupiedWidth;
-                occupiedWidth += pFinishWidth;
-                collisionWidth += Math.max(pFinishWidth, MIN_DATE_WIDTH);
-
-                if (group.summaryPreviousUpdateFinishDate) {
-                    headerGroup.append('text')
-                        .attr('class', 'wbs-summary-date')
-                        .attr('x', Math.round(-pFinishOffset - pFinishWidth / 2))
-                        .attr('y', Math.round(bandCenter))
-                        .attr('text-anchor', 'middle')
-                        .attr('dominant-baseline', 'central')
-                        .style('font-size', `${dateFontSize}px`)
-                        .style('font-family', this.getFontFamily())
-                        .style('fill', textColor)
-                        .style('opacity', textOpacity)
-                        .text(this.formatColumnDate(group.summaryPreviousUpdateFinishDate));
-                }
-
-                // Previous Start
-                const pStartOffset = occupiedWidth;
-                occupiedWidth += pStartWidth;
-                collisionWidth += Math.max(pStartWidth, MIN_DATE_WIDTH);
-
-                if (group.summaryPreviousUpdateStartDate) {
-                    headerGroup.append('text')
-                        .attr('class', 'wbs-summary-date')
-                        .attr('x', Math.round(-pStartOffset - pStartWidth / 2))
-                        .attr('y', Math.round(bandCenter))
-                        .attr('text-anchor', 'middle')
-                        .attr('dominant-baseline', 'central')
-                        .style('font-size', `${dateFontSize}px`)
-                        .style('font-family', this.getFontFamily())
-                        .style('fill', textColor)
-                        .style('opacity', textOpacity)
-                        .text(this.formatColumnDate(group.summaryPreviousUpdateStartDate));
-                }
+                const pStartOffset = occupiedWidth; occupiedWidth += pStartWidth;
+                drawColDate(group.summaryPreviousUpdateStartDate, pStartOffset, pStartWidth);
             }
-            // ---------------------------------------
 
-            // Skip rendering group name text when margin is too narrow (matches task label behavior)
+
+            // --- Group Name with Stable Wrapping ---
+            const availableWidth = currentLeftMargin - indent - collisionWidth - 35;
             const showGroupName = availableWidth > 20;
 
-            if (showGroupName) {
-                const textElement = headerGroup.append('text')
-                    .attr('class', 'wbs-group-name')
-                    .attr('clip-path', 'url(#clip-left-margin)')
-                    .attr('x', Math.round(textX))
+            const textElement = g.select('.wbs-group-name');
+
+            if (!showGroupName) {
+                textElement.style('display', 'none');
+            } else {
+                textElement.style('display', null);
+
+                // Construct display name
+                const baseName = group.name;
+                const tasksLabel = self.getLocalizedString("wbs.tasksLabel", "tasks");
+                const visibleLabel = self.getLocalizedString("wbs.visibleLabel", "visible");
+                let countSuffix = "";
+                if (group.taskCount > 0) {
+                    if (group.visibleTaskCount < group.taskCount) {
+                        countSuffix = `${group.visibleTaskCount}/${group.taskCount} ${visibleLabel}`;
+                    } else if (!group.isExpanded) {
+                        countSuffix = `${group.taskCount} ${tasksLabel}`;
+                    }
+                }
+                const displayName = countSuffix ? `${baseName} - ${countSuffix}` : baseName;
+
+                // Update basic styles
+                textElement
+                    .attr('x', textX)
                     .attr('y', Math.round(textY))
-                    // vertical alignment handled via dy to support iOS
                     .style('font-size', `${groupNameFontSize}px`)
-                    .style('font-family', this.getFontFamily())
-                    .style('font-weight', '600')
+                    .style('font-family', self.getFontFamily())
                     .style('fill', textColor)
                     .style('opacity', textOpacity);
+
+                // ROBUST WRAPPING (Replicated from drawTaskLabelsLayer)
+                // Only update tspans if necessary? 
+                // Actually, checking content is hard. Just re-running the wrapping logic is fine 
+                // as long as the PARENT node (textElement) is not destroyed.
+
+                textElement.text(null); // Clear previous tspans
 
                 const words = displayName.split(/\s+/).reverse();
                 let word: string | undefined;
                 let line: string[] = [];
-                let firstTspan = textElement.text(null).append('tspan')
-                    .attr('x', Math.round(textX))
+                let firstTspan = textElement.append('tspan')
+                    .attr('x', textX)
                     .attr('y', Math.round(textY))
                     .attr('dy', '0.35em');
                 let tspan = firstTspan;
                 let lineCount = 1;
+                const maxLines = 2;
+                const lineHeight = '1.1em';
 
                 while (word = words.pop()) {
                     line.push(word);
                     tspan.text(line.join(' '));
                     try {
                         const node = tspan.node();
-                        if (node && node.getComputedTextLength() > availableWidth && line.length > 1) {
-                            line.pop();
-                            tspan.text(line.join(' '));
-
-                            if (lineCount < maxLines) {
+                        if (node && node.getComputedTextLength() > availableWidth) {
+                            if (line.length > 1) {
+                                line.pop();
+                                tspan.text(line.join(' '));
                                 line = [word];
+                                if (lineCount >= maxLines) {
+                                    tspan.text(tspan.text() + "...");
+                                    break;
+                                }
+                                lineCount++;
                                 tspan = textElement.append('tspan')
                                     .attr('x', textX)
                                     .attr('dy', lineHeight)
                                     .text(word);
-                                lineCount++;
-                            } else {
+                                // Fix Y for first line if we have multiple lines (alignment tweak)
+                                // REMOVED to prevent jitter: if (lineCount === 2) firstTspan.attr('dy', '-0.2em');
 
-                                const currentText = tspan.text();
-                                if (currentText.length > 3) {
-                                    tspan.text(currentText.slice(0, -3) + '...');
+                            } else {
+                                // Single word longer than width
+                                let subWord = word;
+                                let subWordLen = subWord.length; // Safety check
+                                while (subWordLen > 0 && tspan.node()?.getComputedTextLength()! > availableWidth) {
+                                    subWord = subWord.slice(0, -1);
+                                    subWordLen = subWord.length;
+                                    tspan.text(subWord + "...");
                                 }
+                                if (subWord.length === 0) tspan.text("...");
                                 break;
                             }
                         }
                     } catch (e) {
-
                         tspan.text(line.join(' '));
                         break;
                     }
                 }
-
-                // Keep first line position consistent
-                // if (lineCount > 1) { firstTspan.attr('dy', '-0.2em'); }
-
-                const lineHeightPx = groupNameFontSize * 1.1;
-
-            } // end if (showGroupName)
-
-            // Constrain background height to available row height to prevent overlap
-            const taskPadding = this.settings.layoutSettings.taskPadding.value || 5;
+            }
+            // --- Background & Interaction ---
+            const taskPadding = yScale.step() - taskHeight;
             const bgHeight = taskHeight + taskPadding - 1; // -1 for a tiny visual gap
 
             const bgY = bandStart;
@@ -10810,10 +10701,14 @@ export class Visual implements IVisual {
             const PUSH_THRESHOLD = 80;
             const compression = Math.max(0, PUSH_THRESHOLD - availableWidth);
             const bgIndent = Math.max(0, indent - compression);
-            const bgX = Math.round(-currentLeftMargin + bgIndent);
+            const bgX = -currentLeftMargin + bgIndent;
 
-            headerGroup.insert('rect', ':first-child')
-                .attr('class', 'wbs-header-bg')
+            let bgRect = g.select('.wbs-header-bg');
+            if (bgRect.empty()) {
+                bgRect = g.insert('rect', ':first-child').attr('class', 'wbs-header-bg');
+            }
+
+            bgRect
                 .attr('x', bgX)
                 .attr('y', Math.round(bgY))
                 .attr('width', -bgX + 1) // right edge always pinned at x=1, no jitter
@@ -10821,11 +10716,11 @@ export class Visual implements IVisual {
                 .style('fill', groupHeaderColor)
                 .style('opacity', bgOpacity);
 
-            headerGroup.on('click', function () {
+            g.on('click', function (event) {
                 self.hideTooltip();
                 self.toggleWbsGroupExpansion(group.id);
             });
-        }
+        });
     }
 
 

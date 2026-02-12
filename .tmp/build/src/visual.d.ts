@@ -163,6 +163,7 @@ export declare class Visual implements IVisual {
     private tooltipClassName;
     private isUpdating;
     private isMarginDragging;
+    private dragStartChartWidth;
     private scrollHandlerBackup;
     private updateDebounceTimeout;
     private pendingUpdate;
@@ -396,8 +397,9 @@ export declare class Visual implements IVisual {
      */
     private updateMarginResizerPosition;
     /**
-     * Handles margin-only updates during drag for real-time visual feedback
-     * Does NOT recreate the resizer or call clearVisual() to preserve drag state
+     * Optimized handler for margin-only updates during drag.
+     * Redraws everything EXCEPT connector arrows (most expensive operation).
+     * Full redraw including arrows happens on drag end via persistProperties -> update().
      */
     private handleMarginDragUpdate;
     private clearVisual;
@@ -635,6 +637,7 @@ export declare class Visual implements IVisual {
     /**
      * WBS GROUPING: Draw WBS group headers in SVG mode
      * Renders group headers with expand/collapse controls and optional summary bars
+     * Refactored to use D3 data binding to prevent DOM thrashing during drag.
      */
     private drawWbsGroupHeaders;
     private refreshDateFormatters;
