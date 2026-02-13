@@ -161,6 +161,9 @@ export class Visual implements IVisual {
     private scrollListener: any;
     private allTasksToShow: Task[] = [];
     private allFilteredTasks: Task[] = [];
+    /** Durable snapshot of filtered tasks set only during full updateInternal.
+     *  Never cleared by settings-only or viewport-only update cycles. */
+    private _lastFilteredTasksForFinishLines: Task[] = [];
     private filterKeyword: string | null = null;
 
     private lastViewport: IViewport | null = null;
@@ -3213,6 +3216,12 @@ export class Visual implements IVisual {
                 this.updateWbsFilteredCounts(tasksAfterLegendFilter);
             }
 
+            // Save the fully-filtered tasks BEFORE WBS ordering strips collapsed ones.
+            // This is the correct source for finish line calculations (same data WBS
+            // summary bars use), as it respects LP/Search/Legend filters but NOT
+            // WBS collapse state.
+            this._lastFilteredTasksForFinishLines = tasksAfterLegendFilter;
+
             let orderedTasks: Task[];
             if (wbsGroupingEnabled) {
                 orderedTasks = this.applyWbsOrdering(tasksAfterLegendFilter);
@@ -3227,6 +3236,7 @@ export class Visual implements IVisual {
             // Update allFilteredTasks with the properly ordered tasks
             // This ensures export matches display order (WBS-grouped when enabled)
             this.allFilteredTasks = orderedTasks;
+            console.log(`[DIAG-ASSIGN] allFilteredTasks=${this.allFilteredTasks.length}, durable=${this._lastFilteredTasksForFinishLines.length}`);
 
             let tasksToShow = orderedTasks;
 
@@ -7979,60 +7989,28 @@ export class Visual implements IVisual {
 
     /**
      * Gets the appropriate task set for finish line calculations.
-     * When WBS groups are collapsed, this collects all underlying tasks from visible WBS groups.
-     * This respects filters while ensuring finish lines appear correctly.
+     * Prefers `allFilteredTasks` which respects all filters (LP, Search, Legend).
+     * Falls back to `allTasksToShow` when `allFilteredTasks` is unavailable
+     * (e.g., during a settings-only update cycle from persistProperties).
      */
     private getTasksForFinishLines(): Task[] {
-        const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-
-        if (!wbsGroupingEnabled) {
-            // No WBS grouping - use filtered tasks if available, otherwise all tasks
-            if (this.allFilteredTasks && this.allFilteredTasks.length > 0) {
-                return this.allFilteredTasks;
-            }
-            return this.allTasksData;
+        const aft = this.allFilteredTasks?.length ?? 0;
+        const dur = this._lastFilteredTasksForFinishLines?.length ?? 0;
+        const ats = this.allTasksToShow?.length ?? 0;
+        console.log(`[DIAG-FINISH] allFilteredTasks=${aft}, durable=${dur}, allTasksToShow=${ats}`);
+        // Primary: current filtered tasks (set by full updateInternal)
+        if (this.allFilteredTasks && this.allFilteredTasks.length > 0) {
+            return this.allFilteredTasks;
         }
-
-        // WBS grouping enabled - collect underlying tasks from visible WBS groups
-        const tasksFromGroups: Task[] = [];
-        const addedTaskIds = new Set<string>();
-
-        // Helper to recursively collect tasks from a WBS group and its children
-        const collectTasksFromGroup = (group: WBSGroup): void => {
-            // If group is expanded, we only add its direct tasks here
-            // Its children will be processed separately
-            if (group.isExpanded) {
-                for (const task of group.tasks) {
-                    if (!addedTaskIds.has(task.internalId)) {
-                        tasksFromGroups.push(task);
-                        addedTaskIds.add(task.internalId);
-                    }
-                }
-                // Process expanded children
-                for (const child of group.children) {
-                    collectTasksFromGroup(child);
-                }
-            } else {
-                // Group is collapsed - recursively add ALL underlying tasks
-                for (const task of group.tasks) {
-                    if (!addedTaskIds.has(task.internalId)) {
-                        tasksFromGroups.push(task);
-                        addedTaskIds.add(task.internalId);
-                    }
-                }
-                for (const child of group.children) {
-                    collectTasksFromGroup(child);
-                }
-            }
-        };
-
-        // Process all root-level WBS groups
-        for (const group of this.wbsRootGroups) {
-            collectTasksFromGroup(group);
+        // Durable fallback: last known good filtered tasks (survives settings-only updates)
+        if (this._lastFilteredTasksForFinishLines && this._lastFilteredTasksForFinishLines.length > 0) {
+            return this._lastFilteredTasksForFinishLines;
         }
-
-        // If we found tasks from WBS groups, use those; otherwise fall back to allTasksData
-        return tasksFromGroups.length > 0 ? tasksFromGroups : this.allTasksData;
+        // Last resort
+        if (this.allTasksToShow && this.allTasksToShow.length > 0) {
+            return this.allTasksToShow;
+        }
+        return this.allTasksData || [];
     }
 
 
@@ -10690,7 +10668,7 @@ export class Visual implements IVisual {
                 }
             }
             // --- Background & Interaction ---
-            const taskPadding = yScale.step() - taskHeight;
+            const taskPadding = self.settings.layoutSettings.taskPadding.value;
             const bgHeight = taskHeight + taskPadding - 1; // -1 for a tiny visual gap
 
             const bgY = bandStart;

@@ -118,6 +118,9 @@ export declare class Visual implements IVisual {
     private scrollListener;
     private allTasksToShow;
     private allFilteredTasks;
+    /** Durable snapshot of filtered tasks set only during full updateInternal.
+     *  Never cleared by settings-only or viewport-only update cycles. */
+    private _lastFilteredTasksForFinishLines;
     private filterKeyword;
     private lastViewport;
     private renderStartTime;
@@ -481,8 +484,9 @@ export declare class Visual implements IVisual {
     private getLineDashArray;
     /**
      * Gets the appropriate task set for finish line calculations.
-     * When WBS groups are collapsed, this collects all underlying tasks from visible WBS groups.
-     * This respects filters while ensuring finish lines appear correctly.
+     * Prefers `allFilteredTasks` which respects all filters (LP, Search, Legend).
+     * Falls back to `allTasksToShow` when `allFilteredTasks` is unavailable
+     * (e.g., during a settings-only update cycle from persistProperties).
      */
     private getTasksForFinishLines;
     private getLatestFinishDate;
