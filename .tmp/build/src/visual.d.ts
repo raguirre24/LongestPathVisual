@@ -165,6 +165,8 @@ export declare class Visual implements IVisual {
     private wbsToggleScrollAnchor;
     private tooltipClassName;
     private isUpdating;
+    private isViewportTransitioning;
+    private viewportDownsizeCooldownUntil;
     private isMarginDragging;
     private dragStartChartWidth;
     private scrollHandlerBackup;
@@ -388,6 +390,21 @@ export declare class Visual implements IVisual {
     private updateInternal;
     private updateRenderOnly;
     private handleViewportOnlyUpdate;
+    /**
+     * Hides visual content to prevent visible layout thrashing during
+     * significant viewport changes (e.g. entering/exiting Focus Mode).
+     *
+     * Uses opacity (not visibility) because CSS visibility on a parent CAN
+     * be overridden by children that set visibility:visible — which happens
+     * when showLoading(false) restores mainSvg visibility.  Opacity on a
+     * parent creates a stacking context that children cannot override.
+     */
+    private hideContentForResize;
+    /**
+     * Reveals visual content after rendering has completed,
+     * producing a clean single-frame transition.
+     */
+    private revealContentAfterResize;
     private handleSettingsOnlyUpdate;
     /**
      * Creates the left margin resizer used to resize the label column.

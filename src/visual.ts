@@ -226,6 +226,8 @@ export class Visual implements IVisual {
 
     private tooltipClassName: string;
     private isUpdating: boolean = false;
+    private isViewportTransitioning: boolean = false;
+    private viewportDownsizeCooldownUntil: number = 0;
     private isMarginDragging: boolean = false;
     private dragStartChartWidth: number = 0;
     private scrollHandlerBackup: (() => void) | null = null;
@@ -2567,7 +2569,52 @@ export class Visual implements IVisual {
             const actualWidth = this.target.clientWidth;
             const actualHeight = this.target.clientHeight;
 
-            if (options.viewport.width < actualWidth || options.viewport.height < actualHeight) {
+            // Detect downsize transition (exiting Focus Mode): PBI sends a significantly
+            // smaller viewport than what we last rendered.
+            const isDownsizing = this.lastViewport && (
+                (this.lastViewport.width - options.viewport.width) / (this.lastViewport.width || 1) > this.VIEWPORT_CHANGE_THRESHOLD ||
+                (this.lastViewport.height - options.viewport.height) / (this.lastViewport.height || 1) > this.VIEWPORT_CHANGE_THRESHOLD
+            );
+
+            // Active cooldown from a recent downsize — prevents viewport-max-override
+            const inDownsizeCooldown = Date.now() < this.viewportDownsizeCooldownUntil;
+
+            if (isDownsizing) {
+                this.debugLog(`Downsize transition detected. Hiding content and waiting for container to settle.`);
+                this.viewportDownsizeCooldownUntil = Date.now() + 1500;
+                this.hideContentForResize();
+                this.lastViewport = options.viewport;
+                this.lastUpdateOptions = options;
+                // Don't render now — container hasn't shrunk yet.
+                // Schedule a clean re-render after the container has settled.
+                setTimeout(() => {
+                    this.viewportDownsizeCooldownUntil = 0; // Clear cooldown
+                    if (this.target) {
+                        const settledWidth = this.target.clientWidth;
+                        const settledHeight = this.target.clientHeight;
+                        this.debugLog(`Container settled at [${settledWidth}x${settledHeight}]. Triggering clean re-render.`);
+                        const settledOptions: VisualUpdateOptions = {
+                            ...options,
+                            viewport: { width: settledWidth, height: settledHeight }
+                        };
+                        this.lastViewport = settledOptions.viewport;
+                        this.updateInternal(settledOptions)
+                            .then(() => {
+                                requestAnimationFrame(() => this.revealContentAfterResize());
+                            })
+                            .catch(error => {
+                                console.error("Error during settled update:", error);
+                                this.revealContentAfterResize();
+                            });
+                    } else {
+                        this.revealContentAfterResize();
+                    }
+                }, 300);
+                return;
+            } else if (inDownsizeCooldown) {
+                this.debugLog(`In downsize cooldown — skipping update`);
+                return;
+            } else if (options.viewport.width < actualWidth || options.viewport.height < actualHeight) {
                 this.debugLog(`Viewport mismatch detected. Override: [${options.viewport.width}x${options.viewport.height}] -> [${actualWidth}x${actualHeight}]`);
                 options = {
                     ...options,
@@ -2634,6 +2681,16 @@ export class Visual implements IVisual {
             const updateType = this.determineUpdateType(options);
             this.debugLog(`Update type detected: ${updateType}`);
 
+            // Hide content during significant viewport changes (e.g. Focus Mode)
+            // to prevent the 3-step layout thrashing stutter
+            if (updateType === UpdateType.Full && this.lastViewport) {
+                const widthRatio = Math.abs(options.viewport.width - this.lastViewport.width) / (this.lastViewport.width || 1);
+                const heightRatio = Math.abs(options.viewport.height - this.lastViewport.height) / (this.lastViewport.height || 1);
+                if (widthRatio > this.VIEWPORT_CHANGE_THRESHOLD || heightRatio > this.VIEWPORT_CHANGE_THRESHOLD) {
+                    this.hideContentForResize();
+                }
+            }
+
             // ... (rest of logic) ...
 
 
@@ -2692,10 +2749,16 @@ export class Visual implements IVisual {
 
             const dataView = options.dataViews[0];
             const viewport = options.viewport;
-            // Always use the larger of options.viewport and the actual container size
-            // This ensures we fill focus mode even if Power BI sends stale/frozen dimensions
-            const viewportWidth = Math.max(viewport.width, this.target?.clientWidth ?? viewport.width);
-            const viewportHeight = Math.max(viewport.height, this.target?.clientHeight ?? viewport.height);
+            // Use the larger of options.viewport and the actual container size,
+            // UNLESS we are in a downsize cooldown (exiting Focus Mode) where
+            // the container hasn't shrunk yet but PBI's viewport is authoritative.
+            const inCooldown = Date.now() < this.viewportDownsizeCooldownUntil;
+            const viewportWidth = inCooldown
+                ? viewport.width
+                : Math.max(viewport.width, this.target?.clientWidth ?? viewport.width);
+            const viewportHeight = inCooldown
+                ? viewport.height
+                : Math.max(viewport.height, this.target?.clientHeight ?? viewport.height);
             const dataSignature = this.getDataSignature(dataView);
             const dataChanged = (options.type & VisualUpdateType.Data) !== 0 ||
                 this.lastDataSignature !== dataSignature;
@@ -3251,6 +3314,12 @@ export class Visual implements IVisual {
             }
             this.isUpdating = false;
 
+            // Reveal content after rendering completes — uses rAF to ensure
+            // the browser paints the fully-rendered frame in one shot
+            if (this.isViewportTransitioning) {
+                requestAnimationFrame(() => this.revealContentAfterResize());
+            }
+
             if (this.scrollHandlerBackup && this.scrollableContainer) {
                 this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
                 this.scrollHandlerBackup = null;
@@ -3261,6 +3330,13 @@ export class Visual implements IVisual {
             // Sometime webviews report 0 or incorrect size initially, and even ResizeObserver might race.
             // A short delay double-check ensures we catch these late layout settlements.
             setTimeout(() => {
+                // Skip safeguard during downsize cooldown — the container hasn't
+                // shrunk yet but PBI's viewport is authoritative, so the mismatch
+                // is expected and should not trigger a forced update.
+                if (Date.now() < this.viewportDownsizeCooldownUntil) {
+                    this.debugLog(`[Safeguard] Skipped — in downsize cooldown`);
+                    return;
+                }
                 if (this.target && this.lastViewport) {
                     const currentWidth = this.target.clientWidth;
                     const currentHeight = this.target.clientHeight;
@@ -3318,7 +3394,9 @@ export class Visual implements IVisual {
         let viewportWidth = options.viewport.width;
         let viewportHeight = options.viewport.height;
 
-        if (this.target) {
+        // Use the full available width from the container if larger than the options viewport,
+        // UNLESS we are in a downsize cooldown (exiting Focus Mode).
+        if (this.target && Date.now() >= this.viewportDownsizeCooldownUntil) {
             viewportWidth = Math.max(viewportWidth, this.target.clientWidth);
             viewportHeight = Math.max(viewportHeight, this.target.clientHeight);
         }
@@ -3386,7 +3464,45 @@ export class Visual implements IVisual {
             );
         }
 
+        // Reveal if we were transitioning (viewport-only path)
+        if (this.isViewportTransitioning) {
+            requestAnimationFrame(() => this.revealContentAfterResize());
+        }
+
         this.debugLog("--- Visual Update End (Viewport Only) ---");
+    }
+
+    /**
+     * Hides visual content to prevent visible layout thrashing during
+     * significant viewport changes (e.g. entering/exiting Focus Mode).
+     *
+     * Uses opacity (not visibility) because CSS visibility on a parent CAN
+     * be overridden by children that set visibility:visible — which happens
+     * when showLoading(false) restores mainSvg visibility.  Opacity on a
+     * parent creates a stacking context that children cannot override.
+     */
+    private hideContentForResize(): void {
+        this.isViewportTransitioning = true;
+        if (this.target) {
+            d3.select(this.target).select(".visual-wrapper")
+                .style("opacity", "0")
+                .style("pointer-events", "none");
+        }
+        this.debugLog("Content hidden for viewport transition");
+    }
+
+    /**
+     * Reveals visual content after rendering has completed,
+     * producing a clean single-frame transition.
+     */
+    private revealContentAfterResize(): void {
+        this.isViewportTransitioning = false;
+        if (this.target) {
+            d3.select(this.target).select(".visual-wrapper")
+                .style("opacity", "1")
+                .style("pointer-events", null);
+        }
+        this.debugLog("Content revealed after viewport transition");
     }
 
     private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
@@ -5351,6 +5467,11 @@ export class Visual implements IVisual {
             console.error("Cannot draw tasks: Missing task layer or invalid scales/bandwidth.");
             return;
         }
+
+        // Force a clean slate: Clear all existing task groups.
+        // This aligns behavior with drawArrows/drawWbsGroupHeaders and prevents stale
+        // D3 data binding from causing layout issues during rapid Focus Mode transitions.
+        this.taskLayer.selectAll("*").remove();
 
         const showTooltips = this.settings.generalSettings.showTooltips.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
