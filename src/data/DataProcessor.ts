@@ -40,7 +40,7 @@ export interface ProcessedData {
 }
 
 export class DataProcessor {
-    private debug: boolean = true;
+    private debug: boolean = false;
 
     // Temporary state during processing
     private lastUpdateOptions: { dataViews: DataView[] } | undefined;
@@ -500,9 +500,9 @@ export class DataProcessor {
             : null;
 
         if (rowIndex < 5) {
-            console.log(`[DEBUG] Task ${taskId} - manualStartIdx: ${manualStartDateIdx}, manualFinishIdx: ${manualFinishDateIdx}`);
-            console.log(`[DEBUG] Task ${taskId} - manualStartVal: ${row[manualStartDateIdx]}, manualFinishVal: ${row[manualFinishDateIdx]}`);
-            console.log(`[DEBUG] Task ${taskId} - parsedStart: ${manualStartDate}, parsedFinish: ${manualFinishDate}`);
+            this.debugLog(`[DEBUG] Task ${taskId} - manualStartIdx: ${manualStartDateIdx}, manualFinishIdx: ${manualFinishDateIdx}`);
+            this.debugLog(`[DEBUG] Task ${taskId} - manualStartVal: ${row[manualStartDateIdx]}, manualFinishVal: ${row[manualFinishDateIdx]}`);
+            this.debugLog(`[DEBUG] Task ${taskId} - parsedStart: ${manualStartDate}, parsedFinish: ${manualFinishDate}`);
         }
 
 

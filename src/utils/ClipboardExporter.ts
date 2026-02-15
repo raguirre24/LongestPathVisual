@@ -7,6 +7,9 @@
 import { Task, WBSGroup } from '../data/Interfaces';
 import * as d3 from 'd3';
 
+/** Set to true to enable debug logging for clipboard operations */
+const DEBUG = false;
+
 /**
  * Configuration for clipboard export
  */
@@ -56,7 +59,7 @@ export async function exportToClipboard(config: ClipboardExportConfig): Promise<
 
         // WBS-only export mode: When WBS is enabled but no tasks are visible
         if (showWbs && areTasksVisible === false && visibleWbsGroups && visibleWbsGroups.length > 0) {
-            console.log("[ClipboardExporter] WBS-only mode: Exporting visible WBS groups without tasks");
+            if (DEBUG) console.log("[ClipboardExporter] WBS-only mode: Exporting visible WBS groups without tasks");
 
             const { tsvContent, htmlContent } = generateWbsOnlyContent(visibleWbsGroups, dateFormatter);
             await copyToClipboard(tsvContent, htmlContent, visibleWbsGroups.length, onSuccess, onError);
@@ -447,7 +450,7 @@ async function copyToClipboard(
     // 1. Try Modern Async Clipboard API (for rich HTML + Text)
     if (navigator.clipboard && navigator.clipboard.write) {
         try {
-            console.log("[ClipboardExporter] Using modern Async Clipboard API");
+            if (DEBUG) console.log("[ClipboardExporter] Using modern Async Clipboard API");
 
             // ClipboardItem requires Blob
             const textBlob = new Blob([tsvContent], { type: 'text/plain' });
@@ -467,7 +470,7 @@ async function copyToClipboard(
             // Fall through to legacy method
         }
     } else {
-        console.log("[ClipboardExporter] Async Clipboard API not available. Using legacy fallback.");
+        if (DEBUG) console.log("[ClipboardExporter] Async Clipboard API not available. Using legacy fallback.");
     }
 
     // 2. Legacy Fallback: execCommand('copy')
@@ -489,7 +492,7 @@ async function copyToClipboard(
         document.removeEventListener('copy', handler);
 
         if (successful) {
-            console.log("[ClipboardExporter] Legacy copy via event listener successful");
+            if (DEBUG) console.log("[ClipboardExporter] Legacy copy via event listener successful");
             onSuccess?.(taskCount);
             return;
         } else {
@@ -514,7 +517,7 @@ async function copyToClipboard(
 
         const successful = document.execCommand('copy');
         if (successful) {
-            console.log("[ClipboardExporter] Legacy Text copy successful");
+            if (DEBUG) console.log("[ClipboardExporter] Legacy Text copy successful");
             onSuccess?.(taskCount);
         } else {
             console.error("[ClipboardExporter] All clipbord copy methods failed.");

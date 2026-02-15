@@ -30,6 +30,7 @@ import { DataProcessor, ProcessedData } from "./data/DataProcessor";
 import { Header, HeaderCallbacks, HeaderState } from "./components/Header";
 import { Task, WBSGroup, Relationship, DropdownItem, UpdateType } from "./data/Interfaces";
 import { exportToClipboard } from "./utils/ClipboardExporter";
+import { UI_TOKENS, LAYOUT_BREAKPOINTS } from "./utils/Theme";
 
 
 export class Visual implements IVisual {
@@ -157,8 +158,8 @@ export class Visual implements IVisual {
     private visibleTaskCount: number = 0;
     private taskTotalCount: number = 0;
     private taskElementHeight: number = 0;
-    private scrollThrottleTimeout: any | null = null;
-    private scrollListener: any;
+    private scrollThrottleTimeout: ReturnType<typeof setTimeout> | null = null;
+    private scrollListener: (() => void) | null = null;
     private allTasksToShow: Task[] = [];
     private allFilteredTasks: Task[] = [];
     /** Durable snapshot of filtered tasks set only during full updateInternal.
@@ -227,9 +228,9 @@ export class Visual implements IVisual {
     private isUpdating: boolean = false;
     private isMarginDragging: boolean = false;
     private dragStartChartWidth: number = 0;
-    private scrollHandlerBackup: any = null;
+    private scrollHandlerBackup: (() => void) | null = null;
 
-    private updateDebounceTimeout: any = null;
+    private updateDebounceTimeout: ReturnType<typeof setTimeout> | null = null;
     private pendingUpdate: VisualUpdateOptions | null = null;
     private readonly UPDATE_DEBOUNCE_MS = 100;
 
@@ -258,135 +259,13 @@ export class Visual implements IVisual {
     private readonly zoomTouchListenerOptions: AddEventListenerOptions = { passive: true };
 
     private dataProcessor: DataProcessor;
-    private readonly UI_TOKENS = {
-
-        height: {
-            compact: 24,
-            standard: 32,
-            comfortable: 36
-        },
-
-        radius: {
-            small: 3,
-            medium: 8,
-            large: 16,
-            pill: 20,
-            full: 9999
-        },
-
-        spacing: {
-            xs: 4,
-            sm: 6,
-            md: 10,
-            lg: 14,
-            xl: 18,
-            xxl: 24
-        },
-
-        fontSize: {
-            xs: 10,
-            sm: 11,
-            md: 12,
-            lg: 13,
-            xl: 14
-        },
-
-        fontWeight: {
-            normal: 400,
-            medium: 500,
-            semibold: 600,
-            bold: 700
-        },
-
-        color: {
-            primary: {
-                default: '#0078D4',
-                hover: '#106EBE',
-                pressed: '#005A9E',
-                light: '#DEECF9',
-                lighter: '#EFF6FC',
-                subtle: '#F3F9FD'
-            },
-            warning: {
-                default: '#F7A800',
-                hover: '#E09200',
-                pressed: '#C87E00',
-                light: '#FFF4CE',
-                lighter: '#FFFAED',
-                subtle: '#FFFCF8'
-            },
-            success: {
-                default: '#107C10',
-                hover: '#0E6B0E',
-                pressed: '#0C5A0C',
-                light: '#DFF6DD',
-                lighter: '#F1FAF1',
-                subtle: '#F7FDF7'
-            },
-            danger: {
-                default: '#D13438',
-                hover: '#B82E31',
-                pressed: '#A0272A',
-                light: '#FDE7E9',
-                lighter: '#FEF4F5',
-                subtle: '#FFF9FA'
-            },
-            neutral: {
-                black: '#201F1E',
-                grey190: '#201F1E',
-                grey160: '#323130',
-                grey140: '#484644',
-                grey130: '#605E5C',
-                grey90: '#A19F9D',
-                grey60: '#C8C6C4',
-                grey40: '#D2D0CE',
-                grey30: '#EDEBE9',
-                grey20: '#F3F2F1',
-                grey10: '#FAF9F8',
-                grey5: '#FCFCFC',
-                white: '#FFFFFF'
-            }
-        },
-
-        shadow: {
-            1: '0 0.5px 1px rgba(0, 0, 0, 0.08)',
-            2: '0 1px 2px rgba(0, 0, 0, 0.08), 0 0.5px 1px rgba(0, 0, 0, 0.04)',
-            4: '0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)',
-            8: '0 4px 8px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08)',
-            16: '0 8px 16px rgba(0, 0, 0, 0.14), 0 4px 8px rgba(0, 0, 0, 0.1)',
-            24: '0 12px 24px rgba(0, 0, 0, 0.16), 0 6px 12px rgba(0, 0, 0, 0.12)'
-        },
-
-        motion: {
-            duration: {
-                instant: 0,
-                fast: 120,
-                normal: 200,
-                slow: 350,
-                slower: 500
-            },
-            easing: {
-                standard: 'cubic-bezier(0.4, 0, 0.2, 1)',
-                decelerate: 'cubic-bezier(0, 0, 0.2, 1)',
-                accelerate: 'cubic-bezier(0.4, 0, 1, 1)',
-                sharp: 'cubic-bezier(0.4, 0, 0.6, 1)',
-                smooth: 'cubic-bezier(0.4, 0.14, 0.3, 1)'
-            }
-        }
-    };
-
-    private readonly LAYOUT_BREAKPOINTS = {
-        wide: 850,
-        medium: 650,
-        narrow: 0
-    };
 
     /**
      * Determines the current layout mode based on viewport width
      */
     private getLayoutMode(viewportWidth: number): 'wide' | 'medium' | 'narrow' {
-        if (viewportWidth >= this.LAYOUT_BREAKPOINTS.wide) return 'wide';
-        if (viewportWidth >= this.LAYOUT_BREAKPOINTS.medium) return 'medium';
+        if (viewportWidth >= LAYOUT_BREAKPOINTS.wide) return 'wide';
+        if (viewportWidth >= LAYOUT_BREAKPOINTS.medium) return 'medium';
         return 'narrow';
     }
 
@@ -597,17 +476,17 @@ export class Visual implements IVisual {
             .style("display", "none")
             .style("align-items", "center")
             .style("gap", "4px")
-            .style("background-color", this.UI_TOKENS.color.neutral.white)
-            .style("border", `1px solid ${this.UI_TOKENS.color.primary.default}`)
+            .style("background-color", UI_TOKENS.color.neutral.white)
+            .style("border", `1px solid ${UI_TOKENS.color.primary.default}`)
             .style("border-radius", "12px")
-            .style("box-shadow", this.UI_TOKENS.shadow[2])
+            .style("box-shadow", UI_TOKENS.shadow[2])
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
             .style("font-size", "11px")
-            .style("color", this.UI_TOKENS.color.primary.default)
+            .style("color", UI_TOKENS.color.primary.default)
             .style("font-weight", "600")
             .style("letter-spacing", "0.1px")
             .style("white-space", "nowrap")
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+            .style("transition", `all ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.smooth}`);
 
         this.scrollableContainer = visualWrapper.append("div")
             .attr("class", "criticalPathContainer")
@@ -1179,8 +1058,36 @@ export class Visual implements IVisual {
             styleElement.remove();
         }
 
+        // Clean up canvas element
+        if (this.canvasElement) {
+            this.canvasElement.remove();
+            this.canvasElement = null;
+            this.canvasContext = null;
+        }
+
+        // Clean up screen reader live region appended to body
+        d3.select("body").selectAll(".sr-live-region").remove();
+
+        // Clean up loading animation style
+        const pulseStyle = document.getElementById("loading-bar-pulse-style");
+        if (pulseStyle) pulseStyle.remove();
+
         // Clean up help overlay if visible
         this.clearHelpOverlay();
+
+        // Release large data structures to allow GC
+        this.allTasksData = [];
+        this.relationships = [];
+        this.taskIdToTask.clear();
+        this.predecessorIndex.clear();
+        this.relationshipByPredecessor.clear();
+        this.relationshipIndex.clear();
+        this.legendColorMap.clear();
+        this.wbsExpandedState.clear();
+        this.wbsGroupMap.clear();
+        this.allFilteredTasks = [];
+        this.allTasksToShow = [];
+        this._lastFilteredTasksForFinishLines = [];
 
         this.debugLog("Critical Path Visual destroyed.");
     }
@@ -2006,7 +1913,7 @@ export class Visual implements IVisual {
     /**
      * Called when zoom changes - triggers visual update with throttling
      */
-    private zoomChangeTimeout: any = null;
+    private zoomChangeTimeout: ReturnType<typeof setTimeout> | null = null;
 
     private onZoomChange(): void {
 
@@ -2287,10 +2194,10 @@ export class Visual implements IVisual {
      * Falls back to direct download if the service is unavailable
      */
     private async exportToPDF(): Promise<void> {
-        console.log('[PDF Export] Starting export...');
+        this.debugLog('[PDF Export] Starting export...');
 
         if (this.isExporting) {
-            console.log('[PDF Export] Export already in progress, skipping');
+            this.debugLog('[PDF Export] Export already in progress, skipping');
             return;
         }
 
@@ -2307,19 +2214,19 @@ export class Visual implements IVisual {
             const filename = `gantt-export-${timestamp}.pdf`;
 
             // Generate PDF content
-            console.log('[PDF Export] Generating PDF content...');
+            this.debugLog('[PDF Export] Generating PDF content...');
             const pdfBase64 = await this.generatePDFContent();
-            console.log('[PDF Export] PDF content generated, size:', pdfBase64.length, 'chars');
+            this.debugLog('[PDF Export] PDF content generated, size:', pdfBase64.length, 'chars');
 
             // Try Power BI Download Service first
             if (this.downloadService) {
                 try {
-                    console.log('[PDF Export] Checking download service status...');
+                    this.debugLog('[PDF Export] Checking download service status...');
                     const status = await this.downloadService.exportStatus();
-                    console.log('[PDF Export] Export status:', status);
+                    this.debugLog('[PDF Export] Export status:', status);
 
                     if (status === PrivilegeStatus.Allowed) {
-                        console.log('[PDF Export] Triggering download via Power BI API...');
+                        this.debugLog('[PDF Export] Triggering download via Power BI API...');
                         const result = await this.downloadService.exportVisualsContentExtended(
                             pdfBase64,
                             filename,
@@ -2328,33 +2235,33 @@ export class Visual implements IVisual {
                         );
 
                         if (result.downloadCompleted) {
-                            console.log('[PDF Export] Download completed successfully:', result.fileName);
+                            this.debugLog('[PDF Export] Download completed successfully:', result.fileName);
                             return; // Success!
                         } else {
                             console.warn('[PDF Export] Download may not have completed, trying fallback...');
                         }
                     } else {
-                        console.log('[PDF Export] Export not allowed by Power BI, status:', status);
+                        this.debugLog('[PDF Export] Export not allowed by Power BI, status:', status);
                         // Still try fallback - it has better messaging for Desktop users
                     }
                 } catch (apiError) {
                     console.warn('[PDF Export] Power BI API failed, trying fallback:', apiError);
                 }
             } else {
-                console.log('[PDF Export] Download service not available, using fallback');
+                this.debugLog('[PDF Export] Download service not available, using fallback');
             }
 
             // Fallback: Direct download using blob URL
-            console.log('[PDF Export] Using fallback download method...');
+            this.debugLog('[PDF Export] Using fallback download method...');
             this.fallbackDownload(pdfBase64, filename);
 
         } catch (error) {
             console.error('[PDF Export] Export failed:', error);
-            alert('PDF export failed. Please check the console for details.');
+            this.showToast('PDF export failed. Please try again.', 4000);
         } finally {
             this.isExporting = false;
             this.updateExportButtonState(false);
-            console.log('[PDF Export] Export process finished');
+            this.debugLog('[PDF Export] Export process finished');
         }
     }
 
@@ -2389,7 +2296,7 @@ export class Visual implements IVisual {
                     URL.revokeObjectURL(url);
                 }, 100);
 
-                console.log('[PDF Export] Fallback download initiated:', filename);
+                this.debugLog('[PDF Export] Fallback download initiated:', filename);
                 return;
             } catch (downloadError) {
                 console.warn('[PDF Export] Direct download blocked, trying window.open...', downloadError);
@@ -2400,8 +2307,8 @@ export class Visual implements IVisual {
                 const dataUri = 'data:application/pdf;base64,' + base64Content;
                 const newWindow = window.open(dataUri, '_blank');
                 if (newWindow) {
-                    console.log('[PDF Export] Opened PDF in new tab. Use Ctrl+S or right-click to save.');
-                    alert('PDF opened in a new tab.\n\nUse Ctrl+S or right-click and "Save as..." to download it.');
+                    this.debugLog('[PDF Export] Opened PDF in new tab. Use Ctrl+S or right-click to save.');
+                    this.showToast('PDF opened in a new tab. Use Ctrl+S or right-click to save it.', 5000);
                     return;
                 }
             } catch (windowError) {
@@ -2409,17 +2316,14 @@ export class Visual implements IVisual {
             }
 
             // Method 3: Copy to clipboard as last resort
-            console.log('[PDF Export] All download methods blocked. Showing manual instructions.');
-            alert(
-                'PDF Export is blocked by browser security in Power BI Desktop.\n\n' +
-                'Workaround options:\n' +
-                '1. Publish the report to Power BI Service and export from there\n' +
-                '2. Use Power BI Desktop\'s built-in "Export to PDF" feature (File → Export → PDF)\n' +
-                '3. Take a screenshot of the visual'
+            this.debugLog('[PDF Export] All download methods blocked. Showing manual instructions.');
+            this.showToast(
+                'PDF Export is blocked by browser security. Publish to Power BI Service or use File → Export → PDF.',
+                6000
             );
         } catch (error) {
             console.error('[PDF Export] Fallback download failed:', error);
-            alert('Unable to download PDF. This feature may not be available in the current environment.');
+            this.showToast('Unable to download PDF in this environment.', 4000);
         }
     }
 
@@ -2451,7 +2355,7 @@ export class Visual implements IVisual {
         }
 
         console.warn('Export not allowed:', message);
-        alert(userMessage);
+        this.showToast(userMessage.replace(/\n/g, ' '), 5000);
         this.isExporting = false;
         this.updateExportButtonState(false);
     }
@@ -2531,7 +2435,7 @@ export class Visual implements IVisual {
         // 4. Generate PDF from composite canvas
         // Use JPEG with quality 0.92 for much smaller file size (PNG would be ~32MB, JPEG ~1-2MB)
         const imgData = outputCanvas.toDataURL('image/jpeg', 0.92);
-        console.log('[PDF Export] Image data size:', Math.round(imgData.length / 1024), 'KB');
+        this.debugLog('[PDF Export] Image data size:', Math.round(imgData.length / 1024), 'KB');
 
         const pdf = new jsPDF({
             orientation: visualWidth > visualHeight ? 'landscape' : 'portrait',
@@ -2658,14 +2562,17 @@ export class Visual implements IVisual {
     public update(options: VisualUpdateOptions) {
         // Fix for stale updates: Force viewport to match actual container size if larger
         // This prevents the visual from resizing down to a cached small size when in Focus Mode
+        // Note: Create a local copy to avoid mutating the host-owned options object
         if (this.target) {
             const actualWidth = this.target.clientWidth;
             const actualHeight = this.target.clientHeight;
 
             if (options.viewport.width < actualWidth || options.viewport.height < actualHeight) {
                 this.debugLog(`Viewport mismatch detected. Override: [${options.viewport.width}x${options.viewport.height}] -> [${actualWidth}x${actualHeight}]`);
-                options.viewport.width = actualWidth;
-                options.viewport.height = actualHeight;
+                options = {
+                    ...options,
+                    viewport: { width: actualWidth, height: actualHeight }
+                };
             }
         }
 
@@ -2677,19 +2584,14 @@ export class Visual implements IVisual {
             return;
         }
 
-        this.eventService.renderingStarted(options);
-
         this.debugLog("===== UPDATE() CALLED =====");
         this.debugLog("Update type:", options.type);
         this.debugLog("Has dataViews:", !!options.dataViews);
 
+        // Rendering lifecycle is managed inside updateInternal — no double-signalling
         this.updateInternal(options)
-            .then(() => {
-                this.eventService.renderingFinished(options);
-            })
             .catch(error => {
                 console.error("Error during update:", error);
-                this.eventService.renderingFinished(options);
             });
     }
 
@@ -3236,7 +3138,7 @@ export class Visual implements IVisual {
             // Update allFilteredTasks with the properly ordered tasks
             // This ensures export matches display order (WBS-grouped when enabled)
             this.allFilteredTasks = orderedTasks;
-            console.log(`[DIAG-ASSIGN] allFilteredTasks=${this.allFilteredTasks.length}, durable=${this._lastFilteredTasksForFinishLines.length}`);
+            this.debugLog(`[DIAG-ASSIGN] allFilteredTasks=${this.allFilteredTasks.length}, durable=${this._lastFilteredTasksForFinishLines.length}`);
 
             let tasksToShow = orderedTasks;
 
@@ -3656,7 +3558,7 @@ export class Visual implements IVisual {
         wrapper.selectAll(".margin-resizer").remove();
 
         const resizerWidth = 8;
-        const lineColor = this.UI_TOKENS.color.neutral.grey60;
+        const lineColor = UI_TOKENS.color.neutral.grey60;
 
         this.marginResizer = wrapper.append("div")
             .attr("class", "margin-resizer")
@@ -5787,7 +5689,7 @@ export class Visual implements IVisual {
                                         return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
                                     }
                                 }
-                                return `drop-shadow(${self.UI_TOKENS.shadow[2]})`;
+                                return `drop-shadow(${UI_TOKENS.shadow[2]})`;
                             });
                     });
                 }
@@ -5883,7 +5785,7 @@ export class Visual implements IVisual {
                                 }
                             }
 
-                            return `drop-shadow(${self.UI_TOKENS.shadow[2]})`;
+                            return `drop-shadow(${UI_TOKENS.shadow[2]})`;
                         });
                 }
             });
@@ -5957,7 +5859,7 @@ export class Visual implements IVisual {
                             .style("fill", dateBackgroundColor)
                             .style("fill-opacity", dateBackgroundOpacity)
 
-                            .style("filter", `drop-shadow(${this.UI_TOKENS.shadow[1]})`);
+                            .style("filter", `drop-shadow(${UI_TOKENS.shadow[1]})`);
                     }
                 } catch (e) {
                     console.warn(`Could not get BBox for date text on task ${d.internalId}`, e);
@@ -7997,7 +7899,7 @@ export class Visual implements IVisual {
         const aft = this.allFilteredTasks?.length ?? 0;
         const dur = this._lastFilteredTasksForFinishLines?.length ?? 0;
         const ats = this.allTasksToShow?.length ?? 0;
-        console.log(`[DIAG-FINISH] allFilteredTasks=${aft}, durable=${dur}, allTasksToShow=${ats}`);
+        this.debugLog(`[DIAG-FINISH] allFilteredTasks=${aft}, durable=${dur}, allTasksToShow=${ats}`);
         // Primary: current filtered tasks (set by full updateInternal)
         if (this.allFilteredTasks && this.allFilteredTasks.length > 0) {
             return this.allFilteredTasks;
@@ -8817,8 +8719,8 @@ export class Visual implements IVisual {
         const isMedium = layoutMode === 'medium';
 
         this.pathInfoLabel
-            .style("padding", isCompact ? `0 ${this.UI_TOKENS.spacing.xs}px` : `0 ${this.UI_TOKENS.spacing.sm}px`)
-            .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`)
+            .style("padding", isCompact ? `0 ${UI_TOKENS.spacing.xs}px` : `0 ${UI_TOKENS.spacing.sm}px`)
+            .style("gap", isCompact ? `${UI_TOKENS.spacing.xs}px` : `${UI_TOKENS.spacing.sm}px`)
             .attr("title", "Current Path Information: Path Number | Total Tasks | Total Duration");
 
         this.pathInfoLabel.selectAll("*").remove();
@@ -8836,11 +8738,11 @@ export class Visual implements IVisual {
             .style("cursor", buttonCursor)
             .style("opacity", buttonOpacity)
             .style("padding", "4px")
-            .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
+            .style("border-radius", `${UI_TOKENS.radius.small}px`)
             .style("display", "flex")
             .style("align-items", "center")
             .style("justify-content", "center")
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+            .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
             .style("user-select", "none")
             .style("width", "22px")
             .style("height", "22px")
@@ -8853,7 +8755,7 @@ export class Visual implements IVisual {
 
         prevSvg.append("path")
             .attr("d", "M 8 2 L 4 6 L 8 10")
-            .attr("stroke", this.UI_TOKENS.color.primary.default)
+            .attr("stroke", UI_TOKENS.color.primary.default)
             .attr("stroke-width", "2")
             .attr("stroke-linecap", "round")
             .attr("stroke-linejoin", "round")
@@ -8868,7 +8770,7 @@ export class Visual implements IVisual {
                 .attr("aria-label", buttonTitle)
                 .on("mouseover", function () {
                     d3.select(this)
-                        .style("background-color", self.UI_TOKENS.color.primary.light)
+                        .style("background-color", UI_TOKENS.color.primary.light)
                         .style("transform", "scale(1.1)");
                 })
                 .on("mouseout", function () {
@@ -8900,9 +8802,9 @@ export class Visual implements IVisual {
         const infoContainer = this.pathInfoLabel.append("div")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("gap", isCompact ? `${this.UI_TOKENS.spacing.xs}px` : `${this.UI_TOKENS.spacing.sm}px`)
+            .style("gap", isCompact ? `${UI_TOKENS.spacing.xs}px` : `${UI_TOKENS.spacing.sm}px`)
             .style("padding", isCompact ? "0 1px" : "0 4px")
-            .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`);
+            .style("font-size", `${UI_TOKENS.fontSize.sm}px`);
 
         infoContainer.append("span")
             .style("font-weight", "700")
@@ -8912,7 +8814,7 @@ export class Visual implements IVisual {
 
         if (!isCompact) {
             infoContainer.append("span")
-                .style("color", this.UI_TOKENS.color.primary.default)
+                .style("color", UI_TOKENS.color.primary.default)
                 .style("font-weight", "600")
                 .attr("aria-hidden", "true")
                 .text("|");
@@ -8924,7 +8826,7 @@ export class Visual implements IVisual {
 
             if (!isMedium) {
                 infoContainer.append("span")
-                    .style("color", this.UI_TOKENS.color.primary.default)
+                    .style("color", UI_TOKENS.color.primary.default)
                     .style("font-weight", "600")
                     .attr("aria-hidden", "true")
                     .text("|");
@@ -8941,11 +8843,11 @@ export class Visual implements IVisual {
             .style("cursor", buttonCursor)
             .style("opacity", buttonOpacity)
             .style("padding", "4px")
-            .style("border-radius", `${this.UI_TOKENS.radius.small}px`)
+            .style("border-radius", `${UI_TOKENS.radius.small}px`)
             .style("display", "flex")
             .style("align-items", "center")
             .style("justify-content", "center")
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`)
+            .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
             .style("user-select", "none")
             .style("width", "22px")
             .style("height", "22px")
@@ -8958,7 +8860,7 @@ export class Visual implements IVisual {
 
         nextSvg.append("path")
             .attr("d", "M 4 2 L 8 6 L 4 10")
-            .attr("stroke", this.UI_TOKENS.color.primary.default)
+            .attr("stroke", UI_TOKENS.color.primary.default)
             .attr("stroke-width", "2")
             .attr("stroke-linecap", "round")
             .attr("stroke-linejoin", "round")
@@ -8971,7 +8873,7 @@ export class Visual implements IVisual {
                 .attr("aria-label", nextButtonTitle)
                 .on("mouseover", function () {
                     d3.select(this)
-                        .style("background-color", self.UI_TOKENS.color.primary.light)
+                        .style("background-color", UI_TOKENS.color.primary.light)
                         .style("transform", "scale(1.1)");
                 })
                 .on("mouseout", function () {
@@ -9081,9 +8983,9 @@ export class Visual implements IVisual {
                 .selectAll("*").remove();
 
             this.pathInfoLabel.append("span")
-                .style("color", this.UI_TOKENS.color.warning?.default || "#C87800")
+                .style("color", UI_TOKENS.color.warning?.default || "#C87800")
                 .style("font-weight", "500")
-                .style("font-size", `${this.UI_TOKENS.fontSize.sm}px`)
+                .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
                 .text(message);
 
             setTimeout(() => {
@@ -11002,32 +10904,32 @@ export class Visual implements IVisual {
             .attr("aria-activedescendant", null)
             .attr("aria-label", searchPlaceholder)
             .style("width", `${dropdownWidth}px`)
-            .style("height", `${this.UI_TOKENS.height.compact}px`)
-            .style("padding", `0 ${this.UI_TOKENS.spacing.lg}px`)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-            .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
+            .style("height", `${UI_TOKENS.height.compact}px`)
+            .style("padding", `0 ${UI_TOKENS.spacing.lg}px`)
+            .style("border", `1.5px solid ${UI_TOKENS.color.neutral.grey60}`)
+            .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-            .style("font-size", `${this.UI_TOKENS.fontSize.lg}px`)
-            .style("color", this.UI_TOKENS.color.neutral.grey160)
-            .style("background", this.UI_TOKENS.color.neutral.white)
+            .style("font-size", `${UI_TOKENS.fontSize.lg}px`)
+            .style("color", UI_TOKENS.color.neutral.grey160)
+            .style("background", UI_TOKENS.color.neutral.white)
             .style("box-sizing", "border-box")
             .style("outline", "none")
-            .style("box-shadow", this.UI_TOKENS.shadow[2])
-            .style("transition", `all ${this.UI_TOKENS.motion.duration.normal}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+            .style("box-shadow", UI_TOKENS.shadow[2])
+            .style("transition", `all ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.smooth}`);
 
         const selfRef = this;
         this.dropdownInput
             .on("focus", function () {
                 d3.select(this)
-                    .style("border-color", selfRef.UI_TOKENS.color.primary.default)
+                    .style("border-color", UI_TOKENS.color.primary.default)
                     .style("border-width", "2px")
-                    .style("box-shadow", selfRef.UI_TOKENS.shadow[4]);
+                    .style("box-shadow", UI_TOKENS.shadow[4]);
             })
             .on("blur", function () {
                 d3.select(this)
-                    .style("border-color", selfRef.UI_TOKENS.color.neutral.grey60)
+                    .style("border-color", UI_TOKENS.color.neutral.grey60)
                     .style("border-width", "1.5px")
-                    .style("box-shadow", selfRef.UI_TOKENS.shadow[2]);
+                    .style("box-shadow", UI_TOKENS.shadow[2]);
             });
 
         let listSelection = this.dropdownContainer.select<HTMLDivElement>("div.task-selection-list");
@@ -11046,12 +10948,12 @@ export class Visual implements IVisual {
             .style("left", "0")
             .style("width", `${dropdownWidth}px`)
             .style("max-height", "400px")
-            .style("margin-top", `${this.UI_TOKENS.spacing.xs}px`)
+            .style("margin-top", `${UI_TOKENS.spacing.xs}px`)
             .style("overflow-y", "auto")
-            .style("background", this.UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-            .style("border-radius", `${this.UI_TOKENS.radius.medium}px`)
-            .style("box-shadow", this.UI_TOKENS.shadow[8])
+            .style("background", UI_TOKENS.color.neutral.white)
+            .style("border", `1.5px solid ${UI_TOKENS.color.neutral.grey60}`)
+            .style("border-radius", `${UI_TOKENS.radius.medium}px`)
+            .style("box-shadow", UI_TOKENS.shadow[8])
             .style("display", "none")
             .style("z-index", "1000")
             .style("box-sizing", "border-box");
@@ -11218,14 +11120,14 @@ export class Visual implements IVisual {
             .style("left", `${secondRowLayout.traceModeToggle.left}px`)
             .style("display", "inline-flex")
             .style("align-items", "center")
-            .style("height", `${this.UI_TOKENS.height.compact}px`) // 24px
+            .style("height", `${UI_TOKENS.height.compact}px`) // 24px
             .style("padding", "0 2px")
             .style("gap", "2px")
-            .style("background-color", this.UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${this.UI_TOKENS.color.neutral.grey60}`)
-            .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
+            .style("background-color", UI_TOKENS.color.neutral.white)
+            .style("border", `1.5px solid ${UI_TOKENS.color.neutral.grey60}`)
+            .style("border-radius", `${UI_TOKENS.radius.pill}px`)
             .style("box-sizing", "border-box")
-            .style("box-shadow", this.UI_TOKENS.shadow[2])
+            .style("box-shadow", UI_TOKENS.shadow[2])
             .style("z-index", "25")
             .style("user-select", "none");
 
@@ -11263,7 +11165,7 @@ export class Visual implements IVisual {
 
         for (const option of options) {
             const isActive = option.value === currentMode;
-            const buttonSize = this.UI_TOKENS.height.compact - 6; // ~18px
+            const buttonSize = UI_TOKENS.height.compact - 6; // ~18px
 
             const button = container.append("div")
                 .attr("class", `trace-mode-option ${option.value}`)
@@ -11276,10 +11178,10 @@ export class Visual implements IVisual {
                 .style("justify-content", "center")
                 .style("width", `${buttonSize + 8}px`) // Slightly wider than tall for easier clicking
                 .style("height", `${buttonSize}px`)
-                .style("border-radius", `${this.UI_TOKENS.radius.pill}px`)
-                .style("background-color", isActive ? this.UI_TOKENS.color.primary.default : "transparent")
+                .style("border-radius", `${UI_TOKENS.radius.pill}px`)
+                .style("background-color", isActive ? UI_TOKENS.color.primary.default : "transparent")
                 .style("cursor", "pointer")
-                .style("transition", `all ${this.UI_TOKENS.motion.duration.fast}ms ${this.UI_TOKENS.motion.easing.smooth}`);
+                .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`);
 
             const svg = button.append("svg")
                 .attr("width", "16")
@@ -11290,7 +11192,7 @@ export class Visual implements IVisual {
             svg.append("path")
                 .attr("d", option.path)
                 .attr("fill", "none")
-                .attr("stroke", isActive ? this.UI_TOKENS.color.neutral.white : this.UI_TOKENS.color.neutral.grey130)
+                .attr("stroke", isActive ? UI_TOKENS.color.neutral.white : UI_TOKENS.color.neutral.grey130)
                 .attr("stroke-width", "2")
                 .attr("stroke-linecap", "round")
                 .attr("stroke-linejoin", "round");
@@ -11301,9 +11203,9 @@ export class Visual implements IVisual {
                 .on("mouseover", function () {
                     if (option.value !== self.traceMode) {
                         d3.select(this)
-                            .style("background-color", self.UI_TOKENS.color.primary.light);
+                            .style("background-color", UI_TOKENS.color.primary.light);
                         d3.select(this).select("path")
-                            .attr("stroke", self.UI_TOKENS.color.primary.default);
+                            .attr("stroke", UI_TOKENS.color.primary.default);
                     }
                 })
                 .on("mouseout", function () {
@@ -11311,7 +11213,7 @@ export class Visual implements IVisual {
                         d3.select(this)
                             .style("background-color", "transparent");
                         d3.select(this).select("path")
-                            .attr("stroke", self.UI_TOKENS.color.neutral.grey130);
+                            .attr("stroke", UI_TOKENS.color.neutral.grey130);
                     }
                 })
                 .on("click", function (event) {
@@ -12586,13 +12488,13 @@ export class Visual implements IVisual {
             .attr('class', 'help-btn-bg')
             .attr('width', buttonSize)
             .attr('height', buttonSize)
-            .attr('rx', this.UI_TOKENS.radius.medium)
-            .attr('ry', this.UI_TOKENS.radius.medium)
-            .style('fill', this.UI_TOKENS.color.neutral.white)
-            .style('stroke', this.UI_TOKENS.color.neutral.grey60)
+            .attr('rx', UI_TOKENS.radius.medium)
+            .attr('ry', UI_TOKENS.radius.medium)
+            .style('fill', UI_TOKENS.color.neutral.white)
+            .style('stroke', UI_TOKENS.color.neutral.grey60)
             .style('stroke-width', 1.5)
-            .style('filter', `drop-shadow(${this.UI_TOKENS.shadow[2]})`)
-            .style('transition', `all ${this.UI_TOKENS.motion.duration.normal}ms`);
+            .style('filter', `drop-shadow(${UI_TOKENS.shadow[2]})`)
+            .style('transition', `all ${UI_TOKENS.motion.duration.normal}ms`);
 
         // Icon group - Question mark icon
         const iconG = helpBtnGroup.append('g')
@@ -12603,7 +12505,7 @@ export class Visual implements IVisual {
         iconG.append('circle')
             .attr('r', 7)
             .attr('fill', 'none')
-            .attr('stroke', this.UI_TOKENS.color.primary.default)
+            .attr('stroke', UI_TOKENS.color.primary.default)
             .attr('stroke-width', 1.5);
 
         // Question mark
@@ -12613,7 +12515,7 @@ export class Visual implements IVisual {
             .attr('y', 0)
             .attr('font-size', '11px')
             .attr('font-weight', '600')
-            .attr('fill', this.UI_TOKENS.color.primary.default)
+            .attr('fill', UI_TOKENS.color.primary.default)
             .text('?');
 
         // Tooltip
@@ -12675,7 +12577,7 @@ export class Visual implements IVisual {
             .style('align-items', 'center')
             .style('justify-content', 'space-between')
             .style('padding', '20px 24px')
-            .style('border-bottom', `1px solid ${this.UI_TOKENS.color.neutral.grey30} `)
+            .style('border-bottom', `1px solid ${UI_TOKENS.color.neutral.grey30} `)
             .style('flex-shrink', '0');
 
         // Header title with icon - using safe DOM manipulation
@@ -12694,7 +12596,7 @@ export class Visual implements IVisual {
             .attr('cx', 12)
             .attr('cy', 12)
             .attr('r', 10)
-            .attr('stroke', this.UI_TOKENS.color.primary.default)
+            .attr('stroke', UI_TOKENS.color.primary.default)
             .attr('stroke-width', 2);
         headerIcon.append('text')
             .attr('x', 12)
@@ -12702,7 +12604,7 @@ export class Visual implements IVisual {
             .attr('text-anchor', 'middle')
             .attr('font-size', 14)
             .attr('font-weight', 600)
-            .attr('fill', this.UI_TOKENS.color.primary.default)
+            .attr('fill', UI_TOKENS.color.primary.default)
             .text('?');
 
         headerTitle.append('span')
@@ -12725,7 +12627,7 @@ export class Visual implements IVisual {
             .style('justify-content', 'center')
             .style('transition', 'background 0.15s')
             .on('mouseover', function () {
-                d3.select(this).style('background', self.UI_TOKENS.color.neutral.grey20);
+                d3.select(this).style('background', UI_TOKENS.color.neutral.grey20);
             })
             .on('mouseout', function () {
                 d3.select(this).style('background', 'none');
@@ -12739,7 +12641,7 @@ export class Visual implements IVisual {
             .attr('width', 20)
             .attr('height', 20)
             .attr('viewBox', '0 0 20 20')
-            .attr('fill', this.UI_TOKENS.color.neutral.grey130);
+            .attr('fill', UI_TOKENS.color.neutral.grey130);
         closeIcon.append('path')
             .attr('d', 'M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z');
 
@@ -12756,13 +12658,13 @@ export class Visual implements IVisual {
         // Footer with close button
         const footer = card.append('div')
             .style('padding', '16px 24px')
-            .style('border-top', `1px solid ${this.UI_TOKENS.color.neutral.grey30} `)
+            .style('border-top', `1px solid ${UI_TOKENS.color.neutral.grey30} `)
             .style('display', 'flex')
             .style('justify-content', 'flex-end')
             .style('flex-shrink', '0');
 
         footer.append('button')
-            .style('background', this.UI_TOKENS.color.primary.default)
+            .style('background', UI_TOKENS.color.primary.default)
             .style('color', '#fff')
             .style('border', 'none')
             .style('padding', '10px 24px')
@@ -12773,10 +12675,10 @@ export class Visual implements IVisual {
             .style('transition', 'background 0.15s')
             .text('Got it!')
             .on('mouseover', function () {
-                d3.select(this).style('background', self.UI_TOKENS.color.primary.hover);
+                d3.select(this).style('background', UI_TOKENS.color.primary.hover);
             })
             .on('mouseout', function () {
-                d3.select(this).style('background', self.UI_TOKENS.color.primary.default);
+                d3.select(this).style('background', UI_TOKENS.color.primary.default);
             })
             .on('click', function () {
                 self.hideHelpOverlay();
@@ -12803,7 +12705,7 @@ export class Visual implements IVisual {
      * Builds the help content sections using safe DOM manipulation
      */
     private buildHelpContent(container: Selection<HTMLDivElement, unknown, null, undefined>): void {
-        const primaryColor = this.UI_TOKENS.color.primary.default;
+        const primaryColor = UI_TOKENS.color.primary.default;
 
         // Helper to create a section
         const createSection = (icon: string, title: string): Selection<HTMLDivElement, unknown, null, undefined> => {
@@ -12882,7 +12784,7 @@ export class Visual implements IVisual {
             .style('border-radius', '4px')
             .style('font-size', '11px')
             .style('font-weight', '500')
-            .style('background', this.UI_TOKENS.color.primary.light)
+            .style('background', UI_TOKENS.color.primary.light)
             .text('Default');
 
         addSubtitle(modeSection, 'Float-Based');
@@ -13248,17 +13150,56 @@ export class Visual implements IVisual {
     }
     /**
      * Shows visual feedback when copy is successful
-     * Changes button border color temporarily and shows alert
+     * Uses non-blocking toast notification instead of alert()
      */
     private showCopySuccess(count: number): void {
         const message = `Copied ${count} rows to clipboard!`;
-        console.log(message);
+        this.debugLog(message);
 
         // Show visual feedback on the copy button via the Header component
         this.header?.showCopySuccess();
 
-        // Use timeout to ensure alert doesn't block UI immediately
-        setTimeout(() => alert(message + "\n\nYou can now paste into Excel."), 10);
+        // Show non-blocking toast instead of blocking alert()
+        this.showToast(`${message} You can now paste into Excel.`);
+    }
+
+    /**
+     * Displays a temporary, non-blocking toast notification overlay
+     */
+    private showToast(text: string, durationMs: number = 3000): void {
+        const existing = this.target.querySelector('.copy-toast');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.className = 'copy-toast';
+        toast.textContent = text;
+        Object.assign(toast.style, {
+            position: 'absolute',
+            bottom: '12px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(0,0,0,0.8)',
+            color: '#fff',
+            padding: '8px 16px',
+            borderRadius: '6px',
+            fontSize: '12px',
+            fontFamily: "'Segoe UI', sans-serif",
+            zIndex: '10000',
+            pointerEvents: 'none',
+            opacity: '0',
+            transition: 'opacity 0.3s ease'
+        });
+
+        this.target.style.position = this.target.style.position || 'relative';
+        this.target.appendChild(toast);
+
+        // Trigger fade-in
+        requestAnimationFrame(() => { toast.style.opacity = '1'; });
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 350);
+        }, durationMs);
     }
 
     private debugLog(...args: unknown[]): void {

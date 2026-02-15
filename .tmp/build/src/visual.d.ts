@@ -194,8 +194,6 @@ export declare class Visual implements IVisual {
     private zoomTouchEndHandler;
     private readonly zoomTouchListenerOptions;
     private dataProcessor;
-    private readonly UI_TOKENS;
-    private readonly LAYOUT_BREAKPOINTS;
     /**
      * Determines the current layout mode based on viewport width
      */
@@ -775,8 +773,12 @@ export declare class Visual implements IVisual {
     private copyVisibleDataToClipboard;
     /**
      * Shows visual feedback when copy is successful
-     * Changes button border color temporarily and shows alert
+     * Uses non-blocking toast notification instead of alert()
      */
     private showCopySuccess;
+    /**
+     * Displays a temporary, non-blocking toast notification overlay
+     */
+    private showToast;
     private debugLog;
 }
