@@ -11,6 +11,8 @@
     "pbiviz": "pbiviz",
     "start": "pbiviz start",
     "package": "pbiviz package",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "npx eslint ."
   },
   "dependencies": {
@@ -29,6 +31,7 @@
     "eslint-plugin-powerbi-visuals": "^1.0.0",
     "ts-loader": "^9.5.4",
     "typescript": "5.5.4",
+    "vitest": "^4.0.18",
     "worker-loader": "^3.0.8"
   }
 }
