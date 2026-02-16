@@ -227,7 +227,7 @@ export class Visual implements IVisual {
     private tooltipClassName: string;
     private isUpdating: boolean = false;
     private isViewportTransitioning: boolean = false;
-    private viewportDownsizeCooldownUntil: number = 0;
+    private viewportResizeCooldownUntil: number = 0;
     private isMarginDragging: boolean = false;
     private dragStartChartWidth: number = 0;
     private scrollHandlerBackup: (() => void) | null = null;
@@ -2569,26 +2569,26 @@ export class Visual implements IVisual {
             const actualWidth = this.target.clientWidth;
             const actualHeight = this.target.clientHeight;
 
-            // Detect downsize transition (exiting Focus Mode): PBI sends a significantly
-            // smaller viewport than what we last rendered.
-            const isDownsizing = this.lastViewport && (
-                (this.lastViewport.width - options.viewport.width) / (this.lastViewport.width || 1) > this.VIEWPORT_CHANGE_THRESHOLD ||
-                (this.lastViewport.height - options.viewport.height) / (this.lastViewport.height || 1) > this.VIEWPORT_CHANGE_THRESHOLD
+            // Detect significant resize (entering OR exiting Focus Mode)
+            // If dimensions change by >30%, trigger the clean re-render flow.
+            const isSignificantResize = this.lastViewport && (
+                Math.abs(this.lastViewport.width - options.viewport.width) / (this.lastViewport.width || 1) > this.VIEWPORT_CHANGE_THRESHOLD ||
+                Math.abs(this.lastViewport.height - options.viewport.height) / (this.lastViewport.height || 1) > this.VIEWPORT_CHANGE_THRESHOLD
             );
 
-            // Active cooldown from a recent downsize — prevents viewport-max-override
-            const inDownsizeCooldown = Date.now() < this.viewportDownsizeCooldownUntil;
+            // Active cooldown from a recent large resize
+            const inResizeCooldown = Date.now() < this.viewportResizeCooldownUntil;
 
-            if (isDownsizing) {
-                this.debugLog(`Downsize transition detected. Hiding content and waiting for container to settle.`);
-                this.viewportDownsizeCooldownUntil = Date.now() + 1500;
+            if (isSignificantResize) {
+                this.debugLog(`Significant resize detected. Hiding content and waiting for container to settle.`);
+                this.viewportResizeCooldownUntil = Date.now() + 1500;
                 this.hideContentForResize();
                 this.lastViewport = options.viewport;
                 this.lastUpdateOptions = options;
-                // Don't render now — container hasn't shrunk yet.
+                // Don't render now — container might be transitioning.
                 // Schedule a clean re-render after the container has settled.
                 setTimeout(() => {
-                    this.viewportDownsizeCooldownUntil = 0; // Clear cooldown
+                    this.viewportResizeCooldownUntil = 0; // Clear cooldown
                     if (this.target) {
                         const settledWidth = this.target.clientWidth;
                         const settledHeight = this.target.clientHeight;
@@ -2611,8 +2611,8 @@ export class Visual implements IVisual {
                     }
                 }, 300);
                 return;
-            } else if (inDownsizeCooldown) {
-                this.debugLog(`In downsize cooldown — skipping update`);
+            } else if (inResizeCooldown) {
+                this.debugLog(`In resize cooldown — skipping update`);
                 return;
             } else if (options.viewport.width < actualWidth || options.viewport.height < actualHeight) {
                 this.debugLog(`Viewport mismatch detected. Override: [${options.viewport.width}x${options.viewport.height}] -> [${actualWidth}x${actualHeight}]`);
@@ -2750,9 +2750,9 @@ export class Visual implements IVisual {
             const dataView = options.dataViews[0];
             const viewport = options.viewport;
             // Use the larger of options.viewport and the actual container size,
-            // UNLESS we are in a downsize cooldown (exiting Focus Mode) where
-            // the container hasn't shrunk yet but PBI's viewport is authoritative.
-            const inCooldown = Date.now() < this.viewportDownsizeCooldownUntil;
+            // UNLESS we are in a resize cooldown (exiting/entering Focus Mode) where
+            // the container hasn't settled yet but PBI's viewport is authoritative.
+            const inCooldown = Date.now() < this.viewportResizeCooldownUntil;
             const viewportWidth = inCooldown
                 ? viewport.width
                 : Math.max(viewport.width, this.target?.clientWidth ?? viewport.width);
@@ -3330,11 +3330,11 @@ export class Visual implements IVisual {
             // Sometime webviews report 0 or incorrect size initially, and even ResizeObserver might race.
             // A short delay double-check ensures we catch these late layout settlements.
             setTimeout(() => {
-                // Skip safeguard during downsize cooldown — the container hasn't
-                // shrunk yet but PBI's viewport is authoritative, so the mismatch
+                // Skip safeguard during resize cooldown — the container hasn't
+                // settled yet but PBI's viewport is authoritative, so the mismatch
                 // is expected and should not trigger a forced update.
-                if (Date.now() < this.viewportDownsizeCooldownUntil) {
-                    this.debugLog(`[Safeguard] Skipped — in downsize cooldown`);
+                if (Date.now() < this.viewportResizeCooldownUntil) {
+                    this.debugLog(`[Safeguard] Skipped — in resize cooldown`);
                     return;
                 }
                 if (this.target && this.lastViewport) {
@@ -3395,8 +3395,8 @@ export class Visual implements IVisual {
         let viewportHeight = options.viewport.height;
 
         // Use the full available width from the container if larger than the options viewport,
-        // UNLESS we are in a downsize cooldown (exiting Focus Mode).
-        if (this.target && Date.now() >= this.viewportDownsizeCooldownUntil) {
+        // UNLESS we are in a resize cooldown (exiting/entering Focus Mode).
+        if (this.target && Date.now() >= this.viewportResizeCooldownUntil) {
             viewportWidth = Math.max(viewportWidth, this.target.clientWidth);
             viewportHeight = Math.max(viewportHeight, this.target.clientHeight);
         }
@@ -3683,6 +3683,8 @@ export class Visual implements IVisual {
             .attr("aria-label", "Resize task label margin")
             .style("position", "absolute")
             .style("top", "0")
+            .style("bottom", "0")
+            .style("height", "100%")
             .style("width", `${resizerWidth}px`)
             .style("cursor", "col-resize")
             .style("z-index", "60")
@@ -3870,17 +3872,19 @@ export class Visual implements IVisual {
         if (!wrapperNode) return;
 
         const wrapperRect = wrapperNode.getBoundingClientRect();
-        const containerRect = containerNode.getBoundingClientRect();
+        // const containerRect = containerNode.getBoundingClientRect(); // Unused
         const resizerWidth = parseFloat(this.marginResizer.style("width")) || 8;
         const effectiveMargin = this.getEffectiveLeftMargin();
-        const left = containerNode.offsetLeft + effectiveMargin - (resizerWidth / 2);
-        const top = containerRect.top - wrapperRect.top;
-        const height = containerRect.height;
+
+        // Calculate left relative to wrapper (since marginResizer is child of wrapper)
+        // wrapperNode is usually the offsetParent, but let's be safe.
+        // If wrapperNode is positioned, containerNode.offsetLeft should be relative to it?
+        // Actually, containerNode might be deeply nested.
+        // Safer to use bounding client rect difference.
+        const left = (containerNode.getBoundingClientRect().left - wrapperRect.left) + effectiveMargin - (resizerWidth / 2);
 
         this.marginResizer
             .style("left", `${Math.max(0, Math.round(left))}px`)
-            .style("top", `${Math.max(0, Math.round(top))}px`)
-            .style("height", `${Math.max(0, Math.round(height))}px`)
             .attr("aria-valuenow", Math.round(effectiveMargin).toString());
     }
 

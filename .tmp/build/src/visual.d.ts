@@ -166,7 +166,7 @@ export declare class Visual implements IVisual {
     private tooltipClassName;
     private isUpdating;
     private isViewportTransitioning;
-    private viewportDownsizeCooldownUntil;
+    private viewportResizeCooldownUntil;
     private isMarginDragging;
     private dragStartChartWidth;
     private scrollHandlerBackup;
