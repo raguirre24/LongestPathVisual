@@ -216,7 +216,7 @@ export class Visual implements IVisual {
     }> = [];
     private selectedPathIndex: number = 0;
 
-    private readonly VIEWPORT_CHANGE_THRESHOLD = 0.10;
+    private readonly VIEWPORT_CHANGE_THRESHOLD = 0.01;
     private forceFullUpdate: boolean = false;
     private preserveScrollOnUpdate: boolean = false;
     private preservedScrollTop: number | null = null;
