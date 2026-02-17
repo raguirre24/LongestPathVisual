@@ -216,7 +216,7 @@ export class Visual implements IVisual {
     }> = [];
     private selectedPathIndex: number = 0;
 
-    private readonly VIEWPORT_CHANGE_THRESHOLD = 0.15;
+    private readonly VIEWPORT_CHANGE_THRESHOLD = 0.10;
     private forceFullUpdate: boolean = false;
     private preserveScrollOnUpdate: boolean = false;
     private preservedScrollTop: number | null = null;
@@ -234,7 +234,7 @@ export class Visual implements IVisual {
 
     private updateDebounceTimeout: ReturnType<typeof setTimeout> | null = null;
     private pendingUpdate: VisualUpdateOptions | null = null;
-    private readonly UPDATE_DEBOUNCE_MS = 100;
+    private readonly UPDATE_DEBOUNCE_MS = 30;
 
     private zoomSliderContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private zoomSliderTrack: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -2570,7 +2570,7 @@ export class Visual implements IVisual {
             const actualHeight = this.target.clientHeight;
 
             // Detect significant resize (entering OR exiting Focus Mode)
-            // If dimensions change by >30%, trigger the clean re-render flow.
+            // If dimensions change by >10%, trigger the clean re-render flow.
             const isSignificantResize = this.lastViewport && (
                 Math.abs(this.lastViewport.width - options.viewport.width) / (this.lastViewport.width || 1) > this.VIEWPORT_CHANGE_THRESHOLD ||
                 Math.abs(this.lastViewport.height - options.viewport.height) / (this.lastViewport.height || 1) > this.VIEWPORT_CHANGE_THRESHOLD
@@ -2581,7 +2581,14 @@ export class Visual implements IVisual {
 
             if (isSignificantResize) {
                 this.debugLog(`Significant resize detected. Hiding content and waiting for container to settle.`);
-                this.viewportResizeCooldownUntil = Date.now() + 1500;
+                // Capture scroll position so the re-render restores it
+                if (this.scrollableContainer?.node()) {
+                    this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
+                    this.preserveScrollOnUpdate = true;
+                    this.scrollPreservationUntil = Date.now() + 2000;
+                    this.debugLog(`Resize: Captured scrollTop=${this.preservedScrollTop}`);
+                }
+                this.viewportResizeCooldownUntil = Date.now() + 400;
                 this.hideContentForResize();
                 this.lastViewport = options.viewport;
                 this.lastUpdateOptions = options;
@@ -2614,7 +2621,7 @@ export class Visual implements IVisual {
                     } else {
                         this.revealContentAfterResize();
                     }
-                }, 300);
+                }, 50);
                 return;
             } else if (inResizeCooldown) {
                 this.debugLog(`In resize cooldown — skipping update`);
