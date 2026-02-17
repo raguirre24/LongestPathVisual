@@ -2598,6 +2598,11 @@ export class Visual implements IVisual {
                             viewport: { width: settledWidth, height: settledHeight }
                         };
                         this.lastViewport = settledOptions.viewport;
+                        // Force a Full update so the settled re-render goes through
+                        // clearVisual() + full scale/layout rebuild instead of the
+                        // incremental ViewportOnly path which can leave stale elements
+                        // (bars/milestones clipped or missing on the right side).
+                        this.forceFullUpdate = true;
                         this.updateInternal(settledOptions)
                             .then(() => {
                                 requestAnimationFrame(() => this.revealContentAfterResize());
