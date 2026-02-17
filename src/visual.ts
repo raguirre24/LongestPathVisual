@@ -158,7 +158,7 @@ export class Visual implements IVisual {
     private visibleTaskCount: number = 0;
     private taskTotalCount: number = 0;
     private taskElementHeight: number = 0;
-    private scrollThrottleTimeout: ReturnType<typeof setTimeout> | null = null;
+    private scrollThrottleTimeout: number | null = null;
     private scrollListener: (() => void) | null = null;
     private allTasksToShow: Task[] = [];
     private allFilteredTasks: Task[] = [];
@@ -1032,7 +1032,7 @@ export class Visual implements IVisual {
         }
 
         if (this.scrollThrottleTimeout) {
-            clearTimeout(this.scrollThrottleTimeout);
+            cancelAnimationFrame(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
         }
 
@@ -1198,7 +1198,7 @@ export class Visual implements IVisual {
             this.scrollPreservationUntil = Date.now() + 1500;
 
             if (this.scrollThrottleTimeout) {
-                clearTimeout(this.scrollThrottleTimeout);
+                cancelAnimationFrame(this.scrollThrottleTimeout);
                 this.scrollThrottleTimeout = null;
             }
 
@@ -1239,7 +1239,7 @@ export class Visual implements IVisual {
             this.scrollPreservationUntil = Date.now() + 1500;
 
             if (this.scrollThrottleTimeout) {
-                clearTimeout(this.scrollThrottleTimeout);
+                cancelAnimationFrame(this.scrollThrottleTimeout);
                 this.scrollThrottleTimeout = null;
             }
 
@@ -1334,7 +1334,7 @@ export class Visual implements IVisual {
             this.forceFullUpdate = true;
 
             if (this.scrollThrottleTimeout) {
-                clearTimeout(this.scrollThrottleTimeout);
+                cancelAnimationFrame(this.scrollThrottleTimeout);
                 this.scrollThrottleTimeout = null;
             }
 
@@ -1460,7 +1460,7 @@ export class Visual implements IVisual {
             this.preserveScrollOnUpdate = true;
 
             if (this.scrollThrottleTimeout) {
-                clearTimeout(this.scrollThrottleTimeout);
+                cancelAnimationFrame(this.scrollThrottleTimeout);
                 this.scrollThrottleTimeout = null;
             }
 
@@ -1539,7 +1539,7 @@ export class Visual implements IVisual {
             this.forceFullUpdate = true;
 
             if (this.scrollThrottleTimeout) {
-                clearTimeout(this.scrollThrottleTimeout);
+                cancelAnimationFrame(this.scrollThrottleTimeout);
                 this.scrollThrottleTimeout = null;
             }
 
@@ -2665,7 +2665,7 @@ export class Visual implements IVisual {
         }
 
         if (this.scrollThrottleTimeout) {
-            clearTimeout(this.scrollThrottleTimeout);
+            cancelAnimationFrame(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
         }
 
@@ -4267,6 +4267,15 @@ export class Visual implements IVisual {
     private setupVirtualScroll(tasks: Task[], taskHeight: number, taskPadding: number, totalRows?: number, skipInitialRender: boolean = false): void {
         this.allTasksToShow = [...tasks];
 
+        // Pre-sort by yOrder so getVisibleTasks can use binary search (O(log n))
+        // instead of a full array filter (O(n)) on every scroll frame.
+        // In non-WBS mode yOrder equals array index, so sort order is unchanged.
+        this.allTasksToShow.sort((a, b) => {
+            const aOrder = a.yOrder ?? Number.MAX_SAFE_INTEGER;
+            const bOrder = b.yOrder ?? Number.MAX_SAFE_INTEGER;
+            return aOrder - bOrder;
+        });
+
         this.taskTotalCount = totalRows !== undefined ? totalRows : tasks.length;
         this.taskElementHeight = taskHeight + taskPadding;
 
@@ -4283,10 +4292,10 @@ export class Visual implements IVisual {
         const self = this;
         this.scrollListener = function () {
             if (!self.scrollThrottleTimeout) {
-                self.scrollThrottleTimeout = setTimeout(() => {
+                self.scrollThrottleTimeout = requestAnimationFrame(() => {
                     self.scrollThrottleTimeout = null;
                     self.handleScroll();
-                }, 50);
+                });
             }
         };
 
@@ -4559,28 +4568,37 @@ export class Visual implements IVisual {
     }
 
     /**
-     * Get visible tasks based on current viewport indices
-     * When WBS grouping is enabled, filters by yOrder (row number) instead of array index
-     * because WBS group headers occupy rows but aren't in the task array
+     * Get visible tasks based on current viewport indices.
+     * allTasksToShow is pre-sorted by yOrder in setupVirtualScroll, so both
+     * WBS and non-WBS paths use binary search (O(log n)) + slice (O(k)).
      */
     private getVisibleTasks(): Task[] {
-        if (!this.allTasksToShow) return [];
+        if (!this.allTasksToShow || this.allTasksToShow.length === 0) return [];
 
-        const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+        const tasks = this.allTasksToShow;
+        const startTarget = this.viewportStartIndex;
+        const endTarget = this.viewportEndIndex;
 
-        if (wbsGroupingEnabled) {
-
-            return this.allTasksToShow.filter(t =>
-                t.yOrder !== undefined &&
-                t.yOrder >= this.viewportStartIndex &&
-                t.yOrder <= this.viewportEndIndex
-            );
-        } else {
-
-            return this.allTasksToShow
-                .slice(this.viewportStartIndex, this.viewportEndIndex + 1)
-                .filter(t => t.yOrder !== undefined);
+        // Binary search: first task with yOrder >= startTarget
+        let lo = 0, hi = tasks.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >>> 1;
+            const order = tasks[mid].yOrder;
+            if (order === undefined || order < startTarget) lo = mid + 1;
+            else hi = mid;
         }
+        const sliceStart = lo;
+
+        // Binary search: first task with yOrder > endTarget
+        hi = tasks.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >>> 1;
+            const order = tasks[mid].yOrder;
+            if (order !== undefined && order <= endTarget) lo = mid + 1;
+            else hi = mid;
+        }
+
+        return tasks.slice(sliceStart, lo);
     }
 
     private redrawVisibleTasks(): void {
@@ -4631,17 +4649,15 @@ export class Visual implements IVisual {
             }
         }
 
-        if (this.wbsGroupLayer) {
-            this.wbsGroupLayer.selectAll('.wbs-group-header').remove();
-        }
+        // WBS group headers use D3 enter/update/exit in drawWbsGroupHeaders(),
+        // so skip clearing here to allow element reuse during scroll.
 
         if (this.labelGridLayer) {
             this.labelGridLayer.selectAll(".label-grid-line").remove();
         }
 
-        if (this.taskLabelLayer) {
-            this.taskLabelLayer.selectAll("*").remove();
-        }
+        // Task labels use D3 enter/update/exit in drawTaskLabelsLayer(),
+        // so skip clearing here to allow element reuse during scroll.
 
         const showHorzGridLines = this.settings.gridLines.showHorizontalLines.value;
         const currentLeftMargin = this.getEffectiveLeftMargin();
@@ -4979,7 +4995,7 @@ export class Visual implements IVisual {
         // Actually WBS group headers are in `wbsGroupLayer` which is usually above regular tasks or interleaved.
         // In this visual, they seem to be treated as rows.
 
-        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight, currentLeftMargin);
+        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight, currentLeftMargin, this.viewportStartIndex, this.viewportEndIndex);
 
         // --- 4. Draw Tasks ---
         if (this.useCanvasRendering) {
@@ -9746,7 +9762,7 @@ export class Visual implements IVisual {
         this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
 
         if (this.scrollThrottleTimeout) {
-            clearTimeout(this.scrollThrottleTimeout);
+            cancelAnimationFrame(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
         }
 
