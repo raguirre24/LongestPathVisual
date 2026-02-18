@@ -3933,10 +3933,13 @@ export class Visual implements IVisual {
             .attr("height", chartHeight + 100);
 
         // 4. Clear layers for redraw (skip arrowLayer — arrows are deferred to drag end)
-        // WBS group headers and task labels use D3 enter/update/exit data binding,
+        // WBS group headers use D3 enter/update/exit data binding in drawWbsGroupHeaders(),
         // so skip clearing them to allow element reuse during drag.
+        // Task labels must be cleared here because the available width changes on every
+        // drag frame, requiring full text re-wrapping.
         this.gridLayer?.selectAll("*").remove();
         this.taskLayer?.selectAll("*").remove();
+        this.taskLabelLayer?.selectAll("*").remove();
         this.labelGridLayer?.selectAll("*").remove();
         this.headerGridLayer?.selectAll("*").remove();
 
