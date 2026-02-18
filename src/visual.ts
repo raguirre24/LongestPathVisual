@@ -3933,12 +3933,12 @@ export class Visual implements IVisual {
             .attr("height", chartHeight + 100);
 
         // 4. Clear layers for redraw (skip arrowLayer — arrows are deferred to drag end)
+        // WBS group headers and task labels use D3 enter/update/exit data binding,
+        // so skip clearing them to allow element reuse during drag.
         this.gridLayer?.selectAll("*").remove();
         this.taskLayer?.selectAll("*").remove();
-        this.taskLabelLayer?.selectAll("*").remove();
         this.labelGridLayer?.selectAll("*").remove();
         this.headerGridLayer?.selectAll("*").remove();
-        this.wbsGroupLayer?.selectAll('.wbs-group-header').remove();
 
         // 5. Redraw all visual elements except arrows
         const visibleTasks = this.getVisibleTasks();
@@ -3967,7 +3967,7 @@ export class Visual implements IVisual {
         this.drawColumnHeaders(this.headerHeight, effectiveMargin);
 
         // WBS group headers (suppress text collisions to prevent jitter during drag)
-        this.drawWbsGroupHeaders(this.xScale, this.yScale, chartWidth, taskHeight, effectiveMargin, undefined, undefined);
+        this.drawWbsGroupHeaders(this.xScale, this.yScale, chartWidth, taskHeight, effectiveMargin, this.viewportStartIndex, this.viewportEndIndex);
 
         // Task bars + milestones
         this.drawTasks(
