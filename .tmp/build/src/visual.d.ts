@@ -444,9 +444,9 @@ export declare class Visual implements IVisual {
     private handleScroll;
     private canvasHasContent;
     /**
-     * Get visible tasks based on current viewport indices
-     * When WBS grouping is enabled, filters by yOrder (row number) instead of array index
-     * because WBS group headers occupy rows but aren't in the task array
+     * Get visible tasks based on current viewport indices.
+     * allTasksToShow is pre-sorted by yOrder in setupVirtualScroll, so both
+     * WBS and non-WBS paths use binary search (O(log n)) + slice (O(k)).
      */
     private getVisibleTasks;
     private redrawVisibleTasks;
