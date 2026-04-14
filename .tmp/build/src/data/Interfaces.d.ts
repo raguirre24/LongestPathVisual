@@ -96,3 +96,22 @@ export declare enum UpdateType {
     SettingsOnly = "SettingsOnly",
     DataAndSettings = "DataAndSettings"
 }
+/**
+ * Tracks which optional date-pair fields are actually bound in the visual's field wells
+ * AND contain at least one non-null value across all tasks.
+ * Used to conditionally hide columns, bars, and toggle buttons.
+ */
+export interface BoundFieldState {
+    /** The baselineStartDate role is mapped in the field well */
+    baselineStartBound: boolean;
+    /** The baselineFinishDate role is mapped in the field well */
+    baselineFinishBound: boolean;
+    /** The previousUpdateStartDate role is mapped in the field well */
+    previousUpdateStartBound: boolean;
+    /** The previousUpdateFinishDate role is mapped in the field well */
+    previousUpdateFinishBound: boolean;
+    /** Both baseline roles are bound AND at least one task has a non-null baseline date */
+    baselineAvailable: boolean;
+    /** Both previous update roles are bound AND at least one task has a non-null previous update date */
+    previousUpdateAvailable: boolean;
+}

@@ -1,0 +1,38 @@
+ info   powerbi-visuals-tools version - 7.0.2
+                                        
+     +syyso+/                           
+    oms/+osyhdhyso/                     
+    ym/       /+oshddhys+/              
+    ym/              /+oyhddhyo+/       
+    ym/                     /osyhdho    
+    ym/                           sm+   
+    ym/               yddy        om+   
+    ym/         shho /mmmm/       om+   
+     /    oys/ +mmmm /mmmm/       om+   
+    oso  ommmh +mmmm /mmmm/       om+   
+   ymmmy smmmh +mmmm /mmmm/       om+   
+   ymmmy smmmh +mmmm /mmmm/       om+   
+   ymmmy smmmh +mmmm /mmmm/       om+   
+   +dmd+ smmmh +mmmm /mmmm/       om+   
+         /hmdo +mmmm /mmmm/ /so+//ym/   
+               /dmmh /mmmm/ /osyhhy/    
+                 //   dmmd              
+                       ++               
+                                        
+       PowerBI Custom Visual Tool       
+                                        
+
+Usage: pbiviz [options] [command]
+
+Options:
+  -V, --version         output the version number
+  -h, --help            display help for command
+
+Commands:
+  new [options] <name>
+  info                  Displays visual info
+  install-cert          Creates and installs localhost certificate
+  lint [options]
+  start [options]
+  package [options]
+  help [command]        display help for command

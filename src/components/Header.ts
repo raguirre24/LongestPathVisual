@@ -3,6 +3,7 @@ import * as d3 from "d3";
 import { Selection } from "d3-selection";
 import { VisualSettings } from "../settings";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS } from "../utils/Theme";
+import { BoundFieldState } from "../data/Interfaces";
 
 export interface HeaderCallbacks {
     onToggleCriticalPath: () => void;
@@ -28,6 +29,7 @@ export interface HeaderState {
     baselineAvailable: boolean;
     showPreviousUpdate: boolean;
     previousUpdateAvailable: boolean;
+    boundFields: BoundFieldState;
     showConnectorLines: boolean;
     wbsExpanded: boolean;
     wbsDataExists: boolean;
@@ -371,13 +373,19 @@ export class Header {
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
 
+        let tooltipText = showBaseline ? 'Hide baseline task bars' : 'Show baseline task bars';
+        if (!isAvailable) {
+            const hasRoles = this.currentState.boundFields.baselineStartBound && this.currentState.boundFields.baselineFinishBound;
+            tooltipText = hasRoles 
+                ? "All Baseline data values are empty" 
+                : "Add Baseline Start Date and Baseline Finish Date data to enable";
+        }
+
         const btn = this.container.append("button")
             .attr("class", "baseline-toggle-group")
             .attr("type", "button")
             .attr("aria-label", `${showBaseline ? 'Hide' : 'Show'} baseline task bars`)
-            .attr("title", isAvailable
-                ? (showBaseline ? 'Hide baseline task bars' : 'Show baseline task bars')
-                : "Requires Baseline Start Date and Baseline Finish Date fields to be mapped")
+            .attr("title", tooltipText)
             .attr("aria-pressed", showBaseline.toString())
             .attr("aria-disabled", (!isAvailable).toString())
             .property("disabled", !isAvailable)
@@ -472,10 +480,18 @@ export class Header {
                 .text("Baseline");
         }
 
+
+
+        let tooltipTextSvg = showBaseline ? "Hide baseline task bars" : "Show baseline task bars";
+        if (!isAvailable) {
+            const hasRoles = this.currentState.boundFields.baselineStartBound && this.currentState.boundFields.baselineFinishBound;
+            tooltipTextSvg = hasRoles 
+                ? "All Baseline data values are empty" 
+                : "Add Baseline Start Date and Baseline Finish Date data to enable";
+        }
+
         btn.append("title")
-            .text(isAvailable
-                ? (showBaseline ? "Hide baseline task bars" : "Show baseline task bars")
-                : "Requires Baseline Start Date and Baseline Finish Date fields to be mapped");
+            .text(tooltipTextSvg);
 
         if (isAvailable) {
             btn.on("mouseover", function () {
@@ -514,13 +530,19 @@ export class Header {
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
 
+        let tooltipText = showPreviousUpdate ? 'Hide previous update task bars' : 'Show previous update task bars';
+        if (!isAvailable) {
+            const hasRoles = this.currentState.boundFields.previousUpdateStartBound && this.currentState.boundFields.previousUpdateFinishBound;
+            tooltipText = hasRoles 
+                ? "All Previous Update data values are empty" 
+                : "Add Previous Update Start and Finish Date data to enable";
+        }
+
         const btn = this.container.append("button")
             .attr("class", "previous-update-toggle-group")
             .attr("type", "button")
             .attr("aria-label", `${showPreviousUpdate ? 'Hide' : 'Show'} previous update task bars`)
-            .attr("title", isAvailable
-                ? (showPreviousUpdate ? 'Hide previous update task bars' : 'Show previous update task bars')
-                : "Requires Previous Update Start and Finish Date fields to be mapped")
+            .attr("title", tooltipText)
             .attr("aria-pressed", showPreviousUpdate.toString())
             .attr("aria-disabled", (!isAvailable).toString())
             .property("disabled", !isAvailable)
@@ -615,10 +637,18 @@ export class Header {
                 .text("Prev. Update");
         }
 
+
+
+        let tooltipTextSvg = showPreviousUpdate ? "Hide previous update task bars" : "Show previous update task bars";
+        if (!isAvailable) {
+            const hasRoles = this.currentState.boundFields.previousUpdateStartBound && this.currentState.boundFields.previousUpdateFinishBound;
+            tooltipTextSvg = hasRoles 
+                ? "All Previous Update data values are empty" 
+                : "Add Previous Update Start and Finish Date data to enable";
+        }
+
         btn.append("title")
-            .text(isAvailable
-                ? (showPreviousUpdate ? "Hide previous update task bars" : "Show previous update task bars")
-                : "Requires Previous Update Start and Finish Date fields to be mapped");
+            .text(tooltipTextSvg);
 
         if (isAvailable) {
             btn.on("mouseover", function () {

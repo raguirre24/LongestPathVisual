@@ -1,4 +1,4 @@
-import { Task, WBSGroup, Relationship } from "./Interfaces";
+import { Task, WBSGroup, Relationship, BoundFieldState } from "./Interfaces";
 import { VisualSettings } from "../settings";
 import powerbi from "powerbi-visuals-api";
 import DataView = powerbi.DataView;
@@ -49,4 +49,10 @@ export declare class DataProcessor {
     validateDataView(dataView: DataView, settings: VisualSettings): boolean;
     parseDate(dateValue: PrimitiveValue): Date | null;
     mightBeDate(value: PrimitiveValue): boolean;
+    /**
+     * Detects which optional date-pair fields are actually bound in the field wells
+     * AND contain at least one non-null value across the processed tasks.
+     * This enables the visual to conditionally hide columns, bars, and toggle buttons.
+     */
+    detectBoundFields(dataView: DataView, tasks: Task[]): BoundFieldState;
 }

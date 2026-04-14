@@ -1,5 +1,6 @@
 import { Selection } from "d3-selection";
 import { VisualSettings } from "../settings";
+import { BoundFieldState } from "../data/Interfaces";
 export interface HeaderCallbacks {
     onToggleCriticalPath: () => void;
     onToggleBaseline: () => void;
@@ -23,6 +24,7 @@ export interface HeaderState {
     baselineAvailable: boolean;
     showPreviousUpdate: boolean;
     previousUpdateAvailable: boolean;
+    boundFields: BoundFieldState;
     showConnectorLines: boolean;
     wbsExpanded: boolean;
     wbsDataExists: boolean;

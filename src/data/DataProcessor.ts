@@ -1,5 +1,5 @@
 
-import { Task, WBSGroup, Relationship } from "./Interfaces";
+import { Task, WBSGroup, Relationship, BoundFieldState } from "./Interfaces";
 import { VisualSettings } from "../settings";
 import powerbi from "powerbi-visuals-api";
 import DataView = powerbi.DataView;
@@ -1150,5 +1150,49 @@ export class DataProcessor {
             return value > 946684800000;
         }
         return false;
+    }
+
+    /**
+     * Detects which optional date-pair fields are actually bound in the field wells
+     * AND contain at least one non-null value across the processed tasks.
+     * This enables the visual to conditionally hide columns, bars, and toggle buttons.
+     */
+    public detectBoundFields(dataView: DataView, tasks: Task[]): BoundFieldState {
+        const baselineStartBound = this.hasDataRole(dataView, 'baselineStartDate');
+        const baselineFinishBound = this.hasDataRole(dataView, 'baselineFinishDate');
+        const previousUpdateStartBound = this.hasDataRole(dataView, 'previousUpdateStartDate');
+        const previousUpdateFinishBound = this.hasDataRole(dataView, 'previousUpdateFinishDate');
+
+        // Both roles must be bound AND at least one task must have a non-null value
+        let baselineHasData = false;
+        let previousUpdateHasData = false;
+
+        if ((baselineStartBound && baselineFinishBound) || (previousUpdateStartBound && previousUpdateFinishBound)) {
+            for (const task of tasks) {
+                if (!baselineHasData && baselineStartBound && baselineFinishBound) {
+                    if (task.baselineStartDate instanceof Date && !isNaN(task.baselineStartDate.getTime()) ||
+                        task.baselineFinishDate instanceof Date && !isNaN(task.baselineFinishDate.getTime())) {
+                        baselineHasData = true;
+                    }
+                }
+                if (!previousUpdateHasData && previousUpdateStartBound && previousUpdateFinishBound) {
+                    if (task.previousUpdateStartDate instanceof Date && !isNaN(task.previousUpdateStartDate.getTime()) ||
+                        task.previousUpdateFinishDate instanceof Date && !isNaN(task.previousUpdateFinishDate.getTime())) {
+                        previousUpdateHasData = true;
+                    }
+                }
+                // Early exit if both are found
+                if (baselineHasData && previousUpdateHasData) break;
+            }
+        }
+
+        return {
+            baselineStartBound,
+            baselineFinishBound,
+            previousUpdateStartBound,
+            previousUpdateFinishBound,
+            baselineAvailable: baselineStartBound && baselineFinishBound && baselineHasData,
+            previousUpdateAvailable: previousUpdateStartBound && previousUpdateFinishBound && previousUpdateHasData
+        };
     }
 }

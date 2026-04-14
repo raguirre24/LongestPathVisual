@@ -28,7 +28,7 @@ import { IBasicFilter, FilterType } from "powerbi-models";
 import FilterAction = powerbi.FilterAction;
 import { DataProcessor, ProcessedData } from "./data/DataProcessor";
 import { Header, HeaderCallbacks, HeaderState } from "./components/Header";
-import { Task, WBSGroup, Relationship, DropdownItem, UpdateType } from "./data/Interfaces";
+import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState } from "./data/Interfaces";
 import { exportToClipboard } from "./utils/ClipboardExporter";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS } from "./utils/Theme";
 
@@ -101,6 +101,13 @@ export class Visual implements IVisual {
     private showBaselineInternal: boolean = true;
     private showPreviousUpdateInternal: boolean = true;
     private isInitialLoad: boolean = true;
+
+    /** Tracks which optional date-pair fields are bound and contain data */
+    private boundFields: BoundFieldState = {
+        baselineStartBound: false, baselineFinishBound: false,
+        previousUpdateStartBound: false, previousUpdateFinishBound: false,
+        baselineAvailable: false, previousUpdateAvailable: false
+    };
 
     private debug: boolean = false;
 
@@ -1173,6 +1180,10 @@ export class Visual implements IVisual {
 
     private toggleBaselineDisplayInternal(): void {
         try {
+            if (!this.boundFields.baselineAvailable) {
+                this.debugLog("Baseline toggle blocked: data not available");
+                return;
+            }
             this.debugLog("Baseline Toggle method called!");
             this.showBaselineInternal = !this.showBaselineInternal;
             this.debugLog("New showBaselineInternal value:", this.showBaselineInternal);
@@ -1214,6 +1225,10 @@ export class Visual implements IVisual {
 
     private togglePreviousUpdateDisplayInternal(): void {
         try {
+            if (!this.boundFields.previousUpdateAvailable) {
+                this.debugLog("Previous Update toggle blocked: data not available");
+                return;
+            }
             this.debugLog("Previous Update Toggle method called!");
             this.showPreviousUpdateInternal = !this.showPreviousUpdateInternal;
             this.debugLog("New showPreviousUpdateInternal value:", this.showPreviousUpdateInternal);
@@ -2996,6 +3011,17 @@ export class Visual implements IVisual {
                 this.debugLog("Skipping data transform; using cached task data");
             }
 
+            // Detect which optional fields are bound and have data,
+            // then override internal toggle flags to force-hide when unavailable.
+            // Must run AFTER data processing so allTasksData is populated.
+            this.boundFields = this.dataProcessor.detectBoundFields(dataView, this.allTasksData || []);
+            if (!this.boundFields.baselineAvailable) {
+                this.showBaselineInternal = false;
+            }
+            if (!this.boundFields.previousUpdateAvailable) {
+                this.showPreviousUpdateInternal = false;
+            }
+
             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
 
             if (this.wbsEnableOverride !== null && this.settings?.wbsGrouping?.enableWbsGrouping) {
@@ -3550,6 +3576,14 @@ export class Visual implements IVisual {
 
         if (this.settings?.comparisonBars?.showPreviousUpdate !== undefined) {
             this.showPreviousUpdateInternal = this.settings.comparisonBars.showPreviousUpdate.value;
+        }
+
+        // Override internal toggle flags when optional fields are unbound or all-null
+        if (!this.boundFields.baselineAvailable) {
+            this.showBaselineInternal = false;
+        }
+        if (!this.boundFields.previousUpdateAvailable) {
+            this.showPreviousUpdateInternal = false;
         }
 
         if (this.settings?.connectorLines?.showConnectorLines !== undefined) {
@@ -4447,10 +4481,10 @@ export class Visual implements IVisual {
         const showExtra = this.showExtraColumnsInternal; // Based on enableColumnDisplay
 
         if (showExtra) {
-            if (comp.showBaseline.value) {
+            if (this.showBaselineInternal) {
                 extraWidth += cols.baselineStartDateWidth.value + cols.baselineFinishDateWidth.value;
             }
-            if (comp.showPreviousUpdate.value) {
+            if (this.showPreviousUpdateInternal) {
                 extraWidth += cols.previousUpdateStartDateWidth.value + cols.previousUpdateFinishDateWidth.value;
             }
         }
@@ -4467,14 +4501,8 @@ export class Visual implements IVisual {
     }
 
     private updateHeaderElements(viewportWidth: number): void {
-        const dataView = this.lastUpdateOptions?.dataViews?.[0];
-        const hasBaselineStart = dataView ? this.dataProcessor.hasDataRole(dataView, 'baselineStartDate') : false;
-        const hasBaselineFinish = dataView ? this.dataProcessor.hasDataRole(dataView, 'baselineFinishDate') : false;
-        const baselineAvailable = hasBaselineStart && hasBaselineFinish;
-
-        const hasPreviousUpdateStart = dataView ? this.dataProcessor.hasDataRole(dataView, 'previousUpdateStartDate') : false;
-        const hasPreviousUpdateFinish = dataView ? this.dataProcessor.hasDataRole(dataView, 'previousUpdateFinishDate') : false;
-        const previousUpdateAvailable = hasPreviousUpdateStart && hasPreviousUpdateFinish;
+        const baselineAvailable = this.boundFields.baselineAvailable;
+        const previousUpdateAvailable = this.boundFields.previousUpdateAvailable;
 
         const state: HeaderState = {
             showAllTasks: this.showAllTasksInternal,
@@ -4482,6 +4510,7 @@ export class Visual implements IVisual {
             baselineAvailable: baselineAvailable,
             showPreviousUpdate: this.showPreviousUpdateInternal,
             previousUpdateAvailable: previousUpdateAvailable,
+            boundFields: this.boundFields,
             showConnectorLines: this.showConnectorLinesInternal,
             wbsExpanded: this.wbsExpandedInternal,
             wbsDataExists: this.wbsDataExistsInMetadata || this.wbsDataExists, // Prioritize metadata check if available
@@ -6254,7 +6283,7 @@ export class Visual implements IVisual {
         const startWidth = cols.startDateWidth.value;
 
         // New Columns
-        const showPrev = showExtra && comp.showPreviousUpdate.value;
+        const showPrev = showExtra && this.showPreviousUpdateInternal;
         // Check if data roles are present for Previous? The toggle determines if we *want* to show it, 
         // but if no data is mapped, it will modify layout but show empty. 
         // Standard PowerBI behavior: if enabled in settings, show the space. 
@@ -6264,7 +6293,7 @@ export class Visual implements IVisual {
         const prevFinishWidth = cols.previousUpdateFinishDateWidth.value;
         const prevStartWidth = cols.previousUpdateStartDateWidth.value;
 
-        const showBase = showExtra && comp.showBaseline.value;
+        const showBase = showExtra && this.showBaselineInternal;
         const baseFinishWidth = cols.baselineFinishDateWidth.value;
         const baseStartWidth = cols.baselineStartDateWidth.value;
 
@@ -6571,7 +6600,7 @@ export class Visual implements IVisual {
         }
 
         // New Columns
-        if (showExtra && comp.showPreviousUpdate.value) {
+        if (showExtra && this.showPreviousUpdateInternal) {
             items.push({ text: "Prev Finish", width: cols.previousUpdateFinishDateWidth.value, offset: occupiedWidth });
             occupiedWidth += cols.previousUpdateFinishDateWidth.value;
 
@@ -6579,7 +6608,7 @@ export class Visual implements IVisual {
             occupiedWidth += cols.previousUpdateStartDateWidth.value;
         }
 
-        if (showExtra && comp.showBaseline.value) {
+        if (showExtra && this.showBaselineInternal) {
             items.push({ text: "BL Finish", width: cols.baselineFinishDateWidth.value, offset: occupiedWidth });
             occupiedWidth += cols.baselineFinishDateWidth.value;
 
@@ -6686,7 +6715,7 @@ export class Visual implements IVisual {
         }
 
         // New Columns
-        if (showExtra && comp.showPreviousUpdate.value) {
+        if (showExtra && this.showPreviousUpdateInternal) {
             items.push({ width: cols.previousUpdateFinishDateWidth.value, offset: occupiedWidth });
             occupiedWidth += cols.previousUpdateFinishDateWidth.value;
 
@@ -6694,7 +6723,7 @@ export class Visual implements IVisual {
             occupiedWidth += cols.previousUpdateStartDateWidth.value;
         }
 
-        if (showExtra && comp.showBaseline.value) {
+        if (showExtra && this.showBaselineInternal) {
             items.push({ width: cols.baselineFinishDateWidth.value, offset: occupiedWidth });
             occupiedWidth += cols.baselineFinishDateWidth.value;
 
@@ -11819,6 +11848,14 @@ export class Visual implements IVisual {
                 if (backgroundSlice) backgroundSlice.displayName = backgroundLabel;
                 if (textSlice) textSlice.displayName = textLabel;
             }
+        }
+
+        // Hide formatting pane cards for unbound optional fields
+        if (this.settings?.baselineFinishLine && !this.boundFields.baselineAvailable) {
+            this.settings.baselineFinishLine.visible = false;
+        }
+        if (this.settings?.previousUpdateFinishLine && !this.boundFields.previousUpdateAvailable) {
+            this.settings.previousUpdateFinishLine.visible = false;
         }
 
         const formattingModel = this.formattingSettingsService.buildFormattingModel(this.settings);

@@ -64,6 +64,8 @@ export declare class Visual implements IVisual {
     private showBaselineInternal;
     private showPreviousUpdateInternal;
     private isInitialLoad;
+    /** Tracks which optional date-pair fields are bound and contain data */
+    private boundFields;
     private debug;
     private margin;
     private headerHeight;
