@@ -14,6 +14,7 @@ export interface HeaderCallbacks {
     onFloatThresholdChanged: (value: number) => void;
     onHelp: () => void;
     onExport: () => void;
+    onExportHtml: () => void;
     onCopy: () => void;
     onZoomIn?: () => void;
     onZoomOut?: () => void;
@@ -78,5 +79,6 @@ export declare class Header {
     private createWbsEnableToggleButton;
     private createCopyButton;
     private createExportButton;
+    private createExportHtmlButton;
     private createHelpButton;
 }

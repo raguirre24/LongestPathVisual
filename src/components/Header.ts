@@ -18,6 +18,7 @@ export interface HeaderCallbacks {
     onFloatThresholdChanged: (value: number) => void;
     onHelp: () => void;
     onExport: () => void;
+    onExportHtml: () => void;
     onCopy: () => void;
     onZoomIn?: () => void;
     onZoomOut?: () => void;
@@ -98,6 +99,7 @@ export class Header {
         this.createWbsExpandCycleToggleButton();
         this.createWbsCollapseCycleToggleButton();
         this.createCopyButton();
+        this.createExportHtmlButton();
         this.createExportButton();
         this.createHelpButton();
         this.createFloatThresholdControl();
@@ -716,6 +718,7 @@ export class Header {
             iconButtonSize, // wbs expand
             iconButtonSize, // wbs collapse
             smallIconSize,  // copy
+            smallIconSize,  // export html
             smallIconSize,  // export
             smallIconSize   // help
         ];
@@ -734,6 +737,7 @@ export class Header {
             wbsExpand: state.wbsDataExists && (settings.wbsGrouping?.enableWbsGrouping?.value ?? true),
             wbsCollapse: state.wbsDataExists && (settings.wbsGrouping?.enableWbsGrouping?.value ?? true),
             copyButton: true,
+            htmlExportButton: settings.generalSettings?.showExportButton?.value ?? true,
             exportButton: settings.generalSettings?.showExportButton?.value ?? true,
             helpButton: true
         };
@@ -752,6 +756,7 @@ export class Header {
             if (visibleButtons.wbsExpand) { width += iconButtonSize; count++; }
             if (visibleButtons.wbsCollapse) { width += iconButtonSize; count++; }
             if (visibleButtons.copyButton) { width += smallIconSize; count++; }
+            if (visibleButtons.htmlExportButton) { width += smallIconSize; count++; }
             if (visibleButtons.exportButton) { width += smallIconSize; count++; }
             if (visibleButtons.helpButton) { width += smallIconSize; count++; }
             return width + Math.max(0, count - 1) * gap;
@@ -787,6 +792,12 @@ export class Header {
         // Hide connector lines toggle
         if (visibleWidth > availableWidth && visibleButtons.connectorLines) {
             visibleButtons.connectorLines = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        // Hide HTML export button
+        if (visibleWidth > availableWidth && visibleButtons.htmlExportButton) {
+            visibleButtons.htmlExportButton = false;
             visibleWidth = calculateVisibleWidth();
         }
 
@@ -891,6 +902,13 @@ export class Header {
         };
         if (visibleButtons.copyButton) x += smallIconSize + gap;
 
+        const htmlExportButton = {
+            x,
+            size: smallIconSize,
+            visible: visibleButtons.htmlExportButton
+        };
+        if (visibleButtons.htmlExportButton) x += smallIconSize + gap;
+
         const exportButton = {
             x,
             size: smallIconSize,
@@ -917,6 +935,7 @@ export class Header {
             wbsExpandToggle,
             wbsCollapseToggle,
             copyButton,
+            htmlExportButton,
             exportButton,
             helpButton,
             gap,
@@ -1870,8 +1889,8 @@ export class Header {
         const btn = this.container.append("button")
             .attr("class", "export-button-group")
             .attr("type", "button")
-            .attr("aria-label", "Export data to CSV")
-            .attr("title", "Export data to CSV")
+            .attr("aria-label", "Export visual as PDF")
+            .attr("title", "Export visual as PDF")
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -1937,6 +1956,92 @@ export class Header {
             .attr('stroke-width', 2)
             .attr('stroke-dasharray', '20 10')
             .attr('stroke-linecap', 'round');
+
+        btn.on("mouseover", function () {
+            bgRect.attr("fill", UI_TOKENS.color.neutral.grey10)
+                .attr("stroke", UI_TOKENS.color.neutral.grey90);
+        })
+            .on("mouseout", function () {
+                bgRect.attr("fill", UI_TOKENS.color.neutral.white)
+                    .attr("stroke", UI_TOKENS.color.neutral.grey60);
+            });
+    }
+
+    private createExportHtmlButton(): void {
+        this.container.selectAll('.export-html-button-group').remove();
+
+        const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
+        const { x: buttonX, size: buttonSize, visible } = layout.htmlExportButton;
+
+        if (!visible) return;
+
+        const buttonY = UI_TOKENS.spacing.sm;
+
+        const btn = this.container.append("button")
+            .attr("class", "export-html-button-group")
+            .attr("type", "button")
+            .attr("aria-label", "Export visual as HTML")
+            .attr("title", "Export visual as HTML")
+            .classed("header-toggle-button", true)
+            .style("position", "absolute")
+            .style("left", `${buttonX}px`)
+            .style("top", `${buttonY}px`)
+            .style("width", `${buttonSize}px`)
+            .style("height", `${buttonSize}px`)
+            .style("padding", "0")
+            .style("box-sizing", "border-box")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("border", "none")
+            .style("background-color", "transparent")
+            .style("border-radius", `${UI_TOKENS.radius.medium}px`)
+            .style("cursor", "pointer")
+            .on("click", (event) => {
+                event.stopPropagation();
+                this.callbacks.onExportHtml();
+            });
+
+        const svg = btn.append("svg")
+            .attr("width", buttonSize)
+            .attr("height", buttonSize)
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        const bgRect = svg.append("rect")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonSize - 1)
+            .attr("height", buttonSize - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", UI_TOKENS.color.neutral.white)
+            .attr("stroke", UI_TOKENS.color.neutral.grey60)
+            .attr("stroke-width", 1);
+
+        const iconG = svg.append('g')
+            .attr('transform', `translate(${buttonSize / 2}, ${buttonSize / 2})`);
+
+        iconG.append('path')
+            .attr('d', 'M-6,-7 L2,-7 L6,-3 L6,7 L-6,7 Z M2,-7 L2,-3 L6,-3')
+            .attr('fill', 'none')
+            .attr('stroke', UI_TOKENS.color.neutral.grey130)
+            .attr('stroke-width', 1.2)
+            .attr('stroke-linecap', 'round')
+            .attr('stroke-linejoin', 'round');
+
+        iconG.append('text')
+            .attr('x', 0)
+            .attr('y', 2)
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'central')
+            .style('font-family', 'Segoe UI, sans-serif')
+            .style('font-size', '7px')
+            .style('font-weight', '700')
+            .style('fill', UI_TOKENS.color.neutral.grey130)
+            .text('HTML');
 
         btn.on("mouseover", function () {
             bgRect.attr("fill", UI_TOKENS.color.neutral.grey10)

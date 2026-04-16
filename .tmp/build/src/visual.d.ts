@@ -13,6 +13,7 @@ export declare class Visual implements IVisual {
     private eventService;
     private downloadService;
     private isExporting;
+    private forceSvgRenderingForExport;
     private exportButtonGroup;
     private allowInteractions;
     private highContrastMode;
@@ -213,6 +214,12 @@ export declare class Visual implements IVisual {
      * Returns second row layout (dropdown, trace mode toggle) based on viewport width
      */
     private getSecondRowLayout;
+    private pointsToCssPx;
+    private fontPxFromPtSetting;
+    private snapLineCoord;
+    private snapRectCoord;
+    private snapTextCoord;
+    private shouldUseCanvasForViewport;
     constructor(options: VisualConstructorOptions);
     private forceCanvasRefresh;
     private debouncedUpdate;
@@ -353,6 +360,11 @@ export declare class Visual implements IVisual {
      * Updates the export button visual state
      */
     private updateExportButtonState;
+    private exportVisualAsHtml;
+    private getIntersectionRect;
+    private drawRenderedCanvasRegion;
+    private renderCompositeExportCanvas;
+    private renderFullFilteredCompositeExportCanvas;
     /**
      * Exports the visual as a PDF file using Power BI Download Service API
      * Falls back to direct download if the service is unavailable
@@ -464,6 +476,7 @@ export declare class Visual implements IVisual {
      * Draws task name labels in an unclipped layer so they stay visible in the left margin.
      */
     private drawTaskLabelsLayer;
+    private getLabelColumnLayout;
     private drawColumnHeaders;
     /**
      * Draws vertical separator lines through the task label area, matching column headers
@@ -777,6 +790,19 @@ export declare class Visual implements IVisual {
      * Clears the help overlay from the DOM
      */
     private clearHelpOverlay;
+    private escapeHtml;
+    private getExportTableTasks;
+    private getVisibleExportWbsGroups;
+    private generateFlatExportTableHtml;
+    private generateFlatExportTableText;
+    private generateVisibleWbsOnlyExportTableHtml;
+    private generateVisibleWbsOnlyExportTableText;
+    private generateVisibleExportTableHtml;
+    private generateVisibleExportTableText;
+    private generateClipboardExportMetadataFragment;
+    private generateClipboardTableExportFragment;
+    private generateClipboardHtmlExportFragment;
+    private copyHtmlExportToClipboard;
     /**
      * Generates hierarchical HTML content for WBS export with colored group headers
      * and indented task names, matching the visual display layout.

@@ -77,7 +77,7 @@ class GeneralSettingsCard extends Card {
     showExportButton = new ToggleSwitch({
         name: "showExportButton",
         displayName: "Show Export Button",
-        description: "Show or hide the PDF export button in the header",
+        description: "Show or hide the export buttons in the header",
         value: true
     });
 
