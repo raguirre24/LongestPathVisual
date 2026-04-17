@@ -39,6 +39,7 @@ type DrivingChain = {
 
 export class Visual implements IVisual {
     private target: HTMLElement;
+    private visualWrapper: Selection<HTMLDivElement, unknown, null, undefined>;
     private host: IVisualHost;
     private formattingSettingsService: FormattingSettingsService;
     private settings: VisualSettings;
@@ -83,6 +84,8 @@ export class Visual implements IVisual {
     private readonly MODE_TRANSITION_DURATION: number = 150;
     private static readonly MIN_DATE_WIDTH: number = 80;
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
+    private watermarkOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
+    private watermarkOverlayRaf: number | null = null;
     private loadingOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingText: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingRowsText: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -429,7 +432,7 @@ export class Visual implements IVisual {
         this.tooltipClassName = `critical-path-tooltip-${Date.now()}`;
         this.dataQuality = this.createEmptyDataQuality();
 
-        const visualWrapper = d3.select(this.target).append("div")
+        this.visualWrapper = d3.select(this.target).append("div")
             .attr("class", "visual-wrapper")
             .style("height", "100%")
             .style("width", "100%")
@@ -438,7 +441,7 @@ export class Visual implements IVisual {
             .style("display", "flex")
             .style("flex-direction", "column");
 
-        this.stickyHeaderContainer = visualWrapper.append("div")
+        this.stickyHeaderContainer = this.visualWrapper.append("div")
             .attr("class", "sticky-header-container")
             .style("position", "sticky")
             .style("top", "0")
@@ -588,7 +591,7 @@ export class Visual implements IVisual {
             .attr("role", "status")
             .attr("aria-live", "polite");
 
-        this.scrollableContainer = visualWrapper.append("div")
+        this.scrollableContainer = this.visualWrapper.append("div")
             .attr("class", "criticalPathContainer")
             .style("flex", "1")
             .style("min-height", "0")
@@ -702,9 +705,9 @@ export class Visual implements IVisual {
         this.taskLabelLayer = this.mainGroup.append("g")
             .attr("class", "task-label-layer");
 
-        this.createZoomSliderUI(visualWrapper);
+        this.createZoomSliderUI(this.visualWrapper);
 
-        this.legendContainer = visualWrapper.append("div")
+        this.legendContainer = this.visualWrapper.append("div")
             .attr("class", "sticky-legend-footer")
             .style("width", "100%")
             .style("height", `${this.legendFooterHeight}px`)
@@ -728,6 +731,23 @@ export class Visual implements IVisual {
         this.scrollableContainer.node()?.appendChild(this.canvasElement);
 
         this.canvasLayer = d3.select(this.canvasElement);
+        this.watermarkOverlay = this.visualWrapper.append("div")
+            .attr("class", "visual-watermark")
+            .style("position", "absolute")
+            .style("right", "8px")
+            .style("bottom", "6px")
+            .style("pointer-events", "none")
+            .style("user-select", "none")
+            .style("z-index", "1000")
+            .style("font-family", "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif")
+            .style("font-size", "10px")
+            .style("line-height", "1")
+            .style("white-space", "nowrap")
+            .style("color", "#888888")
+            .style("opacity", "0.75")
+            .style("text-shadow", "0 1px 1px rgba(255, 255, 255, 0.65)")
+            .text("© Ricardo Aguirre · CPM Gantt");
+        this.scheduleWatermarkOverlayUpdate();
 
         this.applyPublishModeOptimizations();
 
@@ -1227,6 +1247,11 @@ export class Visual implements IVisual {
         if (this.updateDebounceTimeout) {
             clearTimeout(this.updateDebounceTimeout);
             this.updateDebounceTimeout = null;
+        }
+
+        if (this.watermarkOverlayRaf !== null) {
+            cancelAnimationFrame(this.watermarkOverlayRaf);
+            this.watermarkOverlayRaf = null;
         }
 
         if (this.scrollThrottleTimeout) {
@@ -4048,14 +4073,6 @@ export class Visual implements IVisual {
                     calculatedChartHeight,
                     this.getEffectiveLeftMargin()
                 );
-
-                this.drawDataDateLine(
-                    this.xScale.range()[1],
-                    this.xScale,
-                    this.yScale.range()[1],
-                    this.gridLayer,
-                    this.headerGridLayer
-                );
             }
         }
 
@@ -4298,6 +4315,11 @@ export class Visual implements IVisual {
 
         this.margin.left = Math.round(newLeftMargin);
         const effectiveMargin = this.getEffectiveLeftMargin();
+        if (this.canvasElement) {
+            this.canvasElement.style.display = 'none';
+            this.canvasElement.style.visibility = 'hidden';
+        }
+        this.updateWatermarkOverlayVisibility(true);
 
         // 1. Update group transforms
         this.mainGroup?.attr("transform", `translate(${this.snapRectCoord(effectiveMargin)}, ${this.snapRectCoord(this.margin.top)})`);
@@ -4414,6 +4436,7 @@ export class Visual implements IVisual {
         // 6. Reposition resizer and zoom slider
         this.updateMarginResizerPosition();
         this.updateZoomSliderTrackMargins();
+        this.scheduleWatermarkOverlayUpdate();
     }
 
     private clearVisual(): void {
@@ -4440,6 +4463,8 @@ export class Visual implements IVisual {
             this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
             this.canvasElement.style.display = 'none';
         }
+
+        this.updateWatermarkOverlayVisibility(true);
     }
 
     private drawHeaderDivider(viewportWidth: number): void {
@@ -5247,7 +5272,6 @@ export class Visual implements IVisual {
         chartHeight: number,
         currentLeftMargin: number
     ): void {
-
         if (!(this.gridLayer?.node() && this.taskLayer?.node() && this.arrowLayer?.node() &&
             xScale && yScale && yScale.bandwidth())) {
             console.error("Cannot draw elements: Missing main layers or invalid scales/bandwidth.");
@@ -5322,6 +5346,7 @@ export class Visual implements IVisual {
             chartHeight,
             window.devicePixelRatio || 1
         );
+        this.syncCanvasElementPresentation(currentLeftMargin);
         this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${renderableTasks.length} tasks`);
         if (!showHorzGridLines) {
             this.clearHorizontalGridArtifacts();
@@ -5434,6 +5459,72 @@ export class Visual implements IVisual {
 
         // --- 7. Vertical Separators ---
         this.drawLabelColumnSeparators(chartHeight, currentLeftMargin);
+        this.scheduleWatermarkOverlayUpdate();
+    }
+
+    private syncCanvasElementPresentation(currentLeftMargin: number): void {
+        if (!this.canvasElement) return;
+
+        if (this.useCanvasRendering) {
+            const leftMargin = this.snapRectCoord(currentLeftMargin);
+            const topMargin = this.snapRectCoord(this.margin.top);
+
+            this.canvasElement.style.display = 'block';
+            this.canvasElement.style.visibility = 'visible';
+            this.canvasElement.style.left = `${leftMargin}px`;
+            this.canvasElement.style.top = `${topMargin}px`;
+            this.canvasElement.style.imageRendering = 'auto';
+            this.canvasElement.style.transform = 'none';
+            this.canvasElement.style.willChange = 'auto';
+            this.canvasElement.style.backfaceVisibility = 'visible';
+            this.canvasElement.style.webkitBackfaceVisibility = 'visible';
+        } else {
+            this.canvasElement.style.display = 'none';
+            this.canvasElement.style.visibility = 'hidden';
+        }
+    }
+
+    private scheduleWatermarkOverlayUpdate(): void {
+        if (this.watermarkOverlayRaf !== null) {
+            cancelAnimationFrame(this.watermarkOverlayRaf);
+        }
+
+        this.watermarkOverlayRaf = requestAnimationFrame(() => {
+            this.watermarkOverlayRaf = requestAnimationFrame(() => {
+                this.watermarkOverlayRaf = null;
+                this.updateWatermarkOverlayVisibility(true);
+            });
+        });
+    }
+
+    private updateWatermarkOverlayVisibility(forceVisible: boolean = false): void {
+        if (!this.watermarkOverlay) return;
+
+        this.updateWatermarkOverlayPosition();
+        this.watermarkOverlay.style("display", forceVisible ? "block" : "block");
+    }
+
+    private updateWatermarkOverlayPosition(): void {
+        if (!this.watermarkOverlay || !this.visualWrapper || !this.scrollableContainer) return;
+
+        const wrapperNode = this.visualWrapper.node();
+        const scrollNode = this.scrollableContainer.node();
+        if (!wrapperNode || !scrollNode) return;
+
+        const wrapperRect = wrapperNode.getBoundingClientRect();
+        const scrollRect = scrollNode.getBoundingClientRect();
+        const rightOffset = Math.max(
+            8,
+            wrapperRect.right - scrollRect.right + 8
+        );
+        const bottomOffset = Math.max(
+            6,
+            wrapperRect.bottom - scrollRect.bottom + 6
+        );
+
+        this.watermarkOverlay
+            .style("right", `${Math.round(rightOffset)}px`)
+            .style("bottom", `${Math.round(bottomOffset)}px`);
     }
 
     private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
@@ -7533,6 +7624,42 @@ export class Visual implements IVisual {
             ctx.restore();
         }
 
+        ctx.restore();
+    }
+
+    /**
+     * Draws a low-opacity copyright watermark in the bottom-right corner
+     * of the canvas. Called at the end of every canvas render pass.
+     * Do not remove — required by licensing terms.
+     */
+    private drawCanvasWatermark(): void {
+        const ctx = this.canvasContext;
+        const canvas = this.canvasElement;
+        if (!ctx || !canvas) return;
+
+        const text = "© Ricardo Aguirre · CPM Gantt";
+        const cssWidth = canvas.clientWidth || canvas.width;
+        const cssHeight = canvas.clientHeight || canvas.height;
+        if (cssWidth <= 0 || cssHeight <= 0) return;
+
+        const scaleX = canvas.width / cssWidth;
+        const scaleY = canvas.height / cssHeight;
+        const scrollNode = this.scrollableContainer?.node();
+        const viewportBottom = scrollNode
+            ? Math.min(cssHeight, scrollNode.scrollTop + scrollNode.clientHeight)
+            : cssHeight;
+
+        ctx.save();
+        // Reset any transforms so coordinates are in CSS pixels relative
+        // to the canvas backing store, then apply the actual canvas scale.
+        ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+        ctx.globalAlpha = 0.35;
+        ctx.font = "10px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+        ctx.fillStyle = "#888888";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+
+        ctx.fillText(text, cssWidth - 8, viewportBottom - 6);
         ctx.restore();
     }
 

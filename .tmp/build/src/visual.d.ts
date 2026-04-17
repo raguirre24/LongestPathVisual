@@ -4,6 +4,7 @@ import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructor
 import IVisual = powerbi.extensibility.visual.IVisual;
 export declare class Visual implements IVisual {
     private target;
+    private visualWrapper;
     private host;
     private formattingSettingsService;
     private settings;
@@ -46,6 +47,8 @@ export declare class Visual implements IVisual {
     private readonly MODE_TRANSITION_DURATION;
     private static readonly MIN_DATE_WIDTH;
     private canvasLayer;
+    private watermarkOverlay;
+    private watermarkOverlayRaf;
     private loadingOverlay;
     private loadingText;
     private loadingRowsText;
@@ -483,6 +486,10 @@ export declare class Visual implements IVisual {
     private clearHorizontalGridArtifacts;
     private createScales;
     private drawVisualElements;
+    private syncCanvasElementPresentation;
+    private scheduleWatermarkOverlayUpdate;
+    private updateWatermarkOverlayVisibility;
+    private updateWatermarkOverlayPosition;
     private drawHorizontalGridLines;
     private drawgridLines;
     /** Draws task bars, milestones, and associated labels */
@@ -498,6 +505,12 @@ export declare class Visual implements IVisual {
      */
     private drawLabelColumnSeparators;
     private drawTasksCanvas;
+    /**
+     * Draws a low-opacity copyright watermark in the bottom-right corner
+     * of the canvas. Called at the end of every canvas render pass.
+     * Do not remove — required by licensing terms.
+     */
+    private drawCanvasWatermark;
     /**
      * Helper to add a rounded rect to the current path
      * (Inlined for batching performance)
