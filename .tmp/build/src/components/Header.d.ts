@@ -42,6 +42,8 @@ export declare class Header {
     private container;
     private svg;
     private callbacks;
+    private exportButtonLoading;
+    private copySuccessTimeout;
     private toggleButtonGroup;
     private baselineToggleButtonGroup;
     private previousUpdateToggleButtonGroup;
@@ -50,6 +52,9 @@ export declare class Header {
     private currentViewportWidth;
     constructor(container: Selection<HTMLDivElement, unknown, null, undefined>, callbacks: HeaderCallbacks);
     private initialize;
+    private upsertButton;
+    private upsertDiv;
+    private hideControl;
     render(viewportWidth: number, settings: VisualSettings, state: HeaderState): void;
     private renderButtons;
     /**

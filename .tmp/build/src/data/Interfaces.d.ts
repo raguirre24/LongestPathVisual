@@ -82,6 +82,16 @@ export interface Relationship {
     relationshipFloat?: number;
     isDriving?: boolean;
 }
+export interface DataQualityInfo {
+    rowCount: number;
+    possibleTruncation: boolean;
+    duplicateTaskIds: string[];
+    circularPaths: string[];
+    invalidRawDateRangeTaskIds: string[];
+    invalidVisualDateRangeTaskIds: string[];
+    warnings: string[];
+    cpmSafe: boolean;
+}
 export interface DropdownItem {
     id: string;
     type: "clear" | "task" | "empty" | "overflow";

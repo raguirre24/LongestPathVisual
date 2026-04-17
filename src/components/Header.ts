@@ -48,6 +48,8 @@ export class Header {
     private container: Selection<HTMLDivElement, unknown, null, undefined>;
     private svg!: Selection<SVGSVGElement, unknown, null, undefined>;
     private callbacks: HeaderCallbacks;
+    private exportButtonLoading: boolean = false;
+    private copySuccessTimeout: number | null = null;
 
     // Button Selections
     private toggleButtonGroup!: Selection<SVGGElement, unknown, null, undefined>;
@@ -77,7 +79,44 @@ export class Header {
 
         // Main group
         this.toggleButtonGroup = this.svg.append("g")
-            .attr("class", "toggle-button-group");
+            .attr("class", "header-svg-root");
+    }
+
+    private upsertButton(className: string): Selection<HTMLButtonElement, unknown, null, undefined> {
+        let button = this.container.select<HTMLButtonElement>(`button.${className}`);
+        if (button.empty()) {
+            button = this.container.append("button")
+                .attr("class", className);
+        }
+
+        button
+            .attr("class", className)
+            .style("display", "flex")
+            .style("transform", null);
+
+        button.selectAll("*").remove();
+        return button;
+    }
+
+    private upsertDiv(className: string): Selection<HTMLDivElement, unknown, null, undefined> {
+        let element = this.container.select<HTMLDivElement>(`div.${className}`);
+        if (element.empty()) {
+            element = this.container.append("div")
+                .attr("class", className);
+        }
+
+        element
+            .attr("class", className)
+            .style("display", "block");
+
+        element.selectAll("*").remove();
+        return element;
+    }
+
+    private hideControl(className: string): void {
+        const normalized = className.startsWith(".") ? className.slice(1) : className;
+        this.container.select<HTMLElement>(`button.${normalized}`).style("display", "none");
+        this.container.select<HTMLElement>(`div.${normalized}`).style("display", "none");
     }
 
     public render(viewportWidth: number, settings: VisualSettings, state: HeaderState) {
@@ -110,18 +149,26 @@ export class Header {
      * Turns the button border green for 2 seconds.
      */
     public showCopySuccess(): void {
-        const btn = this.container.select('.copy-data-button-group');
+        const btn = this.container.select<HTMLButtonElement>('button.copy-data-button-group');
+        const bgRect = btn.select<SVGRectElement>('.copy-button-bg');
         if (!btn.empty()) {
-            // Button feedback (keep existing)
-            const originalBorder = btn.style('border');
-            const originalBg = btn.style('background-color');
+            bgRect
+                .attr('fill', UI_TOKENS.color.success.light)
+                .attr('stroke', UI_TOKENS.color.success.default)
+                .attr('stroke-width', 1.5);
 
-            btn.style('border', `2px solid ${UI_TOKENS.color.success.default}`)
-                .style('background-color', UI_TOKENS.color.success.light);
+            if (this.copySuccessTimeout !== null) {
+                clearTimeout(this.copySuccessTimeout);
+            }
 
-            setTimeout(() => {
-                btn.style('border', originalBorder)
-                    .style('background-color', originalBg);
+            this.copySuccessTimeout = window.setTimeout(() => {
+                const liveRect = this.container.select<HTMLButtonElement>('button.copy-data-button-group')
+                    .select<SVGRectElement>('.copy-button-bg');
+                liveRect
+                    .attr('fill', UI_TOKENS.color.neutral.white)
+                    .attr('stroke', UI_TOKENS.color.neutral.grey60)
+                    .attr('stroke-width', 1);
+                this.copySuccessTimeout = null;
             }, 2000);
         }
 
@@ -195,40 +242,55 @@ export class Header {
     }
 
     public setExporting(isExporting: boolean): void {
-        const btn = this.container.select('.export-button-group');
+        this.exportButtonLoading = isExporting;
+
+        const btn = this.container.select<HTMLButtonElement>('button.export-button-group');
         if (btn.empty()) return;
 
         const iconPaths = btn.selectAll('.export-icon-path');
         const spinner = btn.select('.export-spinner');
+        const bgRect = btn.select<SVGRectElement>('.export-button-bg');
 
         if (isExporting) {
             iconPaths.style('display', 'none');
             spinner.style('display', 'block');
             btn.classed('is-exporting', true)
+                .attr('aria-busy', 'true')
+                .property('disabled', true)
                 .style('cursor', 'wait')
-                .style('background-color', UI_TOKENS.color.neutral.grey20);
+                .style('background-color', 'transparent');
+            bgRect
+                .attr('fill', UI_TOKENS.color.neutral.grey20)
+                .attr('stroke', UI_TOKENS.color.primary.default);
         } else {
             iconPaths.style('display', 'block');
             spinner.style('display', 'none');
             btn.classed('is-exporting', false)
+                .attr('aria-busy', 'false')
+                .property('disabled', false)
                 .style('cursor', 'pointer')
-                .style('background-color', UI_TOKENS.color.neutral.white);
+                .style('background-color', 'transparent');
+            bgRect
+                .attr('fill', UI_TOKENS.color.neutral.white)
+                .attr('stroke', UI_TOKENS.color.neutral.grey60);
         }
     }
 
     private createOrUpdateToggleButton(): void {
-        this.container.selectAll(".toggle-button-group").remove();
-
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const buttonWidth = layout.showAllCritical.width;
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonX = layout.showAllCritical.x;
         const buttonY = UI_TOKENS.spacing.sm;
 
+        if (!layout.showAllCritical.visible) {
+            this.hideControl("toggle-button-group");
+            return;
+        }
+
         const isShowingCritical = !this.currentState.showAllTasks;
 
-        const btn = this.container.append("button")
-            .attr("class", "toggle-button-group")
+        const btn = this.upsertButton("toggle-button-group")
             .attr("type", "button")
             .attr("aria-label", isShowingCritical ? "Show all tasks" : "Show critical path only")
             .attr("title", isShowingCritical ? "Show all tasks" : "Show critical path only")
@@ -357,12 +419,13 @@ export class Header {
     }
 
     private createOrUpdateBaselineToggleButton(): void {
-        this.container.selectAll(".baseline-toggle-group").remove();
-
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, width: buttonWidth, iconOnly, visible } = layout.baseline;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("baseline-toggle-group");
+            return;
+        }
 
         const isAvailable = this.currentState.baselineAvailable;
         const showBaseline = this.currentState.showBaseline;
@@ -383,8 +446,7 @@ export class Header {
                 : "Add Baseline Start Date and Baseline Finish Date data to enable";
         }
 
-        const btn = this.container.append("button")
-            .attr("class", "baseline-toggle-group")
+        const btn = this.upsertButton("baseline-toggle-group")
             .attr("type", "button")
             .attr("aria-label", `${showBaseline ? 'Hide' : 'Show'} baseline task bars`)
             .attr("title", tooltipText)
@@ -514,12 +576,13 @@ export class Header {
     }
 
     private createOrUpdatePreviousUpdateToggleButton(): void {
-        this.container.selectAll(".previous-update-toggle-group").remove();
-
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, width: buttonWidth, iconOnly, visible } = layout.previousUpdate;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("previous-update-toggle-group");
+            return;
+        }
 
         const isAvailable = this.currentState.previousUpdateAvailable;
         const showPreviousUpdate = this.currentState.showPreviousUpdate;
@@ -540,8 +603,7 @@ export class Header {
                 : "Add Previous Update Start and Finish Date data to enable";
         }
 
-        const btn = this.container.append("button")
-            .attr("class", "previous-update-toggle-group")
+        const btn = this.upsertButton("previous-update-toggle-group")
             .attr("type", "button")
             .attr("aria-label", `${showPreviousUpdate ? 'Hide' : 'Show'} previous update task bars`)
             .attr("title", tooltipText)
@@ -795,6 +857,12 @@ export class Header {
             visibleWidth = calculateVisibleWidth();
         }
 
+        // Hide help button
+        if (visibleWidth > availableWidth && visibleButtons.helpButton) {
+            visibleButtons.helpButton = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
         // Hide HTML export button
         if (visibleWidth > availableWidth && visibleButtons.htmlExportButton) {
             visibleButtons.htmlExportButton = false;
@@ -944,21 +1012,24 @@ export class Header {
     }
 
     private createConnectorLinesToggleButton(): void {
-        this.container.selectAll(".connector-toggle-group").remove();
-
         const showConnectorToggle = this.currentSettings?.connectorLines?.showConnectorToggle?.value ?? false;
-        if (!showConnectorToggle) return;
+        if (!showConnectorToggle) {
+            this.hideControl("connector-toggle-group");
+            return;
+        }
 
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, size: buttonSize, visible } = layout.connectorLines;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("connector-toggle-group");
+            return;
+        }
 
         const buttonY = UI_TOKENS.spacing.sm;
         const showConnectorLines = this.currentState.showConnectorLines;
 
-        const btn = this.container.append("button")
-            .attr("class", "connector-toggle-group")
+        const btn = this.upsertButton("connector-toggle-group")
             .attr("type", "button")
             .attr("aria-label", `${showConnectorLines ? 'Hide' : 'Show'} connector lines between tasks`)
             .attr("title", showConnectorLines ? "Click to hide connector lines between dependent tasks" : "Click to show connector lines between dependent tasks")
@@ -1059,16 +1130,20 @@ export class Header {
     }
 
     private createWbsExpandCycleToggleButton(): void {
-        this.container.selectAll(".wbs-expand-toggle-group").remove();
-
         const wbsEnabled = this.currentState.wbsDataExists && this.currentSettings?.wbsGrouping?.enableWbsGrouping?.value;
         const showWbsToggle = this.currentSettings?.wbsGrouping?.showWbsToggle?.value ?? true;
-        if (!wbsEnabled || !showWbsToggle) return;
+        if (!wbsEnabled || !showWbsToggle) {
+            this.hideControl("wbs-expand-toggle-group");
+            return;
+        }
 
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, size: buttonSize, visible } = layout.wbsExpandToggle;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("wbs-expand-toggle-group");
+            return;
+        }
 
         const isCustom = this.currentState.wbsManualExpansionOverride;
         const currentLevel = this.currentState.wbsExpandToLevel ?? 0;
@@ -1076,8 +1151,7 @@ export class Header {
 
         const buttonY = UI_TOKENS.spacing.sm;
 
-        const btn = this.container.append("button")
-            .attr("class", "wbs-expand-toggle-group")
+        const btn = this.upsertButton("wbs-expand-toggle-group")
             .attr("type", "button")
             .attr("aria-label", isCustom
                 ? "Custom (manual overrides). Click to expand and clear overrides"
@@ -1185,16 +1259,20 @@ export class Header {
     }
 
     private createWbsCollapseCycleToggleButton(): void {
-        this.container.selectAll(".wbs-collapse-toggle-group").remove();
-
         const wbsEnabled = this.currentState.wbsDataExists && this.currentSettings?.wbsGrouping?.enableWbsGrouping?.value;
         const showWbsToggle = this.currentSettings?.wbsGrouping?.showWbsToggle?.value ?? true;
-        if (!wbsEnabled || !showWbsToggle) return;
+        if (!wbsEnabled || !showWbsToggle) {
+            this.hideControl("wbs-collapse-toggle-group");
+            return;
+        }
 
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, size: buttonSize, visible } = layout.wbsCollapseToggle;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("wbs-collapse-toggle-group");
+            return;
+        }
 
         const isCustom = this.currentState.wbsManualExpansionOverride;
         const currentLevel = this.currentState.wbsExpandToLevel ?? 0;
@@ -1202,8 +1280,7 @@ export class Header {
 
         const buttonY = UI_TOKENS.spacing.sm;
 
-        const btn = this.container.append("button")
-            .attr("class", "wbs-collapse-toggle-group")
+        const btn = this.upsertButton("wbs-collapse-toggle-group")
             .attr("type", "button")
             .attr("aria-label", isCustom
                 ? "Custom (manual overrides). Click to collapse and clear overrides"
@@ -1311,12 +1388,11 @@ export class Header {
     }
 
     private createFloatThresholdControl(): void {
-        this.container.selectAll(".float-threshold-wrapper").remove();
-
         const currentMode = this.currentSettings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
         const isFloatBased = currentMode === 'floatBased';
 
         if (!this.currentState.showNearCritical || !isFloatBased) {
+            this.hideControl("float-threshold-wrapper");
             return;
         }
 
@@ -1326,8 +1402,7 @@ export class Header {
         const isMedium = layoutMode === 'medium';
         const maxWidth = isCompact ? 210 : (isMedium ? 240 : 280);
 
-        const controlContainer = this.container.append("div")
-            .attr("class", "float-threshold-wrapper")
+        const controlContainer = this.upsertDiv("float-threshold-wrapper")
             .attr("role", "group")
             .attr("aria-label", "Near-critical threshold setting")
             .attr("title", "Tasks with Total Float less than or equal to this value will be highlighted as Near-Critical.")
@@ -1429,15 +1504,16 @@ export class Header {
     }
 
     private createModeToggleButton(): void {
-        this.container.selectAll(".mode-toggle-group").remove();
-
         const currentMode = this.currentState.currentMode;
         const isFloatBased = currentMode === 'floatBased';
 
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, width: buttonWidth, visible } = layout.modeToggle;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("mode-toggle-group");
+            return;
+        }
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
@@ -1445,8 +1521,7 @@ export class Header {
         const bgColor = isFloatBased ? UI_TOKENS.color.warning.subtle : UI_TOKENS.color.primary.subtle;
         const borderColor = isFloatBased ? UI_TOKENS.color.warning.default : UI_TOKENS.color.primary.default;
 
-        const btn = this.container.append("button")
-            .attr("class", "mode-toggle-group")
+        const btn = this.upsertButton("mode-toggle-group")
             .attr("type", "button")
             .attr("aria-label", `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`)
             .attr("title", `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`)
@@ -1588,18 +1663,18 @@ export class Header {
     }
 
     private createColumnDisplayToggleButton(): void {
-        this.container.selectAll(".column-toggle-group").remove();
-
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, size: buttonSize, visible } = layout.colToggle;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("column-toggle-group");
+            return;
+        }
 
         const showColumns = this.currentState.showExtraColumns;
         const buttonY = UI_TOKENS.spacing.sm;
 
-        const btn = this.container.append("button")
-            .attr("class", "column-toggle-group")
+        const btn = this.upsertButton("column-toggle-group")
             .attr("type", "button")
             .attr("aria-label", showColumns ? "Hide data columns" : "Show data columns")
             .attr("title", showColumns ? "Hide data columns" : "Show data columns")
@@ -1690,15 +1765,19 @@ export class Header {
     }
 
     private createWbsEnableToggleButton(): void {
-        this.container.selectAll(".wbs-enable-toggle-group").remove();
-
-        if (!this.currentState.wbsDataExists) return;
+        if (!this.currentState.wbsDataExists) {
+            this.hideControl("wbs-enable-toggle-group");
+            return;
+        }
 
         const isEnabled = this.currentState.wbsEnabled;
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, width: buttonWidth, visible } = layout.wbsEnable;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("wbs-enable-toggle-group");
+            return;
+        }
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
@@ -1706,8 +1785,7 @@ export class Header {
         const fill = isEnabled ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white;
         const stroke = isEnabled ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60;
 
-        const btn = this.container.append("button")
-            .attr("class", "wbs-enable-toggle-group")
+        const btn = this.upsertButton("wbs-enable-toggle-group")
             .attr("type", "button")
             .attr("aria-label", isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping")
             .attr("title", isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping")
@@ -1800,17 +1878,17 @@ export class Header {
     }
 
     private createCopyButton(): void {
-        this.container.selectAll('.copy-data-button-group').remove();
-
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, size: buttonSize, visible } = layout.copyButton;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("copy-data-button-group");
+            return;
+        }
 
         const buttonY = UI_TOKENS.spacing.sm;
 
-        const btn = this.container.append("button")
-            .attr("class", "copy-data-button-group")
+        const btn = this.upsertButton("copy-data-button-group")
             .attr("type", "button")
             .attr("aria-label", "Copy data to clipboard")
             .attr("title", "Copy data to clipboard")
@@ -1877,20 +1955,21 @@ export class Header {
     }
 
     private createExportButton(): void {
-        this.container.selectAll('.export-button-group').remove();
-
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, size: buttonSize, visible } = layout.exportButton;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("export-button-group");
+            return;
+        }
 
         const buttonY = UI_TOKENS.spacing.sm;
 
-        const btn = this.container.append("button")
-            .attr("class", "export-button-group")
+        const btn = this.upsertButton("export-button-group")
             .attr("type", "button")
             .attr("aria-label", "Export visual as PDF")
             .attr("title", "Export visual as PDF")
+            .attr("aria-busy", this.exportButtonLoading ? "true" : "false")
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -1905,9 +1984,13 @@ export class Header {
             .style("border", "none")
             .style("background-color", "transparent")
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
-            .style("cursor", "pointer")
+            .style("cursor", this.exportButtonLoading ? "wait" : "pointer")
+            .property("disabled", this.exportButtonLoading)
             .on("click", (event) => {
                 event.stopPropagation();
+                if (this.exportButtonLoading) {
+                    return;
+                }
                 this.callbacks.onExport();
             });
 
@@ -1922,14 +2005,15 @@ export class Header {
 
         // Background Rect
         const bgRect = svg.append("rect")
+            .attr("class", "export-button-bg")
             .attr("x", 0.5)
             .attr("y", 0.5)
             .attr("width", buttonSize - 1)
             .attr("height", buttonSize - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", UI_TOKENS.color.neutral.white)
-            .attr("stroke", UI_TOKENS.color.neutral.grey60)
+            .attr("fill", this.exportButtonLoading ? UI_TOKENS.color.neutral.grey20 : UI_TOKENS.color.neutral.white)
+            .attr("stroke", this.exportButtonLoading ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60)
             .attr("stroke-width", 1);
 
         const iconG = svg.append('g')
@@ -1943,11 +2027,12 @@ export class Header {
             .attr('stroke', UI_TOKENS.color.neutral.grey130)
             .attr('stroke-width', 1.5)
             .attr('stroke-linecap', 'round')
-            .attr('stroke-linejoin', 'round');
+            .attr('stroke-linejoin', 'round')
+            .style('display', this.exportButtonLoading ? 'none' : 'block');
 
         const spinner = iconG.append('g')
             .attr('class', 'export-spinner')
-            .style('display', 'none');
+            .style('display', this.exportButtonLoading ? 'block' : 'none');
 
         spinner.append('circle')
             .attr('r', 6)
@@ -1957,28 +2042,36 @@ export class Header {
             .attr('stroke-dasharray', '20 10')
             .attr('stroke-linecap', 'round');
 
-        btn.on("mouseover", function () {
+        btn.on("mouseover", () => {
+            if (this.exportButtonLoading) {
+                return;
+            }
             bgRect.attr("fill", UI_TOKENS.color.neutral.grey10)
                 .attr("stroke", UI_TOKENS.color.neutral.grey90);
         })
-            .on("mouseout", function () {
+            .on("mouseout", () => {
+                if (this.exportButtonLoading) {
+                    bgRect.attr("fill", UI_TOKENS.color.neutral.grey20)
+                        .attr("stroke", UI_TOKENS.color.primary.default);
+                    return;
+                }
                 bgRect.attr("fill", UI_TOKENS.color.neutral.white)
                     .attr("stroke", UI_TOKENS.color.neutral.grey60);
             });
     }
 
     private createExportHtmlButton(): void {
-        this.container.selectAll('.export-html-button-group').remove();
-
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, size: buttonSize, visible } = layout.htmlExportButton;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("export-html-button-group");
+            return;
+        }
 
         const buttonY = UI_TOKENS.spacing.sm;
 
-        const btn = this.container.append("button")
-            .attr("class", "export-html-button-group")
+        const btn = this.upsertButton("export-html-button-group")
             .attr("type", "button")
             .attr("aria-label", "Export visual as HTML")
             .attr("title", "Export visual as HTML")
@@ -2011,6 +2104,7 @@ export class Header {
             .style("left", "0");
 
         const bgRect = svg.append("rect")
+            .attr("class", "copy-button-bg")
             .attr("x", 0.5)
             .attr("y", 0.5)
             .attr("width", buttonSize - 1)
@@ -2054,17 +2148,17 @@ export class Header {
     }
 
     private createHelpButton(): void {
-        this.container.selectAll('.help-button-group').remove();
-
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, size: buttonSize, visible } = layout.helpButton;
 
-        if (!visible) return;
+        if (!visible) {
+            this.hideControl("help-button-group");
+            return;
+        }
 
         const buttonY = UI_TOKENS.spacing.sm;
 
-        const btn = this.container.append("button")
-            .attr("class", "help-button-group")
+        const btn = this.upsertButton("help-button-group")
             .attr("type", "button")
             .attr("aria-label", "Show help information")
             .attr("title", "Show help information")

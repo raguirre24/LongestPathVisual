@@ -1,4 +1,4 @@
-import { Task, WBSGroup, Relationship, BoundFieldState } from "./Interfaces";
+import { Task, WBSGroup, Relationship, BoundFieldState, DataQualityInfo } from "./Interfaces";
 import { VisualSettings } from "../settings";
 import powerbi from "powerbi-visuals-api";
 import DataView = powerbi.DataView;
@@ -27,6 +27,7 @@ export interface ProcessedData {
     wbsLevelColumnIndices: number[];
     wbsLevelColumnNames: string[];
     hasUserProvidedFloat: boolean;
+    dataQuality: DataQualityInfo;
 }
 export declare class DataProcessor {
     private debug;
@@ -42,6 +43,12 @@ export declare class DataProcessor {
     private extractTooltipData;
     private processLegendData;
     private processWBSData;
+    private createEmptyDataQuality;
+    private getRawStart;
+    private getRawFinish;
+    private getVisualStart;
+    private getVisualFinish;
+    private isEarlier;
     private validateDataQuality;
     private detectCircularDependencies;
     hasDataRole(dataView: DataView, roleName: string): boolean;

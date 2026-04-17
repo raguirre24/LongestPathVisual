@@ -30,6 +30,7 @@ export declare class Visual implements IVisual {
     private mainGroup;
     private gridLayer;
     private labelGridLayer;
+    private rowGridLayer;
     private arrowLayer;
     private taskLayer;
     private taskLabelLayer;
@@ -58,7 +59,7 @@ export declare class Visual implements IVisual {
     private taskIdTable;
     private taskIdColumn;
     private lastUpdateOptions;
-    private lastTaskFilterSignature;
+    private dataQuality;
     private showConnectorLinesInternal;
     private showExtraColumnsInternal;
     private wbsExpandedInternal;
@@ -108,6 +109,7 @@ export declare class Visual implements IVisual {
     private marginResizer;
     private selectedTaskLabel;
     private pathInfoLabel;
+    private warningBanner;
     private isDropdownInteracting;
     private traceMode;
     private floatThresholdInput;
@@ -221,6 +223,7 @@ export declare class Visual implements IVisual {
     private snapRectCoord;
     private snapTextCoord;
     private shouldUseCanvasForViewport;
+    private createEmptyDataQuality;
     constructor(options: VisualConstructorOptions);
     private forceCanvasRefresh;
     private debouncedUpdate;
@@ -228,7 +231,16 @@ export declare class Visual implements IVisual {
     private applyPublishModeOptimizations;
     private setupSVGRenderingHints;
     private getDataSignature;
+    private getVisualStart;
+    private getVisualFinish;
+    private getVisualMilestoneDate;
+    private hasValidVisualDates;
     private hasValidPlotDates;
+    private clearCriticalPathState;
+    private isLongestPathMode;
+    private isCpmSafe;
+    private getUnsafeCpmWarningMessage;
+    private updateDataQualityWarning;
     private ensureTaskSortCache;
     private determineUpdateType;
     destroy(): void;
@@ -465,8 +477,10 @@ export declare class Visual implements IVisual {
      */
     private getVisibleTasks;
     private redrawVisibleTasks;
-    private drawHorizontalGridLinesCanvas;
-    private drawLabelMarginGridLinesCanvasFallback;
+    private getHorizontalGridRowOrders;
+    private getSnappedHorizontalGridYs;
+    private clearHorizontalGridLineStrokes;
+    private clearHorizontalGridArtifacts;
     private createScales;
     private drawVisualElements;
     private drawHorizontalGridLines;
@@ -543,20 +557,20 @@ export declare class Visual implements IVisual {
      * Finds the project finish task (latest finish date)
      */
     private findProjectFinishTask;
-    /**
-     * Finds all driving chains leading to a specific task
-     * Uses recursive DFS with global visited set to prevent re-exploration
-     */
-    private findAllDrivingChainsToTask;
-    /**
-     * Selects the longest chain by total working duration
-     */
-    private selectLongestChain;
-    /**
-     * Sorts driving chains and stores them for multi-path toggle
-     * Sorting: earliest start date first, then longest duration as tiebreaker
-     */
+    private getTaskDurationForPath;
+    private getRelationshipKey;
+    private arePathDurationsEqual;
+    private getDrivingIncoming;
+    private getDrivingOutgoing;
+    private compareTaskIdsForTopo;
+    private collectDrivingAncestors;
+    private collectDrivingDescendants;
+    private getDrivingTopologicalOrder;
+    private emitDrivingChain;
+    private buildBestDrivingChainsToTarget;
+    private buildBestDrivingChainsFromSource;
     private sortAndStoreDrivingChains;
+    private sortForwardDrivingChains;
     /**
      * Gets the currently selected driving chain based on settings
      * Validates index bounds to prevent errors when switching views
@@ -680,8 +694,6 @@ export declare class Visual implements IVisual {
     private formatDate;
     private formatLineDate;
     private limitTasks;
-    private buildTaskFilterSignature;
-    private applyTaskFilter;
     private displayMessage;
     private createpathSelectionDropdown;
     private normalizeTraceMode;

@@ -24,13 +24,18 @@ import { jsPDF } from "jspdf";
 
 import { VisualSettings } from "./settings";
 import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
-import { IBasicFilter, FilterType } from "powerbi-models";
-import FilterAction = powerbi.FilterAction;
 import { DataProcessor, ProcessedData } from "./data/DataProcessor";
 import { Header, HeaderCallbacks, HeaderState } from "./components/Header";
-import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState } from "./data/Interfaces";
+import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState, DataQualityInfo } from "./data/Interfaces";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS } from "./utils/Theme";
 
+type DrivingChain = {
+    tasks: Set<string>;
+    relationships: Relationship[];
+    totalDuration: number;
+    startingTask: Task | null;
+    endingTask?: Task | null;
+};
 
 export class Visual implements IVisual {
     private target: HTMLElement;
@@ -62,6 +67,7 @@ export class Visual implements IVisual {
     private mainGroup: Selection<SVGGElement, unknown, null, undefined>;
     private gridLayer: Selection<SVGGElement, unknown, null, undefined>;
     private labelGridLayer: Selection<SVGGElement, unknown, null, undefined>;
+    private rowGridLayer: Selection<SVGGElement, unknown, null, undefined>;
     private arrowLayer: Selection<SVGGElement, unknown, null, undefined>;
     private taskLayer: Selection<SVGGElement, unknown, null, undefined>;
     private taskLabelLayer: Selection<SVGGElement, unknown, null, undefined>;
@@ -91,7 +97,7 @@ export class Visual implements IVisual {
     private taskIdTable: string | null = null;
     private taskIdColumn: string | null = null;
     private lastUpdateOptions: VisualUpdateOptions | null = null;
-    private lastTaskFilterSignature: string | null = null;
+    private dataQuality: DataQualityInfo;
 
     private showConnectorLinesInternal: boolean = true;
     private showExtraColumnsInternal: boolean = true;
@@ -153,6 +159,7 @@ export class Visual implements IVisual {
     private marginResizer: Selection<HTMLDivElement, unknown, null, undefined>;
     private selectedTaskLabel: Selection<HTMLDivElement, unknown, null, undefined>;
     private pathInfoLabel: Selection<HTMLDivElement, unknown, null, undefined>;
+    private warningBanner: Selection<HTMLDivElement, unknown, null, undefined>;
     private isDropdownInteracting: boolean = false;
 
     private traceMode: string = "backward";
@@ -216,12 +223,7 @@ export class Visual implements IVisual {
     private relationshipIndex: Map<string, Relationship[]> = new Map();
     private hasUserProvidedFloat: boolean = false;
 
-    private allDrivingChains: Array<{
-        tasks: Set<string>,
-        relationships: Relationship[],
-        totalDuration: number,
-        startingTask: Task | null
-    }> = [];
+    private allDrivingChains: DrivingChain[] = [];
     private selectedPathIndex: number = 0;
 
     private readonly VIEWPORT_CHANGE_THRESHOLD = 0.01;
@@ -341,10 +343,13 @@ export class Visual implements IVisual {
     }
 
     private snapLineCoord(value: number, strokeWidth = 1): number {
-        const normalizedStrokeWidth = Math.max(1, Math.round(strokeWidth));
-        return normalizedStrokeWidth % 2 === 1
-            ? Math.round(value) + 0.5
-            : Math.round(value);
+        // Align one stroke edge to a pixel boundary so lines render crisp.
+        // Offset = (strokeWidth / 2) mod 1:
+        //   w=1 → 0.5 (one solid pixel)
+        //   w=2 → 0   (two solid pixels)
+        //   w=1.5 → 0.75 (solid + one 50% edge, instead of a 3-pixel 25/100/25 bleed)
+        const offset = ((strokeWidth / 2) % 1 + 1) % 1;
+        return Math.round(value) + offset;
     }
 
     private snapRectCoord(value: number): number {
@@ -378,6 +383,19 @@ export class Visual implements IVisual {
             totalBackingPixels <= maxBackingPixels;
     }
 
+    private createEmptyDataQuality(): DataQualityInfo {
+        return {
+            rowCount: 0,
+            possibleTruncation: false,
+            duplicateTaskIds: [],
+            circularPaths: [],
+            invalidRawDateRangeTaskIds: [],
+            invalidVisualDateRangeTaskIds: [],
+            warnings: [],
+            cpmSafe: true
+        };
+    }
+
     constructor(options: VisualConstructorOptions) {
         this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
         this.target = options.element;
@@ -409,6 +427,7 @@ export class Visual implements IVisual {
         this.wbsExpandedInternal = true;
 
         this.tooltipClassName = `critical-path-tooltip-${Date.now()}`;
+        this.dataQuality = this.createEmptyDataQuality();
 
         const visualWrapper = d3.select(this.target).append("div")
             .attr("class", "visual-wrapper")
@@ -545,6 +564,30 @@ export class Visual implements IVisual {
             .style("white-space", "nowrap")
             .style("transition", `all ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.smooth}`);
 
+        this.warningBanner = this.stickyHeaderContainer.append("div")
+            .attr("class", "data-quality-warning")
+            .style("position", "absolute")
+            .style("left", "10px")
+            .style("bottom", "6px")
+            .style("max-width", "calc(100% - 20px)")
+            .style("display", "none")
+            .style("align-items", "center")
+            .style("gap", "6px")
+            .style("padding", "4px 10px")
+            .style("background-color", UI_TOKENS.color.warning.subtle)
+            .style("border", `1px solid ${UI_TOKENS.color.warning.default}`)
+            .style("border-radius", `${UI_TOKENS.radius.pill}px`)
+            .style("box-shadow", UI_TOKENS.shadow[1])
+            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-size", "11px")
+            .style("font-weight", "600")
+            .style("color", UI_TOKENS.color.warning.default)
+            .style("white-space", "nowrap")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
+            .attr("role", "status")
+            .attr("aria-live", "polite");
+
         this.scrollableContainer = visualWrapper.append("div")
             .attr("class", "criticalPathContainer")
             .style("flex", "1")
@@ -647,6 +690,8 @@ export class Visual implements IVisual {
 
         this.labelGridLayer = this.mainGroup.append("g")
             .attr("class", "label-grid-layer");
+        this.rowGridLayer = this.mainGroup.append("g")
+            .attr("class", "row-grid-layer");
         this.arrowLayer = this.mainGroup.append("g")
             .attr("class", "arrow-layer")
             .attr("clip-path", "url(#chart-area-clip)");
@@ -907,6 +952,7 @@ export class Visual implements IVisual {
                 svg .grid-line,
                 svg .vertical-grid-line,
                 svg .label-grid-line,
+                svg .horizontal-grid-line,
                 svg .label-column-separator,
                 svg .divider-line,
                 svg .data-date-line,
@@ -940,7 +986,7 @@ export class Visual implements IVisual {
         }
 
         // Grid layers use crispEdges for pixel-perfect grid lines
-        [this.gridLayer, this.headerGridLayer].forEach(layer => {
+        [this.gridLayer, this.headerGridLayer, this.labelGridLayer, this.rowGridLayer].forEach(layer => {
             if (layer) {
                 layer.attr("shape-rendering", "crispEdges");
             }
@@ -963,12 +1009,107 @@ export class Visual implements IVisual {
         return `${rowCount}|${columnKey}`;
     }
 
-    private hasValidPlotDates(task: Task): boolean {
-        const start = task.manualStartDate ?? task.startDate;
-        const finish = task.manualFinishDate ?? task.finishDate;
-        return start instanceof Date && !isNaN(start.getTime()) &&
-            finish instanceof Date && !isNaN(finish.getTime()) &&
+    private getVisualStart(task: Task): Date | null {
+        return task.manualStartDate ?? task.startDate ?? null;
+    }
+
+    private getVisualFinish(task: Task): Date | null {
+        return task.manualFinishDate ?? task.finishDate ?? null;
+    }
+
+    private getVisualMilestoneDate(task: Task): Date | null {
+        return this.getVisualStart(task) ?? this.getVisualFinish(task);
+    }
+
+    private hasValidVisualDates(task: Task): boolean {
+        const start = this.getVisualStart(task);
+        const finish = this.getVisualFinish(task);
+        return start instanceof Date &&
+            !isNaN(start.getTime()) &&
+            finish instanceof Date &&
+            !isNaN(finish.getTime()) &&
             finish >= start;
+    }
+
+    private hasValidPlotDates(task: Task): boolean {
+        return this.hasValidVisualDates(task);
+    }
+
+    private clearCriticalPathState(): void {
+        this.allDrivingChains = [];
+        this.selectedPathIndex = 0;
+        for (const task of this.allTasksData) {
+            task.isCritical = false;
+            task.isCriticalByFloat = false;
+            task.isCriticalByRel = false;
+            task.isNearCritical = false;
+            task.totalFloat = Infinity;
+        }
+        for (const rel of this.relationships) {
+            rel.isCritical = false;
+            rel.isDriving = false;
+        }
+    }
+
+    private isLongestPathMode(): boolean {
+        return (this.settings?.criticalPath?.calculationMode?.value?.value ?? "longestPath") === "longestPath";
+    }
+
+    private isCpmSafe(): boolean {
+        return this.dataQuality?.cpmSafe ?? true;
+    }
+
+    private getUnsafeCpmWarningMessage(): string | null {
+        if (this.isCpmSafe()) {
+            return null;
+        }
+
+        const reasons: string[] = [];
+        if (this.dataQuality.possibleTruncation) {
+            reasons.push("dataset may be truncated at 30,000 rows");
+        }
+        if (this.dataQuality.circularPaths.length > 0) {
+            reasons.push("circular dependencies detected");
+        }
+        if (this.dataQuality.invalidRawDateRangeTaskIds.length > 0) {
+            reasons.push("invalid start/finish date ranges found");
+        }
+        if (this.dataQuality.duplicateTaskIds.length > 0) {
+            reasons.push("duplicate task IDs found");
+        }
+
+        if (reasons.length === 0) {
+            return "Critical path unavailable: cyclic, truncated, or invalid schedule data.";
+        }
+
+        return `Critical path disabled: ${reasons.join("; ")}.`;
+    }
+
+    private updateDataQualityWarning(): void {
+        if (!this.warningBanner) {
+            return;
+        }
+
+        const warningMessage = this.getUnsafeCpmWarningMessage();
+        const visualWarnings = this.dataQuality?.invalidVisualDateRangeTaskIds?.length
+            ? `Plotted date warning: ${this.dataQuality.invalidVisualDateRangeTaskIds.length} task(s) have invalid visual start/finish ranges.`
+            : null;
+        const message = warningMessage ?? visualWarnings;
+
+        if (!message) {
+            this.warningBanner
+                .style("display", "none")
+                .text("");
+            return;
+        }
+
+        this.warningBanner
+            .style("display", "inline-flex")
+            .style("background-color", this.highContrastMode ? this.highContrastBackground : UI_TOKENS.color.warning.subtle)
+            .style("border-color", this.resolveColor(UI_TOKENS.color.warning.default, "foreground"))
+            .style("color", this.resolveColor(UI_TOKENS.color.warning.default, "foreground"))
+            .text(message)
+            .attr("title", message);
     }
 
     private ensureTaskSortCache(signature: string): void {
@@ -978,12 +1119,12 @@ export class Visual implements IVisual {
 
         const sortedByStartDate = this.allTasksData
             .filter(task => {
-                const s = task.manualStartDate ?? task.startDate;
+                const s = this.getVisualStart(task);
                 return s instanceof Date && !isNaN(s.getTime());
             })
             .sort((a, b) => {
-                const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
-                const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                const aStart = this.getVisualStart(a)?.getTime() ?? 0;
+                const bStart = this.getVisualStart(b)?.getTime() ?? 0;
                 return aStart - bStart;
             });
 
@@ -1108,8 +1249,6 @@ export class Visual implements IVisual {
         this.detachZoomDragListeners();
 
         this.pendingUpdate = null;
-
-        this.applyTaskFilter([]);
 
         const styleId = 'critical-path-publish-fixes';
         const styleElement = document.getElementById(styleId);
@@ -3005,7 +3144,6 @@ export class Visual implements IVisual {
             this.clearLandingPage();
 
             if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
-                this.applyTaskFilter([]);
                 this.displayLandingPage();
                 return;
             }
@@ -3197,7 +3335,6 @@ export class Visual implements IVisual {
             this.createTraceModeToggle();
 
             if (!this.dataProcessor.validateDataView(dataView, this.settings)) {
-                this.applyTaskFilter([]);
                 const missingRoles = this.getMissingRequiredRoles(dataView);
                 this.displayLandingPage(missingRoles);
                 return;
@@ -3239,6 +3376,7 @@ export class Visual implements IVisual {
                 this.taskIdColumn = processedData.taskIdColumn;
                 this.wbsLevelColumnIndices = processedData.wbsLevelColumnIndices;
                 this.wbsLevelColumnNames = processedData.wbsLevelColumnNames;
+                this.dataQuality = processedData.dataQuality;
 
                 this.lastDataSignature = dataSignature;
                 this.cachedSortedTasksSignature = null;
@@ -3259,6 +3397,7 @@ export class Visual implements IVisual {
             }
 
             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+            this.updateDataQualityWarning();
 
             if (this.wbsEnableOverride !== null && this.settings?.wbsGrouping?.enableWbsGrouping) {
                 this.settings.wbsGrouping.enableWbsGrouping.value = this.wbsEnableOverride;
@@ -3271,7 +3410,6 @@ export class Visual implements IVisual {
             }
 
             if (this.allTasksData.length === 0) {
-                this.applyTaskFilter([]);
                 this.displayMessage("No valid task data found to display.");
                 return;
             }
@@ -3309,11 +3447,14 @@ export class Visual implements IVisual {
 
             const enableTaskSelection = this.settings.pathSelection.enableTaskSelection.value;
             const mode = this.settings.criticalPath.calculationMode.value.value;
+            const longestPathUnavailable = mode === 'longestPath' && !this.isCpmSafe();
 
             let predecessorTaskSet = new Set<string>();
             let successorTaskSet = new Set<string>();
 
-            if (enableTaskSelection && this.selectedTaskId) {
+            if (longestPathUnavailable) {
+                this.clearCriticalPathState();
+            } else if (enableTaskSelection && this.selectedTaskId) {
                 const traceModeSetting = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
                 const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
 
@@ -3351,7 +3492,7 @@ export class Visual implements IVisual {
             } else {
                 if (mode === 'floatBased') {
                     this.applyFloatBasedCriticality();
-                } else {
+                } else if (!longestPathUnavailable) {
                     this.identifyLongestPathFromP6();
                 }
             }
@@ -3372,7 +3513,9 @@ export class Visual implements IVisual {
                 const relevantTaskSet = effectiveTraceMode === 'forward' ? successorTaskSet : predecessorTaskSet;
                 const relevantPlottableTasks = plottableTasksSorted.filter(task => relevantTaskSet.has(task.internalId));
 
-                if (this.showAllTasksInternal) {
+                if (longestPathUnavailable) {
+                    tasksToConsider = plottableTasksSorted;
+                } else if (this.showAllTasksInternal) {
                     tasksToConsider = relevantPlottableTasks.length > 0 ? relevantPlottableTasks : plottableTasksSorted;
                 } else {
                     if (mode === 'floatBased') {
@@ -3398,7 +3541,7 @@ export class Visual implements IVisual {
             } else {
 
                 let baseTasks: Task[];
-                if (this.showAllTasksInternal) {
+                if (longestPathUnavailable || this.showAllTasksInternal) {
                     baseTasks = plottableTasksSorted;
                 } else {
                     baseTasks = criticalAndNearCriticalTasks;
@@ -3420,7 +3563,6 @@ export class Visual implements IVisual {
             const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
 
             if (limitedTasks.length === 0) {
-                this.applyTaskFilter([]);
                 this.displayMessage("No tasks to display after filtering/limiting.");
                 return;
             }
@@ -3428,7 +3570,6 @@ export class Visual implements IVisual {
             const tasksToPlot = limitedTasks.filter(task => this.hasValidPlotDates(task));
 
             if (tasksToPlot.length === 0) {
-                this.applyTaskFilter([]);
                 this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
                 return;
             }
@@ -3466,8 +3607,8 @@ export class Visual implements IVisual {
                 orderedTasks = this.applyWbsOrdering(tasksAfterLegendFilter);
             } else {
                 orderedTasks = [...tasksAfterLegendFilter].sort((a, b) => {
-                    const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
-                    const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                    const aStart = this.getVisualStart(a)?.getTime() ?? 0;
+                    const bStart = this.getVisualStart(b)?.getTime() ?? 0;
                     return aStart - bStart;
                 });
             }
@@ -3490,7 +3631,6 @@ export class Visual implements IVisual {
             const visibleGroupCount = wbsGroupingEnabled ? this.wbsGroups.filter(g => g.yOrder !== undefined).length : 0;
 
             if (tasksWithYOrder.length === 0 && visibleGroupCount === 0) {
-                this.applyTaskFilter([]);
                 if (wbsGroupingEnabled) {
                     this.displayMessage("All WBS groups are collapsed or filtered. Expand a group to view tasks.");
                 } else {
@@ -3498,8 +3638,6 @@ export class Visual implements IVisual {
                 }
                 return;
             }
-
-            this.applyTaskFilter(tasksToShow.map(t => t.id));
 
             const taskHeight = this.settings.taskBars.taskHeight.value;
             const taskPadding = this.settings.layoutSettings.taskPadding.value;
@@ -3531,7 +3669,6 @@ export class Visual implements IVisual {
             const calculatedChartHeight = scaleSetupResult.calculatedChartHeight;
 
             if (!this.xScale || !this.yScale) {
-                this.applyTaskFilter([]);
                 this.displayMessage("Could not create time/band scale. Check Start/Finish dates.");
                 return;
             }
@@ -3580,7 +3717,6 @@ export class Visual implements IVisual {
             renderingFailed = true;
             eventService?.renderingFailed(options, errorMessage);
 
-            this.applyTaskFilter([]);
             this.displayMessage(`Error updating visual: ${errorMessage}`);
         } finally {
             if (!renderingFailed) {
@@ -3702,22 +3838,8 @@ export class Visual implements IVisual {
         // Optimized: Skip full clear to allow efficient D3 updates
         // this.clearVisual();
 
-        const showHorzGridLines = this.settings.gridLines.showHorizontalLines.value;
-        const showVertGridLines = this.settings.gridLines.showVerticalLines.value;
-
         const visibleTasks = this.getVisibleTasks();
         const renderableTasks = visibleTasks.filter(t => t.yOrder !== undefined);
-
-        if (showHorzGridLines && this.yScale) {
-            const currentLeftMargin = this.getEffectiveLeftMargin();
-            this.drawHorizontalGridLines(renderableTasks, this.yScale, chartWidth, currentLeftMargin,
-                this.yScale.range()[1]);
-        }
-
-        if (showVertGridLines && this.xScale && this.yScale) {
-            this.drawgridLines(this.xScale, this.yScale.range()[1],
-                this.gridLayer, this.headerGridLayer);
-        }
 
         if (this.xScale && this.yScale) {
             this.drawVisualElements(
@@ -3727,14 +3849,6 @@ export class Visual implements IVisual {
                 chartWidth,
                 this.yScale.range()[1],
                 this.getEffectiveLeftMargin()
-            );
-
-            this.drawDataDateLine(
-                this.xScale.range()[1],
-                this.xScale,
-                this.yScale.range()[1],
-                this.gridLayer,
-                this.headerGridLayer
             );
         }
 
@@ -3785,6 +3899,7 @@ export class Visual implements IVisual {
         const oldSelectedPathIndex = this.settings?.pathSelection?.selectedPathIndex?.value;
         const oldMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
         const oldShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
+        const oldMode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'longestPath';
 
         if (options.dataViews?.[0]) {
             // TODO: Re-integrate legend processing via DataProcessor
@@ -3797,14 +3912,16 @@ export class Visual implements IVisual {
         const newSelectedPathIndex = this.settings?.pathSelection?.selectedPathIndex?.value;
         const newMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
         const newShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'longestPath';
 
         this.debugLog(`[Settings Update] Old path index: ${oldSelectedPathIndex}, New: ${newSelectedPathIndex}`);
         this.debugLog(`[Settings Update] Old multi-path: ${oldMultiPathEnabled}, New: ${newMultiPathEnabled}`);
         this.debugLog(`[Settings Update] Old show info: ${oldShowPathInfo}, New: ${newShowPathInfo}`);
 
-        const drivingPathChanged = oldSelectedPathIndex !== newSelectedPathIndex ||
+        const requiresPathRecalc = oldSelectedPathIndex !== newSelectedPathIndex ||
             oldMultiPathEnabled !== newMultiPathEnabled ||
-            oldShowPathInfo !== newShowPathInfo;
+            oldMode !== mode;
+        const pathInfoVisibilityChanged = oldShowPathInfo !== newShowPathInfo;
 
         if (this.settings?.comparisonBars?.showBaseline !== undefined) {
             this.showBaselineInternal = this.settings.comparisonBars.showBaseline.value;
@@ -3835,20 +3952,21 @@ export class Visual implements IVisual {
         this.stickyHeaderContainer
             .style("height", `${this.headerHeight}px`)
             .style("min-height", `${this.headerHeight}px`);
+        this.updateDataQualityWarning();
 
 
-        if (drivingPathChanged) {
-            this.debugLog("Driving path selection changed, recalculating...");
-            const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'longestPath';
-            if (mode === 'longestPath') {
-                this.identifyLongestPathFromP6();
-            } else {
-
-                this.updatePathInfoLabel(options.viewport.width);
-            }
+        if (requiresPathRecalc) {
+            this.debugLog("Path-related settings changed; scheduling a full refresh.");
+            this.forceFullUpdate = true;
+            this.requestUpdate();
+            return;
         }
 
-        this.clearVisual();
+        if (pathInfoVisibilityChanged) {
+            this.updatePathInfoLabel(options.viewport.width);
+        }
+        this.mainSvg?.selectAll(".message-text").remove();
+        this.headerSvg?.selectAll(".message-text").remove();
 
         this.updateHeaderElements(options.viewport.width);
 
@@ -4208,6 +4326,7 @@ export class Visual implements IVisual {
         // Task labels must be cleared here because the available width changes on every
         // drag frame, requiring full text re-wrapping.
         this.gridLayer?.selectAll("*").remove();
+        this.rowGridLayer?.selectAll("*").remove();
         this.taskLayer?.selectAll("*").remove();
         this.taskLabelLayer?.selectAll("*").remove();
         this.labelGridLayer?.selectAll("*").remove();
@@ -4289,8 +4408,7 @@ export class Visual implements IVisual {
             this.gridLayer, this.headerGridLayer
         );
 
-        // Label grid lines + column separators
-        this.drawLabelMarginGridLinesCanvasFallback(visibleTasks, this.yScale, effectiveMargin);
+        // Column separators
         this.drawLabelColumnSeparators(chartHeight, effectiveMargin);
 
         // 6. Reposition resizer and zoom slider
@@ -4300,6 +4418,7 @@ export class Visual implements IVisual {
 
     private clearVisual(): void {
         this.gridLayer?.selectAll("*").remove();
+        this.rowGridLayer?.selectAll("*").remove();
         this.arrowLayer?.selectAll("*").remove();
         this.taskLayer?.selectAll("*").remove();
         this.taskLabelLayer?.selectAll("*").remove();
@@ -4423,8 +4542,8 @@ export class Visual implements IVisual {
 
         tasksToShow.forEach(task => {
 
-            const start = task.manualStartDate ?? task.startDate;
-            const finish = task.manualFinishDate ?? task.finishDate;
+            const start = this.getVisualStart(task);
+            const finish = this.getVisualFinish(task);
 
             if (start && !isNaN(start.getTime())) {
                 allTimestamps.push(start.getTime());
@@ -4610,7 +4729,7 @@ export class Visual implements IVisual {
             }
 
             if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-                const milestoneDate = task.startDate || task.finishDate;
+                const milestoneDate = this.getVisualMilestoneDate(task);
                 if (!milestoneDate) continue;
                 const milestoneX = this.xScale(milestoneDate);
                 const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
@@ -4618,9 +4737,11 @@ export class Visual implements IVisual {
                     return task;
                 }
             } else {
-                if (!task.startDate || !task.finishDate) continue;
-                const taskX = this.xScale(task.startDate);
-                const taskWidth = this.xScale(task.finishDate) - taskX;
+                const visualStart = this.getVisualStart(task);
+                const visualFinish = this.getVisualFinish(task);
+                if (!visualStart || !visualFinish) continue;
+                const taskX = this.xScale(visualStart);
+                const taskWidth = this.xScale(visualFinish) - taskX;
                 if (x >= taskX && x <= taskX + taskWidth) {
                     return task;
                 }
@@ -4930,10 +5051,6 @@ export class Visual implements IVisual {
         // WBS group headers use D3 enter/update/exit in drawWbsGroupHeaders(),
         // so skip clearing here to allow element reuse during scroll.
 
-        if (this.labelGridLayer) {
-            this.labelGridLayer.selectAll(".label-grid-line").remove();
-        }
-
         // Task labels use D3 enter/update/exit in drawTaskLabelsLayer(),
         // so skip clearing here to allow element reuse during scroll.
 
@@ -4949,7 +5066,7 @@ export class Visual implements IVisual {
         const lineHeight = this.taskLabelLineHeight;
 
         if (showHorzGridLines) {
-            this.gridLayer?.selectAll(".grid-line.horizontal").remove();
+            this.clearHorizontalGridLineStrokes();
         }
 
         if (this.useCanvasRendering) {
@@ -5030,104 +5147,41 @@ export class Visual implements IVisual {
         }
     }
 
-    private drawHorizontalGridLinesCanvas(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number): void {
-        if (!this.canvasContext) return;
-        const ctx = this.canvasContext;
-        ctx.save();
-
-        const settings = this.settings.gridLines;
-        const lineColor = this.resolveColor(settings.horizontalLineColor.value.value, "foreground");
-        const lineWidth = settings.horizontalLineWidth.value;
-        const style = settings.horizontalLineStyle.value.value;
-
-        ctx.strokeStyle = lineColor;
-        ctx.lineWidth = lineWidth;
-
-        switch (style) {
-            case "dashed": ctx.setLineDash([4, 3]); break;
-            case "dotted": ctx.setLineDash([1, 2]); break;
-            default: ctx.setLineDash([]); break;
-        }
-
-        const x1 = 0;
-        const x2 = this.snapRectCoord(chartWidth);
-
-        const taskYOrders = tasks
-            .filter(t => t.yOrder !== undefined && t.yOrder > 0)
-            .map(t => t.yOrder as number);
-
-        let allYOrders: number[] = [...taskYOrders];
-        if (this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
-            const groupYOrders = this.wbsGroups
-                .filter(g => g.yOrder !== undefined && g.yOrder > 0 &&
-                    g.yOrder >= this.viewportStartIndex && g.yOrder <= this.viewportEndIndex)
-                .map(g => g.yOrder as number);
-            allYOrders = [...allYOrders, ...groupYOrders];
-        }
-
-        const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
-
-        uniqueYOrders.forEach(yOrder => {
-            const yPos = yScale(yOrder.toString());
-            if (yPos !== undefined && !isNaN(yPos)) {
-                const alignedY = this.snapLineCoord(yPos, lineWidth);
-                ctx.beginPath();
-                ctx.moveTo(x1, alignedY);
-                ctx.lineTo(x2, alignedY);
-                ctx.stroke();
-            }
-        });
-
-        ctx.restore();
+    private getHorizontalGridRowOrders(yScale: ScaleBand<string>): number[] {
+        return yScale.domain()
+            .map(key => parseInt(key, 10))
+            .filter((yOrder: number) => Number.isFinite(yOrder))
+            .filter((yOrder: number) => {
+                if (this.viewportStartIndex !== undefined && yOrder < this.viewportStartIndex) {
+                    return false;
+                }
+                if (this.viewportEndIndex !== undefined && yOrder > this.viewportEndIndex) {
+                    return false;
+                }
+                return true;
+            })
+            .sort((a, b) => a - b);
     }
 
-    private drawLabelMarginGridLinesCanvasFallback(tasks: Task[], yScale: ScaleBand<string>, currentLeftMargin: number): void {
-        if (!this.labelGridLayer || !yScale) return;
-        this.labelGridLayer.selectAll(".label-grid-line").remove();
+    private getSnappedHorizontalGridYs(yScale: ScaleBand<string>, lineWidth: number): number[] {
+        return [...new Set(
+            this.getHorizontalGridRowOrders(yScale)
+                .map((yOrder: number) => yScale(yOrder.toString()))
+                .filter((yPos): yPos is number => yPos !== undefined && !isNaN(yPos))
+                .map((yPos: number) => this.snapLineCoord(yPos, lineWidth))
+        )];
+    }
 
-        const settings = this.settings.gridLines;
-        const lineColor = this.resolveColor(settings.horizontalLineColor.value.value, "foreground");
-        const lineWidth = settings.horizontalLineWidth.value;
-        const style = settings.horizontalLineStyle.value.value;
-        let lineDashArray: string | undefined;
-        switch (style) {
-            case "dashed": lineDashArray = "4,3"; break;
-            case "dotted": lineDashArray = "1,2"; break;
-            default: lineDashArray = undefined; break;
-        }
+    private clearHorizontalGridLineStrokes(): void {
+        this.gridLayer?.selectAll(".grid-line.horizontal").remove();
+        this.rowGridLayer?.selectAll(".horizontal-grid-line").remove();
+        this.labelGridLayer?.selectAll(".label-grid-line").remove();
+    }
 
-        const taskYOrders = tasks
-            .filter(t => t.yOrder !== undefined && t.yOrder > 0)
-            .map(t => t.yOrder as number);
-        let allYOrders: number[] = [...taskYOrders];
-        if (this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
-            const groupYOrders = this.wbsGroups
-                .filter(g => g.yOrder !== undefined && g.yOrder > 0 &&
-                    g.yOrder >= this.viewportStartIndex && g.yOrder <= this.viewportEndIndex)
-                .map(g => g.yOrder as number);
-            allYOrders = [...allYOrders, ...groupYOrders];
-        }
-        const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
-
-        this.labelGridLayer.selectAll(".label-grid-line")
-            .data(uniqueYOrders)
-            .enter()
-            .append("line")
-            .attr("class", "label-grid-line")
-            .attr("x1", -this.snapRectCoord(currentLeftMargin))
-            .attr("x2", 0)
-            .attr("y1", (yOrder: number) => {
-                const yPos = yScale(yOrder.toString()) ?? 0;
-                return this.snapLineCoord(yPos, lineWidth);
-            })
-            .attr("y2", (yOrder: number) => {
-                const yPos = yScale(yOrder.toString()) ?? 0;
-                return this.snapLineCoord(yPos, lineWidth);
-            })
-            .style("stroke", lineColor)
-            .style("stroke-width", lineWidth)
-            .style("stroke-dasharray", lineDashArray)
-            .style("pointer-events", "none");
+    private clearHorizontalGridArtifacts(): void {
+        this.clearHorizontalGridLineStrokes();
+        this.gridLayer?.selectAll(".alternating-row-bg").remove();
+        this.labelGridLayer?.selectAll(".alternating-row-bg-label").remove();
     }
 
     private createScales(
@@ -5269,9 +5323,13 @@ export class Visual implements IVisual {
             window.devicePixelRatio || 1
         );
         this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${renderableTasks.length} tasks`);
+        if (!showHorzGridLines) {
+            this.clearHorizontalGridArtifacts();
+        }
 
-
-
+        if (showHorzGridLines) {
+            this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
+        }
 
         // --- 1. Draw Grid Lines ---
         if (showVertGridLines) {
@@ -5291,10 +5349,6 @@ export class Visual implements IVisual {
         // --- 4. Draw Tasks ---
         if (this.useCanvasRendering) {
             if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
-                if (showHorzGridLines) {
-                    this.drawHorizontalGridLinesCanvas(renderableTasks, yScale, chartWidth, currentLeftMargin);
-                }
-
                 this.drawTasksCanvas(
                     renderableTasks, xScale, yScale,
                     taskColor, milestoneColor, criticalColor,
@@ -5326,10 +5380,6 @@ export class Visual implements IVisual {
             }
         } else {
             // SVG Rendering
-            if (showHorzGridLines) {
-                this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
-            }
-
             if (this.showConnectorLinesInternal) {
                 this.drawArrows(
                     renderableTasks, xScale, yScale,
@@ -5387,11 +5437,14 @@ export class Visual implements IVisual {
     }
 
     private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
-        if (!this.gridLayer?.node() || !yScale) { console.warn("Skipping horizontal grid lines: Missing layer or Y scale."); return; }
+        if (!this.rowGridLayer?.node() || !yScale) { console.warn("Skipping horizontal grid lines: Missing layer or Y scale."); return; }
 
         const settings = this.settings.gridLines;
         const lineColor = settings.horizontalLineColor.value.value;
-        const lineWidth = settings.horizontalLineWidth.value;
+        // Normalize row separator strokes to whole CSS pixels so every row
+        // rasterizes consistently. Fractional widths are more prone to uneven
+        // perceived weight once dashed lines, backgrounds, and browser AA mix.
+        const lineWidth = Math.max(1, Math.round(settings.horizontalLineWidth.value));
         const style = settings.horizontalLineStyle.value.value;
         let lineDashArray = "none";
         switch (style) { case "dashed": lineDashArray = "4,3"; break; case "dotted": lineDashArray = "1,2"; break; default: lineDashArray = "none"; break; }
@@ -5400,41 +5453,28 @@ export class Visual implements IVisual {
         const showAlternating = this.settings?.generalSettings?.alternatingRowColors?.value ?? false;
         const alternatingColor = this.settings?.generalSettings?.alternatingRowColor?.value?.value ?? "#F5F5F5";
         const rowHeight = yScale.bandwidth();
-        const snappedRowHeight = Math.max(1, this.snapRectCoord(rowHeight));
+        const rowStep = yScale.step();
 
-        const taskYOrders = tasks
-            .filter(t => t.yOrder !== undefined && t.yOrder > 0)
-            .map(t => t.yOrder as number);
+        const uniqueYOrders = this.getHorizontalGridRowOrders(yScale);
 
-        let allYOrders: number[] = [...taskYOrders];
-        if (this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
-            const groupYOrders = this.wbsGroups
-                .filter(g => g.yOrder !== undefined && g.yOrder > 0)
-                .map(g => g.yOrder as number);
-            allYOrders = [...allYOrders, ...groupYOrders];
-        }
-
-        const uniqueYOrders = [...new Set(allYOrders)].sort((a, b) => a - b);
+        // Per-row height computed as (next row top − this row top) on the snapped grid.
+        // A constant Math.round(bandwidth) leaves 1–2 px gaps between rects when
+        // bandwidth is fractional; tiling via snapped tops removes those gaps so
+        // zebra stripes appear as uniform bands and gridlines aren't framed by
+        // slivers of bg color.
+        const tiledRowHeight = (yOrder: number): number => {
+            const top = yScale(yOrder.toString());
+            if (top === undefined) return 0;
+            return Math.max(1, this.snapRectCoord(top + rowStep) - this.snapRectCoord(top));
+        };
 
         // Draw alternating row backgrounds if enabled
         if (showAlternating && rowHeight > 0) {
             // Build a list of all row indices to fill (0 to max yOrder)
-            const maxYOrder = Math.max(...uniqueYOrders, 0);
-            const rowIndices: number[] = [];
-            for (let i = 0; i <= maxYOrder; i++) {
-                rowIndices.push(i);
-            }
-            const oddRows = rowIndices.filter(i => i % 2 === 1);
+            const oddRows = uniqueYOrders.filter((yOrder: number) => yOrder % 2 === 1);
 
-            // Ensure we cover the full range of the scale
-            const scaleRangeMax = yScale.range && yScale.range().length > 1 ? (yScale as any).range()[1] : 0;
-            // Note: The above cast is to workaround potential type incompatibility if yScale is strictly ScaleBand but we need range end. 
-            // Actually, for horizontal grid lines width we care about X axis width which is chartWidth.
-            // But let's check xScale range too if passed or if we can infer it. 
-            // The method signature passes `chartWidth`. 
-
-            // Let's rely on chartWidth but if we can, ensure it matches at least the content.
             const effectiveWidth = chartWidth;
+            const fillInsetTop = 1;
 
             this.gridLayer.selectAll<SVGRectElement, number>(".alternating-row-bg")
                 .data(oddRows, d => d)
@@ -5446,9 +5486,9 @@ export class Visual implements IVisual {
                     exit => exit.remove()
                 )
                 .attr("x", 0)
-                .attr("y", (yOrder: number) => this.snapRectCoord(yScale(yOrder.toString()) ?? 0))
+                .attr("y", (yOrder: number) => this.snapRectCoord(yScale(yOrder.toString()) ?? 0) + fillInsetTop)
                 .attr("width", this.snapRectCoord(effectiveWidth))
-                .attr("height", snappedRowHeight)
+                .attr("height", (yOrder: number) => Math.max(1, tiledRowHeight(yOrder) - fillInsetTop))
                 .style("fill", alternatingColor);
 
             // Extend alternating to label area
@@ -5463,9 +5503,9 @@ export class Visual implements IVisual {
                         exit => exit.remove()
                     )
                     .attr("x", -this.snapRectCoord(currentLeftMargin))
-                    .attr("y", (yOrder: number) => this.snapRectCoord(yScale(yOrder.toString()) ?? 0))
+                    .attr("y", (yOrder: number) => this.snapRectCoord(yScale(yOrder.toString()) ?? 0) + fillInsetTop)
                     .attr("width", this.snapRectCoord(currentLeftMargin))
-                    .attr("height", snappedRowHeight)
+                    .attr("height", (yOrder: number) => Math.max(1, tiledRowHeight(yOrder) - fillInsetTop))
                     .style("fill", alternatingColor);
             }
         } else {
@@ -5473,41 +5513,30 @@ export class Visual implements IVisual {
             this.labelGridLayer?.selectAll(".alternating-row-bg-label").remove();
         }
 
-        this.gridLayer.selectAll<SVGLineElement, number>(".grid-line.horizontal")
-            .data(uniqueYOrders, d => d)
+        const snappedLineYs = this.getSnappedHorizontalGridYs(yScale, lineWidth);
+
+        this.gridLayer.selectAll(".grid-line.horizontal").remove();
+        this.labelGridLayer?.selectAll(".label-grid-line").remove();
+
+        this.rowGridLayer.selectAll<SVGLineElement, number>(".horizontal-grid-line")
+            .data(snappedLineYs, d => d)
             .join(
                 enter => enter.append("line")
-                    .attr("class", "grid-line horizontal")
+                    .attr("class", "horizontal-grid-line")
                     .style("pointer-events", "none"),
                 update => update,
                 exit => exit.remove()
             )
-            .attr("x1", 0)
+            .attr("x1", -this.snapRectCoord(currentLeftMargin))
             .attr("x2", this.snapRectCoord(chartWidth))
-            .attr("y1", (yOrder: number) => this.snapLineCoord(yScale(yOrder.toString()) ?? 0, lineWidth))
-            .attr("y2", (yOrder: number) => this.snapLineCoord(yScale(yOrder.toString()) ?? 0, lineWidth))
+            .attr("y1", (y: number) => y)
+            .attr("y2", (y: number) => y)
             .style("stroke", lineColor)
             .style("stroke-width", lineWidth)
-            .style("stroke-dasharray", lineDashArray);
-
-        if (this.labelGridLayer) {
-            this.labelGridLayer.selectAll<SVGLineElement, number>(".label-grid-line")
-                .data(uniqueYOrders, d => d)
-                .join(
-                    enter => enter.append("line")
-                        .attr("class", "label-grid-line")
-                        .style("pointer-events", "none"),
-                    update => update,
-                    exit => exit.remove()
-                )
-                .attr("x1", -this.snapRectCoord(currentLeftMargin))
-                .attr("x2", 0)
-                .attr("y1", (yOrder: number) => this.snapLineCoord(yScale(yOrder.toString()) ?? 0, lineWidth))
-                .attr("y2", (yOrder: number) => this.snapLineCoord(yScale(yOrder.toString()) ?? 0, lineWidth))
-                .style("stroke", lineColor)
-                .style("stroke-width", lineWidth)
-                .style("stroke-dasharray", lineDashArray);
-        }
+            .style("stroke-dasharray", lineDashArray)
+            .style("stroke-linecap", "butt")
+            .style("vector-effect", "non-scaling-stroke")
+            .style("shape-rendering", "crispEdges");
     }
 
     private drawgridLines(
@@ -5529,7 +5558,7 @@ export class Visual implements IVisual {
         }
 
         const lineColor = this.resolveColor(settings.verticalLineColor.value.value, "foreground");
-        const lineWidth = settings.verticalLineWidth.value;
+        const lineWidth = Math.max(1, Math.round(settings.verticalLineWidth.value));
         const lineStyle = settings.verticalLineStyle.value.value as string;
         const showMonthLabels = settings.showTimelineLabels.value;
         const labelColorSetting = settings.timelineLabelColor.value.value;
@@ -5791,11 +5820,6 @@ export class Visual implements IVisual {
             return;
         }
 
-        // Force a clean slate: Clear all existing task groups.
-        // This aligns behavior with drawArrows/drawWbsGroupHeaders and prevents stale
-        // D3 data binding from causing layout issues during rapid Focus Mode transitions.
-        this.taskLayer.selectAll("*").remove();
-
         const showTooltips = this.settings.generalSettings.showTooltips.value;
         const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
         const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
@@ -5855,8 +5879,8 @@ export class Visual implements IVisual {
         };
 
         const getTaskBarWidth = (d: Task): number => {
-            const start = d.manualStartDate ?? d.startDate;
-            const finish = d.manualFinishDate ?? d.finishDate;
+            const start = this.getVisualStart(d);
+            const finish = this.getVisualFinish(d);
             if (!(start instanceof Date) || !(finish instanceof Date)) {
                 return this.minTaskWidthPixels;
             }
@@ -6036,8 +6060,8 @@ export class Visual implements IVisual {
             (d.type !== 'TT_Mile' && d.type !== 'TT_FinMile')
         )
             .each(function (d: Task) {
-                const start = d.manualStartDate ?? d.startDate;
-                const finish = d.manualFinishDate ?? d.finishDate;
+                const start = self.getVisualStart(d);
+                const finish = self.getVisualFinish(d);
 
                 if (start instanceof Date && !isNaN(start.getTime()) && finish instanceof Date && !isNaN(finish.getTime()) && finish >= start) {
 
@@ -6146,7 +6170,7 @@ export class Visual implements IVisual {
             (d.type === 'TT_Mile' || d.type === 'TT_FinMile')
         )
             .each(function (d: Task) {
-                const mDate = (d.manualStartDate ?? d.startDate) || (d.manualFinishDate ?? d.finishDate);
+                const mDate = self.getVisualMilestoneDate(d);
                 if (mDate instanceof Date && !isNaN(mDate.getTime())) {
                     d3.select(this).append("path")
                         .attr("class", (d: Task) => {
@@ -6188,7 +6212,7 @@ export class Visual implements IVisual {
                             const enableOverride = self.settings.dataDateColorOverride.enableP6Style.value;
                             const dataDate = self.dataDate;
                             if (enableOverride && dataDate) {
-                                const mDate = (d.manualStartDate ?? d.startDate) || (d.manualFinishDate ?? d.finishDate);
+                                const mDate = self.getVisualMilestoneDate(d);
                                 if (mDate instanceof Date && !isNaN(mDate.getTime()) && self.normalizeToStartOfDay(mDate) <= self.normalizeToStartOfDay(dataDate)) {
                                     return self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
                                 }
@@ -6259,13 +6283,11 @@ export class Visual implements IVisual {
                 .style("pointer-events", "none")
                 .attr("x", (d: Task): number | null => {
                     let xPos: number | null = null;
-                    const dateToUse = d.manualFinishDate ?? d.finishDate;
+                    const dateToUse = self.getVisualFinish(d);
                     if (!(dateToUse instanceof Date && !isNaN(dateToUse.getTime()))) return null;
 
                     if (d.type === 'TT_Mile' || d.type === 'TT_FinMile') {
-                        const milestoneMarkerDate = (d.manualStartDate instanceof Date && !isNaN(d.manualStartDate.getTime()))
-                            ? d.manualStartDate
-                            : ((d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : dateToUse);
+                        const milestoneMarkerDate = self.getVisualMilestoneDate(d) ?? dateToUse;
                         const milestoneX = (milestoneMarkerDate instanceof Date && !isNaN(milestoneMarkerDate.getTime())) ? xScale(milestoneMarkerDate) : NaN;
                         if (!isNaN(milestoneX)) {
                             const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
@@ -6278,7 +6300,7 @@ export class Visual implements IVisual {
                     return (xPos === null || isNaN(xPos)) ? null : self.snapTextCoord(xPos + self.dateLabelOffset);
                 })
                 .text((d: Task) => {
-                    const dateToUse = d.manualFinishDate ?? d.finishDate;
+                    const dateToUse = self.getVisualFinish(d);
                     return dateToUse ? self.formatDate(dateToUse) : "";
                 })
                 .filter(function () { return d3.select(this).attr("x") !== null; });
@@ -6325,11 +6347,7 @@ export class Visual implements IVisual {
             const durationFontSizePx = this.pointsToCssPx(durationFontSize);
             allTaskGroups.filter((d: Task) =>
                 d.type !== 'TT_Mile' && d.type !== 'TT_FinMile' &&
-                (d.manualStartDate ?? d.startDate) instanceof Date &&
-                !isNaN((d.manualStartDate ?? d.startDate)!.getTime()) &&
-                (d.manualFinishDate ?? d.finishDate) instanceof Date &&
-                !isNaN((d.manualFinishDate ?? d.finishDate)!.getTime()) &&
-                (d.manualFinishDate ?? d.finishDate)! >= (d.manualStartDate ?? d.startDate)! &&
+                self.hasValidVisualDates(d) &&
                 (d.duration || 0) > 0
             )
                 .append("text")
@@ -6343,13 +6361,19 @@ export class Visual implements IVisual {
                 .style("font-weight", "500")
                 .style("pointer-events", "none")
                 .attr("x", (d: Task): number | null => {
-                    const startX = xScale(d.manualStartDate ?? d.startDate!);
-                    const finishX = xScale(d.manualFinishDate ?? d.finishDate!);
+                    const visualStart = self.getVisualStart(d);
+                    const visualFinish = self.getVisualFinish(d);
+                    if (!visualStart || !visualFinish) return null;
+                    const startX = xScale(visualStart);
+                    const finishX = xScale(visualFinish);
                     return (isNaN(startX) || isNaN(finishX)) ? null : this.snapTextCoord(startX + (finishX - startX) / 2);
                 })
                 .text((d: Task): string => {
-                    const startX = xScale(d.manualStartDate ?? d.startDate!);
-                    const finishX = xScale(d.manualFinishDate ?? d.finishDate!);
+                    const visualStart = self.getVisualStart(d);
+                    const visualFinish = self.getVisualFinish(d);
+                    if (!visualStart || !visualFinish) return "";
+                    const startX = xScale(visualStart);
+                    const finishX = xScale(visualFinish);
                     if (isNaN(startX) || isNaN(finishX)) return "";
                     const barWidth = finishX - startX;
                     const textContent = `${Math.round(d.duration || 0)}d`;
@@ -6771,7 +6795,7 @@ export class Visual implements IVisual {
             // Render Start Date
             if (showStart) {
                 appendColumnText(mergedGroups, startOffset, startWidth, (d: Task) => {
-                    const date = d.manualStartDate ?? d.startDate;
+                    const date = this.getVisualStart(d);
                     return date ? this.formatColumnDate(date) : "";
                 }, "middle");
             }
@@ -6779,7 +6803,7 @@ export class Visual implements IVisual {
             // Render Finish Date
             if (showFinish) {
                 appendColumnText(mergedGroups, finishOffset, finishWidth, (d: Task) => {
-                    const date = d.manualFinishDate ?? d.finishDate;
+                    const date = this.getVisualFinish(d);
                     return date ? this.formatColumnDate(date) : "";
                 }, "middle");
             }
@@ -6890,7 +6914,6 @@ export class Visual implements IVisual {
         if (colHeaderLayer.empty()) {
             colHeaderLayer = headerSvg.append("g").attr("class", "column-headers");
         }
-        colHeaderLayer.selectAll("*").remove();
 
         const layout = this.getLabelColumnLayout(currentLeftMargin);
 
@@ -6902,49 +6925,51 @@ export class Visual implements IVisual {
 
         // Draw Task Name Header
         const fontFamily = this.getFontFamily();
-
+        const headerTextData: Array<{ key: string; x: number; text: string }> = [];
         if (layout.showExtra && layout.remainingWidth > 35) {
-            colHeaderLayer.append("text")
-                .attr("x", layout.taskNameCenterX)
-                .attr("y", yPos)
-                .attr("text-anchor", "middle")
-                .style("font-family", fontFamily)
-                .style("font-size", this.fontPxFromPtSetting(fontSize))
-                .style("font-weight", "bold")
-                .style("fill", color)
-                .text("Task Name");
+            headerTextData.push({ key: "task-name", x: layout.taskNameCenterX, text: "Task Name" });
         }
-
-        // Draw Column Headers
         layout.items.forEach(item => {
-            colHeaderLayer.append("text")
-                .attr("x", item.centerX)
-                .attr("y", yPos)
-                .attr("text-anchor", "middle")
-                .style("font-family", fontFamily)
-                .style("font-size", this.fontPxFromPtSetting(fontSize))
-                .style("font-weight", "bold")
-                .style("fill", color)
-                .text(item.text);
-
-            colHeaderLayer.append("line")
-                .attr("x1", item.lineX)
-                .attr("x2", item.lineX)
-                .attr("y1", lineY1)
-                .attr("y2", lineY2)
-                .style("stroke", "#ccc")
-                .style("stroke-width", "1px");
+            headerTextData.push({ key: `col-${item.text}`, x: item.centerX, text: item.text });
         });
 
+        colHeaderLayer.selectAll<SVGTextElement, { key: string; x: number; text: string }>(".column-header-text")
+            .data(headerTextData, d => d.key)
+            .join(
+                enter => enter.append("text").attr("class", "column-header-text"),
+                update => update,
+                exit => exit.remove()
+            )
+            .attr("x", d => d.x)
+            .attr("y", yPos)
+            .attr("text-anchor", "middle")
+            .style("font-family", fontFamily)
+            .style("font-size", this.fontPxFromPtSetting(fontSize))
+            .style("font-weight", "bold")
+            .style("fill", color)
+            .text(d => d.text);
+
+        const separatorData: Array<{ key: string; x: number }> = layout.items.map(item => ({
+            key: `col-line-${item.text}`,
+            x: item.lineX
+        }));
         if (layout.showExtra) {
-            colHeaderLayer.append("line")
-                .attr("x1", layout.taskNameDividerX)
-                .attr("x2", layout.taskNameDividerX)
-                .attr("y1", lineY1)
-                .attr("y2", lineY2)
-                .style("stroke", "#ccc")
-                .style("stroke-width", "1px");
+            separatorData.push({ key: "task-name-divider", x: layout.taskNameDividerX });
         }
+
+        colHeaderLayer.selectAll<SVGLineElement, { key: string; x: number }>(".column-header-divider")
+            .data(separatorData, d => d.key)
+            .join(
+                enter => enter.append("line").attr("class", "column-header-divider"),
+                update => update,
+                exit => exit.remove()
+            )
+            .attr("x1", d => d.x)
+            .attr("x2", d => d.x)
+            .attr("y1", lineY1)
+            .attr("y2", lineY2)
+            .style("stroke", "#ccc")
+            .style("stroke-width", "1px");
     }
 
     /**
@@ -6954,36 +6979,32 @@ export class Visual implements IVisual {
         const layer = this.labelGridLayer;
         if (!layer) return;
 
-        // Clean up existing separators
-        layer.selectAll(".label-column-separator").remove();
-
         const layout = this.getLabelColumnLayout(currentLeftMargin);
-
-        layout.items.forEach(item => {
-            const lineX = item.lineX - currentLeftMargin;
-            layer.append("line")
-                .attr("class", "label-column-separator")
-                .attr("x1", lineX)
-                .attr("x2", lineX)
-                .attr("y1", 0)
-                .attr("y2", this.snapRectCoord(chartHeight))
-                .style("stroke", "#ccc")
-                .style("stroke-width", "1px")
-                .style("shape-rendering", "crispEdges");
-        });
-
+        const separatorData: Array<{ key: string; x: number }> = layout.items.map(item => ({
+            key: `label-line-${item.text}`,
+            x: item.lineX - currentLeftMargin
+        }));
         if (layout.showExtra) {
-            const taskNameDividerX = layout.taskNameDividerX - currentLeftMargin;
-            layer.append("line")
-                .attr("class", "label-column-separator")
-                .attr("x1", taskNameDividerX)
-                .attr("x2", taskNameDividerX)
-                .attr("y1", 0)
-                .attr("y2", this.snapRectCoord(chartHeight))
-                .style("stroke", "#ccc")
-                .style("stroke-width", "1px")
-                .style("shape-rendering", "crispEdges");
+            separatorData.push({
+                key: "label-task-name-divider",
+                x: layout.taskNameDividerX - currentLeftMargin
+            });
         }
+
+        layer.selectAll<SVGLineElement, { key: string; x: number }>(".label-column-separator")
+            .data(separatorData, d => d.key)
+            .join(
+                enter => enter.append("line").attr("class", "label-column-separator"),
+                update => update,
+                exit => exit.remove()
+            )
+            .attr("x1", d => d.x)
+            .attr("x2", d => d.x)
+            .attr("y1", 0)
+            .attr("y2", this.snapRectCoord(chartHeight))
+            .style("stroke", "#ccc")
+            .style("stroke-width", "1px")
+            .style("shape-rendering", "crispEdges");
     }
 
     private drawTasksCanvas(
@@ -7126,8 +7147,10 @@ export class Visual implements IVisual {
                     strokeWidth = 1.5;
                 }
 
-                const widthVal = ((task.manualStartDate ?? task.startDate) && (task.manualFinishDate ?? task.finishDate))
-                    ? (xScale(task.manualFinishDate ?? task.finishDate!) - xScale(task.manualStartDate ?? task.startDate!)) : 0;
+                const visualStart = this.getVisualStart(task);
+                const visualFinish = this.getVisualFinish(task);
+                const widthVal = (visualStart && visualFinish)
+                    ? (xScale(visualFinish) - xScale(visualStart)) : 0;
 
                 // Reduce stroke for narrow bars (matching SVG)
                 if (!isMilestone && widthVal < minBarWidthForStrongStroke) {
@@ -7160,7 +7183,7 @@ export class Visual implements IVisual {
             const styleKey = `${fillColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
 
             if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-                const mDate = (task.manualStartDate ?? task.startDate) || (task.manualFinishDate ?? task.finishDate);
+                const mDate = this.getVisualMilestoneDate(task);
                 if (mDate) {
 
                     const x = this.snapRectCoord(xScale(mDate));
@@ -7193,9 +7216,12 @@ export class Visual implements IVisual {
                     if (!milestoneBatches.has(overriddenStyleKey)) milestoneBatches.set(overriddenStyleKey, []);
                     milestoneBatches.get(overriddenStyleKey)!.push({ x, y, size, rotated: true });
                 }
-            } else if ((task.manualStartDate ?? task.startDate) && (task.manualFinishDate ?? task.finishDate)) {
-                const start = task.manualStartDate ?? task.startDate!;
-                const finish = task.manualFinishDate ?? task.finishDate!;
+            } else {
+                const start = this.getVisualStart(task);
+                const finish = this.getVisualFinish(task);
+                if (!start || !finish) {
+                    continue;
+                }
 
                 // Data Date Override Logic
                 const enableOverride = this.settings.dataDateColorOverride.enableP6Style.value;
@@ -7403,8 +7429,8 @@ export class Visual implements IVisual {
 
             for (const task of tasks) {
                 if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') continue;
-                const start = task.manualStartDate ?? task.startDate;
-                const finish = task.manualFinishDate ?? task.finishDate;
+                const start = this.getVisualStart(task);
+                const finish = this.getVisualFinish(task);
                 if (!(start instanceof Date) || !(finish instanceof Date) || finish < start) continue;
                 if (!task.duration || task.duration <= 0) continue;
 
@@ -7454,7 +7480,7 @@ export class Visual implements IVisual {
                         task.type !== 'TT_Mile' && task.type !== 'TT_FinMile') continue;
                 }
 
-                const dateToUse = task.manualFinishDate ?? task.finishDate;
+                const dateToUse = this.getVisualFinish(task);
                 if (!(dateToUse instanceof Date) || isNaN(dateToUse.getTime())) continue;
 
                 const domainKey = task.yOrder?.toString() ?? '';
@@ -7463,9 +7489,7 @@ export class Visual implements IVisual {
 
                 let xPos: number | null = null;
                 if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-                    const milestoneMarkerDate = (task.manualStartDate instanceof Date && !isNaN(task.manualStartDate.getTime()))
-                        ? task.manualStartDate
-                        : ((task.startDate instanceof Date && !isNaN(task.startDate.getTime())) ? task.startDate : dateToUse);
+                    const milestoneMarkerDate = this.getVisualMilestoneDate(task) ?? dateToUse;
                     if (milestoneMarkerDate instanceof Date && !isNaN(milestoneMarkerDate.getTime())) {
                         const milestoneX = xScale(milestoneMarkerDate);
                         if (!isNaN(milestoneX)) {
@@ -7565,10 +7589,10 @@ export class Visual implements IVisual {
                 const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
                 const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
                 if (d.type === 'TT_Mile' || d.type === 'TT_FinMile') {
-                    const milestoneDate = (d.startDate instanceof Date && !isNaN(d.startDate.getTime())) ? d.startDate : d.finishDate;
+                    const milestoneDate = this.getVisualMilestoneDate(d);
                     return `${d.name}, ${statusText} milestone, Date: ${this.formatDate(milestoneDate)}${selectedText}. Press Enter or Space to select.`;
                 } else {
-                    return `${d.name}, ${statusText} task, Start: ${this.formatDate(d.startDate)}, Finish: ${this.formatDate(d.finishDate)}${selectedText}. Press Enter or Space to select.`;
+                    return `${d.name}, ${statusText} task, Start: ${this.formatDate(this.getVisualStart(d))}, Finish: ${this.formatDate(this.getVisualFinish(d))}${selectedText}. Press Enter or Space to select.`;
                 }
             })
             .attr("tabindex", 0)
@@ -7729,10 +7753,10 @@ export class Visual implements IVisual {
                 let baseStartDate: Date | null | undefined = null;
                 let baseEndDate: Date | null | undefined = null;
 
-                const predStart = pred.manualStartDate ?? pred.startDate;
-                const predFinish = pred.manualFinishDate ?? pred.finishDate;
-                const succStart = succ.manualStartDate ?? succ.startDate;
-                const succFinish = succ.manualFinishDate ?? succ.finishDate;
+                const predStart = this.getVisualStart(pred);
+                const predFinish = this.getVisualFinish(pred);
+                const succStart = this.getVisualStart(succ);
+                const succFinish = this.getVisualFinish(succ);
 
                 switch (relType) {
                     case 'FS': case 'FF':
@@ -8103,10 +8127,10 @@ export class Visual implements IVisual {
                 let baseStartDate: Date | null | undefined = null;
                 let baseEndDate: Date | null | undefined = null;
 
-                const predStart = pred.manualStartDate ?? pred.startDate;
-                const predFinish = pred.manualFinishDate ?? pred.finishDate;
-                const succStart = succ.manualStartDate ?? succ.startDate;
-                const succFinish = succ.manualFinishDate ?? succ.finishDate;
+                const predStart = this.getVisualStart(pred);
+                const predFinish = this.getVisualFinish(pred);
+                const succStart = this.getVisualStart(succ);
+                const succFinish = this.getVisualFinish(succ);
 
                 switch (relType) {
                     case 'FS': case 'FF': baseStartDate = predIsMilestone ? (predStart ?? predFinish) : predFinish; break;
@@ -8237,8 +8261,8 @@ export class Visual implements IVisual {
                 const relType = rel.type || 'FS';
                 const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
 
-                const predStart = pred.manualStartDate ?? pred.startDate;
-                const predFinish = pred.manualFinishDate ?? pred.finishDate;
+                const predStart = this.getVisualStart(pred);
+                const predFinish = this.getVisualFinish(pred);
 
                 let baseStartDate: Date | null | undefined = null;
                 switch (relType) {
@@ -8283,8 +8307,8 @@ export class Visual implements IVisual {
                 const relType = rel.type || 'FS';
                 const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
 
-                const succStart = succ.manualStartDate ?? succ.startDate;
-                const succFinish = succ.manualFinishDate ?? succ.finishDate;
+                const succStart = this.getVisualStart(succ);
+                const succFinish = this.getVisualFinish(succ);
 
                 let baseEndDate: Date | null | undefined = null;
                 switch (relType) {
@@ -8474,7 +8498,7 @@ export class Visual implements IVisual {
         const labelBackgroundOpacity = 1 - (labelBackgroundTransparency / 100);
 
         const latestFinishDate = settings.show.value
-            ? this.getLatestFinishDate(allTasks, (t: Task) => t.manualFinishDate ?? t.finishDate)
+            ? this.getLatestFinishDate(allTasks, (t: Task) => this.getVisualFinish(t))
             : null;
 
         this.drawFinishLine({
@@ -8758,18 +8782,18 @@ export class Visual implements IVisual {
         this.debugLog("Starting P6 reflective longest path identification...");
         const startTime = performance.now();
 
+        if (!this.isCpmSafe()) {
+            this.clearCriticalPathState();
+            this.updatePathInfoLabel();
+            return;
+        }
+
         if (this.allTasksData.length === 0) {
             this.debugLog("No tasks for longest path identification.");
             return;
         }
 
-        for (const task of this.allTasksData) {
-            task.isCritical = false;
-            task.isCriticalByFloat = false;
-            task.isCriticalByRel = false;
-            task.isNearCritical = false;
-            task.totalFloat = Infinity;
-        }
+        this.clearCriticalPathState();
 
         this.identifyDrivingRelationships();
 
@@ -8781,7 +8805,7 @@ export class Visual implements IVisual {
 
         this.debugLog(`Project finish task: ${projectFinishTask.name} (${projectFinishTask.internalId})`);
 
-        const drivingChains = this.findAllDrivingChainsToTask(projectFinishTask.internalId);
+        const drivingChains = this.buildBestDrivingChainsToTarget(projectFinishTask.internalId);
 
         this.allDrivingChains = this.sortAndStoreDrivingChains(drivingChains);
 
@@ -8948,118 +8972,353 @@ export class Visual implements IVisual {
         return bestCandidate;
     }
 
-    /**
-     * Finds all driving chains leading to a specific task
-     * Uses recursive DFS with global visited set to prevent re-exploration
-     */
-    private findAllDrivingChainsToTask(targetTaskId: string): Array<{
-        tasks: Set<string>,
-        relationships: Relationship[],
-        totalDuration: number,
-        startingTask: Task | null
-    }> {
-        const chains: Array<{
-            tasks: Set<string>,
-            relationships: Relationship[],
-            totalDuration: number,
-            startingTask: Task | null
-        }> = [];
+    private getTaskDurationForPath(taskId: string): number {
+        const duration = this.taskIdToTask.get(taskId)?.duration ?? 0;
+        return Number.isFinite(duration) ? duration : 0;
+    }
 
-        const visited = new Set<string>();
-        const currentPath = new Set<string>();
-        const currentRelationships: Relationship[] = [];
+    private getRelationshipKey(rel: Relationship): string {
+        return `${rel.predecessorId}|${rel.successorId}|${rel.type || "FS"}|${rel.lag ?? ""}`;
+    }
 
-        const dfs = (taskId: string) => {
-            if (visited.has(taskId)) return;
+    private arePathDurationsEqual(a: number, b: number): boolean {
+        return Math.abs(a - b) <= 1e-9;
+    }
 
-            visited.add(taskId);
-            currentPath.add(taskId);
+    private getDrivingIncoming(taskId: string, scope?: Set<string>): Relationship[] {
+        const incoming = (this.relationshipIndex.get(taskId) || []).filter(rel => rel.isDriving);
+        if (!scope) {
+            return incoming;
+        }
+        return incoming.filter(rel => scope.has(rel.predecessorId) && scope.has(rel.successorId));
+    }
 
-            const task = this.taskIdToTask.get(taskId);
-            if (!task) {
-                currentPath.delete(taskId);
-                return;
+    private getDrivingOutgoing(taskId: string, scope?: Set<string>): Relationship[] {
+        const outgoing = (this.relationshipByPredecessor.get(taskId) || []).filter(rel => rel.isDriving);
+        if (!scope) {
+            return outgoing;
+        }
+        return outgoing.filter(rel => scope.has(rel.predecessorId) && scope.has(rel.successorId));
+    }
+
+    private compareTaskIdsForTopo(aId: string, bId: string): number {
+        const aTask = this.taskIdToTask.get(aId);
+        const bTask = this.taskIdToTask.get(bId);
+        const aStart = aTask?.startDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const bStart = bTask?.startDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        if (aStart !== bStart) {
+            return aStart - bStart;
+        }
+
+        const aFinish = aTask?.finishDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const bFinish = bTask?.finishDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        if (aFinish !== bFinish) {
+            return aFinish - bFinish;
+        }
+
+        return aId.localeCompare(bId);
+    }
+
+    private collectDrivingAncestors(targetTaskId: string): Set<string> {
+        const nodeIds = new Set<string>();
+        const stack: string[] = [targetTaskId];
+
+        while (stack.length > 0) {
+            const currentId = stack.pop()!;
+            if (nodeIds.has(currentId)) {
+                continue;
             }
 
-            // Use pre-built index for O(k) lookup instead of O(R) full-array scan
-            const drivingPreds = (this.relationshipIndex.get(taskId) || []).filter(r => r.isDriving);
+            nodeIds.add(currentId);
+            for (const rel of this.getDrivingIncoming(currentId)) {
+                stack.push(rel.predecessorId);
+            }
+        }
 
-            if (drivingPreds.length === 0) {
+        return nodeIds;
+    }
 
-                const chainTasks = new Set(currentPath);
-                const chainRels = [...currentRelationships];
+    private collectDrivingDescendants(sourceTaskId: string): Set<string> {
+        const nodeIds = new Set<string>();
+        const stack: string[] = [sourceTaskId];
 
-                let totalDuration = 0;
-                chainTasks.forEach(tId => {
-                    const t = this.taskIdToTask.get(tId);
-                    if (t) totalDuration += t.duration;
-                });
+        while (stack.length > 0) {
+            const currentId = stack.pop()!;
+            if (nodeIds.has(currentId)) {
+                continue;
+            }
 
-                chains.push({
-                    tasks: chainTasks,
-                    relationships: chainRels,
-                    totalDuration: totalDuration,
-                    startingTask: task
-                });
-            } else {
-                for (const rel of drivingPreds) {
-                    currentRelationships.push(rel);
-                    dfs(rel.predecessorId);
-                    currentRelationships.pop();
+            nodeIds.add(currentId);
+            for (const rel of this.getDrivingOutgoing(currentId)) {
+                stack.push(rel.successorId);
+            }
+        }
+
+        return nodeIds;
+    }
+
+    private getDrivingTopologicalOrder(nodeIds: Set<string>): string[] | null {
+        const indegree = new Map<string, number>();
+        nodeIds.forEach(taskId => indegree.set(taskId, 0));
+
+        nodeIds.forEach(taskId => {
+            for (const rel of this.getDrivingOutgoing(taskId, nodeIds)) {
+                indegree.set(rel.successorId, (indegree.get(rel.successorId) ?? 0) + 1);
+            }
+        });
+
+        const queue = Array.from(nodeIds)
+            .filter(taskId => (indegree.get(taskId) ?? 0) === 0)
+            .sort((a, b) => this.compareTaskIdsForTopo(a, b));
+        const order: string[] = [];
+
+        while (queue.length > 0) {
+            const currentId = queue.shift()!;
+            order.push(currentId);
+
+            for (const rel of this.getDrivingOutgoing(currentId, nodeIds)) {
+                const nextIndegree = (indegree.get(rel.successorId) ?? 0) - 1;
+                indegree.set(rel.successorId, nextIndegree);
+                if (nextIndegree === 0) {
+                    queue.push(rel.successorId);
+                    queue.sort((a, b) => this.compareTaskIdsForTopo(a, b));
+                }
+            }
+        }
+
+        if (order.length !== nodeIds.size) {
+            return null;
+        }
+
+        return order;
+    }
+
+    private emitDrivingChain(
+        chains: DrivingChain[],
+        emittedSignatures: Set<string>,
+        orderedTaskIds: string[],
+        orderedRelationships: Relationship[],
+        totalDuration: number
+    ): void {
+        if (orderedTaskIds.length === 0) {
+            return;
+        }
+
+        const signature = `${orderedTaskIds.join(">")}::${orderedRelationships.map(rel => this.getRelationshipKey(rel)).join(">")}`;
+        if (emittedSignatures.has(signature)) {
+            return;
+        }
+
+        emittedSignatures.add(signature);
+        const startingTask = this.taskIdToTask.get(orderedTaskIds[0]) ?? null;
+        const endingTask = this.taskIdToTask.get(orderedTaskIds[orderedTaskIds.length - 1]) ?? null;
+
+        chains.push({
+            tasks: new Set(orderedTaskIds),
+            relationships: [...orderedRelationships],
+            totalDuration,
+            startingTask,
+            endingTask
+        });
+    }
+
+    private buildBestDrivingChainsToTarget(targetTaskId: string): DrivingChain[] {
+        const targetTask = this.taskIdToTask.get(targetTaskId);
+        if (!targetTask) {
+            return [];
+        }
+
+        const ancestorIds = this.collectDrivingAncestors(targetTaskId);
+        const topoOrder = this.getDrivingTopologicalOrder(ancestorIds);
+        if (!topoOrder) {
+            console.warn(`Unable to build backward driving paths for ${targetTaskId}: driving graph is cyclic.`);
+            return [];
+        }
+
+        const bestDuration = new Map<string, number>();
+        const bestIncoming = new Map<string, Relationship[]>();
+
+        for (const taskId of topoOrder) {
+            const duration = this.getTaskDurationForPath(taskId);
+            const incoming = this.getDrivingIncoming(taskId, ancestorIds);
+            let nodeBestDuration = duration;
+            let bestEdges: Relationship[] = [];
+
+            for (const rel of incoming) {
+                const predecessorBest = bestDuration.get(rel.predecessorId);
+                if (predecessorBest === undefined) {
+                    continue;
+                }
+
+                const candidateDuration = predecessorBest + duration;
+                if (candidateDuration > nodeBestDuration && !this.arePathDurationsEqual(candidateDuration, nodeBestDuration)) {
+                    nodeBestDuration = candidateDuration;
+                    bestEdges = [rel];
+                } else if (this.arePathDurationsEqual(candidateDuration, nodeBestDuration)) {
+                    bestEdges.push(rel);
                 }
             }
 
-            currentPath.delete(taskId);
-        };
+            bestDuration.set(taskId, nodeBestDuration);
+            bestIncoming.set(taskId, bestEdges);
+        }
 
-        dfs(targetTaskId);
+        const totalDuration = bestDuration.get(targetTaskId) ?? this.getTaskDurationForPath(targetTaskId);
+        const chains: DrivingChain[] = [];
+        const emittedSignatures = new Set<string>();
+        const pathTaskIds: string[] = [];
+        const pathRelationships: Relationship[] = [];
 
-        if (chains.length === 0) {
-            const task = this.taskIdToTask.get(targetTaskId);
-            if (task) {
-                chains.push({
-                    tasks: new Set([targetTaskId]),
-                    relationships: [],
-                    totalDuration: task.duration,
-                    startingTask: task
+        const build = (taskId: string): void => {
+            pathTaskIds.push(taskId);
+
+            const incoming = bestIncoming.get(taskId) ?? [];
+            if (incoming.length === 0) {
+                this.emitDrivingChain(
+                    chains,
+                    emittedSignatures,
+                    [...pathTaskIds].reverse(),
+                    [...pathRelationships].reverse(),
+                    totalDuration
+                );
+            } else {
+                incoming.forEach(rel => {
+                    pathRelationships.push(rel);
+                    build(rel.predecessorId);
+                    pathRelationships.pop();
                 });
             }
+
+            pathTaskIds.pop();
+        };
+
+        build(targetTaskId);
+
+        if (chains.length === 0) {
+            chains.push({
+                tasks: new Set([targetTaskId]),
+                relationships: [],
+                totalDuration,
+                startingTask: targetTask,
+                endingTask: targetTask
+            });
         }
 
         return chains;
     }
-    /**
-     * Selects the longest chain by total working duration
-     */
-    private selectLongestChain(chains: Array<{
-        tasks: Set<string>,
-        relationships: Relationship[],
-        totalDuration: number
-    }>): {
-        tasks: Set<string>,
-        relationships: Relationship[],
-        totalDuration: number
-    } | null {
-        if (chains.length === 0) return null;
-        chains.sort((a, b) => b.totalDuration - a.totalDuration);
-        return chains[0];
+
+    private buildBestDrivingChainsFromSource(sourceTaskId: string): DrivingChain[] {
+        const sourceTask = this.taskIdToTask.get(sourceTaskId);
+        if (!sourceTask) {
+            return [];
+        }
+
+        const descendantIds = this.collectDrivingDescendants(sourceTaskId);
+        const topoOrder = this.getDrivingTopologicalOrder(descendantIds);
+        if (!topoOrder) {
+            console.warn(`Unable to build forward driving paths for ${sourceTaskId}: driving graph is cyclic.`);
+            return [];
+        }
+
+        const bestDuration = new Map<string, number>();
+        const bestIncoming = new Map<string, Relationship[]>();
+        bestDuration.set(sourceTaskId, this.getTaskDurationForPath(sourceTaskId));
+
+        for (const taskId of topoOrder) {
+            const currentBest = bestDuration.get(taskId);
+            if (currentBest === undefined) {
+                continue;
+            }
+
+            for (const rel of this.getDrivingOutgoing(taskId, descendantIds)) {
+                const successorDuration = this.getTaskDurationForPath(rel.successorId);
+                const candidateDuration = currentBest + successorDuration;
+                const existingBest = bestDuration.get(rel.successorId);
+
+                if (existingBest === undefined || candidateDuration > existingBest && !this.arePathDurationsEqual(candidateDuration, existingBest)) {
+                    bestDuration.set(rel.successorId, candidateDuration);
+                    bestIncoming.set(rel.successorId, [rel]);
+                } else if (existingBest !== undefined && this.arePathDurationsEqual(candidateDuration, existingBest)) {
+                    const existing = bestIncoming.get(rel.successorId) ?? [];
+                    existing.push(rel);
+                    bestIncoming.set(rel.successorId, existing);
+                }
+            }
+        }
+
+        let bestSinkDuration = -Infinity;
+        let sinkTaskIds: string[] = [];
+        descendantIds.forEach(taskId => {
+            const currentBest = bestDuration.get(taskId);
+            if (currentBest === undefined) {
+                return;
+            }
+
+            const hasReachableOutgoing = this.getDrivingOutgoing(taskId, descendantIds)
+                .some(rel => bestDuration.has(rel.successorId));
+            if (hasReachableOutgoing) {
+                return;
+            }
+
+            if (currentBest > bestSinkDuration && !this.arePathDurationsEqual(currentBest, bestSinkDuration)) {
+                bestSinkDuration = currentBest;
+                sinkTaskIds = [taskId];
+            } else if (this.arePathDurationsEqual(currentBest, bestSinkDuration)) {
+                sinkTaskIds.push(taskId);
+            }
+        });
+
+        if (sinkTaskIds.length === 0) {
+            sinkTaskIds = [sourceTaskId];
+            bestSinkDuration = bestDuration.get(sourceTaskId) ?? this.getTaskDurationForPath(sourceTaskId);
+        }
+
+        const chains: DrivingChain[] = [];
+        const emittedSignatures = new Set<string>();
+        const pathTaskIds: string[] = [];
+        const pathRelationships: Relationship[] = [];
+
+        const build = (taskId: string, totalDuration: number): void => {
+            pathTaskIds.push(taskId);
+
+            const incoming = bestIncoming.get(taskId) ?? [];
+            if (taskId === sourceTaskId || incoming.length === 0) {
+                this.emitDrivingChain(
+                    chains,
+                    emittedSignatures,
+                    [...pathTaskIds].reverse(),
+                    [...pathRelationships].reverse(),
+                    totalDuration
+                );
+            } else {
+                incoming.forEach(rel => {
+                    pathRelationships.push(rel);
+                    build(rel.predecessorId, totalDuration);
+                    pathRelationships.pop();
+                });
+            }
+
+            pathTaskIds.pop();
+        };
+
+        sinkTaskIds.forEach(taskId => {
+            build(taskId, bestDuration.get(taskId) ?? bestSinkDuration);
+        });
+
+        if (chains.length === 0) {
+            chains.push({
+                tasks: new Set([sourceTaskId]),
+                relationships: [],
+                totalDuration: bestDuration.get(sourceTaskId) ?? this.getTaskDurationForPath(sourceTaskId),
+                startingTask: sourceTask,
+                endingTask: sourceTask
+            });
+        }
+
+        return chains;
     }
 
-    /**
-     * Sorts driving chains and stores them for multi-path toggle
-     * Sorting: earliest start date first, then longest duration as tiebreaker
-     */
-    private sortAndStoreDrivingChains(chains: Array<{
-        tasks: Set<string>,
-        relationships: Relationship[],
-        totalDuration: number,
-        startingTask: Task | null
-    }>): Array<{
-        tasks: Set<string>,
-        relationships: Relationship[],
-        totalDuration: number,
-        startingTask: Task | null
-    }> {
+    private sortAndStoreDrivingChains(chains: DrivingChain[]): DrivingChain[] {
         if (chains.length === 0) return [];
 
         const sortedChains = [...chains].sort((a, b) => {
@@ -9088,16 +9347,32 @@ export class Visual implements IVisual {
         return sortedChains;
     }
 
+    private sortForwardDrivingChains(chains: DrivingChain[]): DrivingChain[] {
+        if (chains.length === 0) {
+            return [];
+        }
+
+        return [...chains].sort((a, b) => {
+            const aEndDate = a.endingTask?.finishDate?.getTime() ?? -Infinity;
+            const bEndDate = b.endingTask?.finishDate?.getTime() ?? -Infinity;
+
+            if (aEndDate !== bEndDate) {
+                return bEndDate - aEndDate;
+            }
+
+            if (a.totalDuration !== b.totalDuration) {
+                return b.totalDuration - a.totalDuration;
+            }
+
+            return (a.endingTask?.internalId ?? "").localeCompare(b.endingTask?.internalId ?? "");
+        });
+    }
+
     /**
      * Gets the currently selected driving chain based on settings
      * Validates index bounds to prevent errors when switching views
      */
-    private getSelectedDrivingChain(): {
-        tasks: Set<string>,
-        relationships: Relationship[],
-        totalDuration: number,
-        startingTask: Task | null
-    } | null {
+    private getSelectedDrivingChain(): DrivingChain | null {
         if (this.allDrivingChains.length === 0) return null;
 
         const settingsIndex = this.settings?.pathSelection?.selectedPathIndex?.value ?? 1;
@@ -9131,7 +9406,7 @@ export class Visual implements IVisual {
         const hasMultiplePaths = this.allDrivingChains.length > 1;
         const hasAnyPaths = this.allDrivingChains.length > 0;
 
-        if (!showPathInfo || mode !== 'longestPath' || !hasAnyPaths || !multiPathEnabled) {
+        if (!showPathInfo || mode !== 'longestPath' || !this.isCpmSafe() || !hasAnyPaths || !multiPathEnabled) {
             this.pathInfoLabel.style("display", "none");
             return;
         }
@@ -9522,6 +9797,12 @@ export class Visual implements IVisual {
     private calculateCPMToTask(targetTaskId: string | null): void {
         this.debugLog(`Calculating P6 driving path to task: ${targetTaskId || "None"}`);
 
+        if (!this.isCpmSafe()) {
+            this.clearCriticalPathState();
+            this.updatePathInfoLabel();
+            return;
+        }
+
         if (!targetTaskId) {
             this.identifyLongestPathFromP6();
             return;
@@ -9534,27 +9815,12 @@ export class Visual implements IVisual {
             return;
         }
 
-        for (const task of this.allTasksData) {
-            task.isCritical = false;
-            task.isCriticalByFloat = false;
-            task.isCriticalByRel = false;
-            task.isNearCritical = false;
-            task.totalFloat = Infinity;
-        }
+        this.clearCriticalPathState();
 
         this.identifyDrivingRelationships();
 
-        const chains = this.findAllDrivingChainsToTask(targetTaskId);
-
-        this.allDrivingChains = [...chains].sort((a, b) => {
-            const aDate = a.startingTask?.startDate?.getTime() ?? Infinity;
-            const bDate = b.startingTask?.startDate?.getTime() ?? Infinity;
-
-            if (aDate < bDate) return -1;
-            if (aDate > bDate) return 1;
-
-            return b.totalDuration - a.totalDuration;
-        });
+        const chains = this.buildBestDrivingChainsToTarget(targetTaskId);
+        this.allDrivingChains = this.sortAndStoreDrivingChains(chains);
 
         if (this.selectedPathIndex >= this.allDrivingChains.length) {
             this.selectedPathIndex = 0;
@@ -9595,6 +9861,12 @@ export class Visual implements IVisual {
     private calculateCPMFromTask(sourceTaskId: string | null): void {
         this.debugLog(`Calculating driving path from task: ${sourceTaskId || "None"} to the latest finish date.`);
 
+        if (!this.isCpmSafe()) {
+            this.clearCriticalPathState();
+            this.updatePathInfoLabel();
+            return;
+        }
+
         if (!sourceTaskId) {
             this.identifyLongestPathFromP6();
             return;
@@ -9607,105 +9879,12 @@ export class Visual implements IVisual {
             return;
         }
 
-        for (const task of this.allTasksData) {
-            task.isCritical = false;
-            task.isCriticalByFloat = false;
-            task.isCriticalByRel = false;
-            task.isNearCritical = false;
-            task.totalFloat = Infinity;
-        }
+        this.clearCriticalPathState();
 
         this.identifyDrivingRelationships();
-
-        const completedChains: Array<{
-            tasks: Set<string>,
-            relationships: Relationship[],
-            totalDuration: number,
-            endingTask: Task | null
-        }> = [];
-
-        const visited = new Set<string>();
-        const currentPath = new Set<string>();
-        const currentRelationships: Relationship[] = [];
-
-        const dfs = (taskId: string, currentDuration: number) => {
-            if (visited.has(taskId)) return;
-
-            visited.add(taskId);
-            currentPath.add(taskId);
-
-            const task = this.taskIdToTask.get(taskId);
-            if (!task) {
-                currentPath.delete(taskId);
-                return;
-            }
-
-            const taskDuration = currentDuration + task.duration;
-
-            // Use pre-built index for O(k) lookup instead of O(R) full-array scan
-            const drivingSuccs = (this.relationshipByPredecessor.get(taskId) || []).filter(r => r.isDriving);
-
-            if (drivingSuccs.length === 0) {
-
-                completedChains.push({
-                    tasks: new Set(currentPath),
-                    relationships: [...currentRelationships],
-                    totalDuration: taskDuration,
-                    endingTask: task
-                });
-            } else {
-                for (const rel of drivingSuccs) {
-                    currentRelationships.push(rel);
-                    dfs(rel.successorId, taskDuration);
-                    currentRelationships.pop();
-                }
-            }
-
-            currentPath.delete(taskId);
-        };
-
-        currentPath.add(sourceTaskId);
-        visited.add(sourceTaskId);
-
-        // Use pre-built index for O(k) lookup instead of O(R) full-array scan
-        const drivingSuccs = (this.relationshipByPredecessor.get(sourceTaskId) || []).filter(r => r.isDriving);
-
-        if (drivingSuccs.length === 0) {
-
-            completedChains.push({
-                tasks: new Set([sourceTaskId]),
-                relationships: [],
-                totalDuration: sourceTask.duration,
-                endingTask: sourceTask
-            });
-        } else {
-            for (const rel of drivingSuccs) {
-                currentRelationships.push(rel);
-                dfs(rel.successorId, sourceTask.duration);
-                currentRelationships.pop();
-            }
-        }
-
-        this.allDrivingChains = completedChains.map(c => ({
-            tasks: c.tasks,
-            relationships: c.relationships,
-            totalDuration: c.totalDuration,
-            startingTask: sourceTask
-        }));
-
-        this.allDrivingChains.sort((a, b) => {
-
-            const aEndTask = completedChains.find(c => c.tasks === a.tasks)?.endingTask;
-            const bEndTask = completedChains.find(c => c.tasks === b.tasks)?.endingTask;
-
-            const aDate = aEndTask?.finishDate?.getTime() ?? -Infinity;
-            const bDate = bEndTask?.finishDate?.getTime() ?? -Infinity;
-
-            if (aDate > bDate) return -1;
-            if (aDate < bDate) return 1;
-
-            return b.totalDuration - a.totalDuration;
-        });
+        this.allDrivingChains = this.sortForwardDrivingChains(
+            this.buildBestDrivingChainsFromSource(sourceTaskId)
+        );
 
         if (this.selectedPathIndex >= this.allDrivingChains.length) {
             this.selectedPathIndex = 0;
@@ -10181,8 +10360,8 @@ export class Visual implements IVisual {
                 const directTasks = group.tasks
                     .filter(t => taskSet.has(t.internalId))
                     .sort((a, b) => {
-                        const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
-                        const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                        const aStart = this.getVisualStart(a)?.getTime() ?? 0;
+                        const bStart = this.getVisualStart(b)?.getTime() ?? 0;
                         return aStart - bStart;
                     });
 
@@ -10200,8 +10379,8 @@ export class Visual implements IVisual {
         const tasksWithoutWbs = tasks
             .filter(t => !t.wbsGroupId)
             .sort((a, b) => {
-                const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
-                const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                const aStart = this.getVisualStart(a)?.getTime() ?? 0;
+                const bStart = this.getVisualStart(b)?.getTime() ?? 0;
                 return aStart - bStart;
             });
 
@@ -10265,8 +10444,8 @@ export class Visual implements IVisual {
 
                 if (!filteredTaskIds.has(task.internalId)) continue;
 
-                const visualStart = task.manualStartDate ?? task.startDate;
-                const visualFinish = task.manualFinishDate ?? task.finishDate;
+                const visualStart = this.getVisualStart(task);
+                const visualFinish = this.getVisualFinish(task);
 
                 // Filter out invalid or extremely old dates (likely placeholders)
                 const isValidStart = visualStart && visualStart.getFullYear() > 1980;
@@ -10452,8 +10631,8 @@ export class Visual implements IVisual {
                 const directVisibleTasks = group.tasks
                     .filter(t => visibleTaskIds.has(t.internalId))
                     .sort((a, b) => {
-                        const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
-                        const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                        const aStart = this.getVisualStart(a)?.getTime() ?? 0;
+                        const bStart = this.getVisualStart(b)?.getTime() ?? 0;
                         return aStart - bStart;
                     });
 
@@ -10471,8 +10650,8 @@ export class Visual implements IVisual {
         const tasksWithoutWbs = tasksToShow
             .filter(t => !t.wbsGroupId)
             .sort((a, b) => {
-                const aStart = a.manualStartDate?.getTime() ?? a.startDate?.getTime() ?? 0;
-                const bStart = b.manualStartDate?.getTime() ?? b.startDate?.getTime() ?? 0;
+                const aStart = this.getVisualStart(a)?.getTime() ?? 0;
+                const bStart = this.getVisualStart(b)?.getTime() ?? 0;
                 return aStart - bStart;
             });
 
@@ -11000,9 +11179,10 @@ export class Visual implements IVisual {
             }
             // --- Background & Interaction ---
             const taskPadding = self.settings.layoutSettings.taskPadding.value;
-            const bgHeight = taskHeight + taskPadding - 1; // -1 for a tiny visual gap
+            const bgInsetTop = 1;
+            const bgHeight = Math.max(1, taskHeight + taskPadding - 1 - bgInsetTop); // keep header fill off the separator line
 
-            const bgY = bandStart;
+            const bgY = bandStart + bgInsetTop;
 
             // Cascading "pushed left" illusion: subtractive compression so bars merge in sync.
             // All bars lose the same # of pixels, so a child catches up to its parent first,
@@ -11211,48 +11391,8 @@ export class Visual implements IVisual {
         return tasksToShow;
     }
 
-    private buildTaskFilterSignature(taskIds: (string | number)[]): string {
-        if (taskIds.length === 0) return "EMPTY";
-        const normalized = taskIds.map((id) => String(id)).sort();
-        return `${normalized.length}:${normalized.join("|")}`;
-    }
-
-    private applyTaskFilter(taskIds: (string | number)[]): void {
-        if (!this.taskIdTable || !this.taskIdColumn) {
-            this.lastTaskFilterSignature = null;
-            return;
-        }
-        if (!this.allowInteractions && taskIds.length > 0) {
-            this.debugLog("Allow interactions disabled; skipping filter update.");
-            return;
-        }
-
-        const signature = this.buildTaskFilterSignature(taskIds);
-        if (signature === this.lastTaskFilterSignature) {
-            return;
-        }
-
-        const filter: IBasicFilter = {
-            // eslint-disable-next-line powerbi-visuals/no-http-string
-            $schema: "http://powerbi.com/product/schema#basic",
-            target: {
-                table: this.taskIdTable,
-                column: this.taskIdColumn
-            },
-            filterType: FilterType.Basic,
-            operator: "In",
-            values: taskIds
-        };
-
-        const action = taskIds.length > 0 ? FilterAction.merge : FilterAction.remove;
-        this.host.applyJsonFilter(filter, "general", "filter", action);
-        this.lastTaskFilterSignature = signature;
-    }
-
     private displayMessage(message: string): void {
         this.debugLog("Displaying Message:", message);
-
-        this.applyTaskFilter([]);
 
         this.clearLandingPage();
 
@@ -11518,12 +11658,17 @@ export class Visual implements IVisual {
     private createTraceModeToggle(): void {
         if (!this.stickyHeaderContainer || !this.settings?.pathSelection) return;
 
-        this.stickyHeaderContainer.selectAll(".trace-mode-toggle").remove();
+        const criticalPathMode = this.settings?.criticalPath?.calculationMode?.value?.value ?? "longestPath";
+        const longestPathDisabled = criticalPathMode === "longestPath" && !this.isCpmSafe();
 
-        if (!this.settings.pathSelection.enableTaskSelection.value) {
+        if (!this.settings.pathSelection.enableTaskSelection.value || longestPathDisabled) {
+            this.stickyHeaderContainer.select<HTMLDivElement>(".trace-mode-toggle")
+                .style("display", "none");
             return;
         }
         if (!this.selectedTaskId) {
+            this.stickyHeaderContainer.select<HTMLDivElement>(".trace-mode-toggle")
+                .style("display", "none");
             return;
         }
 
@@ -11539,8 +11684,14 @@ export class Visual implements IVisual {
         const currentMode = this.normalizeTraceMode(this.traceMode || configuredMode);
         this.traceMode = currentMode;
 
-        const container = this.stickyHeaderContainer.append("div")
-            .attr("class", "trace-mode-toggle")
+        let container = this.stickyHeaderContainer.select<HTMLDivElement>(".trace-mode-toggle");
+        if (container.empty()) {
+            container = this.stickyHeaderContainer.append("div")
+                .attr("class", "trace-mode-toggle");
+        }
+
+        container.selectAll("*").remove();
+        container
             .attr("role", "radiogroup")
             .attr("aria-label", this.getLocalizedString("ui.traceModeLabel", "Trace Mode"))
             .attr("title", this.getLocalizedString("ui.traceModeTooltip", "Select direction to trace dependencies from the selected task"))
@@ -12659,10 +12810,10 @@ export class Visual implements IVisual {
             items.push({ displayName: taskLabel, value: task.name });
         }
 
-        const startText = this.formatDate(task.startDate);
+        const startText = this.formatDate(this.getVisualStart(task));
         if (startText) items.push({ displayName: startLabel, value: startText });
 
-        const finishText = this.formatDate(task.finishDate);
+        const finishText = this.formatDate(this.getVisualFinish(task));
         if (finishText) items.push({ displayName: finishLabel, value: finishText });
 
         items.push({ displayName: modeLabel, value: modeValue });
@@ -13408,8 +13559,8 @@ export class Visual implements IVisual {
             const isCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
                 ? task.userProvidedTotalFloat <= 0
                 : task.isCritical;
-            const visualStartDate = task.manualStartDate ?? task.startDate;
-            const visualFinishDate = task.manualFinishDate ?? task.finishDate;
+            const visualStartDate = this.getVisualStart(task);
+            const visualFinishDate = this.getVisualFinish(task);
 
             html += `<tr>`;
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
@@ -13462,8 +13613,8 @@ export class Visual implements IVisual {
             const isCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
                 ? task.userProvidedTotalFloat <= 0
                 : task.isCritical;
-            const visualStartDate = task.manualStartDate ?? task.startDate;
-            const visualFinishDate = task.manualFinishDate ?? task.finishDate;
+            const visualStartDate = this.getVisualStart(task);
+            const visualFinishDate = this.getVisualFinish(task);
 
             const row = [
                 String(index + 1),
@@ -13769,8 +13920,8 @@ ${tableHtml}
             const isCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
                 ? task.userProvidedTotalFloat <= 0
                 : task.isCritical;
-            const visualStartDate = task.manualStartDate ?? task.startDate;
-            const visualFinishDate = task.manualFinishDate ?? task.finishDate;
+            const visualStartDate = this.getVisualStart(task);
+            const visualFinishDate = this.getVisualFinish(task);
             const currentLevels = task.wbsLevels || [];
 
             let divergenceIndex = 0;

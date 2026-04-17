@@ -1,5 +1,5 @@
 
-import { Task, WBSGroup, Relationship, BoundFieldState } from "./Interfaces";
+import { Task, WBSGroup, Relationship, BoundFieldState, DataQualityInfo } from "./Interfaces";
 import { VisualSettings } from "../settings";
 import powerbi from "powerbi-visuals-api";
 import DataView = powerbi.DataView;
@@ -37,6 +37,7 @@ export interface ProcessedData {
 
     // Calculation Flags
     hasUserProvidedFloat: boolean;
+    dataQuality: DataQualityInfo;
 }
 
 export class DataProcessor {
@@ -93,7 +94,8 @@ export class DataProcessor {
             taskIdColumn: null,
             wbsLevelColumnIndices: [],
             wbsLevelColumnNames: [],
-            hasUserProvidedFloat: false
+            hasUserProvidedFloat: false,
+            dataQuality: this.createEmptyDataQuality()
         };
 
         if (!dataView.table?.rows || !dataView.metadata?.columns) {
@@ -379,7 +381,7 @@ export class DataProcessor {
         // --- Helper Pass Processing ---
         this.processLegendData(dataView, settings, highContrastMode, highContrastForeground, result);
         this.processWBSData(result, settings, wbsExpandedState, wbsManuallyToggledGroups, lastExpandCollapseAllState);
-        this.validateDataQuality(result.allTasksData, result.taskIdToTask);
+        result.dataQuality = this.validateDataQuality(rows.length, result.allTasksData, result.taskIdToTask);
 
         this.debugLog(`DataProcessor: Transformation complete. ${result.allTasksData.length} tasks.`);
 
@@ -966,8 +968,44 @@ export class DataProcessor {
         data.wbsAvailableLevels = Array.from(levelSet).sort((a, b) => a - b);
     }
 
-    private validateDataQuality(allTasksData: Task[], taskIdToTask: Map<string, Task>): void {
-        const warnings: string[] = [];
+    private createEmptyDataQuality(): DataQualityInfo {
+        return {
+            rowCount: 0,
+            possibleTruncation: false,
+            duplicateTaskIds: [],
+            circularPaths: [],
+            invalidRawDateRangeTaskIds: [],
+            invalidVisualDateRangeTaskIds: [],
+            warnings: [],
+            cpmSafe: true
+        };
+    }
+
+    private getRawStart(task: Task): Date | null {
+        return task.startDate ?? null;
+    }
+
+    private getRawFinish(task: Task): Date | null {
+        return task.finishDate ?? null;
+    }
+
+    private getVisualStart(task: Task): Date | null {
+        return task.manualStartDate ?? task.startDate ?? null;
+    }
+
+    private getVisualFinish(task: Task): Date | null {
+        return task.manualFinishDate ?? task.finishDate ?? null;
+    }
+
+    private isEarlier(endDate: Date | null, startDate: Date | null): boolean {
+        return endDate instanceof Date &&
+            startDate instanceof Date &&
+            !isNaN(endDate.getTime()) &&
+            !isNaN(startDate.getTime()) &&
+            endDate < startDate;
+    }
+
+    private validateDataQuality(rowCount: number, allTasksData: Task[], taskIdToTask: Map<string, Task>): DataQualityInfo {
         const seenIds = new Map<string, number>();
         for (const task of allTasksData) {
             const count = seenIds.get(task.id as string) || 0;
@@ -978,22 +1016,53 @@ export class DataProcessor {
             .filter(([_id, count]) => count > 1)
             .map(([id, count]) => `${id} (${count}x)`);
 
+        const possibleTruncation = rowCount >= 30000;
+        const circularPaths = this.detectCircularDependencies(allTasksData, taskIdToTask);
+        const invalidRawDateRangeTaskIds = allTasksData
+            .filter(task => this.isEarlier(this.getRawFinish(task), this.getRawStart(task)))
+            .map(task => String(task.id ?? task.internalId));
+        const invalidVisualDateRangeTaskIds = allTasksData
+            .filter(task => this.isEarlier(this.getVisualFinish(task), this.getVisualStart(task)))
+            .map(task => String(task.id ?? task.internalId));
+
+        const warnings: string[] = [];
+        if (possibleTruncation) {
+            warnings.push("Critical path disabled: dataset may be truncated at 30,000 rows.");
+        }
         if (duplicates.length > 0) {
             warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
         }
-
-        const circularPaths = this.detectCircularDependencies(allTasksData, taskIdToTask);
         if (circularPaths.length > 0) {
-            warnings.push(`Circular dependencies detected in ${circularPaths.length} path(s): ${circularPaths.slice(0, 3).join(', ')}${circularPaths.length > 3 ? '...' : ''}`);
+            warnings.push(`Critical path disabled: circular dependencies detected (${circularPaths.length}).`);
+        }
+        if (invalidRawDateRangeTaskIds.length > 0) {
+            warnings.push(`Critical path disabled: invalid raw start/finish ranges found (${invalidRawDateRangeTaskIds.length}).`);
+        }
+        if (invalidVisualDateRangeTaskIds.length > 0) {
+            warnings.push(`Visual date warnings: invalid plotted start/finish ranges found (${invalidVisualDateRangeTaskIds.length}).`);
         }
 
-        // ... date validation and other checks ...
+        const cpmSafe = !possibleTruncation &&
+            circularPaths.length === 0 &&
+            invalidRawDateRangeTaskIds.length === 0;
+
+        const dataQuality: DataQualityInfo = {
+            rowCount,
+            possibleTruncation,
+            duplicateTaskIds: duplicates,
+            circularPaths,
+            invalidRawDateRangeTaskIds,
+            invalidVisualDateRangeTaskIds,
+            warnings,
+            cpmSafe
+        };
+
         if (warnings.length > 0) {
-            console.warn('Data Quality Issues Detected:');
-            warnings.forEach((warning, index) => {
-                console.warn(`  ${index + 1}. ${warning}`);
-            });
+            this.debugLog("Data quality issues detected:", dataQuality);
+            warnings.forEach((warning, index) => console.warn(`Data quality ${index + 1}: ${warning}`));
         }
+
+        return dataQuality;
     }
 
 
