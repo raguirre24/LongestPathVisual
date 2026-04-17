@@ -5,7 +5,8 @@
       "Bash(npm run:*)",
       "Bash(npx tsc:*)",
       "Bash(git restore:*)",
-      "Bash(pbiviz package:*)"
+      "Bash(pbiviz package:*)",
+      "Bash(npx --no-install tsc --noEmit -p tsconfig.json)"
     ],
     "deny": [],
     "ask": []

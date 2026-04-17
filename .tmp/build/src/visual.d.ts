@@ -43,6 +43,7 @@ export declare class Visual implements IVisual {
     private useCanvasRendering;
     private CANVAS_THRESHOLD;
     private readonly MODE_TRANSITION_DURATION;
+    private static readonly MIN_DATE_WIDTH;
     private canvasLayer;
     private loadingOverlay;
     private loadingText;

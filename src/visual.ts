@@ -75,6 +75,7 @@ export class Visual implements IVisual {
     private useCanvasRendering: boolean = false;
     private CANVAS_THRESHOLD: number = 250;
     private readonly MODE_TRANSITION_DURATION: number = 150;
+    private static readonly MIN_DATE_WIDTH: number = 80;
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
     private loadingOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingText: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -4715,11 +4716,17 @@ export class Visual implements IVisual {
         const showExtra = this.showExtraColumnsInternal; // Based on enableColumnDisplay
 
         if (showExtra) {
+            // Mirror the WBS summary row's collision floor (see drawWbsGroupHeaders).
+            // Both sides must use Math.max(configuredWidth, MIN_DATE_WIDTH) so the
+            // left margin grows by the same amount the WBS row will subtract —
+            // otherwise WBS names wrap/truncate when toggling these columns on.
             if (this.showBaselineInternal) {
-                extraWidth += cols.baselineStartDateWidth.value + cols.baselineFinishDateWidth.value;
+                extraWidth += Math.max(cols.baselineStartDateWidth.value, Visual.MIN_DATE_WIDTH);
+                extraWidth += Math.max(cols.baselineFinishDateWidth.value, Visual.MIN_DATE_WIDTH);
             }
             if (this.showPreviousUpdateInternal) {
-                extraWidth += cols.previousUpdateStartDateWidth.value + cols.previousUpdateFinishDateWidth.value;
+                extraWidth += Math.max(cols.previousUpdateStartDateWidth.value, Visual.MIN_DATE_WIDTH);
+                extraWidth += Math.max(cols.previousUpdateFinishDateWidth.value, Visual.MIN_DATE_WIDTH);
             }
         }
         return extraWidth;
@@ -10812,26 +10819,25 @@ export class Visual implements IVisual {
             if (showFloat) { occupiedWidth += floatWidth; collisionWidth += floatWidth; }
             if (showDur) { occupiedWidth += durWidth; collisionWidth += durWidth; }
 
-            const MIN_DATE_WIDTH = 80;
             const finishOffset = showFinish ? occupiedWidth : 0;
-            if (showFinish) { occupiedWidth += finishWidth; collisionWidth += Math.max(finishWidth, MIN_DATE_WIDTH); }
+            if (showFinish) { occupiedWidth += finishWidth; collisionWidth += Math.max(finishWidth, Visual.MIN_DATE_WIDTH); }
             const startOffset = showStart ? occupiedWidth : 0;
-            if (showStart) { occupiedWidth += startWidth; collisionWidth += Math.max(startWidth, MIN_DATE_WIDTH); }
+            if (showStart) { occupiedWidth += startWidth; collisionWidth += Math.max(startWidth, Visual.MIN_DATE_WIDTH); }
 
             const textX = -currentLeftMargin + indent + 22;
             const textY = bandCenter;
 
             // Extra collision logic for wrapper
             if (showExtra && showBaseline) {
-                collisionWidth += Math.max(cols.baselineFinishDateWidth.value, MIN_DATE_WIDTH);
-                collisionWidth += Math.max(cols.baselineStartDateWidth.value, MIN_DATE_WIDTH);
+                collisionWidth += Math.max(cols.baselineFinishDateWidth.value, Visual.MIN_DATE_WIDTH);
+                collisionWidth += Math.max(cols.baselineStartDateWidth.value, Visual.MIN_DATE_WIDTH);
                 if (showPreviousUpdate) {
-                    collisionWidth += Math.max(cols.previousUpdateFinishDateWidth.value, MIN_DATE_WIDTH);
-                    collisionWidth += Math.max(cols.previousUpdateStartDateWidth.value, MIN_DATE_WIDTH);
+                    collisionWidth += Math.max(cols.previousUpdateFinishDateWidth.value, Visual.MIN_DATE_WIDTH);
+                    collisionWidth += Math.max(cols.previousUpdateStartDateWidth.value, Visual.MIN_DATE_WIDTH);
                 }
             } else if (showExtra && showPreviousUpdate) {
-                collisionWidth += Math.max(cols.previousUpdateFinishDateWidth.value, MIN_DATE_WIDTH);
-                collisionWidth += Math.max(cols.previousUpdateStartDateWidth.value, MIN_DATE_WIDTH);
+                collisionWidth += Math.max(cols.previousUpdateFinishDateWidth.value, Visual.MIN_DATE_WIDTH);
+                collisionWidth += Math.max(cols.previousUpdateStartDateWidth.value, Visual.MIN_DATE_WIDTH);
             }
 
             // Remove old date labels (simple remove/redraw is fine for these simple texts)
