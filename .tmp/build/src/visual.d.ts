@@ -536,6 +536,7 @@ export declare class Visual implements IVisual {
      * (Inlined for batching performance)
      */
     private pathRoundedRect;
+    private pathRoundedRectWithCorners;
     /**
      * ACCESSIBILITY: Creates an invisible but screen-reader accessible fallback for canvas rendering.
      * This ensures users with assistive technology can access task information even when canvas mode is active.
@@ -572,6 +573,7 @@ export declare class Visual implements IVisual {
     private drawProjectEndLine;
     private drawDataDateLine;
     private drawBaselineAndPreviousEndLines;
+    private drawComparisonFinishKey;
     /**
      * Applies Float-Based criticality using user-provided Total Float values
      * Tasks are critical if Total Float ≤ 0, near-critical if 0 < Total Float ≤ threshold
@@ -756,6 +758,9 @@ export declare class Visual implements IVisual {
     /**
      * Toggle a legend category on/off for filtering
      */
+    private persistLegendSelectionState;
+    private refreshAfterLegendSelectionChange;
+    private clearLegendSelection;
     private toggleLegendCategory;
     /**
      * Render the legend UI in sticky footer with horizontal scrolling
@@ -773,6 +778,17 @@ export declare class Visual implements IVisual {
     private hexToRgb;
     private rgbToHex;
     private blendColors;
+    private toRgba;
+    private getSoftOutlineColor;
+    private getComparisonStrokeColor;
+    private getSemanticTaskFillColor;
+    private getRenderedMilestoneSize;
+    private getCornerRadii;
+    private clampCornerRadii;
+    private getRoundedRectPath;
+    private getBeforeDataDateOverlay;
+    private getTaskRenderStyle;
+    private getConnectorArrowSize;
     /**
      * Calculate luminance of a color (for contrast calculation)
      */

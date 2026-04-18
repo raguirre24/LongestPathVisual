@@ -37,6 +37,34 @@ type DrivingChain = {
     endingTask?: Task | null;
 };
 
+type CornerRadii = {
+    tl: number;
+    tr: number;
+    br: number;
+    bl: number;
+};
+
+type TaskRenderStyle = {
+    fillColor: string;
+    strokeColor: string;
+    strokeWidth: number;
+    strokeOpacity: number;
+    hoverStrokeColor: string;
+    hoverStrokeWidth: number;
+    hoverStrokeOpacity: number;
+    shadowColor: string;
+    shadowBlur: number;
+    shadowOffsetY: number;
+    svgFilter: string;
+};
+
+type BeforeDataDateOverlay = {
+    x: number;
+    width: number;
+    corners: CornerRadii;
+    dividerX: number | null;
+};
+
 export class Visual implements IVisual {
     private target: HTMLElement;
     private visualWrapper: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -135,7 +163,7 @@ export class Visual implements IVisual {
     private readonly WBS_LEVEL_ACCENT_WIDTH = 4;
     private readonly WBS_TOGGLE_BOX_SIZE = 18;
     private readonly WBS_TASK_LABEL_INSET = 30;
-    private legendFooterHeight = 60;
+    private legendFooterHeight = 72;
     private dateLabelOffset = 8;
     private floatTolerance = 0.001;
     private defaultMaxTasks = 500;
@@ -763,9 +791,9 @@ export class Visual implements IVisual {
             .style("min-height", `${this.legendFooterHeight}px`)
             .style("flex-shrink", "0")
             .style("z-index", "100")
-            .style("background-color", "white")
-            .style("border-top", "2px solid #e0e0e0")
-            .style("box-shadow", "0 -2px 4px rgba(0,0,0,0.1)")
+            .style("background-color", HEADER_DOCK_TOKENS.shell)
+            .style("border-top", `1px solid ${HEADER_DOCK_TOKENS.groupStroke}`)
+            .style("box-shadow", "0 -6px 18px rgba(15, 23, 34, 0.18)")
             .style("display", "none")
             .style("overflow", "hidden");
 
@@ -2357,7 +2385,7 @@ export class Visual implements IVisual {
      * Uses the arrowHeadSize setting to control marker size.
      */
     private ensureArrowMarkers(defs: d3.Selection<any, unknown, null, undefined>): void {
-        const arrowSize = this.settings?.connectorLines?.arrowHeadSize?.value ?? 6;
+        const arrowSize = this.getConnectorArrowSize();
         const connectorColor = this.settings?.connectorLines?.connectorColor?.value?.value ?? "#555555";
         const criticalColor = this.settings?.criticalPath?.criticalPathColor?.value?.value ?? "#E81123";
 
@@ -2367,12 +2395,12 @@ export class Visual implements IVisual {
             normalMarker = defs.append("marker")
                 .attr("id", "arrowhead")
                 .attr("orient", "auto")
-                .attr("markerUnits", "strokeWidth");
+                .attr("markerUnits", "userSpaceOnUse");
             normalMarker.append("path");
         }
         normalMarker
             .attr("viewBox", `0 0 ${arrowSize} ${arrowSize}`)
-            .attr("refX", arrowSize - 1)
+            .attr("refX", arrowSize)
             .attr("refY", arrowSize / 2)
             .attr("markerWidth", arrowSize)
             .attr("markerHeight", arrowSize);
@@ -2386,12 +2414,12 @@ export class Visual implements IVisual {
             criticalMarker = defs.append("marker")
                 .attr("id", "arrowhead-critical")
                 .attr("orient", "auto")
-                .attr("markerUnits", "strokeWidth");
+                .attr("markerUnits", "userSpaceOnUse");
             criticalMarker.append("path");
         }
         criticalMarker
             .attr("viewBox", `0 0 ${arrowSize} ${arrowSize}`)
-            .attr("refX", arrowSize - 1)
+            .attr("refX", arrowSize)
             .attr("refY", arrowSize / 2)
             .attr("markerWidth", arrowSize)
             .attr("markerHeight", arrowSize);
@@ -4802,7 +4830,7 @@ export class Visual implements IVisual {
                 const milestoneDate = this.getVisualMilestoneDate(task);
                 if (!milestoneDate) continue;
                 const milestoneX = this.xScale(milestoneDate);
-                const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                const size = this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
                 if (x >= milestoneX - size / 2 && x <= milestoneX + size / 2) {
                     return task;
                 }
@@ -5989,8 +6017,6 @@ export class Visual implements IVisual {
         const nearCriticalColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
         const self = this;
         const minInlineDurationWidth = 28;
-        const minBarWidthForStrongStroke = 8;
-        const minBarWidthForGlow = 10;
 
         // Task bar styling from settings
         const taskBarCornerRadius = this.settings.taskBars.taskBarCornerRadius.value;
@@ -6031,20 +6057,11 @@ export class Visual implements IVisual {
             return Math.max(this.minTaskWidthPixels, finishPos - startPos);
         };
 
-        const getTaskFillColor = (d: Task, fallbackColor: string): string => {
-            if (d.internalId === this.selectedTaskId) return selectionHighlightColor;
-            if (this.legendDataExists && d.legendColor) return d.legendColor;
-            if (!this.legendDataExists) {
-                if (d.isCritical) return criticalColor;
-                if (d.isNearCritical) return nearCriticalColor;
-            }
-            return fallbackColor;
-        };
-
         const selectionHighlightColor = this.getSelectionColor();
-        const selectionStrokeWidth = 2.5;
         const selectionLabelColor = selectionHighlightColor;
-        const selectionLabelWeight = "bold";
+
+        const getTaskFillColor = (d: Task, fallbackColor: string): string =>
+            this.getSemanticTaskFillColor(d, fallbackColor, criticalColor, nearCriticalColor);
 
         const taskGroupsSelection = this.taskLayer.selectAll<SVGGElement, Task>(".task-group")
             .data(tasks, (d: Task) => d.internalId);
@@ -6084,7 +6101,7 @@ export class Visual implements IVisual {
             const previousUpdateHeight = this.settings.comparisonBars.previousUpdateHeight.value;
             const previousUpdateOffset = this.settings.comparisonBars.previousUpdateOffset.value;
             const previousUpdateRadius = Math.min(3, previousUpdateHeight / 2);
-            const previousUpdateOutline = this.getContrastColor(previousUpdateColor);
+            const previousUpdateOutline = this.getComparisonStrokeColor(previousUpdateColor);
 
             allTaskGroups.selectAll(".previous-update-bar").remove();
 
@@ -6110,7 +6127,7 @@ export class Visual implements IVisual {
                 .attr("ry", previousUpdateRadius)
                 .style("fill", previousUpdateColor)
                 .style("stroke", previousUpdateOutline)
-                .style("stroke-opacity", 0.25)
+                .style("stroke-opacity", 0.7)
                 .style("stroke-width", 1);
 
             // Draw icons for milestone tasks
@@ -6125,7 +6142,7 @@ export class Visual implements IVisual {
                 })
                 .style("fill", previousUpdateColor)
                 .style("stroke", previousUpdateOutline)
-                .style("stroke-opacity", 0.25)
+                .style("stroke-opacity", 0.7)
                 .style("stroke-width", 1);
         } else {
             allTaskGroups.selectAll(".previous-update-bar").remove();
@@ -6137,7 +6154,7 @@ export class Visual implements IVisual {
             const baselineHeight = this.settings.comparisonBars.baselineHeight.value;
             const baselineOffset = this.settings.comparisonBars.baselineOffset.value;
             const baselineRadius = Math.min(3, baselineHeight / 2);
-            const baselineOutline = this.getContrastColor(baselineColor);
+            const baselineOutline = this.getComparisonStrokeColor(baselineColor);
 
             let baselineY = taskHeight;
             if (showPreviousUpdate) {
@@ -6172,7 +6189,7 @@ export class Visual implements IVisual {
                 .attr("ry", baselineRadius)
                 .style("fill", baselineColor)
                 .style("stroke", baselineOutline)
-                .style("stroke-opacity", 0.25)
+                .style("stroke-opacity", 0.7)
                 .style("stroke-width", 1);
 
             // Draw icons for milestone tasks
@@ -6187,13 +6204,13 @@ export class Visual implements IVisual {
                 })
                 .style("fill", baselineColor)
                 .style("stroke", baselineOutline)
-                .style("stroke-opacity", 0.25)
+                .style("stroke-opacity", 0.7)
                 .style("stroke-width", 1);
         } else {
             allTaskGroups.selectAll(".baseline-bar").remove();
         }
 
-        allTaskGroups.selectAll(".task-bar, .milestone").remove();
+        allTaskGroups.selectAll(".task-bar, .milestone, .task-bar-before-data-date, .task-bar-data-date-divider").remove();
 
         allTaskGroups.filter((d: Task) =>
             (d.type !== 'TT_Mile' && d.type !== 'TT_FinMile')
@@ -6203,105 +6220,80 @@ export class Visual implements IVisual {
                 const finish = self.getVisualFinish(d);
 
                 if (start instanceof Date && !isNaN(start.getTime()) && finish instanceof Date && !isNaN(finish.getTime()) && finish >= start) {
+                    const startX = self.snapRectCoord(xScale(start));
+                    const finishX = self.snapRectCoord(xScale(finish));
+                    const barWidth = Math.max(1, finishX - startX);
+                    const barRadius = Math.min(taskBarCornerRadius, barWidth / 2, barHeight / 2);
+                    const baseFillColor = getTaskFillColor(d, taskColor);
+                    const renderStyle = self.getTaskRenderStyle(
+                        d,
+                        baseFillColor,
+                        barWidth,
+                        false,
+                        taskBarStrokeColor,
+                        taskBarStrokeWidth,
+                        criticalColor,
+                        nearCriticalColor
+                    );
 
-                    const parts: { s: Date, f: Date, color: string | null }[] = [];
-                    const enableOverride = self.settings.dataDateColorOverride.enableP6Style.value;
-                    const dataDate = self.dataDate;
+                    d3.select(this).append("rect")
+                        .attr("class", (d: Task) => {
+                            if (d.isCritical) return "task-bar critical";
+                            if (d.isNearCritical) return "task-bar near-critical";
+                            return "task-bar normal";
+                        })
+                        .attr("role", "button")
+                        .attr("aria-label", (d: Task) => {
+                            const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+                            const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
+                            return `${d.name}, ${statusText} task, Start: ${self.formatDate(start)}, Finish: ${self.formatDate(finish)}${selectedText}. Press Enter or Space to select.`;
+                        })
+                        .attr("tabindex", 0)
+                        .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
+                        .attr("x", startX)
+                        .attr("y", barYOffset)
+                        .attr("width", barWidth)
+                        .attr("height", barHeight)
+                        .attr("rx", barRadius)
+                        .attr("ry", barRadius)
+                        .attr("data-base-stroke", renderStyle.strokeColor)
+                        .attr("data-base-stroke-width", renderStyle.strokeWidth)
+                        .attr("data-base-stroke-opacity", renderStyle.strokeOpacity)
+                        .attr("data-hover-stroke", renderStyle.hoverStrokeColor)
+                        .attr("data-hover-stroke-width", renderStyle.hoverStrokeWidth)
+                        .attr("data-hover-stroke-opacity", renderStyle.hoverStrokeOpacity)
+                        .style("fill", renderStyle.fillColor)
+                        .style("stroke", renderStyle.strokeColor)
+                        .style("stroke-width", renderStyle.strokeWidth)
+                        .style("stroke-opacity", renderStyle.strokeOpacity)
+                        .style("filter", renderStyle.svgFilter);
 
-                    if (enableOverride && dataDate) {
-                        // Normalize to start-of-day for consistent day-level comparison
-                        // This prevents time-component mismatches between task dates and data date
-                        const ddTime = self.normalizeToStartOfDay(dataDate);
-                        const startTime = self.normalizeToStartOfDay(start);
-                        const finishTime = self.normalizeToStartOfDay(finish);
+                    const overlay = self.getBeforeDataDateOverlay(start, finish, startX, finishX, barRadius);
+                    if (overlay) {
                         const overrideColor = self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
+                        const overlayY = barYOffset;
+                        const overlayHeight = barHeight;
 
-                        if (finishTime <= ddTime) {
-                            parts.push({ s: start, f: finish, color: overrideColor });
-                        } else if (startTime >= ddTime) {
-                            parts.push({ s: start, f: finish, color: null });
-                        } else {
-                            parts.push({ s: start, f: dataDate, color: overrideColor });
-                            parts.push({ s: dataDate, f: finish, color: null });
+                        d3.select(this)
+                            .append("path")
+                            .attr("class", "task-bar-before-data-date")
+                            .attr("d", self.getRoundedRectPath(overlay.x, overlayY, overlay.width, overlayHeight, overlay.corners))
+                            .style("fill", overrideColor)
+                            .style("pointer-events", "none");
+
+                        if (overlay.dividerX !== null && overlay.dividerX > startX + 1 && overlay.dividerX < finishX - 1) {
+                            d3.select(this)
+                                .append("line")
+                                .attr("class", "task-bar-data-date-divider")
+                                .attr("x1", overlay.dividerX)
+                                .attr("x2", overlay.dividerX)
+                                .attr("y1", overlayY + 1)
+                                .attr("y2", overlayY + overlayHeight - 1)
+                                .style("stroke", self.toRgba(self.getSoftOutlineColor(overrideColor), 0.6))
+                                .style("stroke-width", 1)
+                                .style("pointer-events", "none");
                         }
-                    } else {
-                        parts.push({ s: start, f: finish, color: null });
                     }
-
-                    function runRoundedLogic(w: number) {
-                        return Math.min(taskBarCornerRadius, w / 2);
-                    }
-
-                    parts.forEach(part => {
-                        const snappedStartX = self.snapRectCoord(xScale(part.s));
-                        const snappedFinishX = self.snapRectCoord(xScale(part.f));
-                        const partWidth = Math.max(1, snappedFinishX - snappedStartX);
-
-                        d3.select(this).append("rect")
-                            .attr("class", (d: Task) => {
-                                if (d.isCritical) return "task-bar critical";
-                                if (d.isNearCritical) return "task-bar near-critical";
-                                return "task-bar normal";
-                            })
-                            .attr("role", "button")
-                            .attr("aria-label", (d: Task) => {
-                                const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
-                                const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
-                                return `${d.name}, ${statusText} task, Start: ${self.formatDate(start)}, Finish: ${self.formatDate(finish)}${selectedText}. Press Enter or Space to select.`;
-                            })
-                            .attr("tabindex", 0)
-                            .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
-                            .attr("x", snappedStartX)
-                            .attr("y", barYOffset)
-                            .attr("width", partWidth)
-                            .attr("height", barHeight)
-                            .attr("rx", runRoundedLogic(partWidth))
-                            .attr("ry", runRoundedLogic(partWidth))
-                            .attr("data-override-color", part.color || "")
-                            .style("fill", part.color ? part.color : getTaskFillColor(d, taskColor))
-                            .style("stroke", (d: Task) => {
-                                if (part.color) return self.getContrastColor(part.color);
-
-                                if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
-                                if (self.legendDataExists) {
-                                    if (d.isCritical) return criticalColor;
-                                    if (d.isNearCritical) return nearCriticalColor;
-                                }
-                                return taskBarStrokeColor || self.getForegroundColor();
-                            })
-                            .style("stroke-width", (d: Task) => {
-                                if (part.color) return 1;
-
-                                let baseWidth = taskBarStrokeWidth > 0 ? Math.max(1, taskBarStrokeWidth) : 1;
-                                if (d.internalId === self.selectedTaskId) {
-                                    baseWidth = 3;
-                                } else if (self.legendDataExists) {
-                                    if (d.isCritical) baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
-                                    else if (d.isNearCritical) baseWidth = self.settings.criticalPath.nearCriticalBorderWidth.value;
-                                } else if (d.isCritical) {
-                                    baseWidth = self.settings.criticalPath.criticalBorderWidth.value;
-                                }
-                                if (partWidth < minBarWidthForStrongStroke) {
-                                    return Math.min(baseWidth, 1);
-                                }
-                                return baseWidth;
-                            })
-                            .style("filter", (d: Task) => {
-                                if (partWidth < minBarWidthForGlow) return "none";
-                                if (self.legendDataExists) {
-                                    if (d.isCritical) {
-                                        const rgb = self.hexToRgb(criticalColor);
-                                        return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
-                                    }
-                                    if (d.isNearCritical) {
-                                        const nearColor = nearCriticalColor;
-                                        const rgb = self.hexToRgb(nearColor);
-                                        return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
-                                    }
-                                }
-                                return `drop-shadow(${UI_TOKENS.shadow[2]})`;
-                            });
-                    });
                 }
             });
 
@@ -6311,6 +6303,23 @@ export class Visual implements IVisual {
             .each(function (d: Task) {
                 const mDate = self.getVisualMilestoneDate(d);
                 if (mDate instanceof Date && !isNaN(mDate.getTime())) {
+                    const milestoneSize = self.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
+                    const overrideFill = (self.settings.dataDateColorOverride.enableP6Style.value && self.dataDate &&
+                        self.normalizeToStartOfDay(mDate) <= self.normalizeToStartOfDay(self.dataDate))
+                        ? self.settings.dataDateColorOverride.beforeDataDateColor.value.value
+                        : null;
+                    const fillColor = overrideFill ?? getTaskFillColor(d, milestoneColor);
+                    const renderStyle = self.getTaskRenderStyle(
+                        d,
+                        fillColor,
+                        milestoneSize,
+                        true,
+                        taskBarStrokeColor,
+                        taskBarStrokeWidth,
+                        criticalColor,
+                        nearCriticalColor
+                    );
+
                     d3.select(this).append("path")
                         .attr("class", (d: Task) => {
                             if (d.isCritical) return "milestone critical";
@@ -6331,71 +6340,32 @@ export class Visual implements IVisual {
                             if (isNaN(x)) console.warn(`Invalid X position for milestone ${d.internalId}`);
                             return `translate(${self.snapRectCoord(x)}, ${milestoneCenterY})`;
                         })
+                        .attr("data-base-stroke", renderStyle.strokeColor)
+                        .attr("data-base-stroke-width", renderStyle.strokeWidth)
+                        .attr("data-base-stroke-opacity", renderStyle.strokeOpacity)
+                        .attr("data-hover-stroke", renderStyle.hoverStrokeColor)
+                        .attr("data-hover-stroke-width", renderStyle.hoverStrokeWidth)
+                        .attr("data-hover-stroke-opacity", renderStyle.hoverStrokeOpacity)
                         .attr("d", () => {
-                            const size = Math.max(4, Math.min(milestoneSizeSetting, taskBarHeight * 0.9));
                             // Support different milestone shapes from settings
                             switch (milestoneShape) {
                                 case "circle":
                                     // Approximate circle with SVG path (8-point circle approximation)
-                                    const r = size / 2;
+                                    const r = milestoneSize / 2;
                                     return `M ${r},0 A ${r},${r} 0 1,1 -${r},0 A ${r},${r} 0 1,1 ${r},0`;
                                 case "square":
-                                    const halfSize = size / 2;
+                                    const halfSize = milestoneSize / 2;
                                     return `M -${halfSize},-${halfSize} L ${halfSize},-${halfSize} L ${halfSize},${halfSize} L -${halfSize},${halfSize} Z`;
                                 case "diamond":
                                 default:
-                                    return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
+                                    return `M 0,-${milestoneSize / 2} L ${milestoneSize / 2},0 L 0,${milestoneSize / 2} L -${milestoneSize / 2},0 Z`;
                             }
                         })
-                        .style("fill", (d: Task) => {
-                            const enableOverride = self.settings.dataDateColorOverride.enableP6Style.value;
-                            const dataDate = self.dataDate;
-                            if (enableOverride && dataDate) {
-                                const mDate = self.getVisualMilestoneDate(d);
-                                if (mDate instanceof Date && !isNaN(mDate.getTime()) && self.normalizeToStartOfDay(mDate) <= self.normalizeToStartOfDay(dataDate)) {
-                                    return self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
-                                }
-                            }
-                            return getTaskFillColor(d, milestoneColor);
-                        })
-
-                        .style("stroke", (d: Task) => {
-                            if (d.internalId === self.selectedTaskId) return selectionHighlightColor;
-
-                            if (self.legendDataExists) {
-                                if (d.isCritical) return criticalColor;
-                                if (d.isNearCritical) return nearCriticalColor;
-                            }
-
-                            return self.getForegroundColor();
-                        })
-                        .style("stroke-width", (d: Task) => {
-                            if (d.internalId === self.selectedTaskId) return 3;
-
-                            if (self.legendDataExists) {
-                                if (d.isCritical) return self.settings.criticalPath.criticalBorderWidth.value;
-                                if (d.isNearCritical) return self.settings.criticalPath.nearCriticalBorderWidth.value;
-                            }
-
-                            return 1.5;
-                        })
-
-                        .style("filter", (d: Task) => {
-
-                            if (self.legendDataExists) {
-                                if (d.isCritical) {
-                                    const rgb = self.hexToRgb(criticalColor);
-                                    return `drop-shadow(0 0 3px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35))`;
-                                }
-                                if (d.isNearCritical) {
-                                    const nearColor = nearCriticalColor;
-                                    const rgb = self.hexToRgb(nearColor);
-                                    return `drop-shadow(0 0 2px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25))`;
-                                }
-                            }
-
-                            return `drop-shadow(${UI_TOKENS.shadow[2]})`;
-                        });
+                        .style("fill", fillColor)
+                        .style("stroke", renderStyle.strokeColor)
+                        .style("stroke-width", renderStyle.strokeWidth)
+                        .style("stroke-opacity", renderStyle.strokeOpacity)
+                        .style("filter", renderStyle.svgFilter);
                 }
             });
 
@@ -6429,7 +6399,7 @@ export class Visual implements IVisual {
                         const milestoneMarkerDate = self.getVisualMilestoneDate(d) ?? dateToUse;
                         const milestoneX = (milestoneMarkerDate instanceof Date && !isNaN(milestoneMarkerDate.getTime())) ? xScale(milestoneMarkerDate) : NaN;
                         if (!isNaN(milestoneX)) {
-                            const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                            const size = self.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
                             xPos = milestoneX + size / 2;
                         }
                     } else {
@@ -6530,31 +6500,14 @@ export class Visual implements IVisual {
 
                     if (d.internalId !== self.selectedTaskId) {
                         const target = d3.select(event.currentTarget as Element);
-                        const overrideColor = target.attr("data-override-color");
-
-                        let hoverStrokeColor = self.getForegroundColor();
-                        let hoverStrokeWidth = "2px";
-
-                        if (overrideColor) {
-                            hoverStrokeColor = self.getContrastColor(overrideColor);
-                            hoverStrokeWidth = "1px";
-                        } else if (self.legendDataExists) {
-                            if (d.isCritical) {
-                                hoverStrokeColor = criticalColor;
-                                hoverStrokeWidth = String(self.settings.criticalPath.criticalBorderWidth.value);
-                            } else if (d.isNearCritical) {
-                                hoverStrokeColor = nearCriticalColor;
-                                hoverStrokeWidth = String(self.settings.criticalPath.nearCriticalBorderWidth.value);
-                            }
-                        } else {
-                            if (d.isCritical) {
-                                hoverStrokeWidth = "1.5px";
-                            }
-                        }
+                        const hoverStrokeColor = target.attr("data-hover-stroke") || self.getForegroundColor();
+                        const hoverStrokeWidth = target.attr("data-hover-stroke-width") || "1.25";
+                        const hoverStrokeOpacity = target.attr("data-hover-stroke-opacity") || "1";
 
                         target
                             .style("stroke", hoverStrokeColor)
-                            .style("stroke-width", hoverStrokeWidth);
+                            .style("stroke-width", hoverStrokeWidth)
+                            .style("stroke-opacity", hoverStrokeOpacity);
                     }
                     d3.select(event.currentTarget as Element).style("cursor", "pointer");
 
@@ -6572,31 +6525,14 @@ export class Visual implements IVisual {
 
                     if (d.internalId !== self.selectedTaskId) {
                         const target = d3.select(event.currentTarget as Element);
-                        const overrideColor = target.attr("data-override-color");
-
-                        let defaultStrokeColor = self.getForegroundColor();
-                        let defaultStrokeWidth = "1";
-
-                        if (overrideColor) {
-                            defaultStrokeColor = self.getContrastColor(overrideColor);
-                            defaultStrokeWidth = "1";
-                        } else if (self.legendDataExists) {
-                            if (d.isCritical) {
-                                defaultStrokeColor = criticalColor;
-                                defaultStrokeWidth = String(self.settings.criticalPath.criticalBorderWidth.value);
-                            } else if (d.isNearCritical) {
-                                defaultStrokeColor = nearCriticalColor;
-                                defaultStrokeWidth = String(self.settings.criticalPath.nearCriticalBorderWidth.value);
-                            }
-                        } else {
-                            if (d.isCritical) {
-                                defaultStrokeWidth = "1";
-                            }
-                        }
+                        const defaultStrokeColor = target.attr("data-base-stroke") || "none";
+                        const defaultStrokeWidth = target.attr("data-base-stroke-width") || "0";
+                        const defaultStrokeOpacity = target.attr("data-base-stroke-opacity") || "0";
 
                         target
                             .style("stroke", defaultStrokeColor)
-                            .style("stroke-width", defaultStrokeWidth);
+                            .style("stroke-width", defaultStrokeWidth)
+                            .style("stroke-opacity", defaultStrokeOpacity);
                     }
 
                     if (showTooltips) {
@@ -7108,7 +7044,7 @@ export class Visual implements IVisual {
         }
 
         return {
-            fill: HEADER_DOCK_TOKENS.commandBg,
+            fill: HEADER_DOCK_TOKENS.shell,
             stroke: HEADER_DOCK_TOKENS.commandStroke,
             label: HEADER_DOCK_TOKENS.buttonText,
             secondaryLabel: HEADER_DOCK_TOKENS.chipMuted,
@@ -7152,7 +7088,7 @@ export class Visual implements IVisual {
         const edgePadding = this.HEADER_LINE_LABEL_EDGE_PADDING;
         const gap = this.HEADER_LINE_LABEL_GAP;
         const labelGroups = Array.from(headerLayer.selectAll<SVGGElement, unknown>(
-            ".data-date-label-group, .previous-update-end-label-group, .baseline-end-label-group, .project-end-label-group"
+            ".data-date-label-group, .previous-update-end-label-group, .baseline-end-label-group, .project-end-label-group, .comparison-finish-key-group"
         ).nodes());
 
         if (labelGroups.length === 0) {
@@ -7163,25 +7099,42 @@ export class Visual implements IVisual {
             node: SVGGElement;
             priority: number;
             bbox: DOMRect | SVGRect;
-            shiftX: number;
+            transformX: number;
+            transformY: number;
             left: number;
             right: number;
             top: number;
             bottom: number;
         };
 
+        const parseTranslate = (value: string | null): { x: number; y: number } => {
+            if (!value) {
+                return { x: 0, y: 0 };
+            }
+            const match = value.match(/translate\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)/);
+            if (!match) {
+                return { x: 0, y: 0 };
+            }
+            return {
+                x: parseFloat(match[1]) || 0,
+                y: parseFloat(match[2] ?? "0") || 0
+            };
+        };
+
         const items: HeaderLabelBox[] = labelGroups.map(node => {
+            const existingTransform = parseTranslate(node.getAttribute("transform"));
             node.removeAttribute("transform");
             const bbox = node.getBBox();
             return {
                 node,
                 priority: parseInt(node.getAttribute("data-label-priority") || "0", 10) || 0,
                 bbox,
-                shiftX: 0,
-                left: bbox.x,
-                right: bbox.x + bbox.width,
-                top: bbox.y,
-                bottom: bbox.y + bbox.height
+                transformX: existingTransform.x,
+                transformY: existingTransform.y,
+                left: bbox.x + existingTransform.x,
+                right: bbox.x + existingTransform.x + bbox.width,
+                top: bbox.y + existingTransform.y,
+                bottom: bbox.y + existingTransform.y + bbox.height
             };
         }).sort((a, b) => {
             if (a.priority !== b.priority) {
@@ -7196,7 +7149,7 @@ export class Visual implements IVisual {
         const clampIntoViewport = (item: HeaderLabelBox): void => {
             const maxLeft = Math.max(edgePadding, chartWidth - edgePadding - item.bbox.width);
             const targetLeft = Math.max(edgePadding, Math.min(item.left, maxLeft));
-            item.shiftX += targetLeft - item.left;
+            item.transformX += targetLeft - item.left;
             item.left = targetLeft;
             item.right = item.left + item.bbox.width;
         };
@@ -7216,13 +7169,18 @@ export class Visual implements IVisual {
                     edgePadding,
                     Math.min(other.left - gap - item.bbox.width, chartWidth - edgePadding - item.bbox.width)
                 );
-                item.shiftX += targetLeft - item.left;
+                item.transformX += targetLeft - item.left;
                 item.left = targetLeft;
                 item.right = item.left + item.bbox.width;
             }
 
             clampIntoViewport(item);
-            d3.select(item.node).attr("transform", item.shiftX !== 0 ? `translate(${Math.round(item.shiftX)}, 0)` : null);
+            d3.select(item.node).attr(
+                "transform",
+                (item.transformX !== 0 || item.transformY !== 0)
+                    ? `translate(${Math.round(item.transformX)}, ${Math.round(item.transformY)})`
+                    : null
+            );
             placed.push(item);
         }
     }
@@ -7381,8 +7339,6 @@ export class Visual implements IVisual {
         ctx.lineWidth = 1;
 
         const milestoneSizeSetting = this.settings.taskBars.milestoneSize.value;
-        const minBarWidthForGlow = 10;
-        const minBarWidthForStrongStroke = 8;
         const minInlineDurationWidth = 28;
 
         // Calculate vertical centering for bars
@@ -7395,20 +7351,22 @@ export class Visual implements IVisual {
         const taskBarStrokeWidth = this.settings.taskBars.taskBarStrokeWidth.value;
         const milestoneShape = this.settings.taskBars.milestoneShape.value?.value ?? "diamond";
         const nearCriticalColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
-        const selectionHighlightColor = this.getSelectionColor();
         const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
         const generalFontSize = this.settings.textAndLabels.fontSize.value;
 
         const showPreviousUpdate = this.showPreviousUpdateInternal;
         const showBaseline = this.showBaselineInternal;
 
-        type RectBatch = { x: number, y: number, w: number, h: number, r: number };
+        type RectBatch = { x: number, y: number, w: number, h: number, r: number, corners?: CornerRadii };
         type MilestoneBatch = { x: number, y: number, size: number, rotated: boolean };
+        type LineBatch = { x1: number, y1: number, x2: number, y2: number };
 
         const prevUpdateBatch: RectBatch[] = [];
         const baselineBatch: RectBatch[] = [];
 
         const taskBatches = new Map<string, RectBatch[]>();
+        const beforeDataDateBatches = new Map<string, RectBatch[]>();
+        const beforeDataDateDividerBatches = new Map<string, LineBatch[]>();
         const milestoneBatches = new Map<string, MilestoneBatch[]>();
 
         for (const task of tasks) {
@@ -7452,120 +7410,32 @@ export class Visual implements IVisual {
                 baselineBatch.push({ x, y, w, h, r });
             }
 
-            let fillColor = taskColor;
-            let strokeColor = taskBarStrokeColor || this.getForegroundColor();
-            let strokeWidth = taskBarStrokeWidth > 0 ? Math.max(1, taskBarStrokeWidth) : 1;
-            let shadowBlur = 0;
-            let shadowColor = 'transparent';
-            let shadowOffset = 0;
             const isMilestone = task.type === 'TT_Mile' || task.type === 'TT_FinMile';
-
-            const isSelected = task.internalId === this.selectedTaskId;
-
-            if (isSelected) {
-                fillColor = selectionHighlightColor;
-                strokeColor = selectionHighlightColor;
-                strokeWidth = 3;
-                shadowColor = 'rgba(0, 0, 0, 0.15)';
-                shadowBlur = 6;
-                shadowOffset = 3;
-            } else {
-
-                if (this.legendDataExists && task.legendColor) {
-                    fillColor = task.legendColor;
-                } else if (!this.legendDataExists) {
-                    if (task.isCritical) fillColor = criticalColor;
-                    else if (task.isNearCritical) fillColor = nearCriticalColor;
-                }
-
-                if (this.legendDataExists) {
-                    if (task.isCritical) {
-                        strokeColor = criticalColor;
-                        strokeWidth = this.settings.criticalPath.criticalBorderWidth.value;
-                    } else if (task.isNearCritical) {
-                        strokeColor = nearCriticalColor;
-                        strokeWidth = this.settings.criticalPath.nearCriticalBorderWidth.value;
-                    }
-                } else {
-                    if (task.isCritical) {
-                        strokeWidth = this.settings.criticalPath.criticalBorderWidth.value;
-                    }
-                }
-
-                // Milestones use heavier stroke like SVG (1.5 default)
-                if (isMilestone && !this.legendDataExists && !task.isCritical && !task.isNearCritical) {
-                    strokeColor = this.getForegroundColor();
-                    strokeWidth = 1.5;
-                }
-
-                const visualStart = this.getVisualStart(task);
-                const visualFinish = this.getVisualFinish(task);
-                const widthVal = (visualStart && visualFinish)
-                    ? (xScale(visualFinish) - xScale(visualStart)) : 0;
-
-                // Reduce stroke for narrow bars (matching SVG)
-                if (!isMilestone && widthVal < minBarWidthForStrongStroke) {
-                    strokeWidth = Math.min(strokeWidth, 1);
-                }
-
-                if (widthVal >= minBarWidthForGlow || isMilestone) {
-                    if (this.legendDataExists) {
-                        if (task.isCritical) {
-                            const rgb = this.hexToRgb(criticalColor);
-                            shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35)`;
-                            shadowBlur = 3;
-                        } else if (task.isNearCritical) {
-                            const rgb = this.hexToRgb(nearCriticalColor);
-                            shadowColor = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25)`;
-                            shadowBlur = 2;
-                        } else {
-                            shadowColor = 'rgba(0, 0, 0, 0.08)';
-                            shadowBlur = 2;
-                            shadowOffset = 1;
-                        }
-                    } else {
-                        shadowColor = 'rgba(0, 0, 0, 0.08)';
-                        shadowBlur = 2;
-                        shadowOffset = 1;
-                    }
-                }
-            }
-
-            const styleKey = `${fillColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
-
             if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
                 const mDate = this.getVisualMilestoneDate(task);
                 if (mDate) {
-
+                    const milestoneSize = Math.round(this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight));
+                    const semanticFill = this.getSemanticTaskFillColor(task, milestoneColor, criticalColor, nearCriticalColor);
+                    const fillColor = (this.settings.dataDateColorOverride.enableP6Style.value && this.dataDate &&
+                        this.normalizeToStartOfDay(mDate) <= this.normalizeToStartOfDay(this.dataDate))
+                        ? this.settings.dataDateColorOverride.beforeDataDateColor.value.value
+                        : semanticFill;
+                    const renderStyle = this.getTaskRenderStyle(
+                        task,
+                        fillColor,
+                        milestoneSize,
+                        true,
+                        taskBarStrokeColor,
+                        taskBarStrokeWidth,
+                        criticalColor,
+                        nearCriticalColor
+                    );
                     const x = this.snapRectCoord(xScale(mDate));
                     const y = this.snapRectCoord(yPos + barYOffset + barHeight / 2);
-                    // Ensure milestone size doesn't exceed row height or bar height significantly if valid
-                    const size = Math.round(Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9)));
+                    const styleKey = `${fillColor}|${renderStyle.strokeColor}|${renderStyle.strokeWidth}|${renderStyle.strokeOpacity}|${renderStyle.shadowBlur}|${renderStyle.shadowColor}|${renderStyle.shadowOffsetY}`;
 
-                    let overrideColor = null;
-                    // Check if milestone is before data date for color override
-                    // Normalize to start-of-day for consistent day-level comparison
-                    if (this.settings.dataDateColorOverride.enableP6Style.value && this.dataDate && this.normalizeToStartOfDay(mDate) <= this.normalizeToStartOfDay(this.dataDate)) {
-                        overrideColor = this.settings.dataDateColorOverride.beforeDataDateColor.value.value;
-                    }
-
-                    // For milestones, we might need a separate key if color is overridden, or just modify the fill/stroke in the key
-                    // But current batching uses styleKey. So we just compute styleKey with the overridden color.
-                    // If overridden, we likely want to override fill and stroke (or at least fill).
-                    // Let's assume override applies to fill. Stroke might remain or also change?
-                    // P6 usually overrides the whole appearance. Let's override fill and use a contrasting or default stroke.
-
-                    if (overrideColor) {
-                        fillColor = overrideColor;
-                        // Optionally override stroke too?
-                        // strokeColor = this.getContrastColor(overrideColor);
-                    }
-
-                    // Re-compute styleKey with potentially new fillColor
-                    const overriddenStyleKey = `${fillColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
-
-                    if (!milestoneBatches.has(overriddenStyleKey)) milestoneBatches.set(overriddenStyleKey, []);
-                    milestoneBatches.get(overriddenStyleKey)!.push({ x, y, size, rotated: true });
+                    if (!milestoneBatches.has(styleKey)) milestoneBatches.set(styleKey, []);
+                    milestoneBatches.get(styleKey)!.push({ x, y, size: milestoneSize, rotated: true });
                 }
             } else {
                 const start = this.getVisualStart(task);
@@ -7573,90 +7443,60 @@ export class Visual implements IVisual {
                 if (!start || !finish) {
                     continue;
                 }
+                const startX = this.snapRectCoord(xScale(start));
+                const finishX = this.snapRectCoord(xScale(finish));
+                const x = startX;
+                const w = Math.max(1, finishX - startX);
+                const h = barHeight;
+                const y = this.snapRectCoord(yPos + barYOffset);
+                const r = Math.min(taskBarCornerRadius, w / 2, h / 2);
+                const semanticFill = this.getSemanticTaskFillColor(task, taskColor, criticalColor, nearCriticalColor);
+                const renderStyle = this.getTaskRenderStyle(
+                    task,
+                    semanticFill,
+                    w,
+                    false,
+                    taskBarStrokeColor,
+                    taskBarStrokeWidth,
+                    criticalColor,
+                    nearCriticalColor
+                );
+                const styleKey = `${semanticFill}|${renderStyle.strokeColor}|${renderStyle.strokeWidth}|${renderStyle.strokeOpacity}|${renderStyle.shadowBlur}|${renderStyle.shadowColor}|${renderStyle.shadowOffsetY}`;
 
-                // Data Date Override Logic
-                const enableOverride = this.settings.dataDateColorOverride.enableP6Style.value;
-                const dataDate = this.dataDate;
+                if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
+                taskBatches.get(styleKey)!.push({ x, y, w, h, r });
 
-                if (enableOverride && dataDate) {
-                    // Normalize to start-of-day for consistent day-level comparison
-                    const ddTime = this.normalizeToStartOfDay(dataDate);
-                    const startTime = this.normalizeToStartOfDay(start);
-                    const finishTime = this.normalizeToStartOfDay(finish);
+                const overlay = this.getBeforeDataDateOverlay(start, finish, startX, finishX, r);
+                if (overlay) {
                     const overrideColor = this.settings.dataDateColorOverride.beforeDataDateColor.value.value;
+                    const overlayStyleKey = `${overrideColor}`;
+                    if (!beforeDataDateBatches.has(overlayStyleKey)) beforeDataDateBatches.set(overlayStyleKey, []);
+                    beforeDataDateBatches.get(overlayStyleKey)!.push({
+                        x: overlay.x,
+                        y,
+                        w: overlay.width,
+                        h,
+                        r,
+                        corners: overlay.corners
+                    });
 
-                    if (finishTime <= ddTime) {
-                        // Case 1: Entire bar is before data date
-                        const startX = this.snapRectCoord(xScale(start));
-                        const finishX = this.snapRectCoord(xScale(finish));
-                        const x = startX;
-                        const w = Math.max(1, finishX - startX);
-                        const h = barHeight;
-                        const y = this.snapRectCoord(yPos + barYOffset);
-                        const r = Math.min(taskBarCornerRadius, w / 2, h / 2);
-
-                        // Use override color
-                        const overrideStyleKey = `${overrideColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
-
-                        if (!taskBatches.has(overrideStyleKey)) taskBatches.set(overrideStyleKey, []);
-                        taskBatches.get(overrideStyleKey)!.push({ x, y, w, h, r });
-                        continue;
-                    } else if (startTime >= ddTime) {
-                        // Case 2: Entire bar is after data date (normal color)
-                        const startX = this.snapRectCoord(xScale(start));
-                        const finishX = this.snapRectCoord(xScale(finish));
-                        const x = startX;
-                        const w = Math.max(1, finishX - startX);
-                        const h = barHeight;
-                        const y = this.snapRectCoord(yPos + barYOffset);
-                        const r = Math.min(taskBarCornerRadius, w / 2, h / 2);
-
-                        if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
-                        taskBatches.get(styleKey)!.push({ x, y, w, h, r });
-                        continue;
-                    } else {
-                        // Case 3: Split bar
-                        // Part 1: Start to Data Date (Override Color)
-                        const x1 = this.snapRectCoord(xScale(start));
-                        const dataDateX = this.snapRectCoord(xScale(dataDate));
-                        const w1 = Math.max(1, dataDateX - x1);
-                        const h = barHeight;
-                        const y = this.snapRectCoord(yPos + barYOffset);
-                        const r1 = Math.min(taskBarCornerRadius, w1 / 2, h / 2);
-
-                        const overrideStyleKey = `${overrideColor}|${strokeColor}|${strokeWidth}|${shadowBlur}|${shadowColor}|${shadowOffset}`;
-                        if (!taskBatches.has(overrideStyleKey)) taskBatches.set(overrideStyleKey, []);
-                        taskBatches.get(overrideStyleKey)!.push({ x: x1, y, w: w1, h, r: r1 });
-
-                        // Part 2: Data Date to Finish (Normal Color)
-                        const x2 = dataDateX;
-                        const finishX = this.snapRectCoord(xScale(finish));
-                        const w2 = Math.max(1, finishX - x2);
-                        const r2 = Math.min(taskBarCornerRadius, w2 / 2, h / 2);
-
-                        if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
-                        taskBatches.get(styleKey)!.push({ x: x2, y, w: w2, h, r: r2 });
-                        continue;
+                    if (overlay.dividerX !== null && overlay.dividerX > startX + 1 && overlay.dividerX < finishX - 1) {
+                        const dividerKey = this.toRgba(this.getSoftOutlineColor(overrideColor), 0.6);
+                        if (!beforeDataDateDividerBatches.has(dividerKey)) beforeDataDateDividerBatches.set(dividerKey, []);
+                        beforeDataDateDividerBatches.get(dividerKey)!.push({
+                            x1: overlay.dividerX,
+                            y1: y + 1,
+                            x2: overlay.dividerX,
+                            y2: y + h - 1
+                        });
                     }
-                } else {
-                    // Normal logic (No override or no data date)
-                    const startX = this.snapRectCoord(xScale(start));
-                    const finishX = this.snapRectCoord(xScale(finish));
-                    const x = startX;
-                    const w = Math.max(1, finishX - startX);
-                    const h = barHeight;
-                    const y = this.snapRectCoord(yPos + barYOffset);
-                    const r = Math.min(taskBarCornerRadius, w / 2, h / 2);
-
-                    if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
-                    taskBatches.get(styleKey)!.push({ x, y, w, h, r });
                 }
             }
         } // Close for loop
 
         if (prevUpdateBatch.length > 0) {
             const pColor = this.resolveColor(this.settings.comparisonBars.previousUpdateColor.value.value, "foreground");
-            const pStroke = this.getContrastColor(pColor);
+            const pStroke = this.getComparisonStrokeColor(pColor);
 
             ctx.fillStyle = pColor;
             ctx.strokeStyle = pStroke;
@@ -7668,14 +7508,14 @@ export class Visual implements IVisual {
             }
             ctx.fill();
 
-            ctx.globalAlpha = 0.25;
+            ctx.globalAlpha = 0.7;
             ctx.stroke();
             ctx.globalAlpha = 1.0;
         }
 
         if (baselineBatch.length > 0) {
             const bColor = this.resolveColor(this.settings.comparisonBars.baselineColor.value.value, "foreground");
-            const bStroke = this.getContrastColor(bColor);
+            const bStroke = this.getComparisonStrokeColor(bColor);
 
             ctx.fillStyle = bColor;
             ctx.strokeStyle = bStroke;
@@ -7687,14 +7527,15 @@ export class Visual implements IVisual {
             }
             ctx.fill();
 
-            ctx.globalAlpha = 0.25;
+            ctx.globalAlpha = 0.7;
             ctx.stroke();
             ctx.globalAlpha = 1.0;
         }
 
         taskBatches.forEach((batch, styleKey) => {
-            const [fill, stroke, widthStr, blurStr, shadowCol, offsetStr] = styleKey.split('|');
+            const [fill, stroke, widthStr, opacityStr, blurStr, shadowCol, offsetStr] = styleKey.split('|');
             const strokeWidth = parseFloat(widthStr);
+            const strokeOpacity = parseFloat(opacityStr);
             const shadowBlur = parseFloat(blurStr);
             const shadowOffset = parseFloat(offsetStr);
 
@@ -7718,12 +7559,41 @@ export class Visual implements IVisual {
             ctx.fill();
 
             ctx.shadowColor = 'transparent';
-            if (strokeWidth > 0) ctx.stroke();
+            if (strokeWidth > 0 && stroke !== 'none' && strokeOpacity > 0) {
+                ctx.globalAlpha = strokeOpacity;
+                ctx.stroke();
+                ctx.globalAlpha = 1.0;
+            }
+        });
+
+        beforeDataDateBatches.forEach((batch, fill) => {
+            ctx.fillStyle = fill;
+            ctx.beginPath();
+            for (const b of batch) {
+                if (b.corners) {
+                    this.pathRoundedRectWithCorners(ctx, b.x, b.y, b.w, b.h, b.corners);
+                } else {
+                    this.pathRoundedRect(ctx, b.x, b.y, b.w, b.h, b.r);
+                }
+            }
+            ctx.fill();
+        });
+
+        beforeDataDateDividerBatches.forEach((batch, stroke) => {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (const divider of batch) {
+                ctx.moveTo(divider.x1, divider.y1);
+                ctx.lineTo(divider.x2, divider.y2);
+            }
+            ctx.stroke();
         });
 
         milestoneBatches.forEach((batch, styleKey) => {
-            const [fill, stroke, widthStr, blurStr, shadowCol, offsetStr] = styleKey.split('|');
+            const [fill, stroke, widthStr, opacityStr, blurStr, shadowCol, offsetStr] = styleKey.split('|');
             const strokeWidth = parseFloat(widthStr);
+            const strokeOpacity = parseFloat(opacityStr);
             const shadowBlur = parseFloat(blurStr);
             const shadowOffset = parseFloat(offsetStr);
 
@@ -7763,7 +7633,11 @@ export class Visual implements IVisual {
                     }
                 }
                 ctx.fill();
-                if (strokeWidth > 0) ctx.stroke();
+                if (strokeWidth > 0 && stroke !== 'none' && strokeOpacity > 0) {
+                    ctx.globalAlpha = strokeOpacity;
+                    ctx.stroke();
+                    ctx.globalAlpha = 1.0;
+                }
             }
 
             ctx.shadowColor = 'transparent';
@@ -7799,11 +7673,7 @@ export class Visual implements IVisual {
                 const minWidth = Math.max(minInlineDurationWidth, estimatedTextWidth + 8);
                 if (barWidth < minWidth) continue;
 
-                const taskFill = (task.internalId === this.selectedTaskId) ? selectionHighlightColor :
-                    (this.legendDataExists && task.legendColor) ? task.legendColor :
-                        (!this.legendDataExists && task.isCritical) ? criticalColor :
-                            (!this.legendDataExists && task.isNearCritical) ? nearCriticalColor :
-                                taskColor;
+                const taskFill = this.getSemanticTaskFillColor(task, taskColor, criticalColor, nearCriticalColor);
                 ctx.fillStyle = this.getDurationTextColor(taskFill);
                 ctx.fillText(textContent, this.snapTextCoord(startX + barWidth / 2), this.snapTextCoord(yPosition + taskHeight / 2));
             }
@@ -7844,7 +7714,7 @@ export class Visual implements IVisual {
                     if (milestoneMarkerDate instanceof Date && !isNaN(milestoneMarkerDate.getTime())) {
                         const milestoneX = xScale(milestoneMarkerDate);
                         if (!isNaN(milestoneX)) {
-                            const size = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                            const size = this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
                             xPos = milestoneX + size / 2;
                         }
                     }
@@ -7928,16 +7798,43 @@ export class Visual implements IVisual {
      * (Inlined for batching performance)
      */
     private pathRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number): void {
-        const r = Math.max(0, Math.min(radius, height / 2, width / 2));
-        ctx.moveTo(x + r, y);
-        ctx.lineTo(x + width - r, y);
-        ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-        ctx.lineTo(x + width, y + height - r);
-        ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-        ctx.lineTo(x + r, y + height);
-        ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-        ctx.lineTo(x, y + r);
-        ctx.quadraticCurveTo(x, y, x + r, y);
+        this.pathRoundedRectWithCorners(ctx, x, y, width, height, this.getCornerRadii(radius, true, true));
+    }
+
+    private pathRoundedRectWithCorners(
+        ctx: CanvasRenderingContext2D,
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+        corners: CornerRadii
+    ): void {
+        const { tl, tr, br, bl } = this.clampCornerRadii(width, height, corners);
+        ctx.moveTo(x + tl, y);
+        ctx.lineTo(x + width - tr, y);
+        if (tr > 0) {
+            ctx.quadraticCurveTo(x + width, y, x + width, y + tr);
+        } else {
+            ctx.lineTo(x + width, y);
+        }
+        ctx.lineTo(x + width, y + height - br);
+        if (br > 0) {
+            ctx.quadraticCurveTo(x + width, y + height, x + width - br, y + height);
+        } else {
+            ctx.lineTo(x + width, y + height);
+        }
+        ctx.lineTo(x + bl, y + height);
+        if (bl > 0) {
+            ctx.quadraticCurveTo(x, y + height, x, y + height - bl);
+        } else {
+            ctx.lineTo(x, y + height);
+        }
+        ctx.lineTo(x, y + tl);
+        if (tl > 0) {
+            ctx.quadraticCurveTo(x, y, x + tl, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
     }
 
     /**
@@ -8167,7 +8064,7 @@ export class Visual implements IVisual {
                 const startX = xScale(baseStartDate);
                 const endX = xScale(baseEndDate);
 
-                const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                const milestoneDrawSize = this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
                 const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
                 const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
 
@@ -8320,49 +8217,17 @@ export class Visual implements IVisual {
 
                 // Draw arrowhead at the end point (matching SVG marker-end)
                 ctx.setLineDash([]); // Arrowheads are always solid
-                const arrowSize = isCritical ? 5 : 4;
-                const arrowAngle = Math.PI / 6; // 30 degrees
+                const arrowSize = this.getConnectorArrowSize();
                 // Determine incoming direction to the end point
                 // The line always arrives at (effectiveEndX, succY) horizontally
                 const arrowDirX = (relType === 'FS' || relType === 'SS') ? -1 : 1;
                 ctx.beginPath();
                 ctx.moveTo(effectiveEndX, succY);
-                ctx.lineTo(effectiveEndX + arrowDirX * arrowSize, succY - arrowSize * Math.tan(arrowAngle));
-                ctx.lineTo(effectiveEndX + arrowDirX * arrowSize, succY + arrowSize * Math.tan(arrowAngle));
+                ctx.lineTo(effectiveEndX + arrowDirX * arrowSize, succY - arrowSize / 2);
+                ctx.lineTo(effectiveEndX + arrowDirX * arrowSize, succY + arrowSize / 2);
                 ctx.closePath();
                 ctx.fillStyle = isCritical ? criticalColor : connectorColor;
                 ctx.fill();
-
-                // Draw connection dots at start and end (matching SVG)
-                const dotRadius = isCritical ? 2.5 : 2;
-                const dotColor = isCritical ? criticalColor : connectorColor;
-                const dotOpacity = this.getConnectorOpacity(rel);
-                const startDotX = this.snapRectCoord(effectiveStartX);
-                const startDotY = this.snapRectCoord(predY);
-                const endDotX = this.snapRectCoord(effectiveEndX);
-                const endDotY = this.snapRectCoord(succY);
-
-                // Start dot
-                ctx.beginPath();
-                ctx.arc(startDotX, startDotY, dotRadius, 0, Math.PI * 2);
-                ctx.fillStyle = dotColor;
-                ctx.globalAlpha = dotOpacity;
-                ctx.fill();
-                ctx.strokeStyle = 'white';
-                ctx.lineWidth = 1;
-                ctx.globalAlpha = dotOpacity * 0.6;
-                ctx.stroke();
-
-                // End dot
-                ctx.beginPath();
-                ctx.arc(endDotX, endDotY, dotRadius, 0, Math.PI * 2);
-                ctx.fillStyle = dotColor;
-                ctx.globalAlpha = dotOpacity;
-                ctx.fill();
-                ctx.strokeStyle = 'white';
-                ctx.lineWidth = 1;
-                ctx.globalAlpha = dotOpacity * 0.6;
-                ctx.stroke();
 
                 ctx.setLineDash([]); // Reset line dash for next connector
                 ctx.globalAlpha = previousAlpha;
@@ -8535,7 +8400,7 @@ export class Visual implements IVisual {
 
                 if (startX === null || endX === null || isNaN(startX) || isNaN(endX)) return null;
 
-                const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
+                const milestoneDrawSize = this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
                 const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
                 const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
 
@@ -8629,97 +8494,6 @@ export class Visual implements IVisual {
             })
             .filter(function () { return d3.select(this).attr("d") !== null; });
 
-        this.arrowLayer.selectAll(".connection-dot-start")
-            .data(visibleRelationships, (d: Relationship) => `start-${d.predecessorId}-${d.successorId}`)
-            .enter()
-            .append("circle")
-            .attr("class", "connection-dot-start")
-            .attr("r", (d: Relationship) => d.isCritical ? 2.5 : 2)
-            .attr("fill", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
-            .attr("fill-opacity", (d: Relationship) => this.getConnectorOpacity(d))
-            .attr("stroke", "white")
-            .attr("stroke-width", 1)
-            .attr("stroke-opacity", 0.6)
-            .attr("cx", (rel: Relationship): number => {
-                const pred = this.taskIdToTask.get(rel.predecessorId);
-                const predYOrder = taskPositions.get(rel.predecessorId);
-                if (!pred || predYOrder === undefined) return 0;
-
-                const relType = rel.type || 'FS';
-                const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
-
-                const predStart = this.getVisualStart(pred);
-                const predFinish = this.getVisualFinish(pred);
-
-                let baseStartDate: Date | null | undefined = null;
-                switch (relType) {
-                    case 'FS': case 'FF': baseStartDate = predIsMilestone ? (predStart ?? predFinish) : predFinish; break;
-                    case 'SS': case 'SF': baseStartDate = predStart; break;
-                }
-
-                if (baseStartDate instanceof Date && !isNaN(baseStartDate.getTime())) {
-                    const startX = xScale(baseStartDate);
-                    const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-                    const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
-
-                    if (relType === 'FS' || relType === 'FF') return this.snapRectCoord(startX + startGap);
-                    else return this.snapRectCoord(startX - startGap);
-                }
-                return 0;
-            })
-            .attr("cy", (rel: Relationship): number => {
-                const predYOrder = taskPositions.get(rel.predecessorId);
-                if (predYOrder === undefined) return 0;
-                const predYBandPos = yScale(predYOrder.toString());
-                if (predYBandPos === undefined) return 0;
-                return this.snapRectCoord(predYBandPos + taskHeight / 2);
-            });
-
-        this.arrowLayer.selectAll(".connection-dot-end")
-            .data(visibleRelationships, (d: Relationship) => `end-${d.predecessorId}-${d.successorId}`)
-            .enter()
-            .append("circle")
-            .attr("class", "connection-dot-end")
-            .attr("r", (d: Relationship) => d.isCritical ? 2.5 : 2)
-            .attr("fill", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
-            .attr("fill-opacity", (d: Relationship) => this.getConnectorOpacity(d))
-            .attr("stroke", "white")
-            .attr("stroke-width", 1)
-            .attr("stroke-opacity", 0.6)
-            .attr("cx", (rel: Relationship): number => {
-                const succ = this.taskIdToTask.get(rel.successorId);
-                const succYOrder = taskPositions.get(rel.successorId);
-                if (!succ || succYOrder === undefined) return 0;
-
-                const relType = rel.type || 'FS';
-                const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
-
-                const succStart = this.getVisualStart(succ);
-                const succFinish = this.getVisualFinish(succ);
-
-                let baseEndDate: Date | null | undefined = null;
-                switch (relType) {
-                    case 'FS': case 'SS': baseEndDate = succStart; break;
-                    case 'FF': case 'SF': baseEndDate = succIsMilestone ? (succStart ?? succFinish) : succFinish; break;
-                }
-
-                if (baseEndDate instanceof Date && !isNaN(baseEndDate.getTime())) {
-                    const endX = xScale(baseEndDate);
-                    const milestoneDrawSize = Math.max(4, Math.min(milestoneSizeSetting, taskHeight * 0.9));
-                    const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
-
-                    if (relType === 'FS' || relType === 'SS') return this.snapRectCoord(endX - endGap);
-                    else return this.snapRectCoord(endX + endGap);
-                }
-                return 0;
-            })
-            .attr("cy", (rel: Relationship): number => {
-                const succYOrder = taskPositions.get(rel.successorId);
-                if (succYOrder === undefined) return 0;
-                const succYBandPos = yScale(succYOrder.toString());
-                if (succYBandPos === undefined) return 0;
-                return this.snapRectCoord(succYBandPos + taskHeight / 2);
-            });
     }
 
     private getLineDashArray(style: string): string {
@@ -9040,6 +8814,7 @@ export class Visual implements IVisual {
         headerLayer: Selection<SVGGElement, unknown, null, undefined>
     ): void {
         if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
+        headerLayer.selectAll(".comparison-finish-key-group").remove();
 
         // Use the new separate baselineFinishLine card
         const baselineSettings = this.settings.baselineFinishLine;
@@ -9068,7 +8843,7 @@ export class Visual implements IVisual {
             lineColor: baselineLineColor,
             lineWidth: baselineLineWidth,
             lineStyle: baselineLineStyle,
-            showLabel: baselineShowLabel,
+            showLabel: false,
             labelColor: baselineLabelColor,
             labelFontSize: baselineLabelFontSize,
             labelBackgroundColor: baselineLabelBackgroundColor,
@@ -9109,7 +8884,7 @@ export class Visual implements IVisual {
             lineColor: prevLineColor,
             lineWidth: prevLineWidth,
             lineStyle: prevLineStyle,
-            showLabel: prevShowLabel,
+            showLabel: false,
             labelColor: prevLabelColor,
             labelFontSize: prevLabelFontSize,
             labelBackgroundColor: prevLabelBackgroundColor,
@@ -9122,6 +8897,178 @@ export class Visual implements IVisual {
             chartHeight,
             mainGridLayer,
             headerLayer
+        });
+
+        const chartWidth = Math.max(0, xScale.range()?.[1] ?? 0);
+        this.drawComparisonFinishKey(headerLayer, chartWidth, [
+            {
+                className: "previous-update-end",
+                targetDate: prevTargetDate,
+                showLabel: prevShowLabel,
+                lineColor: prevLineColor,
+                lineWidth: prevLineWidth,
+                lineStyle: prevLineStyle,
+                labelColor: prevLabelColor,
+                labelFontSize: prevLabelFontSize,
+                labelBackgroundColor: prevLabelBackgroundColor,
+                labelBackgroundOpacity: prevLabelBackgroundOpacity,
+                labelPosition: prevSettings.labelPosition?.value?.value as string,
+                rowY: headerBandMetrics.topLabelY,
+                labelText: prevTargetDate
+                    ? (prevShowLabelPrefix ? `Previous ${this.formatLineDate(prevTargetDate)}` : this.formatLineDate(prevTargetDate))
+                    : "",
+                labelPriority: 5
+            },
+            {
+                className: "baseline-end",
+                targetDate: baselineTargetDate,
+                showLabel: baselineShowLabel,
+                lineColor: baselineLineColor,
+                lineWidth: baselineLineWidth,
+                lineStyle: baselineLineStyle,
+                labelColor: baselineLabelColor,
+                labelFontSize: baselineLabelFontSize,
+                labelBackgroundColor: baselineLabelBackgroundColor,
+                labelBackgroundOpacity: baselineLabelBackgroundOpacity,
+                labelPosition: baselineSettings.labelPosition?.value?.value as string,
+                rowY: headerBandMetrics.middleLabelY,
+                labelText: baselineTargetDate
+                    ? (baselineShowLabelPrefix ? `Baseline ${this.formatLineDate(baselineTargetDate)}` : this.formatLineDate(baselineTargetDate))
+                    : "",
+                labelPriority: 5
+            }
+        ]);
+    }
+
+    private drawComparisonFinishKey(
+        headerLayer: Selection<SVGGElement, unknown, null, undefined>,
+        chartWidth: number,
+        entries: Array<{
+            className: string;
+            targetDate: Date | null;
+            showLabel: boolean;
+            lineColor: string;
+            lineWidth: number;
+            lineStyle: string;
+            labelColor: string;
+            labelFontSize: number;
+            labelBackgroundColor: string;
+            labelBackgroundOpacity: number;
+            labelPosition?: string;
+            rowY: number;
+            labelText: string;
+            labelPriority?: number;
+        }>
+    ): void {
+        if (!headerLayer?.node() || chartWidth <= 0) {
+            return;
+        }
+
+        const visibleEntries = entries.filter(entry =>
+            entry.showLabel &&
+            entry.targetDate instanceof Date &&
+            !isNaN(entry.targetDate.getTime()) &&
+            entry.labelText.trim().length > 0
+        );
+
+        if (visibleEntries.length === 0) {
+            return;
+        }
+
+        const bySide = {
+            left: visibleEntries.filter(entry => entry.labelPosition === "left"),
+            right: visibleEntries.filter(entry => entry.labelPosition !== "left")
+        };
+
+        (["left", "right"] as const).forEach(side => {
+            const sideEntries = [...bySide[side]].sort((a, b) => a.rowY - b.rowY);
+            if (sideEntries.length === 0) {
+                return;
+            }
+
+            const keyGroup = headerLayer.append("g")
+                .attr("class", `comparison-finish-key-group comparison-finish-key-group-${side}`)
+                .attr("data-label-priority", String(Math.min(...sideEntries.map(entry => entry.labelPriority ?? 5))))
+                .style("pointer-events", "none");
+
+            const sampleWidth = 16;
+            const sampleGap = 6;
+            const chipPaddingX = 6;
+            const chipPaddingY = 4;
+            const rowGap = 4;
+            let stackOffsetY = 0;
+            const rowMetrics: Array<{
+                rowGroup: Selection<SVGGElement, unknown, null, undefined>;
+                text: Selection<SVGTextElement, unknown, null, undefined>;
+                rect: Selection<SVGRectElement, unknown, null, undefined>;
+                chipHeight: number;
+            }> = [];
+            let maxTextWidth = 0;
+
+            sideEntries.forEach(entry => {
+                const rowGroup = keyGroup.append("g")
+                    .attr("class", `comparison-finish-key-row ${entry.className}-summary-row`);
+
+                rowGroup.append("line")
+                    .attr("x1", -(sampleWidth + sampleGap))
+                    .attr("x2", -sampleGap)
+                    .attr("y1", this.snapLineCoord(0, entry.lineWidth))
+                    .attr("y2", this.snapLineCoord(0, entry.lineWidth))
+                    .attr("stroke", entry.lineColor)
+                    .attr("stroke-width", entry.lineWidth)
+                    .attr("stroke-dasharray", this.getLineDashArray(entry.lineStyle))
+                    .attr("stroke-linecap", "round");
+
+                const text = rowGroup.append("text")
+                    .attr("class", `${entry.className}-summary-label`)
+                    .attr("x", chipPaddingX)
+                    .attr("y", 0)
+                    .attr("text-anchor", "start")
+                    .attr("dominant-baseline", "central")
+                    .style("font-family", this.getFontFamily())
+                    .style("fill", entry.labelColor)
+                    .style("font-size", this.fontPxFromPtSetting(entry.labelFontSize))
+                    .style("font-weight", "600")
+                    .text(entry.labelText);
+
+                const textBBox = (text.node() as SVGTextElement)?.getBBox();
+                if (textBBox) {
+                    const chipHeight = Math.max(
+                        this.HEADER_LINE_LABEL_MIN_HEIGHT + 2,
+                        this.snapRectCoord(textBBox.height + chipPaddingY * 2)
+                    );
+                    maxTextWidth = Math.max(maxTextWidth, textBBox.width);
+
+                    const rect = rowGroup.insert("rect", `.${entry.className}-summary-label`)
+                        .attr("x", 0)
+                        .attr("y", this.snapRectCoord(-chipHeight / 2))
+                        .attr("width", this.snapRectCoord(textBBox.width + chipPaddingX * 2))
+                        .attr("height", chipHeight)
+                        .attr("rx", 5)
+                        .attr("ry", 5)
+                        .style("fill", entry.labelBackgroundOpacity > 0 ? entry.labelBackgroundColor : "transparent")
+                        .style("fill-opacity", entry.labelBackgroundOpacity > 0 ? entry.labelBackgroundOpacity : 1);
+
+                    rowMetrics.push({ rowGroup, text, rect, chipHeight });
+                }
+            });
+
+            rowMetrics.forEach(metric => {
+                const sharedChipWidth = this.snapRectCoord(maxTextWidth + chipPaddingX * 2);
+                metric.text.attr("x", this.snapTextCoord(chipPaddingX));
+                metric.rect
+                    .attr("width", sharedChipWidth);
+                metric.rowGroup.attr("transform", `translate(0, ${Math.round(stackOffsetY + metric.chipHeight / 2)})`);
+                stackOffsetY += metric.chipHeight + rowGap;
+            });
+
+            const bbox = (keyGroup.node() as SVGGElement).getBBox();
+            const targetY = Math.max(4, Math.min(...sideEntries.map(entry => entry.rowY)) - 5);
+            const targetX = side === "right"
+                ? Math.max(this.HEADER_LINE_LABEL_EDGE_PADDING, chartWidth - this.HEADER_LINE_LABEL_EDGE_PADDING - bbox.width - bbox.x)
+                : Math.max(this.HEADER_LINE_LABEL_EDGE_PADDING - bbox.x, this.HEADER_LINE_LABEL_EDGE_PADDING);
+
+            keyGroup.attr("transform", `translate(${Math.round(targetX)}, ${Math.round(targetY - bbox.y)})`);
         });
     }
 
@@ -11220,7 +11167,8 @@ export class Visual implements IVisual {
             const accentColor = self.resolveColor(levelStyle.background, "foreground");
             const groupNameColor = self.resolveColor(levelStyle.text, "foreground");
             const summaryFillColor = self.blendColors(groupSummaryColor, accentColor, 0.82);
-            const summaryStrokeColor = self.getContrastColor(summaryFillColor);
+            const summaryStrokeColor = self.toRgba(self.getSoftOutlineColor(summaryFillColor), group.isExpanded ? 0.45 : 0.85);
+            const summaryCapColor = self.getSoftOutlineColor(summaryFillColor);
             const bgOpacity = (group.visibleTaskCount === 0) ? 0.68 : 1;
             const columnTextColor = (group.visibleTaskCount === 0)
                 ? mutedTextColor
@@ -11330,52 +11278,39 @@ export class Visual implements IVisual {
                 const enableOverride = self.settings.dataDateColorOverride.enableP6Style.value;
                 const dataDate = self.dataDate;
                 const overrideColor = self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
+                barsGroup.append('rect')
+                    .attr('class', 'wbs-summary-bar')
+                    .attr('x', startX).attr('y', barY).attr('width', barWidth).attr('height', barHeight)
+                    .attr('rx', barRadius).attr('ry', barRadius)
+                    .style('fill', summaryFillColor).style('opacity', barOpacity)
+                    .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.45);
 
-                if (enableOverride && dataDate && group.summaryStartDate && group.summaryFinishDate) {
-                    const ddTime = self.normalizeToStartOfDay(dataDate);
-                    const sTime = self.normalizeToStartOfDay(group.summaryStartDate);
-                    const fTime = self.normalizeToStartOfDay(group.summaryFinishDate);
+                const summaryOverlay = self.getBeforeDataDateOverlay(
+                    group.summaryStartDate,
+                    group.summaryFinishDate,
+                    startX,
+                    finishX,
+                    barRadius
+                );
 
-                    if (fTime <= ddTime) {
-                        barsGroup.append('rect')
-                            .attr('class', 'wbs-summary-bar')
-                            .attr('x', startX).attr('y', barY).attr('width', barWidth).attr('height', barHeight)
-                            .attr('rx', barRadius).attr('ry', barRadius)
-                            .style('fill', overrideColor).style('opacity', barOpacity)
-                            .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.4).style('stroke-opacity', 0.25);
-                    } else if (sTime >= ddTime) {
-                        barsGroup.append('rect')
-                            .attr('class', 'wbs-summary-bar')
-                            .attr('x', startX).attr('y', barY).attr('width', barWidth).attr('height', barHeight)
-                            .attr('rx', barRadius).attr('ry', barRadius)
-                            .style('fill', summaryFillColor).style('opacity', barOpacity)
-                            .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.4).style('stroke-opacity', 0.25);
-                    } else {
-                        const splitX = xScale(dataDate);
-                        const leftW = Math.max(1, splitX - startX);
-                        const rightW = Math.max(1, finishX - splitX);
+                if (summaryOverlay) {
+                    barsGroup.append('path')
+                        .attr('class', 'wbs-summary-bar-before-data-date')
+                        .attr('d', self.getRoundedRectPath(summaryOverlay.x, barY, summaryOverlay.width, barHeight, summaryOverlay.corners))
+                        .style('fill', overrideColor)
+                        .style('opacity', barOpacity);
 
-                        barsGroup.append('rect')
-                            .attr('class', 'wbs-summary-bar-left')
-                            .attr('x', startX).attr('y', barY).attr('width', leftW).attr('height', barHeight)
-                            .attr('rx', barRadius).attr('ry', barRadius)
-                            .style('fill', overrideColor).style('opacity', barOpacity)
-                            .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.4).style('stroke-opacity', 0.25);
-
-                        barsGroup.append('rect')
-                            .attr('class', 'wbs-summary-bar-right')
-                            .attr('x', splitX).attr('y', barY).attr('width', rightW).attr('height', barHeight)
-                            .attr('rx', barRadius).attr('ry', barRadius)
-                            .style('fill', summaryFillColor).style('opacity', barOpacity)
-                            .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.4).style('stroke-opacity', 0.25);
+                    if (summaryOverlay.dividerX !== null && summaryOverlay.dividerX > startX + 1 && summaryOverlay.dividerX < finishX - 1) {
+                        barsGroup.append('line')
+                            .attr('class', 'wbs-summary-bar-divider')
+                            .attr('x1', summaryOverlay.dividerX)
+                            .attr('x2', summaryOverlay.dividerX)
+                            .attr('y1', barY + 1)
+                            .attr('y2', barY + barHeight - 1)
+                            .style('stroke', self.toRgba(self.getSoftOutlineColor(overrideColor), 0.6))
+                            .style('stroke-width', 1)
+                            .style('opacity', barOpacity);
                     }
-                } else {
-                    barsGroup.append('rect')
-                        .attr('class', 'wbs-summary-bar')
-                        .attr('x', startX).attr('y', barY).attr('width', barWidth).attr('height', barHeight)
-                        .attr('rx', barRadius).attr('ry', barRadius)
-                        .style('fill', summaryFillColor).style('opacity', barOpacity)
-                        .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.4).style('stroke-opacity', 0.25);
                 }
 
                 if (barWidth > 6) {
@@ -11384,11 +11319,11 @@ export class Visual implements IVisual {
                     const diamondSize = Math.max(5, Math.min(8, barHeight + 2));
                     barsGroup.append('circle').attr('class', 'wbs-summary-cap-start')
                         .attr('cx', startX).attr('cy', barY + barHeight / 2).attr('r', capRadius)
-                        .style('fill', summaryStrokeColor).style('opacity', capOpacity);
+                        .style('fill', summaryCapColor).style('opacity', capOpacity);
                     barsGroup.append('path').attr('class', 'wbs-summary-cap-end')
                         .attr('d', `M 0,-${diamondSize / 2} L ${diamondSize / 2},0 L 0,${diamondSize / 2} L -${diamondSize / 2},0 Z`)
                         .attr('transform', `translate(${finishX}, ${barY + barHeight / 2})`)
-                        .style('fill', summaryStrokeColor).style('opacity', capOpacity);
+                        .style('fill', summaryCapColor).style('opacity', capOpacity);
                 }
 
                 // Near Critical
@@ -12783,6 +12718,39 @@ export class Visual implements IVisual {
     /**
      * Toggle a legend category on/off for filtering
      */
+    private persistLegendSelectionState(): void {
+        const selectedCategoriesStr = Array.from(this.selectedLegendCategories).join(',');
+        this.host.persistProperties({
+            merge: [{
+                objectName: "persistedState",
+                properties: { selectedLegendCategories: selectedCategoriesStr },
+                selector: null
+            }]
+        });
+    }
+
+    private refreshAfterLegendSelectionChange(): void {
+        this.captureScrollPosition();
+        this.forceFullUpdate = true;
+
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        }
+
+        requestAnimationFrame(() => {
+            this.drawZoomSliderMiniChart();
+        });
+    }
+
+    private clearLegendSelection(): void {
+        if (this.selectedLegendCategories.size === 0) {
+            return;
+        }
+        this.selectedLegendCategories.clear();
+        this.persistLegendSelectionState();
+        this.refreshAfterLegendSelectionChange();
+    }
+
     private toggleLegendCategory(category: string): void {
 
         if (this.selectedLegendCategories.size === 0) {
@@ -12804,25 +12772,8 @@ export class Visual implements IVisual {
             }
         }
 
-        const selectedCategoriesStr = Array.from(this.selectedLegendCategories).join(',');
-        this.host.persistProperties({
-            merge: [{
-                objectName: "persistedState",
-                properties: { selectedLegendCategories: selectedCategoriesStr },
-                selector: null
-            }]
-        });
-
-        this.captureScrollPosition();
-        this.forceFullUpdate = true;
-
-        if (this.lastUpdateOptions) {
-            this.update(this.lastUpdateOptions);
-        }
-
-        requestAnimationFrame(() => {
-            this.drawZoomSliderMiniChart();
-        });
+        this.persistLegendSelectionState();
+        this.refreshAfterLegendSelectionChange();
     }
 
     /**
@@ -12838,111 +12789,274 @@ export class Visual implements IVisual {
             return;
         }
 
-        this.legendContainer.style("display", "block");
-
+        const layoutMode = this.getLayoutMode(viewportWidth);
+        const isNarrow = layoutMode === "narrow";
         const fontSize = this.settings.legend.fontSize.value;
         const showTitle = this.settings.legend.showTitle.value;
         const titleText = this.settings.legend.titleText.value || this.legendFieldName;
+        const legendFontSizePx = this.pointsToCssPx(fontSize);
+        const sectionLabelSizePx = Math.max(10, legendFontSizePx - 3);
+        const titleFontSizePx = this.pointsToCssPx(fontSize + (isNarrow ? 0.35 : 0.8));
+        const statusFontSizePx = Math.max(10, legendFontSizePx - 1);
+        const itemFontSizePx = legendFontSizePx;
+        const shellBackground = this.highContrastMode
+            ? this.getBackgroundColor()
+            : HEADER_DOCK_TOKENS.shell;
+        const shellBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.groupStroke;
+        const shellText = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonText;
+        const shellMuted = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonMuted;
+        const railBackground = this.highContrastMode ? this.getBackgroundColor() : HEADER_DOCK_TOKENS.shell;
+        const railBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.contextStroke;
+        const buttonBackground = this.highContrastMode ? this.getBackgroundColor() : HEADER_DOCK_TOKENS.buttonBg;
+        const buttonBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonStroke;
+        const buttonHoverBackground = this.highContrastMode ? this.getBackgroundColor() : HEADER_DOCK_TOKENS.buttonHoverBg;
+        const buttonHoverBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const buttonTextColor = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonText;
+        const buttonDisabledColor = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonMuted;
+        const totalCount = this.legendCategories.length;
+        const selectedCount = this.selectedLegendCategories.size === 0 ? totalCount : this.selectedLegendCategories.size;
+        const hiddenCount = Math.max(0, totalCount - selectedCount);
+        const isFiltered = this.selectedLegendCategories.size > 0 && selectedCount < totalCount;
 
         this.legendContainer.selectAll("*").remove();
+        this.legendContainer
+            .style("display", "block")
+            .style("height", `${this.legendFooterHeight}px`)
+            .style("min-height", `${this.legendFooterHeight}px`)
+            .style("background", shellBackground)
+            .style("border-top", `1px solid ${shellBorder}`)
+            .style("box-shadow", this.highContrastMode ? "none" : "0 -6px 18px rgba(15, 23, 34, 0.18)")
+            .style("color", shellText);
 
         const mainContainer = this.legendContainer.append("div")
             .attr("class", "legend-main")
             .style("display", "flex")
-            .style("align-items", "center")
+            .style("align-items", "stretch")
+            .style("gap", `${UI_TOKENS.spacing.md}px`)
             .style("height", "100%")
-            .style("padding", "8px 12px")
-            .style("box-sizing", "border-box");
+            .style("padding", isNarrow ? "8px 10px" : "10px 12px")
+            .style("box-sizing", "border-box")
+            .style("font-family", this.getFontFamily());
 
-        const leftArrow = mainContainer.append("div")
-            .attr("class", "legend-scroll-arrow legend-scroll-left")
-            .attr("role", "button")
-            .attr("aria-label", "Scroll legend left")
-            .attr("tabindex", 0)
+        const metaBlock = mainContainer.append("div")
+            .attr("class", "legend-meta")
+            .style("display", "flex")
+            .style("flex-direction", "column")
+            .style("justify-content", "center")
+            .style("gap", "5px")
             .style("flex-shrink", "0")
-            .text("<");
+            .style("min-width", "0")
+            .style("max-width", isNarrow ? "150px" : "260px")
+            .style("padding-right", `${UI_TOKENS.spacing.sm}px`);
 
-        const scrollWrapper = mainContainer.append("div")
+        metaBlock.append("div")
+            .attr("class", "legend-section-label")
+            .style("font-size", `${sectionLabelSizePx}px`)
+            .style("font-weight", String(UI_TOKENS.fontWeight.semibold))
+            .style("letter-spacing", "0.08em")
+            .style("text-transform", "uppercase")
+            .style("color", shellMuted)
+            .text("Legend");
+
+        if (showTitle && titleText) {
+            metaBlock.append("div")
+                .attr("class", "legend-title")
+                .style("font-size", `${titleFontSizePx}px`)
+                .style("font-weight", String(UI_TOKENS.fontWeight.semibold))
+                .style("color", shellText)
+                .style("white-space", "nowrap")
+                .style("overflow", "hidden")
+                .style("text-overflow", "ellipsis")
+                .attr("title", titleText)
+                .text(titleText);
+        }
+
+        const statusRow = metaBlock.append("div")
+            .attr("class", "legend-status-row")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", `${UI_TOKENS.spacing.xs}px`)
+            .style("flex-wrap", "wrap");
+
+        const createStatusChip = (text: string, bg: string, border: string, color: string) => {
+            statusRow.append("div")
+                .attr("class", "legend-status-chip")
+                .style("display", "inline-flex")
+                .style("align-items", "center")
+                .style("padding", "3px 8px")
+                .style("border-radius", `${UI_TOKENS.radius.full}px`)
+                .style("background", bg)
+                .style("border", `1px solid ${border}`)
+                .style("font-size", `${statusFontSizePx}px`)
+                .style("font-weight", String(UI_TOKENS.fontWeight.medium))
+                .style("color", color)
+                .style("white-space", "nowrap")
+                .text(text);
+        };
+
+        createStatusChip(
+            `${selectedCount} / ${totalCount} visible`,
+            this.highContrastMode ? "transparent" : HEADER_DOCK_TOKENS.chipBg,
+            this.highContrastMode ? shellText : HEADER_DOCK_TOKENS.chipStroke,
+            shellText
+        );
+
+        if (isFiltered) {
+            createStatusChip(
+                `${hiddenCount} hidden`,
+                this.highContrastMode ? "transparent" : HEADER_DOCK_TOKENS.warningBg,
+                this.highContrastMode ? shellText : HEADER_DOCK_TOKENS.warning,
+                this.highContrastMode ? shellText : HEADER_DOCK_TOKENS.warningText
+            );
+        }
+
+        const rail = mainContainer.append("div")
+            .attr("class", "legend-rail")
+            .style("flex", "1")
+            .style("min-width", "0")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", `${UI_TOKENS.spacing.sm}px`)
+            .style("padding", isNarrow ? "6px" : "7px")
+            .style("border-radius", `${UI_TOKENS.radius.large}px`)
+            .style("background", railBackground)
+            .style("border", `1px solid ${railBorder}`)
+            .style("box-shadow", this.highContrastMode ? "none" : "inset 0 1px 0 rgba(255,255,255,0.04)");
+
+        const scrollWrapper = rail.append("div")
             .attr("class", "legend-scroll-wrapper")
             .style("flex", "1")
+            .style("min-width", "0")
             .style("overflow", "hidden")
             .style("position", "relative");
 
         const scrollableContent = scrollWrapper.append("div")
             .attr("class", "legend-scroll-content")
             .style("display", "flex")
-            .style("gap", "20px")
+            .style("gap", `${UI_TOKENS.spacing.sm}px`)
             .style("align-items", "center")
-            .style("transition", "transform 0.3s ease")
-            .style("padding", "5px 0");
+            .style("transition", `transform ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.standard}`)
+            .style("padding", "1px 0")
+            .style("width", "max-content");
 
-        if (showTitle && titleText) {
-            scrollableContent.append("div")
-                .attr("class", "legend-title")
-                .style("font-size", `${fontSize + 1}px`)
-                .style("white-space", "nowrap")
-                .text(`${titleText}:`);
+        const actions = rail.append("div")
+            .attr("class", "legend-actions")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", `${UI_TOKENS.spacing.xs}px`)
+            .style("flex-shrink", "0");
+
+        const createActionButton = (label: string, ariaLabel: string, compact: boolean = false) => {
+            const button = actions.append("div")
+                .attr("class", "legend-action-button")
+                .attr("role", "button")
+                .attr("aria-label", ariaLabel)
+                .attr("tabindex", 0)
+                .style("display", "inline-flex")
+                .style("align-items", "center")
+                .style("justify-content", "center")
+                .style("height", compact ? "30px" : "32px")
+                .style("min-width", compact ? "30px" : "32px")
+                .style("padding", compact ? "0" : "0 11px")
+                .style("border-radius", compact ? `${UI_TOKENS.radius.medium}px` : `${UI_TOKENS.radius.full}px`)
+                .style("background", buttonBackground)
+                .style("border", `1px solid ${buttonBorder}`)
+                .style("color", buttonTextColor)
+                .style("font-size", `${compact ? titleFontSizePx : statusFontSizePx}px`)
+                .style("font-weight", String(UI_TOKENS.fontWeight.medium))
+                .style("line-height", "1")
+                .style("cursor", "pointer")
+                .style("user-select", "none")
+                .style("box-shadow", this.highContrastMode ? "none" : UI_TOKENS.shadow[1])
+                .style("transition", `transform ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, background ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, border-color ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, opacity ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}`)
+                .text(label);
+
+            button.on("mouseenter", function () {
+                const current = d3.select(this);
+                if (current.attr("aria-disabled") === "true") return;
+                current
+                    .style("transform", "translateY(-1px)")
+                    .style("background", buttonHoverBackground)
+                    .style("border-color", buttonHoverBorder);
+            });
+
+            button.on("mouseleave", function () {
+                const current = d3.select(this);
+                current
+                    .style("transform", "translateY(0)")
+                    .style("background", buttonBackground)
+                    .style("border-color", buttonBorder);
+            });
+
+            return button;
+        };
+
+        let resetButton: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
+        if (isFiltered) {
+            const resetLabel = isNarrow ? "All" : "Show All";
+            resetButton = createActionButton(resetLabel, "Show all legend categories");
+            resetButton.on("click", () => this.clearLegendSelection());
+            resetButton.on("keydown", (event: KeyboardEvent) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    this.clearLegendSelection();
+                }
+            });
         }
 
-        const selectedCount = this.selectedLegendCategories.size === 0 ? this.legendCategories.length : this.selectedLegendCategories.size;
-        const totalCount = this.legendCategories.length;
-
-        scrollableContent.append("div")
-            .attr("class", "legend-count")
-            .style("font-size", `${fontSize - 1}px`)
-            .style("white-space", "nowrap")
-            .attr("title", "Number of visible categories")
-            .text(`${selectedCount} of ${totalCount} shown`);
+        const leftArrow = createActionButton("<", "Scroll legend left", true);
+        const rightArrow = createActionButton(">", "Scroll legend right", true);
 
         this.legendCategories.forEach(category => {
             const color = this.legendColorMap.get(category) || "#999";
-
             const isSelected = this.selectedLegendCategories.size === 0 || this.selectedLegendCategories.has(category);
+            const selectedBackground = this.highContrastMode ? "transparent" : this.toRgba(color, 0.18);
+            const selectedBorder = this.highContrastMode ? shellText : this.toRgba(color, 0.42);
+            const unselectedBackground = this.highContrastMode ? "transparent" : "rgba(255,255,255,0.03)";
+            const unselectedBorder = this.highContrastMode ? shellText : HEADER_DOCK_TOKENS.groupStroke;
+            const labelColor = isSelected ? shellText : shellMuted;
 
             const item = scrollableContent.append("div")
                 .attr("class", "legend-item")
                 .classed("is-selected", isSelected)
                 .style("--legend-color", color)
                 .attr("data-category", category)
-
                 .attr("role", "button")
                 .attr("aria-label", `${isSelected ? 'Hide' : 'Show'} ${category} tasks. Click to toggle visibility.`)
                 .attr("aria-pressed", isSelected ? "true" : "false")
                 .attr("tabindex", 0)
-
                 .attr("title", `Click to ${isSelected ? 'hide' : 'show'} "${category}" tasks`)
                 .style("display", "flex")
                 .style("align-items", "center")
-                .style("gap", "6px")
+                .style("gap", `${UI_TOKENS.spacing.sm}px`)
                 .style("flex-shrink", "0")
+                .style("padding", isNarrow ? "6px 10px" : "7px 12px")
+                .style("border-radius", `${UI_TOKENS.radius.full}px`)
+                .style("background", isSelected ? selectedBackground : unselectedBackground)
+                .style("border", `1px solid ${isSelected ? selectedBorder : unselectedBorder}`)
                 .style("cursor", "pointer")
                 .style("user-select", "none")
-                // Enhanced contrast: reduce opacity for unselected items
-                .style("opacity", isSelected ? "1" : "0.3")
-                .style("filter", isSelected ? "none" : "grayscale(50%)")
-                .style("transition", "opacity 0.2s ease, transform 0.15s ease, filter 0.2s ease");
+                .style("opacity", isSelected ? "1" : "0.7")
+                .style("box-shadow", isSelected && !this.highContrastMode ? `inset 0 1px 0 ${this.toRgba("#FFFFFF", 0.06)}` : "none")
+                .style("transition", `transform ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, opacity ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, border-color ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, background ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}`);
 
             item.append("div")
                 .attr("class", "legend-swatch")
-                .style("width", "16px")
-                .style("height", "16px")
-                // Enhanced contrast: show hollow swatch for unselected items
+                .style("width", "12px")
+                .style("height", "12px")
                 .style("background-color", isSelected ? color : "transparent")
                 .style("border", `2px solid ${color}`)
-                .style("border-radius", "3px")
+                .style("border-radius", `${UI_TOKENS.radius.full}px`)
                 .style("flex-shrink", "0")
-                .style("box-shadow", isSelected ? `0 2px 5px rgba(0,0,0,0.2)` : "none")
-                .style("transform", isSelected ? "scale(1.1)" : "scale(1)")
-                .style("transition", "all 0.2s ease");
+                .style("box-shadow", isSelected && !this.highContrastMode ? `0 0 0 3px ${this.toRgba(color, 0.16)}` : "none")
+                .style("transition", `transform ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, box-shadow ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}`);
 
             item.append("span")
                 .attr("class", "legend-label")
-                .style("font-size", `${fontSize}px`)
+                .style("font-size", `${itemFontSizePx}px`)
                 .style("white-space", "nowrap")
-                // Enhanced contrast: color fade for unselected
-                .style("text-decoration", "none")
-                .style("color", isSelected ? "inherit" : "#aaa")
-                .style("font-weight", isSelected ? "600" : "400")
+                .style("color", labelColor)
+                .style("font-weight", String(isSelected ? UI_TOKENS.fontWeight.semibold : UI_TOKENS.fontWeight.medium))
                 .text(category);
 
             item.on("click", () => {
@@ -12956,63 +13070,62 @@ export class Visual implements IVisual {
                 }
             });
 
-            // Add hover effect for better interactivity feedback
             item.on("mouseenter", function () {
                 d3.select(this)
-                    .style("opacity", isSelected ? "0.85" : "0.7")
-                    .style("transform", "scale(1.02)");
+                    .style("opacity", "1")
+                    .style("transform", "translateY(-1px)");
             });
 
             item.on("mouseleave", function () {
                 d3.select(this)
-                    .style("opacity", isSelected ? "1" : "0.4")
-                    .style("transform", "scale(1)");
+                    .style("opacity", isSelected ? "1" : "0.7")
+                    .style("transform", "translateY(0)");
             });
-
         });
 
-        const rightArrow = mainContainer.append("div")
-            .attr("class", "legend-scroll-arrow legend-scroll-right")
-            .attr("role", "button")
-            .attr("aria-label", "Scroll legend right")
-            .attr("tabindex", 0)
-            .style("flex-shrink", "0")
-            .text(">");
-
         let scrollPosition = 0;
-        const scrollAmount = 200;
-
-        const updateArrowStates = () => {
+        const getMaxScroll = (): number => {
             const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
             const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
-            const maxScroll = Math.max(0, contentWidth - wrapperWidth);
+            return Math.max(0, contentWidth - wrapperWidth);
+        };
 
+        const updateArrowStates = () => {
+            const maxScroll = getMaxScroll();
             const leftDisabled = scrollPosition <= 0;
             const rightDisabled = scrollPosition >= maxScroll || maxScroll === 0;
 
-            leftArrow
-                .classed("is-disabled", leftDisabled)
-                .attr("aria-disabled", leftDisabled ? "true" : "false");
-            rightArrow
-                .classed("is-disabled", rightDisabled)
-                .attr("aria-disabled", rightDisabled ? "true" : "false");
+            [leftArrow, rightArrow].forEach((button, index) => {
+                const disabled = index === 0 ? leftDisabled : rightDisabled;
+                button
+                    .classed("is-disabled", disabled)
+                    .attr("aria-disabled", disabled ? "true" : "false")
+                    .style("opacity", disabled ? "0.38" : "1")
+                    .style("cursor", disabled ? "default" : "pointer")
+                    .style("color", disabled ? buttonDisabledColor : buttonTextColor);
+            });
+        };
+
+        const setScrollPosition = (nextPosition: number) => {
+            scrollPosition = Math.max(0, Math.min(getMaxScroll(), nextPosition));
+            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
+            updateArrowStates();
+        };
+
+        const getScrollAmount = (): number => {
+            const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
+            return Math.max(140, Math.round(wrapperWidth * 0.55));
         };
 
         const handleScrollLeft = () => {
             if (scrollPosition <= 0) return;
-            scrollPosition = Math.max(0, scrollPosition - scrollAmount);
-            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
-            updateArrowStates();
+            setScrollPosition(scrollPosition - getScrollAmount());
         };
 
         const handleScrollRight = () => {
-            const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
-            const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
-            const maxScroll = Math.max(0, contentWidth - wrapperWidth);
+            const maxScroll = getMaxScroll();
             if (scrollPosition >= maxScroll) return;
-            scrollPosition = Math.min(maxScroll, scrollPosition + scrollAmount);
-            scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
-            updateArrowStates();
+            setScrollPosition(scrollPosition + getScrollAmount());
         };
 
         leftArrow.on("click", handleScrollLeft);
@@ -13032,6 +13145,17 @@ export class Visual implements IVisual {
             }
         });
 
+        scrollWrapper.on("wheel", (event: WheelEvent) => {
+            const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+            if (delta === 0 || getMaxScroll() === 0) return;
+            event.preventDefault();
+            setScrollPosition(scrollPosition + delta);
+        });
+
+        if (resetButton) {
+            resetButton.style("margin-right", `${UI_TOKENS.spacing.xs}px`);
+        }
+
         setTimeout(() => updateArrowStates(), 0);
     }
 
@@ -13050,10 +13174,15 @@ export class Visual implements IVisual {
     }
 
     private hexToRgb(hex: string): { r: number; g: number; b: number } {
+        let normalized = hex.replace(/^#/, '').trim();
+        if (normalized.length === 3) {
+            normalized = normalized.split('').map(ch => ch + ch).join('');
+        }
+        if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+            return { r: Number.NaN, g: Number.NaN, b: Number.NaN };
+        }
 
-        hex = hex.replace(/^#/, '');
-
-        const bigint = parseInt(hex, 16);
+        const bigint = parseInt(normalized, 16);
         const r = (bigint >> 16) & 255;
         const g = (bigint >> 8) & 255;
         const b = bigint & 255;
@@ -13079,6 +13208,244 @@ export class Visual implements IVisual {
         const g = (rgbA.g * weight) + (rgbB.g * (1 - weight));
         const b = (rgbA.b * weight) + (rgbB.b * (1 - weight));
         return this.rgbToHex(r, g, b);
+    }
+
+    private toRgba(color: string, alpha: number): string {
+        const rgb = this.hexToRgb(color);
+        if ([rgb.r, rgb.g, rgb.b].some(value => Number.isNaN(value))) {
+            return color;
+        }
+        const clampedAlpha = Math.max(0, Math.min(1, alpha));
+        return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${clampedAlpha})`;
+    }
+
+    private getSoftOutlineColor(fillColor: string): string {
+        return this.blendColors(fillColor, this.getContrastColor(fillColor), 0.8);
+    }
+
+    private getComparisonStrokeColor(fillColor: string): string {
+        return this.toRgba(this.getSoftOutlineColor(fillColor), 0.55);
+    }
+
+    private getSemanticTaskFillColor(
+        task: Task,
+        fallbackColor: string,
+        criticalColor: string,
+        nearCriticalColor: string
+    ): string {
+        if (this.legendDataExists && task.legendColor) return task.legendColor;
+        if (!this.legendDataExists) {
+            if (task.isCritical) return criticalColor;
+            if (task.isNearCritical) return nearCriticalColor;
+        }
+        return fallbackColor;
+    }
+
+    private getRenderedMilestoneSize(milestoneSizeSetting: number, taskHeight: number): number {
+        const configuredBarHeight = this.settings?.taskBars?.taskBarHeight?.value ?? taskHeight;
+        const visualLimit = Math.min(taskHeight * 0.9, configuredBarHeight + 2);
+        return Math.max(4, Math.min(milestoneSizeSetting, visualLimit));
+    }
+
+    private getCornerRadii(radius: number, roundLeft: boolean, roundRight: boolean): CornerRadii {
+        const safeRadius = Math.max(0, radius);
+        return {
+            tl: roundLeft ? safeRadius : 0,
+            tr: roundRight ? safeRadius : 0,
+            br: roundRight ? safeRadius : 0,
+            bl: roundLeft ? safeRadius : 0
+        };
+    }
+
+    private clampCornerRadii(width: number, height: number, corners: CornerRadii): CornerRadii {
+        const maxRadius = Math.max(0, Math.min(width / 2, height / 2));
+        return {
+            tl: Math.max(0, Math.min(corners.tl, maxRadius)),
+            tr: Math.max(0, Math.min(corners.tr, maxRadius)),
+            br: Math.max(0, Math.min(corners.br, maxRadius)),
+            bl: Math.max(0, Math.min(corners.bl, maxRadius))
+        };
+    }
+
+    private getRoundedRectPath(x: number, y: number, width: number, height: number, corners: CornerRadii): string {
+        const safeWidth = Math.max(0, width);
+        const safeHeight = Math.max(0, height);
+        const { tl, tr, br, bl } = this.clampCornerRadii(safeWidth, safeHeight, corners);
+        const right = x + safeWidth;
+        const bottom = y + safeHeight;
+
+        return [
+            `M ${x + tl},${y}`,
+            `H ${right - tr}`,
+            tr > 0 ? `Q ${right},${y} ${right},${y + tr}` : `L ${right},${y}`,
+            `V ${bottom - br}`,
+            br > 0 ? `Q ${right},${bottom} ${right - br},${bottom}` : `L ${right},${bottom}`,
+            `H ${x + bl}`,
+            bl > 0 ? `Q ${x},${bottom} ${x},${bottom - bl}` : `L ${x},${bottom}`,
+            `V ${y + tl}`,
+            tl > 0 ? `Q ${x},${y} ${x + tl},${y}` : `L ${x},${y}`,
+            "Z"
+        ].join(" ");
+    }
+
+    private getBeforeDataDateOverlay(
+        start: Date,
+        finish: Date,
+        startX: number,
+        finishX: number,
+        radius: number
+    ): BeforeDataDateOverlay | null {
+        const enableOverride = this.settings?.dataDateColorOverride?.enableP6Style?.value ?? false;
+        const dataDate = this.dataDate;
+        if (!enableOverride || !dataDate) {
+            return null;
+        }
+
+        const ddTime = this.normalizeToStartOfDay(dataDate);
+        const startTime = this.normalizeToStartOfDay(start);
+        const finishTime = this.normalizeToStartOfDay(finish);
+
+        if (startTime >= ddTime) {
+            return null;
+        }
+
+        if (finishTime <= ddTime) {
+            return {
+                x: startX,
+                width: Math.max(1, finishX - startX),
+                corners: this.getCornerRadii(radius, true, true),
+                dividerX: null
+            };
+        }
+
+        const rawSplitX = this.snapRectCoord(this.xScale ? this.xScale(dataDate) : startX);
+        const clampedSplitX = Math.max(startX + 1, Math.min(finishX - 1, rawSplitX));
+        const overlayWidth = Math.max(1, clampedSplitX - startX);
+
+        return {
+            x: startX,
+            width: overlayWidth,
+            corners: this.getCornerRadii(radius, true, false),
+            dividerX: clampedSplitX
+        };
+    }
+
+    private getTaskRenderStyle(
+        task: Task,
+        baseFillColor: string,
+        visualWidth: number,
+        isMilestone: boolean,
+        taskBarStrokeColor: string,
+        taskBarStrokeWidth: number,
+        criticalColor: string,
+        nearCriticalColor: string
+    ): TaskRenderStyle {
+        const hasExplicitStroke = taskBarStrokeWidth > 0 || this.isNonEmptyColor(taskBarStrokeColor);
+        const defaultOutline = this.getSoftOutlineColor(baseFillColor);
+        const explicitOutline = this.isNonEmptyColor(taskBarStrokeColor) ? taskBarStrokeColor : defaultOutline;
+        const selectionHighlightColor = this.getSelectionColor();
+
+        let strokeColor = hasExplicitStroke ? explicitOutline : "none";
+        let strokeWidth = hasExplicitStroke ? Math.max(0.75, taskBarStrokeWidth || 1) : 0;
+        let strokeOpacity = hasExplicitStroke ? 0.82 : 0;
+        let hoverStrokeColor = strokeColor === "none" ? defaultOutline : strokeColor;
+        let hoverStrokeWidth = Math.max(strokeWidth, isMilestone ? 1.4 : 1.25);
+        let hoverStrokeOpacity = strokeColor === "none" ? 0.95 : 1;
+        let shadowColor = "transparent";
+        let shadowBlur = 0;
+        let shadowOffsetY = 0;
+        let svgFilter = visualWidth >= 10 || isMilestone ? `drop-shadow(${UI_TOKENS.shadow[1]})` : "none";
+
+        if (isMilestone) {
+            strokeColor = hasExplicitStroke ? explicitOutline : defaultOutline;
+            strokeWidth = Math.max(strokeWidth, 1.15);
+            strokeOpacity = Math.max(strokeOpacity, 0.9);
+            hoverStrokeColor = strokeColor;
+            hoverStrokeWidth = Math.max(hoverStrokeWidth, 1.55);
+            hoverStrokeOpacity = 1;
+        }
+
+        if (task.isCritical) {
+            shadowColor = this.toRgba(criticalColor, this.legendDataExists ? 0.28 : 0.22);
+            shadowBlur = visualWidth >= 10 || isMilestone ? (isMilestone ? 3 : 4) : 0;
+            svgFilter = shadowBlur > 0 ? `drop-shadow(0 0 ${shadowBlur}px ${shadowColor})` : svgFilter;
+
+            if (this.legendDataExists) {
+                strokeColor = criticalColor;
+                strokeWidth = Math.max(strokeWidth, this.settings.criticalPath.criticalBorderWidth.value);
+            } else {
+                strokeColor = strokeWidth > 0 ? strokeColor : defaultOutline;
+                strokeWidth = Math.max(strokeWidth, isMilestone ? 1.5 : Math.max(1, this.settings.criticalPath.criticalBorderWidth.value * 0.65));
+            }
+
+            strokeOpacity = Math.max(strokeOpacity, 0.95);
+            hoverStrokeColor = criticalColor;
+            hoverStrokeWidth = Math.max(hoverStrokeWidth, strokeWidth + 0.35);
+            hoverStrokeOpacity = 1;
+        } else if (task.isNearCritical) {
+            shadowColor = this.toRgba(nearCriticalColor, this.legendDataExists ? 0.24 : 0.2);
+            shadowBlur = visualWidth >= 10 || isMilestone ? (isMilestone ? 2.5 : 3) : 0;
+            svgFilter = shadowBlur > 0 ? `drop-shadow(0 0 ${shadowBlur}px ${shadowColor})` : svgFilter;
+
+            if (this.legendDataExists) {
+                strokeColor = nearCriticalColor;
+                strokeWidth = Math.max(strokeWidth, this.settings.criticalPath.nearCriticalBorderWidth.value);
+            } else {
+                strokeColor = strokeWidth > 0 ? strokeColor : defaultOutline;
+                strokeWidth = Math.max(strokeWidth, isMilestone ? 1.35 : Math.max(1, this.settings.criticalPath.nearCriticalBorderWidth.value * 0.65));
+            }
+
+            strokeOpacity = Math.max(strokeOpacity, 0.9);
+            hoverStrokeColor = nearCriticalColor;
+            hoverStrokeWidth = Math.max(hoverStrokeWidth, strokeWidth + 0.3);
+            hoverStrokeOpacity = 1;
+        }
+
+        if (task.internalId === this.selectedTaskId) {
+            strokeColor = selectionHighlightColor;
+            strokeWidth = Math.max(strokeWidth + 0.6, isMilestone ? 2.1 : 2.4);
+            strokeOpacity = 1;
+            hoverStrokeColor = selectionHighlightColor;
+            hoverStrokeWidth = strokeWidth;
+            hoverStrokeOpacity = 1;
+            shadowColor = this.toRgba(selectionHighlightColor, 0.32);
+            shadowBlur = isMilestone ? 5 : 6;
+            shadowOffsetY = 0;
+            svgFilter = `drop-shadow(0 0 ${shadowBlur}px ${shadowColor})`;
+        } else if (shadowBlur === 0 && (visualWidth >= 10 || isMilestone)) {
+            shadowColor = this.toRgba(baseFillColor, 0.12);
+            shadowBlur = 2;
+            shadowOffsetY = 1;
+            svgFilter = `drop-shadow(${UI_TOKENS.shadow[1]})`;
+        }
+
+        if (!isMilestone && visualWidth < 8) {
+            strokeWidth = strokeWidth > 0 ? Math.min(strokeWidth, task.internalId === this.selectedTaskId ? 1.8 : 1.1) : 0;
+            hoverStrokeWidth = Math.min(Math.max(hoverStrokeWidth, 1), task.internalId === this.selectedTaskId ? 1.8 : 1.3);
+        }
+
+        if (strokeWidth <= 0.05) {
+            strokeColor = "none";
+            strokeOpacity = 0;
+        }
+
+        return {
+            fillColor: baseFillColor,
+            strokeColor,
+            strokeWidth,
+            strokeOpacity,
+            hoverStrokeColor,
+            hoverStrokeWidth,
+            hoverStrokeOpacity,
+            shadowColor,
+            shadowBlur,
+            shadowOffsetY,
+            svgFilter
+        };
+    }
+
+    private getConnectorArrowSize(): number {
+        return Math.max(4, this.settings?.connectorLines?.arrowHeadSize?.value ?? 6);
     }
 
     /**
@@ -13198,7 +13565,7 @@ export class Visual implements IVisual {
             // Use background color from settings
             const bgColor = this.getVisualBackgroundColor();
             this.stickyHeaderContainer?.style("background-color", HEADER_DOCK_TOKENS.shell);
-            this.legendContainer?.style("background-color", bgColor);
+            this.legendContainer?.style("background-color", HEADER_DOCK_TOKENS.shell);
             if (this.scrollableContainer) {
                 this.scrollableContainer.style("background-color", bgColor);
             }

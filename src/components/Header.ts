@@ -84,8 +84,14 @@ export class Header {
 
     private renderDockChrome(): void {
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
-        const rowY = 4;
-        const rowHeight = UI_TOKENS.height.standard + 8;
+        const controlY = UI_TOKENS.spacing.sm;
+        const controlHeight = UI_TOKENS.height.standard;
+        const shellPaddingY = 4;
+        const groupPaddingY = 2;
+        const rowY = Math.max(0, controlY - shellPaddingY);
+        const rowHeight = controlHeight + shellPaddingY * 2;
+        const groupY = Math.max(0, controlY - groupPaddingY);
+        const groupHeight = controlHeight + groupPaddingY * 2;
         const rowX = 8;
         const rowWidth = Math.max(1, this.currentViewportWidth - 16);
 
@@ -130,7 +136,7 @@ export class Header {
             .attr("height", rowHeight)
             .attr("rx", 14)
             .attr("ry", 14)
-            .attr("fill", HEADER_DOCK_TOKENS.commandBg)
+            .attr("fill", HEADER_DOCK_TOKENS.shell)
             .attr("stroke", HEADER_DOCK_TOKENS.commandStroke)
             .attr("stroke-width", 1);
 
@@ -142,12 +148,12 @@ export class Header {
                 exit => exit.remove()
             )
             .attr("x", d => d.x)
-            .attr("y", rowY + 4)
+            .attr("y", groupY)
             .attr("width", d => d.width)
-            .attr("height", rowHeight - 8)
+            .attr("height", groupHeight)
             .attr("rx", 10)
             .attr("ry", 10)
-            .attr("fill", HEADER_DOCK_TOKENS.groupBg)
+            .attr("fill", HEADER_DOCK_TOKENS.shell)
             .attr("stroke", HEADER_DOCK_TOKENS.groupStroke)
             .attr("stroke-width", 1);
     }
