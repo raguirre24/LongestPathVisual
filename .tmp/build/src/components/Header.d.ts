@@ -52,6 +52,7 @@ export declare class Header {
     private currentViewportWidth;
     constructor(container: Selection<HTMLDivElement, unknown, null, undefined>, callbacks: HeaderCallbacks);
     private initialize;
+    private renderDockChrome;
     private upsertButton;
     private upsertDiv;
     private hideControl;

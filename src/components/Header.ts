@@ -2,7 +2,7 @@
 import * as d3 from "d3";
 import { Selection } from "d3-selection";
 import { VisualSettings } from "../settings";
-import { UI_TOKENS, LAYOUT_BREAKPOINTS } from "../utils/Theme";
+import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "../utils/Theme";
 import { BoundFieldState } from "../data/Interfaces";
 
 export interface HeaderCallbacks {
@@ -82,6 +82,76 @@ export class Header {
             .attr("class", "header-svg-root");
     }
 
+    private renderDockChrome(): void {
+        const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
+        const rowY = 4;
+        const rowHeight = UI_TOKENS.height.standard + 8;
+        const rowX = 8;
+        const rowWidth = Math.max(1, this.currentViewportWidth - 16);
+
+        type GroupRect = { key: string; x: number; width: number };
+        const groups: Array<{ key: string; items: Array<{ x: number; width?: number; size?: number; visible: boolean }> }> = [
+            { key: "analysis", items: [layout.showAllCritical, layout.modeToggle] },
+            { key: "layers", items: [layout.baseline, layout.previousUpdate, layout.connectorLines, layout.colToggle] },
+            { key: "wbs", items: [layout.wbsEnable, layout.wbsExpandToggle, layout.wbsCollapseToggle] },
+            { key: "actions", items: [layout.copyButton, layout.htmlExportButton, layout.exportButton, layout.helpButton] }
+        ];
+
+        const visibleGroups: GroupRect[] = groups.map(group => {
+            const visibleItems = group.items.filter(item => item.visible);
+            if (visibleItems.length === 0) {
+                return null;
+            }
+
+            const left = Math.max(12, Math.min(...visibleItems.map(item => item.x)) - 6);
+            const right = Math.min(
+                this.currentViewportWidth - 12,
+                Math.max(...visibleItems.map(item => item.x + (item.width ?? item.size ?? UI_TOKENS.height.standard))) + 6
+            );
+
+            return {
+                key: group.key,
+                x: left,
+                width: Math.max(24, right - left)
+            };
+        }).filter((group): group is GroupRect => group !== null);
+
+        const shell = this.toggleButtonGroup.selectAll<SVGRectElement, number>(".header-command-shell")
+            .data([rowWidth]);
+
+        shell.join(
+            enter => enter.append("rect").attr("class", "header-command-shell"),
+            update => update,
+            exit => exit.remove()
+        )
+            .attr("x", rowX)
+            .attr("y", rowY)
+            .attr("width", d => d)
+            .attr("height", rowHeight)
+            .attr("rx", 14)
+            .attr("ry", 14)
+            .attr("fill", HEADER_DOCK_TOKENS.commandBg)
+            .attr("stroke", HEADER_DOCK_TOKENS.commandStroke)
+            .attr("stroke-width", 1);
+
+        this.toggleButtonGroup.selectAll<SVGRectElement, GroupRect>(".header-command-group")
+            .data(visibleGroups, d => d.key)
+            .join(
+                enter => enter.append("rect").attr("class", "header-command-group"),
+                update => update,
+                exit => exit.remove()
+            )
+            .attr("x", d => d.x)
+            .attr("y", rowY + 4)
+            .attr("width", d => d.width)
+            .attr("height", rowHeight - 8)
+            .attr("rx", 10)
+            .attr("ry", 10)
+            .attr("fill", HEADER_DOCK_TOKENS.groupBg)
+            .attr("stroke", HEADER_DOCK_TOKENS.groupStroke)
+            .attr("stroke-width", 1);
+    }
+
     private upsertButton(className: string): Selection<HTMLButtonElement, unknown, null, undefined> {
         let button = this.container.select<HTMLButtonElement>(`button.${className}`);
         if (button.empty()) {
@@ -128,6 +198,7 @@ export class Header {
     }
 
     private renderButtons() {
+        this.renderDockChrome();
         this.createOrUpdateToggleButton();
         this.createModeToggleButton();
         this.createColumnDisplayToggleButton();
@@ -153,8 +224,8 @@ export class Header {
         const bgRect = btn.select<SVGRectElement>('.copy-button-bg');
         if (!btn.empty()) {
             bgRect
-                .attr('fill', UI_TOKENS.color.success.light)
-                .attr('stroke', UI_TOKENS.color.success.default)
+                .attr('fill', HEADER_DOCK_TOKENS.successBg)
+                .attr('stroke', HEADER_DOCK_TOKENS.success)
                 .attr('stroke-width', 1.5);
 
             if (this.copySuccessTimeout !== null) {
@@ -165,8 +236,8 @@ export class Header {
                 const liveRect = this.container.select<HTMLButtonElement>('button.copy-data-button-group')
                     .select<SVGRectElement>('.copy-button-bg');
                 liveRect
-                    .attr('fill', UI_TOKENS.color.neutral.white)
-                    .attr('stroke', UI_TOKENS.color.neutral.grey60)
+                    .attr('fill', HEADER_DOCK_TOKENS.buttonBg)
+                    .attr('stroke', HEADER_DOCK_TOKENS.buttonStroke)
                     .attr('stroke-width', 1);
                 this.copySuccessTimeout = null;
             }, 2000);
@@ -182,11 +253,11 @@ export class Header {
             .style("top", "50%")
             .style("left", "50%")
             .style("transform", "translate(-50%, -50%)")
-            .style("background-color", UI_TOKENS.color.neutral.white)
+            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
             .style("padding", "16px 24px")
             .style("border-radius", "8px")
-            .style("box-shadow", "0 4px 12px rgba(0,0,0,0.15)")
-            .style("border", `1px solid ${UI_TOKENS.color.neutral.grey20}`)
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
             .style("z-index", "10000")
             .style("display", "flex")
             .style("align-items", "center")
@@ -210,7 +281,7 @@ export class Header {
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "14px")
             .style("font-weight", "600")
-            .style("color", UI_TOKENS.color.neutral.grey160)
+            .style("color", HEADER_DOCK_TOKENS.chipText)
             .text("Data copied to clipboard");
 
         // Animate in
@@ -260,8 +331,8 @@ export class Header {
                 .style('cursor', 'wait')
                 .style('background-color', 'transparent');
             bgRect
-                .attr('fill', UI_TOKENS.color.neutral.grey20)
-                .attr('stroke', UI_TOKENS.color.primary.default);
+                .attr('fill', HEADER_DOCK_TOKENS.primaryBg)
+                .attr('stroke', HEADER_DOCK_TOKENS.primary);
         } else {
             iconPaths.style('display', 'block');
             spinner.style('display', 'none');
@@ -271,8 +342,8 @@ export class Header {
                 .style('cursor', 'pointer')
                 .style('background-color', 'transparent');
             bgRect
-                .attr('fill', UI_TOKENS.color.neutral.white)
-                .attr('stroke', UI_TOKENS.color.neutral.grey60);
+                .attr('fill', HEADER_DOCK_TOKENS.buttonBg)
+                .attr('stroke', HEADER_DOCK_TOKENS.buttonStroke);
         }
     }
 
@@ -314,10 +385,12 @@ export class Header {
                 this.callbacks.onToggleCriticalPath();
             });
 
-        const iconPadding = UI_TOKENS.spacing.lg;
-        const iconColor = isShowingCritical
-            ? UI_TOKENS.color.success.default
-            : UI_TOKENS.color.danger.default;
+        const isActive = isShowingCritical;
+        const buttonFill = isActive ? HEADER_DOCK_TOKENS.dangerBg : HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = isActive ? HEADER_DOCK_TOKENS.danger : HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = isActive ? this.lightenColor(HEADER_DOCK_TOKENS.dangerBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = isActive ? HEADER_DOCK_TOKENS.danger : HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const iconColor = isActive ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
 
         // SVG Icon
         const svg = btn.append("svg")
@@ -336,8 +409,8 @@ export class Header {
             .attr("height", buttonHeight - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", UI_TOKENS.color.neutral.white)
-            .attr("stroke", UI_TOKENS.color.neutral.grey60)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", 1);
 
         const iconCenterX = buttonWidth / 2;
@@ -403,12 +476,12 @@ export class Header {
 
         // Hover effects
         btn.on("mouseover", function () {
-            bgRect.attr("fill", UI_TOKENS.color.neutral.grey10)
-                .attr("stroke", UI_TOKENS.color.neutral.grey90);
+            bgRect.attr("fill", hoverFill)
+                .attr("stroke", hoverStroke);
         })
             .on("mouseout", function () {
-                bgRect.attr("fill", UI_TOKENS.color.neutral.white)
-                    .attr("stroke", UI_TOKENS.color.neutral.grey60);
+                bgRect.attr("fill", buttonFill)
+                    .attr("stroke", buttonStroke);
             })
             .on("mousedown", function () {
                 d3.select(this).style("transform", "scale(0.96)");
@@ -431,9 +504,12 @@ export class Header {
         const showBaseline = this.currentState.showBaseline;
 
         const baselineColor = this.currentSettings.comparisonBars.baselineColor.value.value;
-        const lightBaselineColor = this.lightenColor(baselineColor, 0.93);
-        const hoverBaselineColor = this.lightenColor(baselineColor, 0.85);
         const previousUpdateColor = this.currentSettings.comparisonBars.previousUpdateColor.value.value;
+        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = showBaseline ? baselineColor : HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = showBaseline ? baselineColor : HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const labelFill = showBaseline ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
@@ -455,6 +531,7 @@ export class Header {
             .property("disabled", !isAvailable)
             .classed("header-toggle-button", true)
             .classed("is-disabled", !isAvailable)
+            .style("opacity", isAvailable ? "1" : "0.45")
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
             .style("top", `${buttonY}px`)
@@ -492,8 +569,8 @@ export class Header {
             .attr("height", buttonHeight - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", showBaseline ? lightBaselineColor : UI_TOKENS.color.neutral.white)
-            .attr("stroke", baselineColor)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", showBaseline ? 1.5 : 1);
 
         const iconX = iconOnly ? (buttonWidth / 2 - 8) : (UI_TOKENS.spacing.lg + 2);
@@ -539,7 +616,7 @@ export class Header {
                 .attr("dominant-baseline", "central")
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
-                .style("fill", UI_TOKENS.color.neutral.grey160)
+                .style("fill", labelFill)
                 .style("font-weight", showBaseline ? UI_TOKENS.fontWeight.semibold.toString() : UI_TOKENS.fontWeight.medium.toString())
                 .text("Baseline");
         }
@@ -559,11 +636,13 @@ export class Header {
 
         if (isAvailable) {
             btn.on("mouseover", function () {
-                bgRect.attr("fill", showBaseline ? hoverBaselineColor : UI_TOKENS.color.neutral.grey20)
+                bgRect.attr("fill", hoverFill)
+                    .attr("stroke", hoverStroke)
                     .attr("stroke-width", 2);
             })
                 .on("mouseout", function () {
-                    bgRect.attr("fill", showBaseline ? lightBaselineColor : UI_TOKENS.color.neutral.white)
+                    bgRect.attr("fill", buttonFill)
+                        .attr("stroke", buttonStroke)
                         .attr("stroke-width", showBaseline ? 1.5 : 1);
                 })
                 .on("mousedown", function () {
@@ -588,9 +667,12 @@ export class Header {
         const showPreviousUpdate = this.currentState.showPreviousUpdate;
 
         const previousUpdateColor = this.currentSettings.comparisonBars.previousUpdateColor.value.value;
-        const lightPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.90);
-        const hoverPreviousUpdateColor = this.lightenColor(previousUpdateColor, 0.80);
         const baselineColor = this.currentSettings.comparisonBars.baselineColor.value.value;
+        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = showPreviousUpdate ? previousUpdateColor : HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = showPreviousUpdate ? previousUpdateColor : HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const labelFill = showPreviousUpdate ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
@@ -612,6 +694,7 @@ export class Header {
             .property("disabled", !isAvailable)
             .classed("header-toggle-button", true)
             .classed("is-disabled", !isAvailable)
+            .style("opacity", isAvailable ? "1" : "0.45")
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
             .style("top", `${buttonY}px`)
@@ -649,8 +732,8 @@ export class Header {
             .attr("height", buttonHeight - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", showPreviousUpdate ? lightPreviousUpdateColor : UI_TOKENS.color.neutral.white)
-            .attr("stroke", previousUpdateColor)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", showPreviousUpdate ? 1.5 : 1);
 
         const iconX = iconOnly ? (buttonWidth / 2 - 8) : (UI_TOKENS.spacing.lg + 2);
@@ -696,7 +779,7 @@ export class Header {
                 .attr("dominant-baseline", "central")
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
-                .style("fill", UI_TOKENS.color.neutral.grey160)
+                .style("fill", labelFill)
                 .style("font-weight", showPreviousUpdate ? UI_TOKENS.fontWeight.semibold.toString() : UI_TOKENS.fontWeight.medium.toString())
                 .text("Prev. Update");
         }
@@ -716,11 +799,13 @@ export class Header {
 
         if (isAvailable) {
             btn.on("mouseover", function () {
-                bgRect.attr("fill", showPreviousUpdate ? hoverPreviousUpdateColor : UI_TOKENS.color.neutral.grey20)
+                bgRect.attr("fill", hoverFill)
+                    .attr("stroke", hoverStroke)
                     .attr("stroke-width", 2);
             })
                 .on("mouseout", function () {
-                    bgRect.attr("fill", showPreviousUpdate ? lightPreviousUpdateColor : UI_TOKENS.color.neutral.white)
+                    bgRect.attr("fill", buttonFill)
+                        .attr("stroke", buttonStroke)
                         .attr("stroke-width", showPreviousUpdate ? 1.5 : 1);
                 })
                 .on("mousedown", function () {
@@ -1028,6 +1113,10 @@ export class Header {
 
         const buttonY = UI_TOKENS.spacing.sm;
         const showConnectorLines = this.currentState.showConnectorLines;
+        const buttonFill = showConnectorLines ? HEADER_DOCK_TOKENS.successBg : HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = showConnectorLines ? HEADER_DOCK_TOKENS.success : HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = showConnectorLines ? this.lightenColor(HEADER_DOCK_TOKENS.successBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = showConnectorLines ? HEADER_DOCK_TOKENS.success : HEADER_DOCK_TOKENS.buttonHoverStroke;
 
         const btn = this.upsertButton("connector-toggle-group")
             .attr("type", "button")
@@ -1064,14 +1153,15 @@ export class Header {
 
         // Background Rect
         const bgRect = svg.append("rect")
+            .attr("class", "copy-button-bg")
             .attr("x", 0.5)
             .attr("y", 0.5)
             .attr("width", buttonSize - 1)
             .attr("height", buttonSize - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", showConnectorLines ? UI_TOKENS.color.success.light : UI_TOKENS.color.neutral.white)
-            .attr("stroke", showConnectorLines ? UI_TOKENS.color.success.default : UI_TOKENS.color.neutral.grey60)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", showConnectorLines ? 1.5 : 1);
 
         const iconCenter = (buttonSize / 2) - 2;
@@ -1080,7 +1170,7 @@ export class Header {
 
         iconG.append("path")
             .attr("d", "M-6,-3 L0,3 L6,-3")
-            .attr("stroke", showConnectorLines ? UI_TOKENS.color.success.default : UI_TOKENS.color.neutral.grey130)
+            .attr("stroke", showConnectorLines ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted)
             .attr("stroke-width", 2)
             .attr("fill", "none")
             .attr("stroke-linecap", "round")
@@ -1091,11 +1181,11 @@ export class Header {
         if (showConnectorLines) {
             iconG.append("circle")
                 .attr("cx", -6).attr("cy", -3).attr("r", 1.5)
-                .attr("fill", UI_TOKENS.color.success.default);
+                .attr("fill", HEADER_DOCK_TOKENS.buttonText);
 
             iconG.append("circle")
                 .attr("cx", 6).attr("cy", -3).attr("r", 1.5)
-                .attr("fill", UI_TOKENS.color.success.default);
+                .attr("fill", HEADER_DOCK_TOKENS.buttonText);
         }
 
         btn.append("title")
@@ -1104,21 +1194,27 @@ export class Header {
                 : "Click to show connector lines between dependent tasks");
 
         btn.on("mouseover", function () {
-            bgRect.attr("fill", showConnectorLines ? UI_TOKENS.color.success.default : UI_TOKENS.color.neutral.grey20)
+            bgRect.attr("fill", hoverFill)
+                .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
 
             if (showConnectorLines) {
-                iconG.select("path").attr("stroke", UI_TOKENS.color.neutral.white);
-                iconG.selectAll("circle").attr("fill", UI_TOKENS.color.neutral.white);
+                iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+                iconG.selectAll("circle").attr("fill", HEADER_DOCK_TOKENS.buttonText);
+            } else {
+                iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
             }
         })
             .on("mouseout", function () {
-                bgRect.attr("fill", showConnectorLines ? UI_TOKENS.color.success.light : UI_TOKENS.color.neutral.white)
+                bgRect.attr("fill", buttonFill)
+                    .attr("stroke", buttonStroke)
                     .attr("stroke-width", showConnectorLines ? 1.5 : 1);
 
                 if (showConnectorLines) {
-                    iconG.select("path").attr("stroke", UI_TOKENS.color.success.default);
-                    iconG.selectAll("circle").attr("fill", UI_TOKENS.color.success.default);
+                    iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+                    iconG.selectAll("circle").attr("fill", HEADER_DOCK_TOKENS.buttonText);
+                } else {
+                    iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonMuted);
                 }
             })
             .on("mousedown", function () {
@@ -1150,6 +1246,11 @@ export class Header {
         const wbsExpanded = this.currentState.wbsExpanded;
 
         const buttonY = UI_TOKENS.spacing.sm;
+        const buttonFill = wbsExpanded ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = wbsExpanded ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = wbsExpanded ? this.lightenColor(HEADER_DOCK_TOKENS.primaryBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = wbsExpanded ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const iconColor = wbsExpanded ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
 
         const btn = this.upsertButton("wbs-expand-toggle-group")
             .attr("type", "button")
@@ -1196,18 +1297,14 @@ export class Header {
             .attr("height", buttonSize - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", wbsExpanded ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
-            .attr("stroke", wbsExpanded ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", wbsExpanded ? 1.5 : 1);
 
         const iconCenterX = buttonSize / 2;
         const iconCenterY = (buttonSize / 2) - 4;
         const iconG = svg.append("g")
             .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
-
-        const iconColor = wbsExpanded
-            ? UI_TOKENS.color.primary.default
-            : UI_TOKENS.color.neutral.grey130;
 
         iconG.append("path")
             .attr("d", "M-4,0 L4,0 M0,-4 L0,4")
@@ -1238,23 +1335,18 @@ export class Header {
             .style("fill", iconColor)
             .text(badgeText);
 
-        const self = this;
         btn.on("mouseover", function () {
-            bgRect.attr("fill", wbsExpanded ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey20)
+            bgRect.attr("fill", hoverFill)
+                .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-
-            if (wbsExpanded) {
-                iconG.selectAll("path").attr("stroke", UI_TOKENS.color.neutral.white);
-                textEl.style("fill", UI_TOKENS.color.neutral.white);
-            }
+            iconG.selectAll("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            textEl.style("fill", HEADER_DOCK_TOKENS.buttonText);
         }).on("mouseout", function () {
-            bgRect.attr("fill", wbsExpanded ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+            bgRect.attr("fill", buttonFill)
+                .attr("stroke", buttonStroke)
                 .attr("stroke-width", wbsExpanded ? 1.5 : 1);
-
-            if (wbsExpanded) {
-                iconG.selectAll("path").attr("stroke", UI_TOKENS.color.primary.default);
-                textEl.style("fill", iconColor);
-            }
+            iconG.selectAll("path").attr("stroke", iconColor);
+            textEl.style("fill", iconColor);
         });
     }
 
@@ -1279,6 +1371,11 @@ export class Header {
         const isCollapsed = currentLevel === 0 || !this.currentState.wbsExpanded; // Logic approx
 
         const buttonY = UI_TOKENS.spacing.sm;
+        const buttonFill = isCollapsed ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = isCollapsed ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = isCollapsed ? this.lightenColor(HEADER_DOCK_TOKENS.primaryBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = isCollapsed ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const iconColor = isCollapsed ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
 
         const btn = this.upsertButton("wbs-collapse-toggle-group")
             .attr("type", "button")
@@ -1325,18 +1422,14 @@ export class Header {
             .attr("height", buttonSize - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", isCollapsed ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
-            .attr("stroke", isCollapsed ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", isCollapsed ? 1.5 : 1);
 
         const iconCenterX = buttonSize / 2;
         const iconCenterY = (buttonSize / 2) - 4;
         const iconG = svg.append("g")
             .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
-
-        const iconColor = isCollapsed
-            ? UI_TOKENS.color.primary.default
-            : UI_TOKENS.color.neutral.grey130;
 
         iconG.append("path")
             .attr("d", "M-5,0 L5,0")
@@ -1367,23 +1460,18 @@ export class Header {
             .style("fill", iconColor)
             .text(badgeText);
 
-        const self = this;
         btn.on("mouseover", function () {
-            bgRect.attr("fill", isCollapsed ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey20)
+            bgRect.attr("fill", hoverFill)
+                .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-
-            if (isCollapsed) {
-                iconG.selectAll("path").attr("stroke", UI_TOKENS.color.neutral.white);
-                textEl.style("fill", UI_TOKENS.color.neutral.white);
-            }
+            iconG.selectAll("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            textEl.style("fill", HEADER_DOCK_TOKENS.buttonText);
         }).on("mouseout", function () {
-            bgRect.attr("fill", isCollapsed ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+            bgRect.attr("fill", buttonFill)
+                .attr("stroke", buttonStroke)
                 .attr("stroke-width", isCollapsed ? 1.5 : 1);
-
-            if (isCollapsed) {
-                iconG.selectAll("path").attr("stroke", UI_TOKENS.color.primary.default);
-                textEl.style("fill", iconColor);
-            }
+            iconG.selectAll("path").attr("stroke", iconColor);
+            textEl.style("fill", iconColor);
         });
     }
 
@@ -1415,10 +1503,10 @@ export class Header {
             .style("height", "24px")
             .style("padding", "0 8px")
             .style("max-width", `${maxWidth}px`)
-            .style("background-color", UI_TOKENS.color.neutral.white)
-            .style("border", `1px solid ${UI_TOKENS.color.warning.default}`)
+            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.warning}`)
             .style("border-radius", "12px")
-            .style("box-shadow", UI_TOKENS.shadow[2])
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
             .style("transition", `all ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.smooth}`);
 
         const labelContainer = controlContainer.append("div")
@@ -1437,13 +1525,13 @@ export class Header {
             .attr("cx", iconSize / 2)
             .attr("cy", iconSize / 2)
             .attr("r", iconSize / 2)
-            .attr("fill", UI_TOKENS.color.warning.default);
+            .attr("fill", HEADER_DOCK_TOKENS.warning);
 
         const labelText = isCompact ? "Near-Critical ≤" : (isMedium ? "Near-Critical ≤" : "Near-Critical ≤");
         labelContainer.append("span")
             .style("font-size", "11px")
             .style("letter-spacing", "0.1px")
-            .style("color", UI_TOKENS.color.neutral.grey160)
+            .style("color", HEADER_DOCK_TOKENS.chipText)
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-weight", UI_TOKENS.fontWeight.medium)
             .style("white-space", "nowrap")
@@ -1461,13 +1549,25 @@ export class Header {
             .style("width", `${inputWidth}px`)
             .style("height", "18px")
             .style("padding", "0 4px")
-            .style("border", `1px solid ${UI_TOKENS.color.neutral.grey60}`)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
             .style("border-radius", "4px")
             .style("font-size", "11px")
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("text-align", "center")
+            .style("color", HEADER_DOCK_TOKENS.chipText)
+            .style("background-color", HEADER_DOCK_TOKENS.inputBg)
             .style("outline", "none")
+            .on("focus", function () {
+                d3.select(this)
+                    .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputFocus}`)
+                    .style("box-shadow", `0 0 0 2px ${HEADER_DOCK_TOKENS.primaryBg}`);
+            })
+            .on("blur", function () {
+                d3.select(this)
+                    .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
+                    .style("box-shadow", "none");
+            })
             .on("change", (event) => {
                 const val = parseInt((event.target as HTMLInputElement).value, 10);
                 if (!isNaN(val) && val >= 0) {
@@ -1478,7 +1578,7 @@ export class Header {
         // Add 'days' text
         controlContainer.append("span")
             .style("font-size", "11px")
-            .style("color", UI_TOKENS.color.neutral.grey130)
+            .style("color", HEADER_DOCK_TOKENS.chipMuted)
             .style("font-family", "Segoe UI, sans-serif")
             .text("days");
 
@@ -1496,7 +1596,7 @@ export class Header {
             .attr("width", helpIconSize)
             .attr("height", helpIconSize)
             .attr("viewBox", "0 0 16 16")
-            .style("fill", UI_TOKENS.color.neutral.grey130);
+            .style("fill", HEADER_DOCK_TOKENS.chipMuted);
 
         helpSvg.append("path")
             .attr("d", "M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm.93 11v1H6.93v-1h2zm-2.97-2.65c0-1.4.67-1.85 1.54-2.28.6-.3.83-.53.83-.97 0-.48-.44-.87-1.42-.87-.82 0-1.28.32-1.57.57l-.87-1.05c.5-.5 1.34-1.02 2.76-1.02 1.93 0 2.9 1.15 2.9 2.22 0 1.25-.66 1.7-1.48 2.12-.66.33-.87.6-.87 1.15v.13h-1.81z");
@@ -1518,8 +1618,9 @@ export class Header {
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
 
-        const bgColor = isFloatBased ? UI_TOKENS.color.warning.subtle : UI_TOKENS.color.primary.subtle;
-        const borderColor = isFloatBased ? UI_TOKENS.color.warning.default : UI_TOKENS.color.primary.default;
+        const bgColor = HEADER_DOCK_TOKENS.buttonBg;
+        const borderColor = isFloatBased ? HEADER_DOCK_TOKENS.warning : HEADER_DOCK_TOKENS.primary;
+        const activeFill = isFloatBased ? HEADER_DOCK_TOKENS.warning : HEADER_DOCK_TOKENS.primary;
 
         const btn = this.upsertButton("mode-toggle-group")
             .attr("type", "button")
@@ -1565,7 +1666,7 @@ export class Header {
                 .attr("width", 24)
                 .attr("height", 20)
                 .attr("rx", 6)
-                .attr("fill", isFloatBased ? UI_TOKENS.color.warning.default : UI_TOKENS.color.primary.default)
+                .attr("fill", activeFill)
                 .attr("stroke", "none");
 
             // Text code (LP or FL)
@@ -1615,7 +1716,7 @@ export class Header {
                 .attr("height", pillHeight)
                 .attr("rx", UI_TOKENS.radius.large)
                 .attr("ry", UI_TOKENS.radius.large)
-                .style("fill", UI_TOKENS.color.neutral.grey20)
+                .style("fill", HEADER_DOCK_TOKENS.groupBg)
                 .style("opacity", 0.8);
 
             pillG.append("rect")
@@ -1625,7 +1726,7 @@ export class Header {
                 .attr("height", pillHeight)
                 .attr("rx", UI_TOKENS.radius.large)
                 .attr("ry", UI_TOKENS.radius.large)
-                .style("fill", borderColor)
+                .style("fill", activeFill)
                 .style("transition", `all ${UI_TOKENS.motion.duration.slow}ms ${UI_TOKENS.motion.easing.smooth}`);
 
             pillG.append("text")
@@ -1636,7 +1737,7 @@ export class Header {
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
                 .style("font-weight", isFloatBased ? UI_TOKENS.fontWeight.medium : UI_TOKENS.fontWeight.bold)
-                .style("fill", isFloatBased ? UI_TOKENS.color.neutral.grey130 : UI_TOKENS.color.neutral.white)
+                .style("fill", isFloatBased ? HEADER_DOCK_TOKENS.buttonMuted : HEADER_DOCK_TOKENS.buttonText)
                 .style("pointer-events", "none")
                 .text("LP");
 
@@ -1648,7 +1749,7 @@ export class Header {
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
                 .style("font-weight", isFloatBased ? UI_TOKENS.fontWeight.bold : UI_TOKENS.fontWeight.medium)
-                .style("fill", isFloatBased ? UI_TOKENS.color.neutral.white : UI_TOKENS.color.neutral.grey130)
+                .style("fill", isFloatBased ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted)
                 .style("pointer-events", "none")
                 .text("Float");
 
@@ -1673,6 +1774,11 @@ export class Header {
 
         const showColumns = this.currentState.showExtraColumns;
         const buttonY = UI_TOKENS.spacing.sm;
+        const buttonFill = showColumns ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = showColumns ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = showColumns ? this.lightenColor(HEADER_DOCK_TOKENS.primaryBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = showColumns ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const iconColor = showColumns ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
 
         const btn = this.upsertButton("column-toggle-group")
             .attr("type", "button")
@@ -1715,14 +1821,12 @@ export class Header {
             .attr("height", buttonSize - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", showColumns ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
-            .attr("stroke", showColumns ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", showColumns ? 1.5 : 1);
 
         const iconG = svg.append("g")
             .attr("transform", `translate(${buttonSize / 2}, ${buttonSize / 2})`);
-
-        const iconColor = showColumns ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey130;
 
         if (showColumns) {
             iconG.append("path")
@@ -1743,24 +1847,16 @@ export class Header {
         }
 
         btn.on("mouseover", function () {
-            bgRect.attr("fill", showColumns ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey20)
+            bgRect.attr("fill", hoverFill)
+                .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-
-            if (!showColumns) {
-                iconG.select("path").attr("stroke", UI_TOKENS.color.neutral.grey160);
-            } else {
-                iconG.select("path").attr("stroke", UI_TOKENS.color.neutral.white);
-            }
+            iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", function () {
-                bgRect.attr("fill", showColumns ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white)
+                bgRect.attr("fill", buttonFill)
+                    .attr("stroke", buttonStroke)
                     .attr("stroke-width", showColumns ? 1.5 : 1);
-
-                if (!showColumns) {
-                    iconG.select("path").attr("stroke", iconColor);
-                } else {
-                    iconG.select("path").attr("stroke", iconColor);
-                }
+                iconG.select("path").attr("stroke", iconColor);
             });
     }
 
@@ -1781,9 +1877,11 @@ export class Header {
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
-
-        const fill = isEnabled ? UI_TOKENS.color.primary.light : UI_TOKENS.color.neutral.white;
-        const stroke = isEnabled ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60;
+        const buttonFill = isEnabled ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = isEnabled ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = isEnabled ? this.lightenColor(HEADER_DOCK_TOKENS.primaryBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = isEnabled ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const wbsColor = isEnabled ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
 
         const btn = this.upsertButton("wbs-enable-toggle-group")
             .attr("type", "button")
@@ -1827,8 +1925,8 @@ export class Header {
             .attr("height", buttonHeight - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", fill)
-            .attr("stroke", stroke)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", isEnabled ? 1.5 : 1);
 
         const iconCenterX = buttonWidth / 2;
@@ -1837,8 +1935,6 @@ export class Header {
         // New WBS Icon (hierarchical structure)
         const iconG = svg.append("g")
             .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
-
-        const wbsColor = isEnabled ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey130;
 
         // Top node
         iconG.append("rect").attr("x", -2).attr("y", -7).attr("width", 4).attr("height", 4).attr("fill", wbsColor);
@@ -1852,28 +1948,18 @@ export class Header {
             .text(isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping");
 
         btn.on("mouseover", function () {
-            bgRect.attr("fill", UI_TOKENS.color.primary.default)
+            bgRect.attr("fill", hoverFill)
+                .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-
-            if (isEnabled) {
-                // Inverted
-                iconG.selectAll("rect").attr("fill", UI_TOKENS.color.neutral.white);
-                iconG.selectAll("path").attr("stroke", UI_TOKENS.color.neutral.white);
-            } else {
-                // Just hover gray
-                bgRect.attr("fill", UI_TOKENS.color.neutral.grey20);
-            }
+            iconG.selectAll("rect").attr("fill", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", function () {
-                bgRect.attr("fill", fill)
+                bgRect.attr("fill", buttonFill)
+                    .attr("stroke", buttonStroke)
                     .attr("stroke-width", isEnabled ? 1.5 : 1);
-
-                if (isEnabled) {
-                    iconG.selectAll("rect").attr("fill", UI_TOKENS.color.primary.default);
-                    iconG.selectAll("path").attr("stroke", UI_TOKENS.color.primary.default);
-                } else {
-                    bgRect.attr("fill", UI_TOKENS.color.neutral.white);
-                }
+                iconG.selectAll("rect").attr("fill", wbsColor);
+                iconG.selectAll("path").attr("stroke", wbsColor);
             });
     }
 
@@ -1887,6 +1973,10 @@ export class Header {
         }
 
         const buttonY = UI_TOKENS.spacing.sm;
+        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
 
         const btn = this.upsertButton("copy-data-button-group")
             .attr("type", "button")
@@ -1929,8 +2019,8 @@ export class Header {
             .attr("height", buttonSize - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", UI_TOKENS.color.neutral.white)
-            .attr("stroke", UI_TOKENS.color.neutral.grey60)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", 1);
 
         const iconG = svg.append('g')
@@ -1939,18 +2029,20 @@ export class Header {
         iconG.append('path')
             .attr('d', 'M-4,1 L-4,5 L4,5 L4,-3 L0,-3 M0,-7 L6,-7 L6,1 L0,1 L0,-7 Z')
             .attr('fill', 'none')
-            .attr('stroke', UI_TOKENS.color.neutral.grey130)
+            .attr('stroke', HEADER_DOCK_TOKENS.buttonMuted)
             .attr('stroke-width', 1.5)
             .attr('stroke-linecap', 'round')
             .attr('stroke-linejoin', 'round');
 
         btn.on("mouseover", function () {
-            bgRect.attr("fill", UI_TOKENS.color.neutral.grey10)
-                .attr("stroke", UI_TOKENS.color.neutral.grey90);
+            bgRect.attr("fill", hoverFill)
+                .attr("stroke", hoverStroke);
+            iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", function () {
-                bgRect.attr("fill", UI_TOKENS.color.neutral.white)
-                    .attr("stroke", UI_TOKENS.color.neutral.grey60);
+                bgRect.attr("fill", buttonFill)
+                    .attr("stroke", buttonStroke);
+                iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonMuted);
             });
     }
 
@@ -1964,6 +2056,10 @@ export class Header {
         }
 
         const buttonY = UI_TOKENS.spacing.sm;
+        const buttonFill = this.exportButtonLoading ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = this.exportButtonLoading ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
 
         const btn = this.upsertButton("export-button-group")
             .attr("type", "button")
@@ -2012,8 +2108,8 @@ export class Header {
             .attr("height", buttonSize - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", this.exportButtonLoading ? UI_TOKENS.color.neutral.grey20 : UI_TOKENS.color.neutral.white)
-            .attr("stroke", this.exportButtonLoading ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey60)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", 1);
 
         const iconG = svg.append('g')
@@ -2024,7 +2120,7 @@ export class Header {
             .attr('class', 'export-icon-path')
             .attr('d', 'M-5,-7 L-5,7 L5,7 L5,-3 L1,-7 Z')
             .attr('fill', 'none')
-            .attr('stroke', UI_TOKENS.color.neutral.grey130)
+            .attr('stroke', HEADER_DOCK_TOKENS.buttonMuted)
             .attr('stroke-width', 1.5)
             .attr('stroke-linecap', 'round')
             .attr('stroke-linejoin', 'round')
@@ -2037,7 +2133,7 @@ export class Header {
         spinner.append('circle')
             .attr('r', 6)
             .attr('fill', 'none')
-            .attr('stroke', UI_TOKENS.color.primary.default)
+            .attr('stroke', HEADER_DOCK_TOKENS.buttonText)
             .attr('stroke-width', 2)
             .attr('stroke-dasharray', '20 10')
             .attr('stroke-linecap', 'round');
@@ -2046,17 +2142,16 @@ export class Header {
             if (this.exportButtonLoading) {
                 return;
             }
-            bgRect.attr("fill", UI_TOKENS.color.neutral.grey10)
-                .attr("stroke", UI_TOKENS.color.neutral.grey90);
+            bgRect.attr("fill", hoverFill)
+                .attr("stroke", hoverStroke);
+            iconG.select<SVGPathElement>(".export-icon-path")
+                .attr("stroke", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", () => {
-                if (this.exportButtonLoading) {
-                    bgRect.attr("fill", UI_TOKENS.color.neutral.grey20)
-                        .attr("stroke", UI_TOKENS.color.primary.default);
-                    return;
-                }
-                bgRect.attr("fill", UI_TOKENS.color.neutral.white)
-                    .attr("stroke", UI_TOKENS.color.neutral.grey60);
+                bgRect.attr("fill", buttonFill)
+                    .attr("stroke", buttonStroke);
+                iconG.select<SVGPathElement>(".export-icon-path")
+                    .attr("stroke", HEADER_DOCK_TOKENS.buttonMuted);
             });
     }
 
@@ -2070,6 +2165,10 @@ export class Header {
         }
 
         const buttonY = UI_TOKENS.spacing.sm;
+        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
 
         const btn = this.upsertButton("export-html-button-group")
             .attr("type", "button")
@@ -2111,8 +2210,8 @@ export class Header {
             .attr("height", buttonSize - 1)
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", UI_TOKENS.color.neutral.white)
-            .attr("stroke", UI_TOKENS.color.neutral.grey60)
+            .attr("fill", buttonFill)
+            .attr("stroke", buttonStroke)
             .attr("stroke-width", 1);
 
         const iconG = svg.append('g')
@@ -2121,7 +2220,7 @@ export class Header {
         iconG.append('path')
             .attr('d', 'M-6,-7 L2,-7 L6,-3 L6,7 L-6,7 Z M2,-7 L2,-3 L6,-3')
             .attr('fill', 'none')
-            .attr('stroke', UI_TOKENS.color.neutral.grey130)
+            .attr('stroke', HEADER_DOCK_TOKENS.buttonMuted)
             .attr('stroke-width', 1.2)
             .attr('stroke-linecap', 'round')
             .attr('stroke-linejoin', 'round');
@@ -2134,16 +2233,20 @@ export class Header {
             .style('font-family', 'Segoe UI, sans-serif')
             .style('font-size', '7px')
             .style('font-weight', '700')
-            .style('fill', UI_TOKENS.color.neutral.grey130)
+            .style('fill', HEADER_DOCK_TOKENS.buttonMuted)
             .text('HTML');
 
         btn.on("mouseover", function () {
-            bgRect.attr("fill", UI_TOKENS.color.neutral.grey10)
-                .attr("stroke", UI_TOKENS.color.neutral.grey90);
+            bgRect.attr("fill", hoverFill)
+                .attr("stroke", hoverStroke);
+            iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            iconG.select("text").style("fill", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", function () {
-                bgRect.attr("fill", UI_TOKENS.color.neutral.white)
-                    .attr("stroke", UI_TOKENS.color.neutral.grey60);
+                bgRect.attr("fill", buttonFill)
+                    .attr("stroke", buttonStroke);
+                iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonMuted);
+                iconG.select("text").style("fill", HEADER_DOCK_TOKENS.buttonMuted);
             });
     }
 
@@ -2157,6 +2260,10 @@ export class Header {
         }
 
         const buttonY = UI_TOKENS.spacing.sm;
+        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
 
         const btn = this.upsertButton("help-button-group")
             .attr("type", "button")
@@ -2183,15 +2290,22 @@ export class Header {
         const svg = btn.append("svg")
             .attr("width", buttonSize)
             .attr("height", buttonSize)
-            .style("pointer-events", "none");
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
 
-        svg.append('circle')
-            .attr('cx', buttonSize / 2)
-            .attr('cy', buttonSize / 2)
-            .attr('r', buttonSize / 2 - 2)
-            .style('fill', UI_TOKENS.color.neutral.white)
-            .style('stroke', UI_TOKENS.color.neutral.grey60)
-            .style('stroke-width', 1.5);
+        svg.append("rect")
+            .attr("class", "help-button-bg")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonSize - 1)
+            .attr("height", buttonSize - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .style("fill", buttonFill)
+            .style("stroke", buttonStroke)
+            .style("stroke-width", 1.5);
 
         svg.append('text')
             .attr('x', buttonSize / 2)
@@ -2201,14 +2315,22 @@ export class Header {
             .style('font-family', "Segoe UI, sans-serif")
             .style('font-size', `${UI_TOKENS.fontSize.md}px`)
             .style('font-weight', UI_TOKENS.fontWeight.bold)
-            .style('fill', UI_TOKENS.color.neutral.grey130)
+            .style('fill', HEADER_DOCK_TOKENS.buttonMuted)
             .text("?");
 
         btn.on("mouseover", function () {
-            d3.select(this).select("circle").style("stroke", UI_TOKENS.color.neutral.grey90);
+            d3.select(this).select<SVGRectElement>(".help-button-bg")
+                .style("fill", hoverFill)
+                .style("stroke", hoverStroke);
+            d3.select(this).select("text")
+                .style("fill", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", function () {
-                d3.select(this).select("circle").style("stroke", UI_TOKENS.color.neutral.grey60);
+                d3.select(this).select<SVGRectElement>(".help-button-bg")
+                    .style("fill", buttonFill)
+                    .style("stroke", buttonStroke);
+                d3.select(this).select("text")
+                    .style("fill", HEADER_DOCK_TOKENS.buttonMuted);
             });
     }
 }

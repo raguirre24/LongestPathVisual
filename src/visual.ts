@@ -27,7 +27,7 @@ import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-u
 import { DataProcessor, ProcessedData } from "./data/DataProcessor";
 import { Header, HeaderCallbacks, HeaderState } from "./components/Header";
 import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState, DataQualityInfo } from "./data/Interfaces";
-import { UI_TOKENS, LAYOUT_BREAKPOINTS } from "./utils/Theme";
+import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "./utils/Theme";
 
 type DrivingChain = {
     tasks: Set<string>;
@@ -311,7 +311,8 @@ export class Visual implements IVisual {
      */
     private getSecondRowLayout(viewportWidth: number): {
         dropdown: { width: number; left: number };
-        traceModeToggle: { left: number };
+        traceModeToggle: { left: number; width: number };
+        statusLabel: { left: number; width: number };
         floatThreshold: { maxWidth: number };
     } {
         const mode = this.getLayoutMode(viewportWidth);
@@ -335,15 +336,20 @@ export class Visual implements IVisual {
 
         dropdownLeft = Math.max(horizontalPadding, Math.min(dropdownLeft, maxLeft));
 
-        // Position Trace Mode Toggle right after the dropdown with a small gap
-        const traceGap = 15;
+        const traceButtonWidth = mode === "narrow" ? 30 : (mode === "medium" ? 68 : 92);
+        const traceContainerWidth = (traceButtonWidth * 2) + 10;
+        const traceGap = 12;
         const traceModeLeft = dropdownLeft + dropdownWidth + traceGap;
+        const statusGap = 12;
+        const statusLeft = traceModeLeft + traceContainerWidth + statusGap;
+        const statusWidth = Math.max(0, viewportWidth - statusLeft - horizontalPadding);
 
         const floatThresholdMaxWidth = mode === 'narrow' ? 180 : 250;
 
         return {
             dropdown: { width: dropdownWidth, left: dropdownLeft },
-            traceModeToggle: { left: traceModeLeft },
+            traceModeToggle: { left: traceModeLeft, width: traceContainerWidth },
+            statusLabel: { left: statusLeft, width: statusWidth },
             floatThreshold: { maxWidth: floatThresholdMaxWidth }
         };
     }
@@ -487,7 +493,7 @@ export class Visual implements IVisual {
             .style("min-height", `${this.headerHeight}px`)
             .style("flex-shrink", "0")
             .style("z-index", "100")
-            .style("background-color", "white")
+            .style("background-color", HEADER_DOCK_TOKENS.shell)
             .style("overflow", "visible");
 
         this.header = new Header(this.stickyHeaderContainer, {
@@ -569,16 +575,23 @@ export class Visual implements IVisual {
         this.selectedTaskLabel = this.stickyHeaderContainer.append("div")
             .attr("class", "selected-task-label")
             .style("position", "absolute")
-            .style("top", "10px")
-            .style("right", "15px")
-            .style("padding", "5px 10px")
-            .style("background-color", "rgba(255,255,255,0.8)")
-            .style("border", "1px solid #ccc")
-            .style("border-radius", "4px")
+            .style("top", `${this.SECOND_ROW_TOP}px`)
+            .style("left", "10px")
+            .style("height", `${UI_TOKENS.height.compact}px`)
+            .style("padding", "0 10px")
+            .style("align-items", "center")
+            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
+            .style("border-radius", `${UI_TOKENS.radius.pill}px`)
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
             .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", "9px")
-            .style("color", "#333")
-            .style("font-weight", "bold")
+            .style("font-size", this.fontPxFromPtSetting(8.5))
+            .style("color", HEADER_DOCK_TOKENS.chipText)
+            .style("font-weight", "600")
+            .style("white-space", "nowrap")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
+            .style("z-index", "24")
             .style("display", "none");
 
         this.pathInfoLabel = this.stickyHeaderContainer.append("div")
@@ -591,13 +604,13 @@ export class Visual implements IVisual {
             .style("display", "none")
             .style("align-items", "center")
             .style("gap", "4px")
-            .style("background-color", UI_TOKENS.color.neutral.white)
-            .style("border", `1px solid ${UI_TOKENS.color.primary.default}`)
+            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.primary}`)
             .style("border-radius", "12px")
-            .style("box-shadow", UI_TOKENS.shadow[2])
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
             .style("font-size", "11px")
-            .style("color", UI_TOKENS.color.primary.default)
+            .style("color", HEADER_DOCK_TOKENS.chipText)
             .style("font-weight", "600")
             .style("letter-spacing", "0.1px")
             .style("white-space", "nowrap")
@@ -613,14 +626,14 @@ export class Visual implements IVisual {
             .style("align-items", "center")
             .style("gap", "6px")
             .style("padding", "4px 10px")
-            .style("background-color", UI_TOKENS.color.warning.subtle)
-            .style("border", `1px solid ${UI_TOKENS.color.warning.default}`)
+            .style("background-color", HEADER_DOCK_TOKENS.warningBg)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.warning}`)
             .style("border-radius", `${UI_TOKENS.radius.pill}px`)
-            .style("box-shadow", UI_TOKENS.shadow[1])
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
             .style("font-size", "11px")
             .style("font-weight", "600")
-            .style("color", UI_TOKENS.color.warning.default)
+            .style("color", HEADER_DOCK_TOKENS.warningText)
             .style("white-space", "nowrap")
             .style("overflow", "hidden")
             .style("text-overflow", "ellipsis")
@@ -1161,9 +1174,9 @@ export class Visual implements IVisual {
 
         this.warningBanner
             .style("display", "inline-flex")
-            .style("background-color", this.highContrastMode ? this.highContrastBackground : UI_TOKENS.color.warning.subtle)
-            .style("border-color", this.resolveColor(UI_TOKENS.color.warning.default, "foreground"))
-            .style("color", this.resolveColor(UI_TOKENS.color.warning.default, "foreground"))
+            .style("background-color", this.highContrastMode ? this.highContrastBackground : HEADER_DOCK_TOKENS.warningBg)
+            .style("border-color", this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.warning)
+            .style("color", this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.warningText)
             .text(message)
             .attr("title", message);
     }
@@ -3490,7 +3503,7 @@ export class Visual implements IVisual {
             if (this.selectedTaskLabel) {
                 if (this.selectedTaskId && this.selectedTaskName && this.settings.pathSelection.showSelectedTaskLabel.value) {
                     this.selectedTaskLabel
-                        .style("display", "block")
+                        .style("display", "inline-flex")
                         .text(`${this.getLocalizedString("ui.selectedLabel", "Selected")}: ${this.selectedTaskName}`);
                 } else {
                     this.selectedTaskLabel.style("display", "none");
@@ -4038,7 +4051,7 @@ export class Visual implements IVisual {
         if (this.selectedTaskLabel) {
             if (this.selectedTaskId && this.selectedTaskName && this.settings.pathSelection.showSelectedTaskLabel.value) {
                 this.selectedTaskLabel
-                    .style("display", "block")
+                    .style("display", "inline-flex")
                     .text(`${this.getLocalizedString("ui.selectedLabel", "Selected")}: ${this.selectedTaskName}`);
             } else {
                 this.selectedTaskLabel.style("display", "none");
@@ -7095,12 +7108,12 @@ export class Visual implements IVisual {
         }
 
         return {
-            fill: "#2D333D",
-            stroke: "#232831",
-            label: "#F6F8FB",
-            secondaryLabel: "#D8DEEA",
-            divider: "#525A6A",
-            majorDivider: "#646D7F"
+            fill: HEADER_DOCK_TOKENS.commandBg,
+            stroke: HEADER_DOCK_TOKENS.commandStroke,
+            label: HEADER_DOCK_TOKENS.buttonText,
+            secondaryLabel: HEADER_DOCK_TOKENS.chipMuted,
+            divider: HEADER_DOCK_TOKENS.groupStroke,
+            majorDivider: HEADER_DOCK_TOKENS.buttonStroke
         };
     }
 
@@ -9818,6 +9831,9 @@ export class Visual implements IVisual {
         this.pathInfoLabel
             .style("padding", isCompact ? `0 ${UI_TOKENS.spacing.xs}px` : `0 ${UI_TOKENS.spacing.sm}px`)
             .style("gap", isCompact ? `${UI_TOKENS.spacing.xs}px` : `${UI_TOKENS.spacing.sm}px`)
+            .style("background-color", this.highContrastMode ? this.highContrastBackground : HEADER_DOCK_TOKENS.chipBg)
+            .style("border", `1px solid ${this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.primary}`)
+            .style("color", this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.chipText)
             .attr("title", "Current Path Information: Path Number | Total Tasks | Total Duration");
 
         this.pathInfoLabel.selectAll("*").remove();
@@ -9852,7 +9868,7 @@ export class Visual implements IVisual {
 
         prevSvg.append("path")
             .attr("d", "M 8 2 L 4 6 L 8 10")
-            .attr("stroke", UI_TOKENS.color.primary.default)
+            .attr("stroke", HEADER_DOCK_TOKENS.chipMuted)
             .attr("stroke-width", "2")
             .attr("stroke-linecap", "round")
             .attr("stroke-linejoin", "round")
@@ -9867,13 +9883,17 @@ export class Visual implements IVisual {
                 .attr("aria-label", buttonTitle)
                 .on("mouseover", function () {
                     d3.select(this)
-                        .style("background-color", UI_TOKENS.color.primary.light)
+                        .style("background-color", HEADER_DOCK_TOKENS.menuHover)
                         .style("transform", "scale(1.1)");
+                    d3.select(this).select("path")
+                        .attr("stroke", HEADER_DOCK_TOKENS.buttonText);
                 })
                 .on("mouseout", function () {
                     d3.select(this)
                         .style("background-color", "transparent")
                         .style("transform", "scale(1)");
+                    d3.select(this).select("path")
+                        .attr("stroke", HEADER_DOCK_TOKENS.chipMuted);
                 })
                 .on("mousedown", function () {
                     d3.select(this).style("transform", "scale(0.95)");
@@ -9906,30 +9926,33 @@ export class Visual implements IVisual {
         infoContainer.append("span")
             .style("font-weight", "700")
             .style("letter-spacing", "0.15px")
+            .style("color", HEADER_DOCK_TOKENS.chipText)
             .text(isCompact ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`)
             .attr("aria-label", `Currently viewing path ${pathNumber} of ${totalPaths}`);
 
         if (!isCompact) {
             infoContainer.append("span")
-                .style("color", UI_TOKENS.color.primary.default)
+                .style("color", HEADER_DOCK_TOKENS.primary)
                 .style("font-weight", "600")
                 .attr("aria-hidden", "true")
                 .text("|");
 
             infoContainer.append("span")
                 .style("font-weight", "500")
+                .style("color", HEADER_DOCK_TOKENS.chipText)
                 .attr("aria-label", `${taskCount} tasks in this path`)
                 .text(`${taskCount} tasks`);
 
             if (!isMedium) {
                 infoContainer.append("span")
-                    .style("color", UI_TOKENS.color.primary.default)
+                    .style("color", HEADER_DOCK_TOKENS.primary)
                     .style("font-weight", "600")
                     .attr("aria-hidden", "true")
                     .text("|");
 
                 infoContainer.append("span")
                     .style("font-weight", "500")
+                    .style("color", HEADER_DOCK_TOKENS.chipText)
                     .attr("aria-label", `Total duration ${duration} days`)
                     .text(`${duration} days`);
             }
@@ -9957,7 +9980,7 @@ export class Visual implements IVisual {
 
         nextSvg.append("path")
             .attr("d", "M 4 2 L 8 6 L 4 10")
-            .attr("stroke", UI_TOKENS.color.primary.default)
+            .attr("stroke", HEADER_DOCK_TOKENS.chipMuted)
             .attr("stroke-width", "2")
             .attr("stroke-linecap", "round")
             .attr("stroke-linejoin", "round")
@@ -9970,13 +9993,17 @@ export class Visual implements IVisual {
                 .attr("aria-label", nextButtonTitle)
                 .on("mouseover", function () {
                     d3.select(this)
-                        .style("background-color", UI_TOKENS.color.primary.light)
+                        .style("background-color", HEADER_DOCK_TOKENS.menuHover)
                         .style("transform", "scale(1.1)");
+                    d3.select(this).select("path")
+                        .attr("stroke", HEADER_DOCK_TOKENS.buttonText);
                 })
                 .on("mouseout", function () {
                     d3.select(this)
                         .style("background-color", "transparent")
                         .style("transform", "scale(1)");
+                    d3.select(this).select("path")
+                        .attr("stroke", HEADER_DOCK_TOKENS.chipMuted);
                 })
                 .on("mousedown", function () {
                     d3.select(this).style("transform", "scale(0.95)");
@@ -11948,30 +11975,30 @@ export class Visual implements IVisual {
             .style("width", `${dropdownWidth}px`)
             .style("height", `${UI_TOKENS.height.compact}px`)
             .style("padding", `0 ${UI_TOKENS.spacing.lg}px`)
-            .style("border", `1.5px solid ${UI_TOKENS.color.neutral.grey60}`)
-            .style("border-radius", `${UI_TOKENS.radius.medium}px`)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
+            .style("border-radius", `${UI_TOKENS.radius.pill}px`)
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-            .style("font-size", `${UI_TOKENS.fontSize.lg}px`)
-            .style("color", UI_TOKENS.color.neutral.grey160)
-            .style("background", UI_TOKENS.color.neutral.white)
+            .style("font-size", this.fontPxFromPtSetting(8.5))
+            .style("font-weight", "500")
+            .style("color", HEADER_DOCK_TOKENS.chipText)
+            .style("background", HEADER_DOCK_TOKENS.inputBg)
             .style("box-sizing", "border-box")
             .style("outline", "none")
-            .style("box-shadow", UI_TOKENS.shadow[2])
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
             .style("transition", `all ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.smooth}`);
 
-        const selfRef = this;
         this.dropdownInput
             .on("focus", function () {
                 d3.select(this)
-                    .style("border-color", UI_TOKENS.color.primary.default)
-                    .style("border-width", "2px")
-                    .style("box-shadow", UI_TOKENS.shadow[4]);
+                    .style("border-color", HEADER_DOCK_TOKENS.inputFocus)
+                    .style("border-width", "1px")
+                    .style("box-shadow", `0 0 0 2px ${HEADER_DOCK_TOKENS.primaryBg}`);
             })
             .on("blur", function () {
                 d3.select(this)
-                    .style("border-color", UI_TOKENS.color.neutral.grey60)
-                    .style("border-width", "1.5px")
-                    .style("box-shadow", UI_TOKENS.shadow[2]);
+                    .style("border-color", HEADER_DOCK_TOKENS.inputStroke)
+                    .style("border-width", "1px")
+                    .style("box-shadow", HEADER_DOCK_TOKENS.shadow);
             });
 
         let listSelection = this.dropdownContainer.select<HTMLDivElement>("div.task-selection-list");
@@ -11990,12 +12017,12 @@ export class Visual implements IVisual {
             .style("left", "0")
             .style("width", `${dropdownWidth}px`)
             .style("max-height", "400px")
-            .style("margin-top", `${UI_TOKENS.spacing.xs}px`)
+            .style("margin-top", "6px")
             .style("overflow-y", "auto")
-            .style("background", UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${UI_TOKENS.color.neutral.grey60}`)
+            .style("background", HEADER_DOCK_TOKENS.menuBg)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.menuStroke}`)
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
-            .style("box-shadow", UI_TOKENS.shadow[8])
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
             .style("display", "none")
             .style("z-index", "1000")
             .style("box-sizing", "border-box");
@@ -12104,16 +12131,17 @@ export class Visual implements IVisual {
         }
 
         if (this.selectedTaskLabel) {
-
             this.selectedTaskLabel
                 .style("position", "absolute")
-                .style("top", "10px")
-                .style("right", "15px")
-                .style("left", "auto");
+                .style("top", `${this.SECOND_ROW_TOP}px`)
+                .style("left", `${secondRowLayout.statusLabel.left}px`)
+                .style("right", "auto")
+                .style("width", `${secondRowLayout.statusLabel.width}px`)
+                .style("max-width", `${secondRowLayout.statusLabel.width}px`);
 
-            if (this.selectedTaskId && this.selectedTaskName && showSelectedTaskLabel) {
+            if (this.selectedTaskId && this.selectedTaskName && showSelectedTaskLabel && secondRowLayout.statusLabel.width >= 96) {
                 this.selectedTaskLabel
-                    .style("display", "block")
+                    .style("display", "inline-flex")
                     .text(`${selectedLabelPrefix}: ${this.selectedTaskName}`);
             } else {
                 this.selectedTaskLabel.style("display", "none");
@@ -12171,16 +12199,17 @@ export class Visual implements IVisual {
             .style("position", "absolute")
             .style("top", `${this.SECOND_ROW_TOP}px`)
             .style("left", `${secondRowLayout.traceModeToggle.left}px`)
+            .style("width", `${secondRowLayout.traceModeToggle.width}px`)
             .style("display", "inline-flex")
             .style("align-items", "center")
             .style("height", `${UI_TOKENS.height.compact}px`) // 24px
             .style("padding", "0 2px")
             .style("gap", "2px")
-            .style("background-color", UI_TOKENS.color.neutral.white)
-            .style("border", `1.5px solid ${UI_TOKENS.color.neutral.grey60}`)
+            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
             .style("border-radius", `${UI_TOKENS.radius.pill}px`)
             .style("box-sizing", "border-box")
-            .style("box-shadow", UI_TOKENS.shadow[2])
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
             .style("z-index", "25")
             .style("user-select", "none");
 
@@ -12218,7 +12247,9 @@ export class Visual implements IVisual {
 
         for (const option of options) {
             const isActive = option.value === currentMode;
-            const buttonSize = UI_TOKENS.height.compact - 6; // ~18px
+            const optionLabel = option.value === "backward" ? labelBackward : labelForward;
+            const buttonWidth = Math.floor((secondRowLayout.traceModeToggle.width - 6) / 2);
+            const buttonHeight = UI_TOKENS.height.compact - 6;
 
             const button = container.append("div")
                 .attr("class", `trace-mode-option ${option.value}`)
@@ -12229,12 +12260,17 @@ export class Visual implements IVisual {
                 .style("display", "flex")
                 .style("align-items", "center")
                 .style("justify-content", "center")
-                .style("width", `${buttonSize + 8}px`) // Slightly wider than tall for easier clicking
-                .style("height", `${buttonSize}px`)
+                .style("gap", isCompact ? "0" : "4px")
+                .style("width", `${buttonWidth}px`)
+                .style("height", `${buttonHeight}px`)
                 .style("border-radius", `${UI_TOKENS.radius.pill}px`)
-                .style("background-color", isActive ? UI_TOKENS.color.primary.default : "transparent")
+                .style("background-color", isActive ? HEADER_DOCK_TOKENS.primaryBg : "transparent")
+                .style("color", isActive ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.chipMuted)
                 .style("cursor", "pointer")
-                .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`);
+                .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
+                .style("font-family", this.getFontFamily())
+                .style("font-size", this.fontPxFromPtSetting(8))
+                .style("font-weight", "600");
 
             const svg = button.append("svg")
                 .attr("width", "16")
@@ -12245,10 +12281,17 @@ export class Visual implements IVisual {
             svg.append("path")
                 .attr("d", option.path)
                 .attr("fill", "none")
-                .attr("stroke", isActive ? UI_TOKENS.color.neutral.white : UI_TOKENS.color.neutral.grey130)
+                .attr("stroke", isActive ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.chipMuted)
                 .attr("stroke-width", "2")
                 .attr("stroke-linecap", "round")
                 .attr("stroke-linejoin", "round");
+
+            if (!isCompact) {
+                button.append("span")
+                    .style("pointer-events", "none")
+                    .style("white-space", "nowrap")
+                    .text(optionLabel);
+            }
 
             button.append("title").text(option.title);
 
@@ -12256,17 +12299,19 @@ export class Visual implements IVisual {
                 .on("mouseover", function () {
                     if (option.value !== self.traceMode) {
                         d3.select(this)
-                            .style("background-color", UI_TOKENS.color.primary.light);
+                            .style("background-color", HEADER_DOCK_TOKENS.menuHover)
+                            .style("color", HEADER_DOCK_TOKENS.buttonText);
                         d3.select(this).select("path")
-                            .attr("stroke", UI_TOKENS.color.primary.default);
+                            .attr("stroke", HEADER_DOCK_TOKENS.buttonText);
                     }
                 })
                 .on("mouseout", function () {
                     if (option.value !== self.traceMode) {
                         d3.select(this)
-                            .style("background-color", "transparent");
+                            .style("background-color", "transparent")
+                            .style("color", HEADER_DOCK_TOKENS.chipMuted);
                         d3.select(this).select("path")
-                            .attr("stroke", UI_TOKENS.color.neutral.grey130);
+                            .attr("stroke", HEADER_DOCK_TOKENS.chipMuted);
                     }
                 })
                 .on("click", function (event) {
@@ -12408,7 +12453,7 @@ export class Visual implements IVisual {
             const isActive = thisFocusIndex === this.dropdownActiveIndex;
             const isSelected = item.type === "task" && item.task?.internalId === this.selectedTaskId;
 
-            const defaultBg = isSelected ? "#f0f0f0" : "white";
+            const defaultBg = isSelected ? HEADER_DOCK_TOKENS.menuActive : HEADER_DOCK_TOKENS.menuBg;
             const row = this.dropdownList.append("div")
                 .attr("class", `dropdown-item ${item.type}`)
                 .attr("id", item.id)
@@ -12418,16 +12463,20 @@ export class Visual implements IVisual {
                 .attr("data-default-bg", defaultBg)
                 .style("padding", isFocusable ? "6px 10px" : "8px 10px")
                 .style("cursor", isFocusable ? "pointer" : "default")
-                .style("color", item.type === "clear" ? "#666" : (item.type === "empty" || item.type === "overflow" ? "#999" : "#333"))
+                .style("color", item.type === "clear"
+                    ? HEADER_DOCK_TOKENS.chipMuted
+                    : (item.type === "empty" || item.type === "overflow"
+                        ? HEADER_DOCK_TOKENS.buttonSubtle
+                        : HEADER_DOCK_TOKENS.chipText))
                 .style("font-style", item.type === "clear" || item.type === "empty" || item.type === "overflow" ? "italic" : "normal")
-                .style("border-bottom", item.type === "task" ? "1px solid #f5f5f5" : "1px solid #eee")
+                .style("border-bottom", `1px solid ${HEADER_DOCK_TOKENS.menuStroke}`)
                 .style("white-space", "normal")
                 .style("word-wrap", "break-word")
                 .style("overflow-wrap", "break-word")
                 .style("line-height", "1.4")
                 .style("font-size", item.type === "task" ? "11px" : "10px")
                 .style("font-family", "Segoe UI, sans-serif")
-                .style("background-color", isActive ? "#e6f7ff" : defaultBg)
+                .style("background-color", isActive ? HEADER_DOCK_TOKENS.menuHover : defaultBg)
                 .style("font-weight", isSelected ? "600" : "normal")
                 .text(item.label);
 
@@ -12439,7 +12488,7 @@ export class Visual implements IVisual {
 
             if (isFocusable) {
                 row.on("mouseover", function () {
-                    (this as HTMLDivElement).style.backgroundColor = "#e6f7ff";
+                    (this as HTMLDivElement).style.backgroundColor = HEADER_DOCK_TOKENS.menuHover;
                 })
                     .on("mouseout", function () {
                         self.updateDropdownActiveState();
@@ -12522,10 +12571,10 @@ export class Visual implements IVisual {
             .each(function () {
                 const node = this as HTMLDivElement;
                 const isActive = node.id === activeId;
-                const defaultBg = node.getAttribute("data-default-bg") || "white";
+                const defaultBg = node.getAttribute("data-default-bg") || HEADER_DOCK_TOKENS.menuBg;
                 const isSelected = node.getAttribute("data-selected") === "true";
                 node.setAttribute("aria-selected", isSelected ? "true" : "false");
-                node.style.backgroundColor = isActive ? "#e6f7ff" : defaultBg;
+                node.style.backgroundColor = isActive ? HEADER_DOCK_TOKENS.menuHover : defaultBg;
             });
 
         if (activeId) {
@@ -12574,7 +12623,7 @@ export class Visual implements IVisual {
         if (this.selectedTaskLabel) {
             if (taskId && taskName && this.settings.pathSelection.showSelectedTaskLabel.value) {
                 this.selectedTaskLabel
-                    .style("display", "block")
+                    .style("display", "inline-flex")
                     .text(`${selectedLabelPrefix}: ${taskName}`);
             } else {
                 this.selectedTaskLabel.style("display", "none");
@@ -13148,7 +13197,7 @@ export class Visual implements IVisual {
         if (!this.highContrastMode) {
             // Use background color from settings
             const bgColor = this.getVisualBackgroundColor();
-            this.stickyHeaderContainer?.style("background-color", bgColor);
+            this.stickyHeaderContainer?.style("background-color", HEADER_DOCK_TOKENS.shell);
             this.legendContainer?.style("background-color", bgColor);
             if (this.scrollableContainer) {
                 this.scrollableContainer.style("background-color", bgColor);
@@ -13177,6 +13226,11 @@ export class Visual implements IVisual {
             ?.style("background-color", background)
             .style("color", foreground)
             .style("border", `1.5px solid ${foreground}`);
+
+        this.warningBanner
+            ?.style("background-color", background)
+            .style("color", foreground)
+            .style("border", `1px solid ${foreground}`);
 
         if (this.dropdownInput) {
             this.dropdownInput
