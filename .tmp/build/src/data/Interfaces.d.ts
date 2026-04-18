@@ -71,6 +71,7 @@ export interface WBSGroup {
     summaryBaselineFinishDate?: Date | null;
     summaryPreviousUpdateStartDate?: Date | null;
     summaryPreviousUpdateFinishDate?: Date | null;
+    summaryTotalFloat?: number | null;
 }
 export interface Relationship {
     predecessorId: string;

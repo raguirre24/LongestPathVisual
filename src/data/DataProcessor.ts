@@ -812,7 +812,8 @@ export class DataProcessor {
                 summaryBaselineStartDate: null,
                 summaryBaselineFinishDate: null,
                 summaryPreviousUpdateStartDate: null,
-                summaryPreviousUpdateFinishDate: null
+                summaryPreviousUpdateFinishDate: null,
+                summaryTotalFloat: null
             };
 
             data.wbsGroups.push(group);
@@ -855,6 +856,7 @@ export class DataProcessor {
             let baselineMaxFinish: Date | null = null;
             let prevUpdateMinStart: Date | null = null;
             let prevUpdateMaxFinish: Date | null = null;
+            let minTotalFloat: number | null = null;
 
             let hasCritical = false;
             let hasNearCritical = false;
@@ -889,6 +891,13 @@ export class DataProcessor {
                 if (task.isNearCritical) {
                     if (visualStart && (!nearCriticalMinStart || visualStart < nearCriticalMinStart)) nearCriticalMinStart = visualStart;
                     if (visualFinish && (!nearCriticalMaxFinish || visualFinish > nearCriticalMaxFinish)) nearCriticalMaxFinish = visualFinish;
+                }
+
+                const taskFloat = task.userProvidedTotalFloat ?? task.totalFloat;
+                if (isFinite(taskFloat)) {
+                    minTotalFloat = minTotalFloat === null
+                        ? taskFloat
+                        : Math.min(minTotalFloat, taskFloat);
                 }
             }
 
@@ -926,6 +935,12 @@ export class DataProcessor {
                 if (child.nearCriticalFinishDate) {
                     if (!nearCriticalMaxFinish || child.nearCriticalFinishDate > nearCriticalMaxFinish) nearCriticalMaxFinish = child.nearCriticalFinishDate;
                 }
+
+                if (typeof child.summaryTotalFloat === "number" && isFinite(child.summaryTotalFloat)) {
+                    minTotalFloat = minTotalFloat === null
+                        ? child.summaryTotalFloat
+                        : Math.min(minTotalFloat, child.summaryTotalFloat);
+                }
             }
 
             // 4. Set Result
@@ -941,6 +956,7 @@ export class DataProcessor {
             group.summaryBaselineFinishDate = baselineMaxFinish;
             group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
             group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
+            group.summaryTotalFloat = minTotalFloat;
         };
 
         for (const rootGroup of data.wbsRootGroups) {

@@ -76,6 +76,17 @@ export declare class Visual implements IVisual {
     private margin;
     private headerHeight;
     private readonly SECOND_ROW_TOP;
+    private readonly HEADER_BAND_HEIGHT;
+    private readonly HEADER_CONTROLS_GAP;
+    private readonly HEADER_BOTTOM_PADDING;
+    private readonly HEADER_LINE_LABEL_EDGE_PADDING;
+    private readonly HEADER_LINE_LABEL_GAP;
+    private readonly HEADER_LINE_LABEL_MIN_HEIGHT;
+    private readonly HEADER_LINE_LABEL_PADDING_X;
+    private readonly HEADER_LINE_LABEL_PADDING_Y;
+    private readonly WBS_LEVEL_ACCENT_WIDTH;
+    private readonly WBS_TOGGLE_BOX_SIZE;
+    private readonly WBS_TASK_LABEL_INSET;
     private legendFooterHeight;
     private dateLabelOffset;
     private floatTolerance;
@@ -220,6 +231,9 @@ export declare class Visual implements IVisual {
      * Returns second row layout (dropdown, trace mode toggle) based on viewport width
      */
     private getSecondRowLayout;
+    private getEstimatedHeaderControlsBottom;
+    private getMinimumRequiredHeaderHeight;
+    private applyHeaderHeight;
     private pointsToCssPx;
     private fontPxFromPtSetting;
     private snapLineCoord;
@@ -499,6 +513,12 @@ export declare class Visual implements IVisual {
      */
     private drawTaskLabelsLayer;
     private getLabelColumnLayout;
+    private getHeaderBandMetrics;
+    private getHeaderBandPalette;
+    private getWbsCountLabel;
+    private getWbsDisplayName;
+    private getFloatDisplayColor;
+    private reflowHeaderLineLabels;
     private drawColumnHeaders;
     /**
      * Draws vertical separator lines through the task label area, matching column headers
