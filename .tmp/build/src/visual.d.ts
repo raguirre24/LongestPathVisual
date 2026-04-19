@@ -231,6 +231,7 @@ export declare class Visual implements IVisual {
      * Returns second row layout (dropdown, trace mode toggle) based on viewport width
      */
     private getSecondRowLayout;
+    private getSecondRowControlTop;
     private getEstimatedHeaderControlsBottom;
     private getMinimumRequiredHeaderHeight;
     private applyHeaderHeight;

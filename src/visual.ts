@@ -382,6 +382,13 @@ export class Visual implements IVisual {
         };
     }
 
+    private getSecondRowControlTop(controlHeight: number): number {
+        const laneTop = this.SECOND_ROW_TOP;
+        const laneBottom = this.getHeaderBandMetrics().top;
+        const laneHeight = Math.max(0, laneBottom - laneTop);
+        return this.snapRectCoord(laneTop + Math.max(0, (laneHeight - controlHeight) / 2));
+    }
+
     private getEstimatedHeaderControlsBottom(): number {
         let bottom = 10 + UI_TOKENS.height.compact;
 
@@ -5919,7 +5926,7 @@ export class Visual implements IVisual {
                 .attr("y", headerBandMetrics.majorLabelY)
                 .style("font-family", this.getFontFamily())
                 .style("font-size", this.fontPxFromPtSetting(labelFontSize))
-                .style("fill", headerPalette.secondaryLabel)
+                .style("fill", labelColor)
                 .text((d: Date) => {
                     // Hide if way off screen to the left? 
                     // Since we align "start", if x < -100 it's gone anyway.
@@ -11870,6 +11877,7 @@ export class Visual implements IVisual {
         const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
         const secondRowLayout = this.getSecondRowLayout(viewportWidth);
         const dropdownWidth = secondRowLayout.dropdown.width;
+        const secondRowControlTop = this.getSecondRowControlTop(UI_TOKENS.height.compact);
         const showSelectedTaskLabel = this.settings.pathSelection.showSelectedTaskLabel.value;
         const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
         const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
@@ -11882,7 +11890,7 @@ export class Visual implements IVisual {
 
         this.dropdownContainer
             .style("position", "absolute")
-            .style("top", `${this.SECOND_ROW_TOP}px`)
+            .style("top", `${secondRowControlTop}px`)
             .style("left", `${secondRowLayout.dropdown.left}px`)
             .style("right", "auto")
             .style("transform", "none")
@@ -12068,7 +12076,7 @@ export class Visual implements IVisual {
         if (this.selectedTaskLabel) {
             this.selectedTaskLabel
                 .style("position", "absolute")
-                .style("top", `${this.SECOND_ROW_TOP}px`)
+                .style("top", `${secondRowControlTop}px`)
                 .style("left", `${secondRowLayout.statusLabel.left}px`)
                 .style("right", "auto")
                 .style("width", `${secondRowLayout.statusLabel.width}px`)
@@ -12118,6 +12126,7 @@ export class Visual implements IVisual {
         const labelForward = isCompact ? "Fwd" : (isMedium ? "Forward" : "Trace Forward");
         const configuredMode = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
         const currentMode = this.normalizeTraceMode(this.traceMode || configuredMode);
+        const secondRowControlTop = this.getSecondRowControlTop(UI_TOKENS.height.compact);
         this.traceMode = currentMode;
 
         let container = this.stickyHeaderContainer.select<HTMLDivElement>(".trace-mode-toggle");
@@ -12132,7 +12141,7 @@ export class Visual implements IVisual {
             .attr("aria-label", this.getLocalizedString("ui.traceModeLabel", "Trace Mode"))
             .attr("title", this.getLocalizedString("ui.traceModeTooltip", "Select direction to trace dependencies from the selected task"))
             .style("position", "absolute")
-            .style("top", `${this.SECOND_ROW_TOP}px`)
+            .style("top", `${secondRowControlTop}px`)
             .style("left", `${secondRowLayout.traceModeToggle.left}px`)
             .style("width", `${secondRowLayout.traceModeToggle.width}px`)
             .style("display", "inline-flex")

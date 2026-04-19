@@ -64,6 +64,10 @@ export declare class Header {
      */
     showCopySuccess(): void;
     private lightenColor;
+    private tintGlyph;
+    private drawConnectorDependencyGlyph;
+    private drawWbsHierarchyGlyph;
+    private drawColumnVisibilityGlyph;
     setExporting(isExporting: boolean): void;
     private createOrUpdateToggleButton;
     private createOrUpdateBaselineToggleButton;

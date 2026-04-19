@@ -318,6 +318,182 @@ export class Header {
         return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
     }
 
+    private tintGlyph(iconG: Selection<SVGGElement, unknown, null, undefined>, color: string): void {
+        iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", color);
+        iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", color);
+    }
+
+    private drawConnectorDependencyGlyph(
+        iconG: Selection<SVGGElement, unknown, null, undefined>,
+        color: string,
+        isActive: boolean
+    ): void {
+        [
+            { x: -8, y: -7, width: 7, height: 4 },
+            { x: 1, y: 4, width: 7, height: 4 }
+        ].forEach(bar => {
+            iconG.append("rect")
+                .attr("class", "glyph-fill")
+                .attr("x", bar.x)
+                .attr("y", bar.y)
+                .attr("width", bar.width)
+                .attr("height", bar.height)
+                .attr("rx", 1.6)
+                .attr("ry", 1.6)
+                .attr("fill", color)
+                .attr("fill-opacity", isActive ? 1 : 0.85);
+        });
+
+        iconG.append("path")
+            .attr("class", "glyph-stroke")
+            .attr("d", "M-1,-5 H3 V6 H1")
+            .attr("stroke", color)
+            .attr("stroke-width", 1.8)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round")
+            .attr("stroke-dasharray", isActive ? null : "2.4,2.4");
+
+        if (isActive) {
+            iconG.append("path")
+                .attr("class", "glyph-stroke")
+                .attr("d", "M-1,4 L1,6 L-1,8")
+                .attr("stroke", color)
+                .attr("stroke-width", 1.8)
+                .attr("fill", "none")
+                .attr("stroke-linecap", "round")
+                .attr("stroke-linejoin", "round");
+        }
+    }
+
+    private drawWbsHierarchyGlyph(
+        iconG: Selection<SVGGElement, unknown, null, undefined>,
+        color: string,
+        mode: "tree" | "flat",
+        control?: "plus" | "minus"
+    ): void {
+        const rowCenters = [-6, 0, 6];
+        const rows = mode === "tree"
+            ? [
+                { x: -5.5, width: 10.5 },
+                { x: -1.5, width: 8.5 },
+                { x: 0.5, width: 6.5 }
+            ]
+            : [
+                { x: -5.5, width: 10.5 },
+                { x: -5.5, width: 10.5 },
+                { x: -5.5, width: 10.5 }
+            ];
+
+        if (mode === "tree") {
+            iconG.append("path")
+                .attr("class", "glyph-stroke")
+                .attr("d", "M-8,-6 H-5.5 M-8,-6 V6 M-8,0 H-1.5 M-8,6 H0.5")
+                .attr("stroke", color)
+                .attr("stroke-width", 1.5)
+                .attr("fill", "none")
+                .attr("stroke-linecap", "round")
+                .attr("stroke-linejoin", "round");
+        }
+
+        rows.forEach((row, index) => {
+            iconG.append("rect")
+                .attr("class", "glyph-fill")
+                .attr("x", row.x)
+                .attr("y", rowCenters[index] - 1.6)
+                .attr("width", row.width)
+                .attr("height", 3.2)
+                .attr("rx", 1.6)
+                .attr("ry", 1.6)
+                .attr("fill", color);
+        });
+
+        if (control) {
+            iconG.append("circle")
+                .attr("class", "glyph-stroke")
+                .attr("cx", 6.5)
+                .attr("cy", -6.5)
+                .attr("r", 3.2)
+                .attr("stroke", color)
+                .attr("stroke-width", 1.4)
+                .attr("fill", "none");
+
+            iconG.append("path")
+                .attr("class", "glyph-stroke")
+                .attr("d", control === "plus"
+                    ? "M4.9,-6.5 H8.1 M6.5,-8.1 V-4.9"
+                    : "M4.9,-6.5 H8.1")
+                .attr("stroke", color)
+                .attr("stroke-width", 1.6)
+                .attr("fill", "none")
+                .attr("stroke-linecap", "round");
+        }
+    }
+
+    private drawColumnVisibilityGlyph(
+        iconG: Selection<SVGGElement, unknown, null, undefined>,
+        color: string,
+        isVisible: boolean
+    ): void {
+        iconG.append("rect")
+            .attr("class", "glyph-stroke")
+            .attr("x", -6.5)
+            .attr("y", -6)
+            .attr("width", 13)
+            .attr("height", 12)
+            .attr("rx", 1.8)
+            .attr("ry", 1.8)
+            .attr("stroke", color)
+            .attr("stroke-width", 1.4)
+            .attr("fill", "none");
+
+        if (isVisible) {
+            [-2, 2].forEach(x => {
+                iconG.append("line")
+                    .attr("class", "glyph-stroke")
+                    .attr("x1", x)
+                    .attr("x2", x)
+                    .attr("y1", -6)
+                    .attr("y2", 6)
+                    .attr("stroke", color)
+                    .attr("stroke-width", 1.4)
+                    .attr("stroke-linecap", "round");
+            });
+
+            iconG.append("rect")
+                .attr("class", "glyph-fill")
+                .attr("x", 2.7)
+                .attr("y", -5)
+                .attr("width", 2.6)
+                .attr("height", 10)
+                .attr("rx", 1.1)
+                .attr("ry", 1.1)
+                .attr("fill", color)
+                .attr("fill-opacity", 0.9);
+            return;
+        }
+
+        iconG.append("rect")
+            .attr("class", "glyph-fill")
+            .attr("x", -5.2)
+            .attr("y", -5)
+            .attr("width", 6.7)
+            .attr("height", 10)
+            .attr("rx", 1.1)
+            .attr("ry", 1.1)
+            .attr("fill", color)
+            .attr("fill-opacity", 0.88);
+
+        iconG.append("path")
+            .attr("class", "glyph-stroke")
+            .attr("d", "M3.2,-3.5 L6,0 L3.2,3.5")
+            .attr("stroke", color)
+            .attr("stroke-width", 1.8)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round");
+    }
+
     public setExporting(isExporting: boolean): void {
         this.exportButtonLoading = isExporting;
 
@@ -422,9 +598,7 @@ export class Header {
         const iconCenterX = buttonWidth / 2;
         const iconCenterY = buttonHeight / 2;
 
-        // Draw filter/funnel-like icon for critical path
         if (isShowingCritical) {
-            // "Show All" icon (list view)
             svg.append("rect")
                 .attr("x", iconCenterX - 6)
                 .attr("y", iconCenterY - 6)
@@ -442,25 +616,22 @@ export class Header {
             svg.append("rect")
                 .attr("x", iconCenterX - 6)
                 .attr("y", iconCenterY + 4)
-                .attr("width", 8) // slightly shorter
+                .attr("width", 8)
                 .attr("height", 2)
                 .attr("rx", 1)
                 .attr("fill", iconColor);
         } else {
-            // "Critical Path" icon - Warning Triangle Style
             const iconG = svg.append("g")
                 .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
 
-            // Triangle Body (Red)
             iconG.append("path")
                 .attr("d", "M 0,-7 L 8,7 L -8,7 Z")
                 .attr("fill", UI_TOKENS.color.danger.default)
                 .attr("stroke", UI_TOKENS.color.danger.default)
-                .attr("stroke-width", 4) // Thicker stroke for rounded effect
+                .attr("stroke-width", 4)
                 .attr("stroke-linejoin", "round")
                 .attr("stroke-linecap", "round");
 
-            // Exclamation Mark - Top Bar (White)
             iconG.append("rect")
                 .attr("x", -1.25)
                 .attr("y", -3)
@@ -469,7 +640,6 @@ export class Header {
                 .attr("rx", 1.25)
                 .attr("fill", UI_TOKENS.color.neutral.white);
 
-            // Exclamation Mark - Dot (White)
             iconG.append("circle")
                 .attr("cx", 0)
                 .attr("cy", 5)
@@ -1170,29 +1340,11 @@ export class Header {
             .attr("stroke", buttonStroke)
             .attr("stroke-width", showConnectorLines ? 1.5 : 1);
 
-        const iconCenter = (buttonSize / 2) - 2;
+        const iconColor = showConnectorLines ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
         const iconG = svg.append("g")
-            .attr("transform", `translate(${iconCenter}, ${iconCenter})`);
+            .attr("transform", `translate(${buttonSize / 2}, ${buttonSize / 2})`);
 
-        iconG.append("path")
-            .attr("d", "M-6,-3 L0,3 L6,-3")
-            .attr("stroke", showConnectorLines ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted)
-            .attr("stroke-width", 2)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round")
-            .attr("stroke-dasharray", showConnectorLines ? "none" : "3,2")
-            .style("transition", `all ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.smooth}`);
-
-        if (showConnectorLines) {
-            iconG.append("circle")
-                .attr("cx", -6).attr("cy", -3).attr("r", 1.5)
-                .attr("fill", HEADER_DOCK_TOKENS.buttonText);
-
-            iconG.append("circle")
-                .attr("cx", 6).attr("cy", -3).attr("r", 1.5)
-                .attr("fill", HEADER_DOCK_TOKENS.buttonText);
-        }
+        this.drawConnectorDependencyGlyph(iconG, iconColor, showConnectorLines);
 
         btn.append("title")
             .text(showConnectorLines
@@ -1203,25 +1355,15 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-
-            if (showConnectorLines) {
-                iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
-                iconG.selectAll("circle").attr("fill", HEADER_DOCK_TOKENS.buttonText);
-            } else {
-                iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
-            }
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", function () {
                 bgRect.attr("fill", buttonFill)
                     .attr("stroke", buttonStroke)
                     .attr("stroke-width", showConnectorLines ? 1.5 : 1);
-
-                if (showConnectorLines) {
-                    iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
-                    iconG.selectAll("circle").attr("fill", HEADER_DOCK_TOKENS.buttonText);
-                } else {
-                    iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonMuted);
-                }
+                iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", iconColor);
+                iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", iconColor);
             })
             .on("mousedown", function () {
                 d3.select(this).style("transform", "scale(0.95)");
@@ -1307,25 +1449,10 @@ export class Header {
             .attr("stroke", buttonStroke)
             .attr("stroke-width", wbsExpanded ? 1.5 : 1);
 
-        const iconCenterX = buttonSize / 2;
-        const iconCenterY = (buttonSize / 2) - 4;
         const iconG = svg.append("g")
-            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
+            .attr("transform", `translate(${buttonSize / 2}, ${(buttonSize / 2) - 4})`);
 
-        iconG.append("path")
-            .attr("d", "M-4,0 L4,0 M0,-4 L0,4")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 2.2)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round");
-
-        iconG.append("path")
-            .attr("d", "M-4,5 L0,8 L4,5")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 1.8)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round");
+        this.drawWbsHierarchyGlyph(iconG, iconColor, "tree", "plus");
 
         const badgeText = isCustom ? "C" : `L${currentLevel}`;
 
@@ -1345,13 +1472,15 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-            iconG.selectAll("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
             textEl.style("fill", HEADER_DOCK_TOKENS.buttonText);
         }).on("mouseout", function () {
             bgRect.attr("fill", buttonFill)
                 .attr("stroke", buttonStroke)
                 .attr("stroke-width", wbsExpanded ? 1.5 : 1);
-            iconG.selectAll("path").attr("stroke", iconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", iconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", iconColor);
             textEl.style("fill", iconColor);
         });
     }
@@ -1432,25 +1561,10 @@ export class Header {
             .attr("stroke", buttonStroke)
             .attr("stroke-width", isCollapsed ? 1.5 : 1);
 
-        const iconCenterX = buttonSize / 2;
-        const iconCenterY = (buttonSize / 2) - 4;
         const iconG = svg.append("g")
-            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
+            .attr("transform", `translate(${buttonSize / 2}, ${(buttonSize / 2) - 4})`);
 
-        iconG.append("path")
-            .attr("d", "M-5,0 L5,0")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 2.2)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round");
-
-        iconG.append("path")
-            .attr("d", "M-4,-3 L0,-7 L4,-3")
-            .attr("stroke", iconColor)
-            .attr("stroke-width", 1.8)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round");
+        this.drawWbsHierarchyGlyph(iconG, iconColor, "tree", "minus");
 
         const badgeText = isCustom ? "C" : `L${currentLevel}`;
 
@@ -1470,13 +1584,15 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-            iconG.selectAll("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
             textEl.style("fill", HEADER_DOCK_TOKENS.buttonText);
         }).on("mouseout", function () {
             bgRect.attr("fill", buttonFill)
                 .attr("stroke", buttonStroke)
                 .attr("stroke-width", isCollapsed ? 1.5 : 1);
-            iconG.selectAll("path").attr("stroke", iconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", iconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", iconColor);
             textEl.style("fill", iconColor);
         });
     }
@@ -1834,35 +1950,21 @@ export class Header {
         const iconG = svg.append("g")
             .attr("transform", `translate(${buttonSize / 2}, ${buttonSize / 2})`);
 
-        if (showColumns) {
-            iconG.append("path")
-                .attr("d", "M 2,-4 L -2,0 L 2,4")
-                .attr("stroke", iconColor)
-                .attr("stroke-width", 2)
-                .attr("fill", "none")
-                .attr("stroke-linecap", "round")
-                .attr("stroke-linejoin", "round");
-        } else {
-            iconG.append("path")
-                .attr("d", "M -2,-4 L 2,0 L -2,4")
-                .attr("stroke", iconColor)
-                .attr("stroke-width", 2)
-                .attr("fill", "none")
-                .attr("stroke-linecap", "round")
-                .attr("stroke-linejoin", "round");
-        }
+        this.drawColumnVisibilityGlyph(iconG, iconColor, showColumns);
 
         btn.on("mouseover", function () {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-            iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", function () {
                 bgRect.attr("fill", buttonFill)
                     .attr("stroke", buttonStroke)
                     .attr("stroke-width", showColumns ? 1.5 : 1);
-                iconG.select("path").attr("stroke", iconColor);
+                iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", iconColor);
+                iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", iconColor);
             });
     }
 
@@ -1935,20 +2037,10 @@ export class Header {
             .attr("stroke", buttonStroke)
             .attr("stroke-width", isEnabled ? 1.5 : 1);
 
-        const iconCenterX = buttonWidth / 2;
-        const iconCenterY = buttonHeight / 2;
-
-        // New WBS Icon (hierarchical structure)
         const iconG = svg.append("g")
-            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
+            .attr("transform", `translate(${buttonWidth / 2}, ${buttonHeight / 2})`);
 
-        // Top node
-        iconG.append("rect").attr("x", -2).attr("y", -7).attr("width", 4).attr("height", 4).attr("fill", wbsColor);
-        // Link
-        iconG.append("path").attr("d", "M0,-3 L0,0 M-5,0 L5,0 M-5,0 L-5,3 M5,0 L5,3").attr("stroke", wbsColor).attr("stroke-width", 1.5).attr("fill", "none");
-        // Leaf nodes
-        iconG.append("rect").attr("x", -7).attr("y", 3).attr("width", 4).attr("height", 4).attr("fill", wbsColor);
-        iconG.append("rect").attr("x", 3).attr("y", 3).attr("width", 4).attr("height", 4).attr("fill", wbsColor);
+        this.drawWbsHierarchyGlyph(iconG, wbsColor, isEnabled ? "tree" : "flat");
 
         btn.append("title")
             .text(isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping");
@@ -1957,15 +2049,15 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-            iconG.selectAll("rect").attr("fill", HEADER_DOCK_TOKENS.buttonText);
-            iconG.selectAll("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", function () {
                 bgRect.attr("fill", buttonFill)
                     .attr("stroke", buttonStroke)
                     .attr("stroke-width", isEnabled ? 1.5 : 1);
-                iconG.selectAll("rect").attr("fill", wbsColor);
-                iconG.selectAll("path").attr("stroke", wbsColor);
+                iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", wbsColor);
+                iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", wbsColor);
             });
     }
 

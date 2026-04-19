@@ -742,7 +742,7 @@ class GridLinesCard extends Card {
     timelineLabelColor = new ColorPicker({
         name: "timelineLabelColor",
         displayName: "Timeline Label Color",
-        value: { value: "#F4F6FB" }
+        value: { value: "#FFFFFF" }
     });
 
     timelineLabelFontSize = new NumUpDown({
