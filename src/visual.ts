@@ -503,7 +503,7 @@ export class Visual implements IVisual {
 
         const node = textElement.node();
         if (!node || maxWidth <= 0) {
-            return "...";
+            return "…";
         }
 
         textElement.text(normalized);
@@ -511,17 +511,24 @@ export class Visual implements IVisual {
             return normalized;
         }
 
-        let candidate = normalized;
-        while (candidate.length > 0) {
-            const nextValue = `${candidate.trimEnd()}...`;
-            textElement.text(nextValue);
+        // Binary search for the longest prefix that fits with an ellipsis suffix.
+        let lo = 0;
+        let hi = normalized.length;
+        let best = "";
+        while (lo <= hi) {
+            const mid = (lo + hi) >>> 1;
+            const prefix = normalized.slice(0, mid).trimEnd();
+            const candidate = prefix ? `${prefix}…` : "…";
+            textElement.text(candidate);
             if (node.getComputedTextLength() <= maxWidth) {
-                return nextValue;
+                best = candidate;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
             }
-            candidate = candidate.slice(0, -1);
         }
 
-        return "...";
+        return best || "…";
     }
 
     private getWrappedSvgTextLines(
@@ -558,20 +565,27 @@ export class Visual implements IVisual {
                 continue;
             }
 
-            if (!currentLine) {
-                lines.push(this.fitSvgTextToWidth(textElement, word, maxWidth));
-                return lines;
+            // Candidate overflows. Finalize the current line (if any) before starting a new one.
+            if (currentLine) {
+                lines.push(currentLine);
+                currentLine = "";
             }
 
-            lines.push(currentLine);
-
+            // If we've filled all but the last line, fold the remainder into one truncated line.
             if (lines.length >= maxLines - 1) {
                 const remainingText = words.slice(index).join(" ");
                 lines.push(this.fitSvgTextToWidth(textElement, remainingText, maxWidth));
                 return lines.filter(line => line.length > 0);
             }
 
-            currentLine = word;
+            // Check whether this word alone fits on a fresh line.
+            textElement.text(word);
+            if (node.getComputedTextLength() <= maxWidth) {
+                currentLine = word;
+            } else {
+                // Word is wider than the column — truncate it on its own line and move on.
+                lines.push(this.fitSvgTextToWidth(textElement, word, maxWidth));
+            }
         }
 
         if (currentLine) {
