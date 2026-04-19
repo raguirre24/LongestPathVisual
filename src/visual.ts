@@ -28,6 +28,21 @@ import { DataProcessor, ProcessedData } from "./data/DataProcessor";
 import { Header, HeaderCallbacks, HeaderState } from "./components/Header";
 import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState, DataQualityInfo } from "./data/Interfaces";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "./utils/Theme";
+import {
+    buildDrivingEventGraph,
+    calculateLongestDrivingPaths,
+    expandBestDrivingPaths,
+    getTaskEventNodeId,
+    getTiedLatestFinishTaskIds,
+    selectBestSinkNodeIds
+} from "./utils/DrivingPathScoring";
+import {
+    getExportFloatText,
+    getExportTaskType,
+    parsePersistedLegendSelection,
+    sanitizeExportTextField,
+    serializeLegendSelection
+} from "./utils/VisualState";
 
 type DrivingChain = {
     tasks: Set<string>;
@@ -65,7 +80,25 @@ type BeforeDataDateOverlay = {
     dividerX: number | null;
 };
 
+type RelationshipRenderGeometry = {
+    pathData: string;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+};
+
 export class Visual implements IVisual {
+    private static nextInstanceOrdinal: number = 0;
+    /**
+     * Keep the hidden formatting default and the runtime bootstrap in sync.
+     * The initial render should default to "critical only" until persisted state says otherwise.
+     */
+    private static readonly DEFAULT_SHOW_ALL_TASKS: boolean = false;
+    private static readonly DRIVING_PATH_MAX_PATHS: number = 200;
+    private static readonly DRIVING_PATH_MAX_EXPANSIONS: number = 20000;
+
+    private readonly instanceId: string;
     private target: HTMLElement;
     private visualWrapper: Selection<HTMLDivElement, unknown, null, undefined>;
     private host: IVisualHost;
@@ -135,7 +168,7 @@ export class Visual implements IVisual {
 
     private wbsExpandedInternal: boolean = true;
 
-    private showAllTasksInternal: boolean = true;
+    private showAllTasksInternal: boolean = Visual.DEFAULT_SHOW_ALL_TASKS;
     private showBaselineInternal: boolean = true;
     private showPreviousUpdateInternal: boolean = true;
     private isInitialLoad: boolean = true;
@@ -192,7 +225,7 @@ export class Visual implements IVisual {
     private dropdownContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private dropdownInput: Selection<HTMLInputElement, unknown, null, undefined>;
     private dropdownList: Selection<HTMLDivElement, unknown, null, undefined>;
-    private dropdownListId: string = `task-selection-list-${Date.now()}`;
+    private dropdownListId: string = "";
     private dropdownActiveIndex: number = -1;
     private dropdownFocusableItems: DropdownItem[] = [];
     private dropdownTaskCache: Task[] = [];
@@ -261,12 +294,18 @@ export class Visual implements IVisual {
     // Help overlay state
     private helpOverlayContainer: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
     private isHelpOverlayVisible: boolean = false;
+    private helpOverlayKeydownHandler: ((event: KeyboardEvent) => void) | null = null;
+    private helpOverlayReturnFocusTarget: HTMLElement | null = null;
+    private liveRegion: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
 
     private relationshipIndex: Map<string, Relationship[]> = new Map();
     private hasUserProvidedFloat: boolean = false;
 
     private allDrivingChains: DrivingChain[] = [];
     private selectedPathIndex: number = 0;
+    private drivingPathsTruncated: boolean = false;
+    private drivingPathsTruncationMessage: string | null = null;
+    private drivingPathExpansionCount: number = 0;
 
     private readonly VIEWPORT_CHANGE_THRESHOLD = 0.01;
     private forceFullUpdate: boolean = false;
@@ -476,8 +515,80 @@ export class Visual implements IVisual {
         };
     }
 
+    private static createInstanceId(): string {
+        Visual.nextInstanceOrdinal += 1;
+        return `critical-path-${Visual.nextInstanceOrdinal.toString(36)}`;
+    }
+
+    private getScopedId(name: string): string {
+        return `${this.instanceId}-${name}`;
+    }
+
+    private getScopedUrlRef(name: string): string {
+        return `url(#${this.getScopedId(name)})`;
+    }
+
+    private ensureOwnedStyle(name: string, cssText: string): void {
+        const styleId = this.getScopedId(name);
+        let styleElement = document.getElementById(styleId) as HTMLStyleElement | null;
+
+        if (!styleElement) {
+            styleElement = document.createElement("style");
+            styleElement.id = styleId;
+            styleElement.dataset.owner = this.instanceId;
+            styleElement.dataset.styleName = name;
+            document.head.appendChild(styleElement);
+        }
+
+        if (styleElement.textContent !== cssText) {
+            styleElement.textContent = cssText;
+        }
+    }
+
+    private removeOwnedStyle(name: string): void {
+        const styleElement = document.getElementById(this.getScopedId(name));
+        if (styleElement?.getAttribute("data-owner") === this.instanceId) {
+            styleElement.remove();
+        }
+    }
+
+    private ensureLiveRegion(): void {
+        if (this.liveRegion?.node()) {
+            return;
+        }
+
+        this.liveRegion = this.visualWrapper.append("div")
+            .attr("id", this.getScopedId("sr-live-region"))
+            .attr("class", "sr-live-region")
+            .attr("data-owner", this.instanceId)
+            .attr("aria-live", "polite")
+            .attr("aria-atomic", "true")
+            .style("position", "absolute")
+            .style("left", "-10000px")
+            .style("width", "1px")
+            .style("height", "1px")
+            .style("overflow", "hidden");
+    }
+
+    private announceToLiveRegion(message: string): void {
+        if (!message) {
+            return;
+        }
+
+        this.ensureLiveRegion();
+        if (!this.liveRegion) {
+            return;
+        }
+
+        this.liveRegion.text("");
+        window.setTimeout(() => {
+            this.liveRegion?.text(message);
+        }, 0);
+    }
+
     constructor(options: VisualConstructorOptions) {
         this.debugLog("--- Initializing Critical Path Visual (Plot by Date) ---");
+        this.instanceId = Visual.createInstanceId();
         this.target = options.element;
         this.host = options.host;
         this.localizationManager = this.host.createLocalizationManager();
@@ -496,8 +607,9 @@ export class Visual implements IVisual {
         };
         this.zoomTouchEndHandler = () => this.endZoomDrag();
         this.refreshDateFormatters();
+        this.dropdownListId = this.getScopedId("task-selection-list");
 
-        this.showAllTasksInternal = true;
+        this.showAllTasksInternal = Visual.DEFAULT_SHOW_ALL_TASKS;
 
         this.showBaselineInternal = true;
         this.showPreviousUpdateInternal = true;
@@ -506,11 +618,12 @@ export class Visual implements IVisual {
         this.showConnectorLinesInternal = true;
         this.wbsExpandedInternal = true;
 
-        this.tooltipClassName = `critical-path-tooltip-${Date.now()}`;
+        this.tooltipClassName = this.getScopedId("critical-path-tooltip");
         this.dataQuality = this.createEmptyDataQuality();
 
         this.visualWrapper = d3.select(this.target).append("div")
             .attr("class", "visual-wrapper")
+            .attr("data-owner", this.instanceId)
             .style("height", "100%")
             .style("width", "100%")
             .style("overflow", "hidden")
@@ -739,7 +852,7 @@ export class Visual implements IVisual {
             .style("width", "35%")
             .style("border-radius", "999px")
             .style("background", "linear-gradient(90deg, #0078D4, #1890F5)")
-            .style("animation", "loadingBarPulse 1.2s ease-in-out infinite")
+            .style("animation", this.prefersReducedMotion() ? "none" : `${this.getScopedId("loadingBarPulse")} 1.2s ease-in-out infinite`)
             .style("transform", "translateX(-30%)");
 
         this.loadingProgressText = overlayContent.append("div")
@@ -749,12 +862,11 @@ export class Visual implements IVisual {
             .style("text-align", "center")
             .text("");
 
-        if (!document.getElementById("loading-bar-pulse-style")) {
-            const styleEl = document.createElement("style");
-            styleEl.id = "loading-bar-pulse-style";
-            styleEl.textContent = `@keyframes loadingBarPulse { 0% { transform: translateX(-40%); } 50% { transform: translateX(20%); } 100% { transform: translateX(100%); } } @keyframes loadingBarDeterminate { from { width: 0%; } }`;
-            document.head.appendChild(styleEl);
-        }
+        this.ensureOwnedStyle(
+            "loading-bar-pulse-style",
+            `@keyframes ${this.getScopedId("loadingBarPulse")} { 0% { transform: translateX(-40%); } 50% { transform: translateX(20%); } 100% { transform: translateX(100%); } }
+@keyframes ${this.getScopedId("loadingBarDeterminate")} { from { width: 0%; } }`
+        );
 
         this.mainSvg = this.scrollableContainer.append("svg")
             .classed("criticalPathVisual", true)
@@ -764,7 +876,7 @@ export class Visual implements IVisual {
 
         const defs = this.mainSvg.append("defs");
         this.chartClipPath = defs.append("clipPath")
-            .attr("id", "chart-area-clip");
+            .attr("id", this.getScopedId("chart-area-clip"));
         this.chartClipRect = this.chartClipPath.append("rect")
             .attr("x", 0)
             .attr("y", 0)
@@ -773,7 +885,7 @@ export class Visual implements IVisual {
 
         this.gridLayer = this.mainGroup.append("g")
             .attr("class", "grid-layer")
-            .attr("clip-path", "url(#chart-area-clip)");
+            .attr("clip-path", this.getScopedUrlRef("chart-area-clip"));
 
         this.labelGridLayer = this.mainGroup.append("g")
             .attr("class", "label-grid-layer");
@@ -781,10 +893,10 @@ export class Visual implements IVisual {
             .attr("class", "row-grid-layer");
         this.arrowLayer = this.mainGroup.append("g")
             .attr("class", "arrow-layer")
-            .attr("clip-path", "url(#chart-area-clip)");
+            .attr("clip-path", this.getScopedUrlRef("chart-area-clip"));
         this.taskLayer = this.mainGroup.append("g")
             .attr("class", "task-layer")
-            .attr("clip-path", "url(#chart-area-clip)");
+            .attr("clip-path", this.getScopedUrlRef("chart-area-clip"));
 
         this.taskLabelLayer = this.mainGroup.append("g")
             .attr("class", "task-label-layer");
@@ -835,10 +947,9 @@ export class Visual implements IVisual {
 
         this.applyPublishModeOptimizations();
 
-        d3.select("body").selectAll(`.${this.tooltipClassName}`).remove();
-
         this.tooltipDiv = d3.select("body").append("div")
             .attr("class", `critical-path-tooltip ${this.tooltipClassName}`)
+            .attr("data-owner", this.instanceId)
             .style("position", "absolute")
             .style("visibility", "hidden")
             .style("background-color", "white")
@@ -853,18 +964,7 @@ export class Visual implements IVisual {
             .style("line-height", "1.4")
             .style("color", "#333");
 
-        const existingLiveRegion = d3.select("body").select(".sr-live-region");
-        if (existingLiveRegion.empty()) {
-            d3.select("body").append("div")
-                .attr("class", "sr-live-region")
-                .attr("aria-live", "polite")
-                .attr("aria-atomic", "true")
-                .style("position", "absolute")
-                .style("left", "-10000px")
-                .style("width", "1px")
-                .style("height", "1px")
-                .style("overflow", "hidden");
-        }
+        this.ensureLiveRegion();
 
         this.traceMode = "backward";
 
@@ -1034,41 +1134,37 @@ export class Visual implements IVisual {
         const isInIframe = window.self !== window.top;
 
         if (isInIframe || window.location.hostname.includes('powerbi.com')) {
-
-            const styleId = 'critical-path-publish-fixes';
-            if (!document.getElementById(styleId)) {
-                const style = document.createElement('style');
-                style.id = styleId;
-                style.textContent = `
-                .criticalPathVisual {
-                    -webkit-font-smoothing: antialiased !important;
-                    -moz-osx-font-smoothing: grayscale !important;
-                    text-rendering: geometricPrecision !important;
-                }
-                .criticalPathVisual text {
-                    text-rendering: geometricPrecision !important;
-                    -webkit-font-smoothing: antialiased !important;
-                    -moz-osx-font-smoothing: grayscale !important;
-                }
-                .criticalPathVisual .canvas-layer {
-                    image-rendering: auto !important;
-                }
-                svg .grid-line,
-                svg .vertical-grid-line,
-                svg .label-grid-line,
-                svg .horizontal-grid-line,
-                svg .label-column-separator,
-                svg .divider-line,
-                svg .data-date-line,
-                svg .project-end-line,
-                svg .baseline-end-line,
-                svg .previous-update-end-line {
-                    shape-rendering: crispEdges !important;
-                    vector-effect: non-scaling-stroke !important;
-                }
-            `;
-                document.head.appendChild(style);
-            }
+            this.ensureOwnedStyle(
+                "critical-path-publish-fixes",
+                `
+[data-owner="${this.instanceId}"] .criticalPathVisual {
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    text-rendering: geometricPrecision !important;
+}
+[data-owner="${this.instanceId}"] .criticalPathVisual text {
+    text-rendering: geometricPrecision !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+}
+[data-owner="${this.instanceId}"] .criticalPathVisual .canvas-layer {
+    image-rendering: auto !important;
+}
+[data-owner="${this.instanceId}"] svg .grid-line,
+[data-owner="${this.instanceId}"] svg .vertical-grid-line,
+[data-owner="${this.instanceId}"] svg .label-grid-line,
+[data-owner="${this.instanceId}"] svg .horizontal-grid-line,
+[data-owner="${this.instanceId}"] svg .label-column-separator,
+[data-owner="${this.instanceId}"] svg .divider-line,
+[data-owner="${this.instanceId}"] svg .data-date-line,
+[data-owner="${this.instanceId}"] svg .project-end-line,
+[data-owner="${this.instanceId}"] svg .baseline-end-line,
+[data-owner="${this.instanceId}"] svg .previous-update-end-line {
+    shape-rendering: crispEdges !important;
+    vector-effect: non-scaling-stroke !important;
+}
+`
+            );
         }
     }
 
@@ -1142,6 +1238,9 @@ export class Visual implements IVisual {
     private clearCriticalPathState(): void {
         this.allDrivingChains = [];
         this.selectedPathIndex = 0;
+        this.drivingPathsTruncated = false;
+        this.drivingPathsTruncationMessage = null;
+        this.drivingPathExpansionCount = 0;
         for (const task of this.allTasksData) {
             task.isCritical = false;
             task.isCriticalByFloat = false;
@@ -1359,11 +1458,7 @@ export class Visual implements IVisual {
 
         this.pendingUpdate = null;
 
-        const styleId = 'critical-path-publish-fixes';
-        const styleElement = document.getElementById(styleId);
-        if (styleElement) {
-            styleElement.remove();
-        }
+        this.removeOwnedStyle("critical-path-publish-fixes");
 
         // Clean up canvas element
         if (this.canvasElement) {
@@ -1372,12 +1467,13 @@ export class Visual implements IVisual {
             this.canvasContext = null;
         }
 
-        // Clean up screen reader live region appended to body
-        d3.select("body").selectAll(".sr-live-region").remove();
+        if (this.liveRegion) {
+            this.liveRegion.remove();
+            this.liveRegion = null;
+        }
 
         // Clean up loading animation style
-        const pulseStyle = document.getElementById("loading-bar-pulse-style");
-        if (pulseStyle) pulseStyle.remove();
+        this.removeOwnedStyle("loading-bar-pulse-style");
 
         // Clean up help overlay if visible
         this.clearHelpOverlay();
@@ -1437,11 +1533,11 @@ export class Visual implements IVisual {
             return;
         }
 
-        this.arrowLayer.selectAll<SVGPathElement, Relationship>(".relationship-arrow")
-            .style("stroke-opacity", (d: Relationship) => this.getConnectorOpacity(d));
+        this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship }>(".relationship-arrow")
+            .style("stroke-opacity", d => this.getConnectorOpacity(d.relationship));
 
-        this.arrowLayer.selectAll<SVGCircleElement, Relationship>(".connection-dot-start, .connection-dot-end")
-            .style("fill-opacity", (d: Relationship) => this.getConnectorOpacity(d))
+        this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship }>(".connection-dot-start, .connection-dot-end")
+            .style("fill-opacity", d => this.getConnectorOpacity(d.relationship))
             .style("stroke-opacity", 0.6);
     }
 
@@ -1878,6 +1974,8 @@ export class Visual implements IVisual {
 
         this.zoomSliderContainer = visualWrapper.append("div")
             .attr("class", "timeline-zoom-slider-container")
+            .attr("role", "group")
+            .attr("aria-label", this.getLocalizedString("ui.zoomSliderLabel", "Timeline zoom controls"))
             .style("position", "relative")
             .style("width", "100%")
             .style("height", `${sliderHeight}px`)
@@ -1913,6 +2011,10 @@ export class Visual implements IVisual {
 
         this.zoomSliderSelection = this.zoomSliderTrack.append("div")
             .attr("class", "zoom-slider-selection")
+            .attr("role", "slider")
+            .attr("tabindex", "0")
+            .attr("aria-label", this.getLocalizedString("ui.zoomRangeLabel", "Visible time range"))
+            .attr("aria-roledescription", this.getLocalizedString("ui.zoomRangeRoleDescription", "range selection"))
             .style("position", "absolute")
             .style("left", "0%")
             .style("width", "100%")
@@ -1924,14 +2026,17 @@ export class Visual implements IVisual {
 
         this.zoomSliderLeftHandle = this.zoomSliderSelection.append("div")
             .attr("class", "zoom-slider-handle zoom-slider-handle-left")
+            .attr("role", "slider")
+            .attr("tabindex", "0")
+            .attr("aria-label", this.getLocalizedString("ui.zoomRangeStartLabel", "Start of visible time range"))
             .style("position", "absolute")
             .style("left", "0")
             .style("top", "50%")
             .style("transform", "translate(-50%, -50%)")
-            .style("width", "12px")
-            .style("height", "12px")
+            .style("width", "24px")
+            .style("height", "24px")
             .style("background-color", "#605E5C")
-            .style("border", "2px solid #FFFFFF")
+            .style("border", "3px solid #FFFFFF")
             .style("border-radius", "50%")
             .style("cursor", "ew-resize")
             .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
@@ -1939,20 +2044,24 @@ export class Visual implements IVisual {
 
         this.zoomSliderRightHandle = this.zoomSliderSelection.append("div")
             .attr("class", "zoom-slider-handle zoom-slider-handle-right")
+            .attr("role", "slider")
+            .attr("tabindex", "0")
+            .attr("aria-label", this.getLocalizedString("ui.zoomRangeEndLabel", "End of visible time range"))
             .style("position", "absolute")
             .style("right", "0")
             .style("top", "50%")
             .style("transform", "translate(50%, -50%)")
-            .style("width", "12px")
-            .style("height", "12px")
+            .style("width", "24px")
+            .style("height", "24px")
             .style("background-color", "#605E5C")
-            .style("border", "2px solid #FFFFFF")
+            .style("border", "3px solid #FFFFFF")
             .style("border-radius", "50%")
             .style("cursor", "ew-resize")
             .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
             .style("z-index", "10");
 
         this.setupZoomSliderEvents();
+        this.updateZoomSliderUI();
     }
 
     /**
@@ -1972,6 +2081,9 @@ export class Visual implements IVisual {
                 event.preventDefault();
                 const touch = event.touches[0];
                 self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'left');
+            })
+            .on("keydown", function (event: KeyboardEvent) {
+                self.handleZoomSliderKeydown(event, 'left');
             });
 
         this.zoomSliderRightHandle
@@ -1985,6 +2097,9 @@ export class Visual implements IVisual {
                 event.preventDefault();
                 const touch = event.touches[0];
                 self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'right');
+            })
+            .on("keydown", function (event: KeyboardEvent) {
+                self.handleZoomSliderKeydown(event, 'right');
             });
 
         this.zoomSliderSelection
@@ -2007,6 +2122,9 @@ export class Visual implements IVisual {
                 event.preventDefault();
                 const touch = event.touches[0];
                 self.startZoomDrag({ clientX: touch.clientX, clientY: touch.clientY } as MouseEvent, 'middle');
+            })
+            .on("keydown", function (event: KeyboardEvent) {
+                self.handleZoomSliderKeydown(event, 'range');
             });
 
         this.zoomSliderTrack
@@ -2211,6 +2329,136 @@ export class Visual implements IVisual {
         this.onZoomChange();
     }
 
+    private applyZoomKeyboardChange(mutator: () => void): void {
+        const previousStart = this.zoomRangeStart;
+        const previousEnd = this.zoomRangeEnd;
+        mutator();
+
+        if (previousStart === this.zoomRangeStart && previousEnd === this.zoomRangeEnd) {
+            return;
+        }
+
+        this.updateZoomSliderUI();
+        this.captureScrollPosition();
+        this.persistZoomRange();
+        this.onZoomChange();
+    }
+
+    private handleZoomSliderKeydown(event: KeyboardEvent, target: 'left' | 'right' | 'range'): void {
+        if (!this.zoomSliderEnabled) {
+            return;
+        }
+
+        const fineStep = 0.01;
+        const coarseStep = 0.05;
+        const currentRange = this.zoomRangeEnd - this.zoomRangeStart;
+
+        const panRange = (delta: number): void => {
+            let newStart = this.zoomRangeStart + delta;
+            let newEnd = this.zoomRangeEnd + delta;
+
+            if (newStart < 0) {
+                newStart = 0;
+                newEnd = currentRange;
+            }
+
+            if (newEnd > 1) {
+                newEnd = 1;
+                newStart = 1 - currentRange;
+            }
+
+            this.zoomRangeStart = Math.max(0, newStart);
+            this.zoomRangeEnd = Math.min(1, newEnd);
+        };
+
+        const resizeLeft = (delta: number): void => {
+            this.zoomRangeStart = Math.max(
+                0,
+                Math.min(this.zoomRangeStart + delta, this.zoomRangeEnd - this.ZOOM_SLIDER_MIN_RANGE)
+            );
+        };
+
+        const resizeRight = (delta: number): void => {
+            this.zoomRangeEnd = Math.min(
+                1,
+                Math.max(this.zoomRangeEnd + delta, this.zoomRangeStart + this.ZOOM_SLIDER_MIN_RANGE)
+            );
+        };
+
+        let handled = true;
+        this.applyZoomKeyboardChange(() => {
+            switch (event.key) {
+                case 'ArrowLeft':
+                case 'ArrowDown':
+                    if (target === 'left') {
+                        resizeLeft(-fineStep);
+                    } else if (target === 'right') {
+                        resizeRight(-fineStep);
+                    } else {
+                        panRange(-fineStep);
+                    }
+                    break;
+                case 'ArrowRight':
+                case 'ArrowUp':
+                    if (target === 'left') {
+                        resizeLeft(fineStep);
+                    } else if (target === 'right') {
+                        resizeRight(fineStep);
+                    } else {
+                        panRange(fineStep);
+                    }
+                    break;
+                case 'PageDown':
+                    if (target === 'left') {
+                        resizeLeft(-coarseStep);
+                    } else if (target === 'right') {
+                        resizeRight(-coarseStep);
+                    } else {
+                        panRange(-coarseStep);
+                    }
+                    break;
+                case 'PageUp':
+                    if (target === 'left') {
+                        resizeLeft(coarseStep);
+                    } else if (target === 'right') {
+                        resizeRight(coarseStep);
+                    } else {
+                        panRange(coarseStep);
+                    }
+                    break;
+                case 'Home':
+                    if (target === 'left') {
+                        this.zoomRangeStart = 0;
+                    } else if (target === 'right') {
+                        this.zoomRangeEnd = this.zoomRangeStart + this.ZOOM_SLIDER_MIN_RANGE;
+                    } else {
+                        this.zoomRangeStart = 0;
+                        this.zoomRangeEnd = currentRange;
+                    }
+                    break;
+                case 'End':
+                    if (target === 'left') {
+                        this.zoomRangeStart = this.zoomRangeEnd - this.ZOOM_SLIDER_MIN_RANGE;
+                    } else if (target === 'right') {
+                        this.zoomRangeEnd = 1;
+                    } else {
+                        this.zoomRangeEnd = 1;
+                        this.zoomRangeStart = 1 - currentRange;
+                    }
+                    break;
+                default:
+                    handled = false;
+            }
+        });
+
+        if (!handled) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
     /**
      * Updates the zoom slider UI to reflect current zoom state
      */
@@ -2223,6 +2471,29 @@ export class Visual implements IVisual {
         this.zoomSliderSelection
             .style("left", `${leftPercent}%`)
             .style("width", `${widthPercent}%`);
+
+        const startPercentText = (this.zoomRangeStart * 100).toFixed(1);
+        const endPercentText = (this.zoomRangeEnd * 100).toFixed(1);
+        const rangeCenterPercentText = (((this.zoomRangeStart + this.zoomRangeEnd) / 2) * 100).toFixed(1);
+        const rangeValueText = `${startPercentText}% to ${endPercentText}%`;
+
+        this.zoomSliderLeftHandle
+            .attr("aria-valuemin", "0")
+            .attr("aria-valuemax", "100")
+            .attr("aria-valuenow", startPercentText)
+            .attr("aria-valuetext", `${startPercentText}%`);
+
+        this.zoomSliderRightHandle
+            .attr("aria-valuemin", "0")
+            .attr("aria-valuemax", "100")
+            .attr("aria-valuenow", endPercentText)
+            .attr("aria-valuetext", `${endPercentText}%`);
+
+        this.zoomSliderSelection
+            .attr("aria-valuemin", "0")
+            .attr("aria-valuemax", "100")
+            .attr("aria-valuenow", rangeCenterPercentText)
+            .attr("aria-valuetext", rangeValueText);
     }
 
     /**
@@ -2260,22 +2531,29 @@ export class Visual implements IVisual {
 
         this.zoomSliderContainer
             .style("display", isEnabled ? "block" : "none")
-            .style("height", `${sliderHeight}px`);
+            .style("height", `${sliderHeight}px`)
+            .attr("aria-hidden", isEnabled ? "false" : "true");
 
         if (this.zoomSliderTrack) {
             this.zoomSliderTrack.style("background-color", trackColor);
         }
 
         if (this.zoomSliderSelection) {
-            this.zoomSliderSelection.style("background-color", selectedColor);
+            this.zoomSliderSelection
+                .style("background-color", selectedColor)
+                .attr("aria-disabled", isEnabled ? "false" : "true");
         }
 
         if (this.zoomSliderLeftHandle) {
-            this.zoomSliderLeftHandle.style("background-color", handleColor);
+            this.zoomSliderLeftHandle
+                .style("background-color", handleColor)
+                .attr("aria-disabled", isEnabled ? "false" : "true");
         }
 
         if (this.zoomSliderRightHandle) {
-            this.zoomSliderRightHandle.style("background-color", handleColor);
+            this.zoomSliderRightHandle
+                .style("background-color", handleColor)
+                .attr("aria-disabled", isEnabled ? "false" : "true");
         }
 
         this.updateScrollableContainerHeight();
@@ -2371,9 +2649,10 @@ export class Visual implements IVisual {
             defs = this.mainSvg.append("defs");
         }
 
-        let clipPath = defs.select<SVGClipPathElement>("clipPath#chart-area-clip");
+        const clipPathId = this.getScopedId("chart-area-clip");
+        let clipPath = defs.select<SVGClipPathElement>(`clipPath#${clipPathId}`);
         if (clipPath.empty()) {
-            clipPath = defs.append("clipPath").attr("id", "chart-area-clip");
+            clipPath = defs.append("clipPath").attr("id", clipPathId);
         }
         this.chartClipPath = clipPath;
 
@@ -2397,10 +2676,13 @@ export class Visual implements IVisual {
         const criticalColor = this.settings?.criticalPath?.criticalPathColor?.value?.value ?? "#E81123";
 
         // Create or update normal arrowhead marker
-        let normalMarker = defs.select<SVGMarkerElement>("marker#arrowhead");
+        const normalMarkerId = this.getScopedId("arrowhead");
+        const criticalMarkerId = this.getScopedId("arrowhead-critical");
+
+        let normalMarker = defs.select<SVGMarkerElement>(`marker#${normalMarkerId}`);
         if (normalMarker.empty()) {
             normalMarker = defs.append("marker")
-                .attr("id", "arrowhead")
+                .attr("id", normalMarkerId)
                 .attr("orient", "auto")
                 .attr("markerUnits", "userSpaceOnUse");
             normalMarker.append("path");
@@ -2416,10 +2698,10 @@ export class Visual implements IVisual {
             .attr("fill", connectorColor);
 
         // Create or update critical arrowhead marker
-        let criticalMarker = defs.select<SVGMarkerElement>("marker#arrowhead-critical");
+        let criticalMarker = defs.select<SVGMarkerElement>(`marker#${criticalMarkerId}`);
         if (criticalMarker.empty()) {
             criticalMarker = defs.append("marker")
-                .attr("id", "arrowhead-critical")
+                .attr("id", criticalMarkerId)
                 .attr("orient", "auto")
                 .attr("markerUnits", "userSpaceOnUse");
             criticalMarker.append("path");
@@ -3326,11 +3608,10 @@ export class Visual implements IVisual {
 
             this.updateZoomSliderVisibility();
 
-            if (this.isInitialLoad) {
-                if (this.settings?.criticalPath?.showAllTasks !== undefined) {
-                    this.showAllTasksInternal = this.settings.criticalPath.showAllTasks.value;
-                }
+            this.showAllTasksInternal = this.settings?.criticalPath?.showAllTasks?.value
+                ?? Visual.DEFAULT_SHOW_ALL_TASKS;
 
+            if (this.isInitialLoad) {
                 if (this.settings?.persistedState?.selectedTaskId !== undefined) {
                     this.selectedTaskId = this.settings.persistedState.selectedTaskId.value || null;
                 }
@@ -3344,12 +3625,8 @@ export class Visual implements IVisual {
 
                 if (this.settings?.persistedState?.selectedLegendCategories !== undefined) {
                     const savedCategories = this.settings.persistedState.selectedLegendCategories.value;
-                    if (savedCategories && savedCategories.trim().length > 0) {
-                        this.selectedLegendCategories = new Set(savedCategories.split(',').filter(c => c.trim()));
-                        this.debugLog(`Restored legend selection: ${savedCategories}`);
-                    } else {
-                        this.selectedLegendCategories.clear();
-                    }
+                    this.selectedLegendCategories = new Set(parsePersistedLegendSelection(savedCategories));
+                    this.debugLog(`Restored legend selection: ${savedCategories ?? ""}`);
                 }
                 if (this.settings?.persistedState?.wbsExpandedState !== undefined) {
                     const savedState = this.settings.persistedState.wbsExpandedState.value;
@@ -4070,6 +4347,7 @@ export class Visual implements IVisual {
         }
         this.mainSvg?.selectAll(".message-text").remove();
         this.headerSvg?.selectAll(".message-text").remove();
+        this.clearAccessibleCanvasFallback();
 
         this.updateHeaderElements(options.viewport.width);
 
@@ -4414,7 +4692,7 @@ export class Visual implements IVisual {
 
         // 3. Update clip rects
         this.updateChartClipRect(chartWidth, chartHeight);
-        const leftClipId = "clip-left-margin";
+        const leftClipId = this.getScopedId("clip-left-margin");
         this.mainSvg?.select(`#${leftClipId} rect`)
             .attr("x", -effectiveMargin)
             .attr("width", effectiveMargin)
@@ -5177,10 +5455,13 @@ export class Visual implements IVisual {
             if (this.canvasElement) {
                 const leftMargin = this.snapRectCoord(this.getEffectiveLeftMargin());
                 const topMargin = this.snapRectCoord(this.margin.top);
+                const modeTransitionDuration = this.getAnimationDuration(this.MODE_TRANSITION_DURATION);
 
                 if (modeChanged) {
                     this.canvasElement.style.opacity = '0';
-                    this.canvasElement.style.transition = `opacity ${this.MODE_TRANSITION_DURATION}ms ease-out`;
+                    this.canvasElement.style.transition = modeTransitionDuration === 0
+                        ? 'none'
+                        : `opacity ${modeTransitionDuration}ms ease-out`;
                 }
 
                 this.canvasElement.style.display = 'block';
@@ -5223,6 +5504,7 @@ export class Visual implements IVisual {
         );
 
         if (this.useCanvasRendering && modeChanged && this.canvasElement) {
+            const modeTransitionDuration = this.getAnimationDuration(this.MODE_TRANSITION_DURATION);
             requestAnimationFrame(() => {
                 if (this.canvasElement) {
                     this.canvasElement.style.opacity = '1';
@@ -5230,7 +5512,7 @@ export class Visual implements IVisual {
 
                 this.taskLayer
                     .transition()
-                    .duration(this.MODE_TRANSITION_DURATION)
+                    .duration(modeTransitionDuration)
                     .style("opacity", 0)
                     .on("end", () => {
                         this.taskLayer.style("display", "none");
@@ -5240,7 +5522,7 @@ export class Visual implements IVisual {
 
                 this.arrowLayer
                     .transition()
-                    .duration(this.MODE_TRANSITION_DURATION)
+                    .duration(modeTransitionDuration)
                     .style("opacity", 0)
                     .on("end", () => {
                         this.arrowLayer.style("display", "none");
@@ -5391,7 +5673,7 @@ export class Visual implements IVisual {
         // const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
 
         // Fix: Clip labels to left margin
-        const leftClipId = "clip-left-margin";
+        const leftClipId = this.getScopedId("clip-left-margin");
         let defs = this.mainSvg.select("defs");
         if (defs.empty()) defs = this.mainSvg.append("defs");
 
@@ -5425,6 +5707,9 @@ export class Visual implements IVisual {
             chartHeight,
             window.devicePixelRatio || 1
         );
+        if (!this.useCanvasRendering) {
+            this.clearAccessibleCanvasFallback();
+        }
         this.syncCanvasElementPresentation(currentLeftMargin);
         this.debugLog(`Rendering mode: ${this.useCanvasRendering ? 'Canvas' : 'SVG'} for ${renderableTasks.length} tasks`);
         if (!showHorzGridLines) {
@@ -5481,6 +5766,9 @@ export class Visual implements IVisual {
                     selectionLabelWeight,
                     lineHeight
                 );
+                this.createAccessibleCanvasFallback(renderableTasks, yScale);
+            } else {
+                this.clearAccessibleCanvasFallback();
             }
         } else {
             // SVG Rendering
@@ -6591,11 +6879,7 @@ export class Visual implements IVisual {
                     const element = this as SVGElement;
                     const ariaLabel = element.getAttribute("aria-label");
                     if (ariaLabel) {
-
-                        const liveRegion = d3.select("body").select(".sr-live-region");
-                        if (!liveRegion.empty()) {
-                            liveRegion.text(`Focused on ${ariaLabel}`);
-                        }
+                        self.announceToLiveRegion(`Focused on ${ariaLabel}`);
                     }
                 })
                 .on("blur", function (_event: FocusEvent, _d: Task) {
@@ -7844,6 +8128,10 @@ export class Visual implements IVisual {
         }
     }
 
+    private clearAccessibleCanvasFallback(): void {
+        this.mainSvg?.selectAll(`.accessible-fallback-layer[data-owner="${this.instanceId}"]`).remove();
+    }
+
     /**
      * ACCESSIBILITY: Creates an invisible but screen-reader accessible fallback for canvas rendering.
      * This ensures users with assistive technology can access task information even when canvas mode is active.
@@ -7853,10 +8141,11 @@ export class Visual implements IVisual {
     private createAccessibleCanvasFallback(tasks: Task[], yScale: ScaleBand<string>): void {
         if (!this.mainSvg) return;
 
-        this.mainSvg.selectAll(".accessible-fallback-layer").remove();
+        this.clearAccessibleCanvasFallback();
 
         const accessibleLayer = this.mainSvg.append("g")
             .attr("class", "accessible-fallback-layer")
+            .attr("data-owner", this.instanceId)
             .attr("role", "list")
             .attr("aria-label", "Project tasks (canvas rendering mode)")
             .style("opacity", 0)
@@ -8281,6 +8570,170 @@ export class Visual implements IVisual {
             .style("top", `${yPos}px`);
     }
 
+    private getRelationshipRenderGeometry(
+        rel: Relationship,
+        taskPositions: ReadonlyMap<string, number>,
+        xScale: ScaleTime<number, number>,
+        yScale: ScaleBand<string>,
+        taskHeight: number,
+        milestoneSizeSetting: number,
+        elbowOffset: number,
+        connectionEndPadding: number
+    ): RelationshipRenderGeometry | null {
+        const pred = this.taskIdToTask.get(rel.predecessorId);
+        const succ = this.taskIdToTask.get(rel.successorId);
+        const predYOrder = taskPositions.get(rel.predecessorId);
+        const succYOrder = taskPositions.get(rel.successorId);
+
+        if (!pred || !succ || predYOrder === undefined || succYOrder === undefined) {
+            return null;
+        }
+
+        const predYBandPos = yScale(predYOrder.toString());
+        const succYBandPos = yScale(succYOrder.toString());
+        if (predYBandPos === undefined || succYBandPos === undefined || isNaN(predYBandPos) || isNaN(succYBandPos)) {
+            return null;
+        }
+
+        const predY = predYBandPos + taskHeight / 2;
+        const succY = succYBandPos + taskHeight / 2;
+        const relType = rel.type || 'FS';
+        const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
+        const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
+
+        let baseStartDate: Date | null | undefined = null;
+        let baseEndDate: Date | null | undefined = null;
+
+        const predStart = this.getVisualStart(pred);
+        const predFinish = this.getVisualFinish(pred);
+        const succStart = this.getVisualStart(succ);
+        const succFinish = this.getVisualFinish(succ);
+
+        switch (relType) {
+            case 'FS':
+            case 'FF':
+                baseStartDate = predIsMilestone ? (predStart ?? predFinish) : predFinish;
+                break;
+            case 'SS':
+            case 'SF':
+                baseStartDate = predStart;
+                break;
+        }
+        switch (relType) {
+            case 'FS':
+            case 'SS':
+                baseEndDate = succStart;
+                break;
+            case 'FF':
+            case 'SF':
+                baseEndDate = succIsMilestone ? (succStart ?? succFinish) : succFinish;
+                break;
+        }
+
+        let startX: number | null = null;
+        let endX: number | null = null;
+        if (baseStartDate instanceof Date && !isNaN(baseStartDate.getTime())) {
+            startX = xScale(baseStartDate);
+        }
+        if (baseEndDate instanceof Date && !isNaN(baseEndDate.getTime())) {
+            endX = xScale(baseEndDate);
+        }
+
+        if (startX === null || endX === null || isNaN(startX) || isNaN(endX)) {
+            return null;
+        }
+
+        const milestoneDrawSize = this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
+        const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
+        const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
+
+        let effectiveStartX = startX;
+        let effectiveEndX = endX;
+
+        if (relType === 'FS' || relType === 'FF') effectiveStartX += startGap;
+        else effectiveStartX -= startGap;
+        if (predIsMilestone && (relType === 'SS' || relType === 'SF')) effectiveStartX = startX + startGap;
+
+        if (relType === 'FS' || relType === 'SS') effectiveEndX -= endGap;
+        else effectiveEndX += endGap;
+        if (succIsMilestone && (relType === 'FF' || relType === 'SF')) effectiveEndX = endX + endGap - connectionEndPadding;
+
+        const pStartX = effectiveStartX;
+        const pStartY = predY;
+        const pEndX = effectiveEndX;
+        const pEndY = succY;
+
+        if (Math.abs(pStartX - pEndX) < elbowOffset && Math.abs(pStartY - pEndY) < 1) {
+            return null;
+        }
+
+        const cornerRadius = 8;
+        let pathData: string;
+
+        if (Math.abs(pStartY - pEndY) < 1) {
+            pathData = `M ${pStartX},${pStartY} H ${pEndX}`;
+        } else {
+            const isGoingDown = pEndY > pStartY;
+
+            switch (relType) {
+                case 'FS':
+                    if (Math.abs(pEndY - pStartY) > cornerRadius * 2) {
+                        const verticalEnd = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
+                        pathData = `M ${pStartX},${pStartY} L ${pStartX},${verticalEnd} Q ${pStartX},${pEndY} ${pStartX + cornerRadius},${pEndY} L ${pEndX},${pEndY}`;
+                    } else {
+                        pathData = `M ${pStartX},${pStartY} V ${pEndY} H ${pEndX}`;
+                    }
+                    break;
+                case 'SS':
+                    const ssOffsetX = Math.min(pStartX, pEndX) - elbowOffset;
+                    if (Math.abs(pStartX - ssOffsetX) > cornerRadius && Math.abs(pEndY - pStartY) > cornerRadius * 2) {
+                        const h1End = ssOffsetX + cornerRadius;
+                        const v1End = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
+                        pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${ssOffsetX},${pStartY} ${ssOffsetX},${pStartY + (isGoingDown ? cornerRadius : -cornerRadius)} L ${ssOffsetX},${v1End} Q ${ssOffsetX},${pEndY} ${h1End},${pEndY} L ${pEndX},${pEndY}`;
+                    } else {
+                        pathData = `M ${pStartX},${pStartY} H ${ssOffsetX} V ${pEndY} H ${pEndX}`;
+                    }
+                    break;
+                case 'FF':
+                    const ffOffsetX = Math.max(pStartX, pEndX) + elbowOffset;
+                    if (Math.abs(ffOffsetX - pStartX) > cornerRadius && Math.abs(pEndY - pStartY) > cornerRadius * 2) {
+                        const h1End = ffOffsetX - cornerRadius;
+                        const v1End = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
+                        pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${ffOffsetX},${pStartY} ${ffOffsetX},${pStartY + (isGoingDown ? cornerRadius : -cornerRadius)} L ${ffOffsetX},${v1End} Q ${ffOffsetX},${pEndY} ${h1End},${pEndY} L ${pEndX},${pEndY}`;
+                    } else {
+                        pathData = `M ${pStartX},${pStartY} H ${ffOffsetX} V ${pEndY} H ${pEndX}`;
+                    }
+                    break;
+                case 'SF':
+                    const sfStartOffset = pStartX - elbowOffset;
+                    const sfEndOffset = pEndX + elbowOffset;
+                    const midY = (pStartY + pEndY) / 2;
+                    if (Math.abs(pStartX - sfStartOffset) > cornerRadius) {
+                        const h1End = sfStartOffset + cornerRadius;
+                        const v1Start = pStartY + (midY > pStartY ? cornerRadius : -cornerRadius);
+                        const v1End = midY - (midY > pStartY ? cornerRadius : -cornerRadius);
+                        const h2End = sfEndOffset - cornerRadius;
+                        const v2Start = midY + (pEndY > midY ? cornerRadius : -cornerRadius);
+                        const v2End = pEndY - (pEndY > midY ? cornerRadius : -cornerRadius);
+                        pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${sfStartOffset},${pStartY} ${sfStartOffset},${v1Start} L ${sfStartOffset},${v1End} Q ${sfStartOffset},${midY} ${h1End},${midY} L ${h2End},${midY} Q ${sfEndOffset},${midY} ${sfEndOffset},${v2Start} L ${sfEndOffset},${v2End} Q ${sfEndOffset},${pEndY} ${h2End},${pEndY} L ${pEndX},${pEndY}`;
+                    } else {
+                        pathData = `M ${pStartX},${pStartY} H ${sfStartOffset} V ${midY} H ${sfEndOffset} V ${pEndY} H ${pEndX}`;
+                    }
+                    break;
+                default:
+                    pathData = `M ${pStartX},${pStartY} V ${pEndY} H ${pEndX}`;
+            }
+        }
+
+        return {
+            pathData,
+            startX: pStartX,
+            startY: pStartY,
+            endX: pEndX,
+            endY: pEndY
+        };
+    }
+
     private drawArrows(
         tasks: Task[],
         xScale: ScaleTime<number, number>,
@@ -8305,7 +8758,6 @@ export class Visual implements IVisual {
             console.warn("Skipping arrow drawing: Missing layer or invalid scales.");
             return;
         }
-        this.arrowLayer.selectAll(".relationship-arrow, .connection-dot-start, .connection-dot-end").remove();
 
         const connectionEndPadding = 0;
         const elbowOffset = this.settings.connectorLines.elbowOffset.value;
@@ -8342,164 +8794,79 @@ export class Visual implements IVisual {
             }
         };
 
-        this.arrowLayer.selectAll(".relationship-arrow")
-            .data(visibleRelationships, (d: Relationship) => `${d.predecessorId}-${d.successorId}`)
-            .enter()
-            .append("path")
-            .attr("class", (d: Relationship) => {
-                const isDriving = d.isDriving ?? d.isCritical;
-                return `relationship-arrow ${d.isCritical ? "critical" : "normal"} ${isDriving ? "driving" : "non-driving"}`;
+        const relationshipGeometries = visibleRelationships
+            .map(rel => ({
+                relationship: rel,
+                geometry: this.getRelationshipRenderGeometry(
+                    rel,
+                    taskPositions,
+                    xScale,
+                    yScale,
+                    taskHeight,
+                    milestoneSizeSetting,
+                    elbowOffset,
+                    connectionEndPadding
+                )
+            }))
+            .filter((entry): entry is { relationship: Relationship; geometry: RelationshipRenderGeometry } => entry.geometry !== null);
+
+        this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship; geometry: RelationshipRenderGeometry }>(".relationship-arrow")
+            .data(relationshipGeometries, d => `${d.relationship.predecessorId}-${d.relationship.successorId}`)
+            .join(
+                enter => enter.append("path"),
+                update => update,
+                exit => exit.remove()
+            )
+            .attr("class", d => {
+                const isDriving = d.relationship.isDriving ?? d.relationship.isCritical;
+                return `relationship-arrow ${d.relationship.isCritical ? "critical" : "normal"} ${isDriving ? "driving" : "non-driving"}`;
             })
             .attr("fill", "none")
-            .attr("stroke", (d: Relationship) => d.isCritical ? criticalColor : connectorColor)
-            .attr("stroke-opacity", (d: Relationship) => {
-                const isDriving = d.isDriving ?? d.isCritical;
-                const baseOpacity = this.getConnectorOpacity(d);
+            .attr("stroke", (d) => d.relationship.isCritical ? criticalColor : connectorColor)
+            .attr("stroke-opacity", (d) => {
+                const isDriving = d.relationship.isDriving ?? d.relationship.isCritical;
+                const baseOpacity = this.getConnectorOpacity(d.relationship);
                 return differentiateDrivers && !isDriving ? baseOpacity * nonDrivingOpacity : baseOpacity;
             })
-            .attr("stroke-width", (d: Relationship) => {
-                const baseWidth = d.isCritical ? criticalConnectorWidth : connectorWidth;
-                return d.isCritical ? Math.max(1.6, baseWidth) : Math.max(1, baseWidth);
+            .attr("stroke-width", (d) => {
+                const baseWidth = d.relationship.isCritical ? criticalConnectorWidth : connectorWidth;
+                return d.relationship.isCritical ? Math.max(1.6, baseWidth) : Math.max(1, baseWidth);
             })
             .attr("stroke-linecap", "round")
             .attr("stroke-linejoin", "round")
-            .attr("stroke-dasharray", (d: Relationship) => getDashArray(d))
-            .attr("marker-end", (d: Relationship) => d.isCritical ? "url(#arrowhead-critical)" : "url(#arrowhead)")
-            .attr("d", (rel: Relationship): string | null => {
-                const pred = this.taskIdToTask.get(rel.predecessorId);
-                const succ = this.taskIdToTask.get(rel.successorId);
-                const predYOrder = taskPositions.get(rel.predecessorId);
-                const succYOrder = taskPositions.get(rel.successorId);
+            .attr("stroke-dasharray", (d) => getDashArray(d.relationship))
+            .attr("marker-end", (d) => d.relationship.isCritical
+                ? this.getScopedUrlRef("arrowhead-critical")
+                : this.getScopedUrlRef("arrowhead"))
+            .attr("d", d => d.geometry.pathData);
 
-                if (!pred || !succ || predYOrder === undefined || succYOrder === undefined) return null;
+        this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship; geometry: RelationshipRenderGeometry }>(".connection-dot-start")
+            .data(relationshipGeometries, d => `${d.relationship.predecessorId}-${d.relationship.successorId}`)
+            .join(
+                enter => enter.append("circle").attr("class", "connection-dot-start"),
+                update => update,
+                exit => exit.remove()
+            )
+            .attr("cx", d => d.geometry.startX)
+            .attr("cy", d => d.geometry.startY)
+            .attr("r", 0)
+            .style("fill", d => d.relationship.isCritical ? criticalColor : connectorColor)
+            .style("fill-opacity", 0)
+            .style("pointer-events", "none");
 
-                const predYBandPos = yScale(predYOrder.toString());
-                const succYBandPos = yScale(succYOrder.toString());
-                if (predYBandPos === undefined || succYBandPos === undefined || isNaN(predYBandPos) || isNaN(succYBandPos)) return null;
-
-                const predY = predYBandPos + taskHeight / 2;
-                const succY = succYBandPos + taskHeight / 2;
-                const relType = rel.type || 'FS';
-                const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
-                const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
-
-                let baseStartDate: Date | null | undefined = null;
-                let baseEndDate: Date | null | undefined = null;
-
-                const predStart = this.getVisualStart(pred);
-                const predFinish = this.getVisualFinish(pred);
-                const succStart = this.getVisualStart(succ);
-                const succFinish = this.getVisualFinish(succ);
-
-                switch (relType) {
-                    case 'FS': case 'FF': baseStartDate = predIsMilestone ? (predStart ?? predFinish) : predFinish; break;
-                    case 'SS': case 'SF': baseStartDate = predStart; break;
-                }
-                switch (relType) {
-                    case 'FS': case 'SS': baseEndDate = succStart; break;
-                    case 'FF': case 'SF': baseEndDate = succIsMilestone ? (succStart ?? succFinish) : succFinish; break;
-                }
-
-                let startX: number | null = null;
-                let endX: number | null = null;
-                if (baseStartDate instanceof Date && !isNaN(baseStartDate.getTime())) startX = xScale(baseStartDate);
-                if (baseEndDate instanceof Date && !isNaN(baseEndDate.getTime())) endX = xScale(baseEndDate);
-
-                if (startX === null || endX === null || isNaN(startX) || isNaN(endX)) return null;
-
-                const milestoneDrawSize = this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
-                const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
-                const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
-
-                let effectiveStartX = startX;
-                let effectiveEndX = endX;
-
-                if (relType === 'FS' || relType === 'FF') effectiveStartX += startGap;
-                else effectiveStartX -= startGap;
-                if (predIsMilestone && (relType === 'SS' || relType === 'SF')) effectiveStartX = startX + startGap;
-
-                if (relType === 'FS' || relType === 'SS') effectiveEndX -= endGap;
-                else effectiveEndX += endGap;
-                if (succIsMilestone && (relType === 'FF' || relType === 'SF')) effectiveEndX = endX + endGap - connectionEndPadding;
-
-                const pStartX = effectiveStartX;
-                const pStartY = predY;
-                const pEndX = effectiveEndX;
-                const pEndY = succY;
-
-                if (Math.abs(pStartX - pEndX) < elbowOffset && Math.abs(pStartY - pEndY) < 1) return null;
-
-                const cornerRadius = 8;
-                let pathData: string;
-
-                if (Math.abs(pStartY - pEndY) < 1) {
-
-                    pathData = `M ${pStartX},${pStartY} H ${pEndX}`;
-                } else {
-
-                    const isGoingDown = pEndY > pStartY;
-
-                    switch (relType) {
-                        case 'FS':
-
-                            if (Math.abs(pEndY - pStartY) > cornerRadius * 2) {
-                                const verticalEnd = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
-                                pathData = `M ${pStartX},${pStartY} L ${pStartX},${verticalEnd} Q ${pStartX},${pEndY} ${pStartX + cornerRadius},${pEndY} L ${pEndX},${pEndY}`;
-                            } else {
-                                pathData = `M ${pStartX},${pStartY} V ${pEndY} H ${pEndX}`;
-                            }
-                            break;
-
-                        case 'SS':
-
-                            const ssOffsetX = Math.min(pStartX, pEndX) - elbowOffset;
-                            if (Math.abs(pStartX - ssOffsetX) > cornerRadius && Math.abs(pEndY - pStartY) > cornerRadius * 2) {
-                                const h1End = ssOffsetX + cornerRadius;
-                                const v1End = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
-                                pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${ssOffsetX},${pStartY} ${ssOffsetX},${pStartY + (isGoingDown ? cornerRadius : -cornerRadius)} L ${ssOffsetX},${v1End} Q ${ssOffsetX},${pEndY} ${h1End},${pEndY} L ${pEndX},${pEndY}`;
-                            } else {
-                                pathData = `M ${pStartX},${pStartY} H ${ssOffsetX} V ${pEndY} H ${pEndX}`;
-                            }
-                            break;
-
-                        case 'FF':
-
-                            const ffOffsetX = Math.max(pStartX, pEndX) + elbowOffset;
-                            if (Math.abs(ffOffsetX - pStartX) > cornerRadius && Math.abs(pEndY - pStartY) > cornerRadius * 2) {
-                                const h1End = ffOffsetX - cornerRadius;
-                                const v1End = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
-                                pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${ffOffsetX},${pStartY} ${ffOffsetX},${pStartY + (isGoingDown ? cornerRadius : -cornerRadius)} L ${ffOffsetX},${v1End} Q ${ffOffsetX},${pEndY} ${h1End},${pEndY} L ${pEndX},${pEndY}`;
-                            } else {
-                                pathData = `M ${pStartX},${pStartY} H ${ffOffsetX} V ${pEndY} H ${pEndX}`;
-                            }
-                            break;
-
-                        case 'SF':
-
-                            const sfStartOffset = pStartX - elbowOffset;
-                            const sfEndOffset = pEndX + elbowOffset;
-                            const midY = (pStartY + pEndY) / 2;
-                            if (Math.abs(pStartX - sfStartOffset) > cornerRadius) {
-                                const h1End = sfStartOffset + cornerRadius;
-                                const v1Start = pStartY + (midY > pStartY ? cornerRadius : -cornerRadius);
-                                const v1End = midY - (midY > pStartY ? cornerRadius : -cornerRadius);
-                                const h2End = sfEndOffset - cornerRadius;
-                                const v2Start = midY + (pEndY > midY ? cornerRadius : -cornerRadius);
-                                const v2End = pEndY - (pEndY > midY ? cornerRadius : -cornerRadius);
-                                pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${sfStartOffset},${pStartY} ${sfStartOffset},${v1Start} L ${sfStartOffset},${v1End} Q ${sfStartOffset},${midY} ${h1End},${midY} L ${h2End},${midY} Q ${sfEndOffset},${midY} ${sfEndOffset},${v2Start} L ${sfEndOffset},${v2End} Q ${sfEndOffset},${pEndY} ${h2End},${pEndY} L ${pEndX},${pEndY}`;
-                            } else {
-                                pathData = `M ${pStartX},${pStartY} H ${sfStartOffset} V ${midY} H ${sfEndOffset} V ${pEndY} H ${pEndX}`;
-                            }
-                            break;
-
-                        default:
-
-                            pathData = `M ${pStartX},${pStartY} V ${pEndY} H ${pEndX}`;
-                    }
-                }
-                return pathData;
-            })
-            .filter(function () { return d3.select(this).attr("d") !== null; });
+        this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship; geometry: RelationshipRenderGeometry }>(".connection-dot-end")
+            .data(relationshipGeometries, d => `${d.relationship.predecessorId}-${d.relationship.successorId}`)
+            .join(
+                enter => enter.append("circle").attr("class", "connection-dot-end"),
+                update => update,
+                exit => exit.remove()
+            )
+            .attr("cx", d => d.geometry.endX)
+            .attr("cy", d => d.geometry.endY)
+            .attr("r", 0)
+            .style("fill", d => d.relationship.isCritical ? criticalColor : connectorColor)
+            .style("fill-opacity", 0)
+            .style("pointer-events", "none");
 
     }
 
@@ -8600,7 +8967,7 @@ export class Visual implements IVisual {
             .attr("stroke", lineColor)
             .attr("stroke-width", lineWidth)
             .attr("stroke-dasharray", lineDashArray)
-            .attr("clip-path", "url(#chart-area-clip)")
+            .attr("clip-path", this.getScopedUrlRef("chart-area-clip"))
             .style("pointer-events", "none");
 
         if (showLabel) {
@@ -8744,7 +9111,7 @@ export class Visual implements IVisual {
             .attr("stroke", lineColor)
             .attr("stroke-width", lineWidth)
             .attr("stroke-dasharray", lineDashArray)
-            .attr("clip-path", "url(#chart-area-clip)")
+            .attr("clip-path", this.getScopedUrlRef("chart-area-clip"))
             .style("pointer-events", "none");
 
         if (this.useCanvasRendering && this.canvasContext) {
@@ -9156,17 +9523,30 @@ export class Visual implements IVisual {
 
         this.identifyDrivingRelationships();
 
-        const projectFinishTask = this.findProjectFinishTask();
-        if (!projectFinishTask) {
+        const projectFinishTasks = this.findProjectFinishTasks();
+        if (projectFinishTasks.length === 0) {
             console.warn("Could not identify project finish task");
             return;
         }
 
-        this.debugLog(`Project finish task: ${projectFinishTask.name} (${projectFinishTask.internalId})`);
+        this.debugLog(`Project finish tasks: ${projectFinishTasks.map(task => `${task.name} (${task.internalId})`).join(", ")}`);
 
-        const drivingChains = this.buildBestDrivingChainsToTarget(projectFinishTask.internalId);
+        const drivingScope = this.collectDrivingAncestorsForTargets(projectFinishTasks.map(task => task.internalId));
+        const drivingChains = this.buildBestDrivingChains(
+            drivingScope,
+            projectFinishTasks.map(task => task.internalId)
+        );
+        const resolvedChains = drivingChains.length > 0
+            ? drivingChains
+            : projectFinishTasks.map(task => ({
+                tasks: new Set([task.internalId]),
+                relationships: [],
+                totalDuration: this.getTaskScheduleSpanDays(task),
+                startingTask: task,
+                endingTask: task
+            }));
 
-        this.allDrivingChains = this.sortAndStoreDrivingChains(drivingChains);
+        this.allDrivingChains = this.sortAndStoreDrivingChains(resolvedChains);
 
         const selectedChain = this.getSelectedDrivingChain();
 
@@ -9294,54 +9674,23 @@ export class Visual implements IVisual {
         this.debugLog(`Identified ${drivingCount} driving relationships`);
     }
 
-    /**
-     * Finds the project finish task (latest finish date)
-     */
-    private findProjectFinishTask(): Task | null {
-        let latestFinish: Date | null = null;
-        let candidates: Task[] = [];
+    private findProjectFinishTasks(): Task[] {
+        const terminalTaskIds = this.getDrivingTerminalTaskIds();
+        const candidateTaskIds = terminalTaskIds.length > 0
+            ? terminalTaskIds
+            : this.allTasksData.map(task => task.internalId);
+        const tiedFinishTaskIds = getTiedLatestFinishTaskIds(
+            this.taskIdToTask,
+            candidateTaskIds,
+            this.floatTolerance
+        );
 
-        for (const task of this.allTasksData) {
-            if (!task.finishDate) continue;
+        const tasks = tiedFinishTaskIds
+            .map(taskId => this.taskIdToTask.get(taskId))
+            .filter((task): task is Task => !!task);
 
-            if (!latestFinish || task.finishDate > latestFinish) {
-                latestFinish = task.finishDate;
-                candidates = [task];
-            } else if (Math.abs(task.finishDate.getTime() - latestFinish.getTime()) <= this.floatTolerance * 86400000) {
-                candidates.push(task);
-            }
-        }
-
-        if (candidates.length === 0) return null;
-        if (candidates.length === 1) return candidates[0];
-        let bestCandidate = candidates[0];
-        let earliestStart = bestCandidate.startDate?.getTime() ?? Infinity;
-
-        for (let i = 1; i < candidates.length; i++) {
-            const candidate = candidates[i];
-            const candidateStart = candidate.startDate?.getTime() ?? Infinity;
-
-            if (candidateStart < earliestStart) {
-                earliestStart = candidateStart;
-                bestCandidate = candidate;
-            }
-        }
-
-        this.debugLog(`Found ${candidates.length} tasks with latest finish date, selected ${bestCandidate.name} (earliest start)`);
-        return bestCandidate;
-    }
-
-    private getTaskDurationForPath(taskId: string): number {
-        const duration = this.taskIdToTask.get(taskId)?.duration ?? 0;
-        return Number.isFinite(duration) ? duration : 0;
-    }
-
-    private getRelationshipKey(rel: Relationship): string {
-        return `${rel.predecessorId}|${rel.successorId}|${rel.type || "FS"}|${rel.lag ?? ""}`;
-    }
-
-    private arePathDurationsEqual(a: number, b: number): boolean {
-        return Math.abs(a - b) <= 1e-9;
+        this.debugLog(`Found ${tasks.length} tied terminal finish task(s).`);
+        return tasks;
     }
 
     private getDrivingIncoming(taskId: string, scope?: Set<string>): Relationship[] {
@@ -9358,6 +9707,17 @@ export class Visual implements IVisual {
             return outgoing;
         }
         return outgoing.filter(rel => scope.has(rel.predecessorId) && scope.has(rel.successorId));
+    }
+
+    private getDrivingTerminalTaskIds(scope?: Set<string>): string[] {
+        const candidateTaskIds = scope
+            ? Array.from(scope)
+            : this.allTasksData.map(task => task.internalId);
+
+        return candidateTaskIds
+            .filter(taskId => this.taskIdToTask.has(taskId))
+            .filter(taskId => this.getDrivingOutgoing(taskId, scope).length === 0)
+            .sort((a, b) => this.compareTaskIdsForTopo(a, b));
     }
 
     private compareTaskIdsForTopo(aId: string, bId: string): number {
@@ -9378,6 +9738,22 @@ export class Visual implements IVisual {
         return aId.localeCompare(bId);
     }
 
+    private insertIntoSortedTopoQueue(queue: string[], taskId: string): void {
+        let low = 0;
+        let high = queue.length;
+
+        while (low < high) {
+            const mid = Math.floor((low + high) / 2);
+            if (this.compareTaskIdsForTopo(taskId, queue[mid]) < 0) {
+                high = mid;
+            } else {
+                low = mid + 1;
+            }
+        }
+
+        queue.splice(low, 0, taskId);
+    }
+
     private collectDrivingAncestors(targetTaskId: string): Set<string> {
         const nodeIds = new Set<string>();
         const stack: string[] = [targetTaskId];
@@ -9395,6 +9771,16 @@ export class Visual implements IVisual {
         }
 
         return nodeIds;
+    }
+
+    private collectDrivingAncestorsForTargets(targetTaskIds: Iterable<string>): Set<string> {
+        const collected = new Set<string>();
+        for (const targetTaskId of targetTaskIds) {
+            for (const taskId of this.collectDrivingAncestors(targetTaskId)) {
+                collected.add(taskId);
+            }
+        }
+        return collected;
     }
 
     private collectDrivingDescendants(sourceTaskId: string): Set<string> {
@@ -9439,8 +9825,7 @@ export class Visual implements IVisual {
                 const nextIndegree = (indegree.get(rel.successorId) ?? 0) - 1;
                 indegree.set(rel.successorId, nextIndegree);
                 if (nextIndegree === 0) {
-                    queue.push(rel.successorId);
-                    queue.sort((a, b) => this.compareTaskIdsForTopo(a, b));
+                    this.insertIntoSortedTopoQueue(queue, rel.successorId);
                 }
             }
         }
@@ -9452,33 +9837,164 @@ export class Visual implements IVisual {
         return order;
     }
 
-    private emitDrivingChain(
-        chains: DrivingChain[],
-        emittedSignatures: Set<string>,
-        orderedTaskIds: string[],
-        orderedRelationships: Relationship[],
-        totalDuration: number
-    ): void {
-        if (orderedTaskIds.length === 0) {
+    private updateDrivingPathGenerationState(result: {
+        paths: { length: number };
+        truncated: boolean;
+        truncatedByPathLimit: boolean;
+        truncatedByExpansionLimit: boolean;
+        expansionCount: number;
+    }): void {
+        this.drivingPathsTruncated = result.truncated;
+        this.drivingPathExpansionCount = result.expansionCount;
+
+        if (!result.truncated) {
+            this.drivingPathsTruncationMessage = null;
             return;
         }
 
-        const signature = `${orderedTaskIds.join(">")}::${orderedRelationships.map(rel => this.getRelationshipKey(rel)).join(">")}`;
-        if (emittedSignatures.has(signature)) {
+        if (result.truncatedByPathLimit) {
+            this.drivingPathsTruncationMessage = `Showing first ${result.paths.length} paths`;
             return;
         }
 
-        emittedSignatures.add(signature);
-        const startingTask = this.taskIdToTask.get(orderedTaskIds[0]) ?? null;
-        const endingTask = this.taskIdToTask.get(orderedTaskIds[orderedTaskIds.length - 1]) ?? null;
+        if (result.truncatedByExpansionLimit && result.paths.length > 0) {
+            this.drivingPathsTruncationMessage = `Showing first ${result.paths.length} paths`;
+            return;
+        }
 
-        chains.push({
-            tasks: new Set(orderedTaskIds),
-            relationships: [...orderedRelationships],
-            totalDuration,
+        this.drivingPathsTruncationMessage = "Path generation truncated";
+    }
+
+    private getTaskScheduleSpanDays(task: Task | null | undefined): number {
+        const startTime = task?.startDate?.getTime();
+        const finishTime = task?.finishDate?.getTime();
+        if (!Number.isFinite(startTime) || !Number.isFinite(finishTime)) {
+            return 0;
+        }
+
+        return Math.max(0, ((finishTime as number) - (startTime as number)) / 86400000);
+    }
+
+    private createDrivingChain(taskIds: string[], relationships: Relationship[], spanDays: number): DrivingChain | null {
+        if (taskIds.length === 0) {
+            return null;
+        }
+
+        const startingTask = this.taskIdToTask.get(taskIds[0]) ?? null;
+        const endingTask = this.taskIdToTask.get(taskIds[taskIds.length - 1]) ?? null;
+
+        return {
+            tasks: new Set(taskIds),
+            relationships: [...relationships],
+            totalDuration: spanDays,
             startingTask,
             endingTask
-        });
+        };
+    }
+
+    private buildBestDrivingChains(
+        scopeTaskIds: Set<string>,
+        sinkTaskIds: string[],
+        explicitSourceTaskIds?: string[]
+    ): DrivingChain[] {
+        this.drivingPathsTruncated = false;
+        this.drivingPathsTruncationMessage = null;
+        this.drivingPathExpansionCount = 0;
+
+        if (scopeTaskIds.size === 0) {
+            return [];
+        }
+
+        const topoOrder = this.getDrivingTopologicalOrder(scopeTaskIds);
+        if (!topoOrder) {
+            console.warn("Unable to build driving paths: driving graph is cyclic.");
+            return [];
+        }
+
+        const scopedRelationships: Relationship[] = [];
+        const seenRelationships = new Set<string>();
+        for (const taskId of topoOrder) {
+            const outgoing = this.getDrivingOutgoing(taskId, scopeTaskIds)
+                .sort((a, b) => {
+                    const successorOrder = this.compareTaskIdsForTopo(a.successorId, b.successorId);
+                    if (successorOrder !== 0) {
+                        return successorOrder;
+                    }
+                    const typeOrder = (a.type || "FS").localeCompare(b.type || "FS");
+                    if (typeOrder !== 0) {
+                        return typeOrder;
+                    }
+                    return (a.lag ?? 0) - (b.lag ?? 0);
+                });
+
+            for (const relationship of outgoing) {
+                const key = `${relationship.predecessorId}|${relationship.successorId}|${relationship.type || "FS"}|${relationship.lag ?? ""}`;
+                if (!seenRelationships.has(key)) {
+                    seenRelationships.add(key);
+                    scopedRelationships.push(relationship);
+                }
+            }
+        }
+
+        const graph = buildDrivingEventGraph(this.taskIdToTask, topoOrder, scopedRelationships);
+        const sourceNodeIds = (explicitSourceTaskIds && explicitSourceTaskIds.length > 0
+            ? explicitSourceTaskIds.map(taskId => getTaskEventNodeId(taskId, "start"))
+            : graph.rootStartNodeIds)
+            .filter(nodeId => graph.nodeIndex.has(nodeId));
+        const candidateSinkNodeIds = sinkTaskIds
+            .map(taskId => getTaskEventNodeId(taskId, "finish"))
+            .filter(nodeId => graph.nodeIndex.has(nodeId));
+
+        if (sourceNodeIds.length === 0 || candidateSinkNodeIds.length === 0) {
+            return [];
+        }
+
+        const longestPaths = calculateLongestDrivingPaths(graph, sourceNodeIds, this.floatTolerance);
+        const bestSinkNodeIds = selectBestSinkNodeIds(
+            longestPaths.distances,
+            candidateSinkNodeIds,
+            this.floatTolerance
+        );
+
+        if (bestSinkNodeIds.length === 0) {
+            return [];
+        }
+
+        const expandedPaths = expandBestDrivingPaths(
+            graph,
+            longestPaths.bestIncoming,
+            longestPaths.distances,
+            bestSinkNodeIds,
+            {
+                maxPaths: Visual.DRIVING_PATH_MAX_PATHS,
+                maxExpansions: Visual.DRIVING_PATH_MAX_EXPANSIONS
+            }
+        );
+        this.updateDrivingPathGenerationState(expandedPaths);
+
+        const chains = expandedPaths.paths
+            .map(path => this.createDrivingChain(path.taskIds, path.relationships, path.spanDays))
+            .filter((chain): chain is DrivingChain => chain !== null);
+
+        if (chains.length > 0) {
+            return chains;
+        }
+
+        if (explicitSourceTaskIds && explicitSourceTaskIds.length === 1) {
+            const singleTaskId = explicitSourceTaskIds[0];
+            const fallbackTask = this.taskIdToTask.get(singleTaskId) ?? null;
+            if (fallbackTask) {
+                return [{
+                    tasks: new Set([singleTaskId]),
+                    relationships: [],
+                    totalDuration: this.getTaskScheduleSpanDays(fallbackTask),
+                    startingTask: fallbackTask,
+                    endingTask: fallbackTask
+                }];
+            }
+        }
+
+        return [];
     }
 
     private buildBestDrivingChainsToTarget(targetTaskId: string): DrivingChain[] {
@@ -9488,82 +10004,18 @@ export class Visual implements IVisual {
         }
 
         const ancestorIds = this.collectDrivingAncestors(targetTaskId);
-        const topoOrder = this.getDrivingTopologicalOrder(ancestorIds);
-        if (!topoOrder) {
-            console.warn(`Unable to build backward driving paths for ${targetTaskId}: driving graph is cyclic.`);
-            return [];
+        const chains = this.buildBestDrivingChains(ancestorIds, [targetTaskId]);
+        if (chains.length > 0) {
+            return chains;
         }
 
-        const bestDuration = new Map<string, number>();
-        const bestIncoming = new Map<string, Relationship[]>();
-
-        for (const taskId of topoOrder) {
-            const duration = this.getTaskDurationForPath(taskId);
-            const incoming = this.getDrivingIncoming(taskId, ancestorIds);
-            let nodeBestDuration = duration;
-            let bestEdges: Relationship[] = [];
-
-            for (const rel of incoming) {
-                const predecessorBest = bestDuration.get(rel.predecessorId);
-                if (predecessorBest === undefined) {
-                    continue;
-                }
-
-                const candidateDuration = predecessorBest + duration;
-                if (candidateDuration > nodeBestDuration && !this.arePathDurationsEqual(candidateDuration, nodeBestDuration)) {
-                    nodeBestDuration = candidateDuration;
-                    bestEdges = [rel];
-                } else if (this.arePathDurationsEqual(candidateDuration, nodeBestDuration)) {
-                    bestEdges.push(rel);
-                }
-            }
-
-            bestDuration.set(taskId, nodeBestDuration);
-            bestIncoming.set(taskId, bestEdges);
-        }
-
-        const totalDuration = bestDuration.get(targetTaskId) ?? this.getTaskDurationForPath(targetTaskId);
-        const chains: DrivingChain[] = [];
-        const emittedSignatures = new Set<string>();
-        const pathTaskIds: string[] = [];
-        const pathRelationships: Relationship[] = [];
-
-        const build = (taskId: string): void => {
-            pathTaskIds.push(taskId);
-
-            const incoming = bestIncoming.get(taskId) ?? [];
-            if (incoming.length === 0) {
-                this.emitDrivingChain(
-                    chains,
-                    emittedSignatures,
-                    [...pathTaskIds].reverse(),
-                    [...pathRelationships].reverse(),
-                    totalDuration
-                );
-            } else {
-                incoming.forEach(rel => {
-                    pathRelationships.push(rel);
-                    build(rel.predecessorId);
-                    pathRelationships.pop();
-                });
-            }
-
-            pathTaskIds.pop();
-        };
-
-        build(targetTaskId);
-
-        if (chains.length === 0) {
-            chains.push({
-                tasks: new Set([targetTaskId]),
-                relationships: [],
-                totalDuration,
-                startingTask: targetTask,
-                endingTask: targetTask
-            });
-        }
-
-        return chains;
+        return [{
+            tasks: new Set([targetTaskId]),
+            relationships: [],
+            totalDuration: this.getTaskScheduleSpanDays(targetTask),
+            startingTask: targetTask,
+            endingTask: targetTask
+        }];
     }
 
     private buildBestDrivingChainsFromSource(sourceTaskId: string): DrivingChain[] {
@@ -9573,108 +10025,24 @@ export class Visual implements IVisual {
         }
 
         const descendantIds = this.collectDrivingDescendants(sourceTaskId);
-        const topoOrder = this.getDrivingTopologicalOrder(descendantIds);
-        if (!topoOrder) {
-            console.warn(`Unable to build forward driving paths for ${sourceTaskId}: driving graph is cyclic.`);
-            return [];
+        const terminalTaskIds = this.getDrivingTerminalTaskIds(descendantIds);
+        const sinkTaskIds = getTiedLatestFinishTaskIds(
+            this.taskIdToTask,
+            terminalTaskIds.length > 0 ? terminalTaskIds : descendantIds,
+            this.floatTolerance
+        );
+        const chains = this.buildBestDrivingChains(descendantIds, sinkTaskIds, [sourceTaskId]);
+        if (chains.length > 0) {
+            return chains;
         }
 
-        const bestDuration = new Map<string, number>();
-        const bestIncoming = new Map<string, Relationship[]>();
-        bestDuration.set(sourceTaskId, this.getTaskDurationForPath(sourceTaskId));
-
-        for (const taskId of topoOrder) {
-            const currentBest = bestDuration.get(taskId);
-            if (currentBest === undefined) {
-                continue;
-            }
-
-            for (const rel of this.getDrivingOutgoing(taskId, descendantIds)) {
-                const successorDuration = this.getTaskDurationForPath(rel.successorId);
-                const candidateDuration = currentBest + successorDuration;
-                const existingBest = bestDuration.get(rel.successorId);
-
-                if (existingBest === undefined || candidateDuration > existingBest && !this.arePathDurationsEqual(candidateDuration, existingBest)) {
-                    bestDuration.set(rel.successorId, candidateDuration);
-                    bestIncoming.set(rel.successorId, [rel]);
-                } else if (existingBest !== undefined && this.arePathDurationsEqual(candidateDuration, existingBest)) {
-                    const existing = bestIncoming.get(rel.successorId) ?? [];
-                    existing.push(rel);
-                    bestIncoming.set(rel.successorId, existing);
-                }
-            }
-        }
-
-        let bestSinkDuration = -Infinity;
-        let sinkTaskIds: string[] = [];
-        descendantIds.forEach(taskId => {
-            const currentBest = bestDuration.get(taskId);
-            if (currentBest === undefined) {
-                return;
-            }
-
-            const hasReachableOutgoing = this.getDrivingOutgoing(taskId, descendantIds)
-                .some(rel => bestDuration.has(rel.successorId));
-            if (hasReachableOutgoing) {
-                return;
-            }
-
-            if (currentBest > bestSinkDuration && !this.arePathDurationsEqual(currentBest, bestSinkDuration)) {
-                bestSinkDuration = currentBest;
-                sinkTaskIds = [taskId];
-            } else if (this.arePathDurationsEqual(currentBest, bestSinkDuration)) {
-                sinkTaskIds.push(taskId);
-            }
-        });
-
-        if (sinkTaskIds.length === 0) {
-            sinkTaskIds = [sourceTaskId];
-            bestSinkDuration = bestDuration.get(sourceTaskId) ?? this.getTaskDurationForPath(sourceTaskId);
-        }
-
-        const chains: DrivingChain[] = [];
-        const emittedSignatures = new Set<string>();
-        const pathTaskIds: string[] = [];
-        const pathRelationships: Relationship[] = [];
-
-        const build = (taskId: string, totalDuration: number): void => {
-            pathTaskIds.push(taskId);
-
-            const incoming = bestIncoming.get(taskId) ?? [];
-            if (taskId === sourceTaskId || incoming.length === 0) {
-                this.emitDrivingChain(
-                    chains,
-                    emittedSignatures,
-                    [...pathTaskIds].reverse(),
-                    [...pathRelationships].reverse(),
-                    totalDuration
-                );
-            } else {
-                incoming.forEach(rel => {
-                    pathRelationships.push(rel);
-                    build(rel.predecessorId, totalDuration);
-                    pathRelationships.pop();
-                });
-            }
-
-            pathTaskIds.pop();
-        };
-
-        sinkTaskIds.forEach(taskId => {
-            build(taskId, bestDuration.get(taskId) ?? bestSinkDuration);
-        });
-
-        if (chains.length === 0) {
-            chains.push({
-                tasks: new Set([sourceTaskId]),
-                relationships: [],
-                totalDuration: bestDuration.get(sourceTaskId) ?? this.getTaskDurationForPath(sourceTaskId),
-                startingTask: sourceTask,
-                endingTask: sourceTask
-            });
-        }
-
-        return chains;
+        return [{
+            tasks: new Set([sourceTaskId]),
+            relationships: [],
+            totalDuration: this.getTaskScheduleSpanDays(sourceTask),
+            startingTask: sourceTask,
+            endingTask: sourceTask
+        }];
     }
 
     private sortAndStoreDrivingChains(chains: DrivingChain[]): DrivingChain[] {
@@ -9687,7 +10055,16 @@ export class Visual implements IVisual {
             if (aDate < bDate) return -1;
             if (aDate > bDate) return 1;
 
-            return b.totalDuration - a.totalDuration;
+            if (a.totalDuration !== b.totalDuration) {
+                return b.totalDuration - a.totalDuration;
+            }
+
+            const endCompare = (a.endingTask?.internalId ?? "").localeCompare(b.endingTask?.internalId ?? "");
+            if (endCompare !== 0) {
+                return endCompare;
+            }
+
+            return (a.startingTask?.internalId ?? "").localeCompare(b.startingTask?.internalId ?? "");
         });
 
         this.debugLog(`Found ${sortedChains.length} driving paths`);
@@ -9788,7 +10165,12 @@ export class Visual implements IVisual {
             .style("background-color", this.highContrastMode ? this.highContrastBackground : HEADER_DOCK_TOKENS.chipBg)
             .style("border", `1px solid ${this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.primary}`)
             .style("color", this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.chipText)
-            .attr("title", "Current Path Information: Path Number | Total Tasks | Total Duration");
+            .attr(
+                "title",
+                this.drivingPathsTruncationMessage
+                    ? `Current Path Information: Path Number | Total Tasks | Total Duration | ${this.drivingPathsTruncationMessage}`
+                    : "Current Path Information: Path Number | Total Tasks | Total Duration"
+            );
 
         this.pathInfoLabel.selectAll("*").remove();
 
@@ -9796,6 +10178,7 @@ export class Visual implements IVisual {
         const totalPaths = this.allDrivingChains.length;
         const duration = currentChain.totalDuration.toFixed(1);
         const taskCount = currentChain.tasks.size;
+        const truncationMessage = this.drivingPathsTruncationMessage;
 
         const buttonOpacity = hasMultiplePaths ? "1" : "0.35";
         const buttonCursor = hasMultiplePaths ? "pointer" : "default";
@@ -9910,6 +10293,23 @@ export class Visual implements IVisual {
                     .attr("aria-label", `Total duration ${duration} days`)
                     .text(`${duration} days`);
             }
+        }
+
+        if (truncationMessage && !isCompact) {
+            infoContainer.append("span")
+                .style("color", HEADER_DOCK_TOKENS.primary)
+                .style("font-weight", "600")
+                .attr("aria-hidden", "true")
+                .text("|");
+
+            infoContainer.append("span")
+                .style("font-weight", "600")
+                .style("color", HEADER_DOCK_TOKENS.warningText)
+                .style("background-color", HEADER_DOCK_TOKENS.warningBg)
+                .style("border-radius", `${UI_TOKENS.radius.small}px`)
+                .style("padding", "1px 6px")
+                .attr("aria-label", truncationMessage)
+                .text(truncationMessage);
         }
 
         const nextButtonTitle = hasMultiplePaths ? "Next driving path" : "Only one driving path";
@@ -11140,7 +11540,7 @@ export class Visual implements IVisual {
         toggleEnter.append('rect').attr('class', 'wbs-expand-button');
         toggleEnter.append('path').attr('class', 'wbs-expand-chevron');
 
-        groupsEnter.append('g').attr('class', 'wbs-summary-bars').attr('clip-path', 'url(#chart-area-clip)');
+        groupsEnter.append('g').attr('class', 'wbs-summary-bars').attr('clip-path', this.getScopedUrlRef("chart-area-clip"));
         groupsEnter.append('text')
             .attr('class', 'wbs-group-name')
             .attr('text-anchor', 'start')
@@ -12574,6 +12974,10 @@ export class Visual implements IVisual {
             }
         }
 
+        this.announceToLiveRegion(taskId && taskName
+            ? `${selectedLabelPrefix}: ${taskName}`
+            : this.getLocalizedString("ui.selectionCleared", "Selection cleared"));
+
         this.host.persistProperties({
             merge: [{
                 objectName: "persistedState",
@@ -12728,7 +13132,7 @@ export class Visual implements IVisual {
      * Toggle a legend category on/off for filtering
      */
     private persistLegendSelectionState(): void {
-        const selectedCategoriesStr = Array.from(this.selectedLegendCategories).join(',');
+        const selectedCategoriesStr = serializeLegendSelection(this.selectedLegendCategories);
         this.host.persistProperties({
             merge: [{
                 objectName: "persistedState",
@@ -14026,11 +14430,25 @@ export class Visual implements IVisual {
 
         this.isHelpOverlayVisible = true;
         this.clearHelpOverlay();
+        this.helpOverlayReturnFocusTarget = document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+
+        const dialogTitleId = this.getScopedId("help-dialog-title");
+        const dialogDescriptionId = this.getScopedId("help-dialog-description");
+        const helpTitle = this.getLocalizedString("ui.helpDialogTitle", "User Guide");
+        const helpDescription = this.getLocalizedString(
+            "ui.helpDialogDescription",
+            "Keyboard and usage guidance for the current visual."
+        );
+        const closeHelpLabel = this.getLocalizedString("ui.closeHelp", "Close help");
+        const closeGuideLabel = this.getLocalizedString("ui.helpDialogClose", "Close");
 
         // Create overlay container that covers the entire visual
         const overlay = d3.select(this.target)
             .append('div')
             .attr('class', 'help-overlay')
+            .attr('data-owner', this.instanceId)
             .style('position', 'absolute')
             .style('top', '0')
             .style('left', '0')
@@ -14042,14 +14460,18 @@ export class Visual implements IVisual {
             .style('align-items', 'center')
             .style('justify-content', 'center')
             .style('padding', '20px')
-            .style('box-sizing', 'border-box')
-            .style('animation', 'fadeIn 0.2s ease-out');
+            .style('box-sizing', 'border-box');
 
         this.helpOverlayContainer = overlay;
 
         // Create the help content card
         const card = overlay.append('div')
             .attr('class', 'help-card')
+            .attr('role', 'dialog')
+            .attr('aria-modal', 'true')
+            .attr('aria-labelledby', dialogTitleId)
+            .attr('aria-describedby', dialogDescriptionId)
+            .attr('tabindex', '-1')
             .style('max-width', '800px')
             .style('max-height', '90%')
             .style('width', '100%')
@@ -14099,15 +14521,15 @@ export class Visual implements IVisual {
             .text('?');
 
         headerTitle.append('span')
+            .attr('id', dialogTitleId)
             .style('font-size', '20px')
             .style('font-weight', '600')
-            .text('User Guide');
-
-        const self = this;
+            .text(helpTitle);
 
         // Close button with X icon - using safe DOM manipulation
         const closeBtn = header.append('button')
-            .attr('aria-label', 'Close help')
+            .attr('type', 'button')
+            .attr('aria-label', closeHelpLabel)
             .style('background', 'none')
             .style('border', 'none')
             .style('cursor', 'pointer')
@@ -14116,16 +14538,14 @@ export class Visual implements IVisual {
             .style('display', 'flex')
             .style('align-items', 'center')
             .style('justify-content', 'center')
-            .style('transition', 'background 0.15s')
+            .style('transition', this.getAnimationDuration(150) === 0 ? 'none' : 'background 0.15s')
             .on('mouseover', function () {
                 d3.select(this).style('background', UI_TOKENS.color.neutral.grey20);
             })
             .on('mouseout', function () {
                 d3.select(this).style('background', 'none');
             })
-            .on('click', function () {
-                self.hideHelpOverlay();
-            });
+            .on('click', () => this.hideHelpOverlay());
 
         // Create close icon SVG
         const closeIcon = closeBtn.append('svg')
@@ -14143,6 +14563,13 @@ export class Visual implements IVisual {
             .style('padding', '24px')
             .style('line-height', '1.6');
 
+        content.append('p')
+            .attr('id', dialogDescriptionId)
+            .style('margin', '0 0 16px 0')
+            .style('font-size', '13px')
+            .style('color', this.getForegroundColor())
+            .text(helpDescription);
+
         // Build help content
         this.buildHelpContent(content);
 
@@ -14155,6 +14582,7 @@ export class Visual implements IVisual {
             .style('flex-shrink', '0');
 
         footer.append('button')
+            .attr('type', 'button')
             .style('background', UI_TOKENS.color.primary.default)
             .style('color', '#fff')
             .style('border', 'none')
@@ -14163,33 +14591,67 @@ export class Visual implements IVisual {
             .style('font-size', '14px')
             .style('font-weight', '500')
             .style('cursor', 'pointer')
-            .style('transition', 'background 0.15s')
-            .text('Got it!')
+            .style('transition', this.getAnimationDuration(150) === 0 ? 'none' : 'background 0.15s')
+            .text(closeGuideLabel)
             .on('mouseover', function () {
                 d3.select(this).style('background', UI_TOKENS.color.primary.hover);
             })
             .on('mouseout', function () {
                 d3.select(this).style('background', UI_TOKENS.color.primary.default);
             })
-            .on('click', function () {
-                self.hideHelpOverlay();
-            });
+            .on('click', () => this.hideHelpOverlay());
 
         // Close on backdrop click
-        overlay.on('click', function (event) {
-            if (event.target === this) {
-                self.hideHelpOverlay();
+        overlay.on('click', (event) => {
+            if (event.target === overlay.node()) {
+                this.hideHelpOverlay();
             }
         });
 
-        // Close on Escape key
-        const escapeHandler = (event: KeyboardEvent) => {
+        this.helpOverlayKeydownHandler = (event: KeyboardEvent) => {
+            if (!this.isHelpOverlayVisible) {
+                return;
+            }
+
             if (event.key === 'Escape') {
+                event.preventDefault();
                 this.hideHelpOverlay();
-                document.removeEventListener('keydown', escapeHandler);
+                return;
+            }
+
+            if (event.key !== 'Tab') {
+                return;
+            }
+
+            const focusableElements = this.getHelpOverlayFocusableElements();
+            if (focusableElements.length === 0) {
+                event.preventDefault();
+                (card.node() as HTMLElement | null)?.focus();
+                return;
+            }
+
+            const activeElement = document.activeElement as HTMLElement | null;
+            const firstElement = focusableElements[0];
+            const lastElement = focusableElements[focusableElements.length - 1];
+
+            if (event.shiftKey) {
+                if (!activeElement || activeElement === firstElement || !overlay.node()?.contains(activeElement)) {
+                    event.preventDefault();
+                    lastElement.focus();
+                }
+                return;
+            }
+
+            if (!activeElement || activeElement === lastElement || !overlay.node()?.contains(activeElement)) {
+                event.preventDefault();
+                firstElement.focus();
             }
         };
-        document.addEventListener('keydown', escapeHandler);
+        document.addEventListener('keydown', this.helpOverlayKeydownHandler);
+
+        requestAnimationFrame(() => {
+            (closeBtn.node() as HTMLButtonElement | null)?.focus();
+        });
     }
 
     /**
@@ -14327,7 +14789,6 @@ export class Visual implements IVisual {
         addListItem(selectionList, 'Task Dropdown', 'Search and select any task by ID or name');
         addListItem(selectionList, 'Trace Mode: Backward', 'Highlight all predecessor tasks leading to the selected task');
         addListItem(selectionList, 'Trace Mode: Forward', 'Highlight all successor tasks following the selected task');
-        addListItem(selectionList, 'Trace Mode: Both', 'Highlight both predecessor and successor chains');
 
         const tipPara = selectionSection.append('p')
             .style('font-size', '13px')
@@ -14361,7 +14822,7 @@ export class Visual implements IVisual {
             .style('font-size', '13px')
             .style('margin-bottom', '8px');
         exportNote.append('strong').text('Note: ');
-        exportNote.append('span').text('Copied data includes the original Total Float values regardless of which calculation mode is displayed.');
+        exportNote.append('span').text('Copied data preserves task type labels and includes user-provided Total Float values when they are available.');
 
         // ========== Legend & Filtering ==========
         const legendSection = createSection('🎨', 'Legend & Filtering');
@@ -14395,18 +14856,46 @@ export class Visual implements IVisual {
     private hideHelpOverlay(): void {
         this.isHelpOverlayVisible = false;
         this.clearHelpOverlay();
+        if (this.helpOverlayReturnFocusTarget?.isConnected) {
+            this.helpOverlayReturnFocusTarget.focus();
+        }
+        this.helpOverlayReturnFocusTarget = null;
     }
 
     /**
      * Clears the help overlay from the DOM
      */
     private clearHelpOverlay(): void {
+        if (this.helpOverlayKeydownHandler) {
+            document.removeEventListener('keydown', this.helpOverlayKeydownHandler);
+            this.helpOverlayKeydownHandler = null;
+        }
         if (this.helpOverlayContainer) {
             this.helpOverlayContainer.remove();
             this.helpOverlayContainer = null;
         }
         // Also remove by class in case state got out of sync
         d3.select(this.target).selectAll('.help-overlay').remove();
+    }
+
+    private getHelpOverlayFocusableElements(): HTMLElement[] {
+        const overlayNode = this.helpOverlayContainer?.node();
+        if (!overlayNode) {
+            return [];
+        }
+
+        return Array.from(
+            overlayNode.querySelectorAll<HTMLElement>(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            )
+        ).filter(element => {
+            if (element.hasAttribute('disabled')) {
+                return false;
+            }
+
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden';
+        });
     }
 
     private escapeHtml(value: string): string {
@@ -14416,6 +14905,24 @@ export class Visual implements IVisual {
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#39;");
+    }
+
+    private sanitizeExportCell(value: unknown): string {
+        return sanitizeExportTextField(value);
+    }
+
+    private getExportTaskTypeLabel(task: Task): string {
+        return getExportTaskType(task);
+    }
+
+    private getExportFloatLabel(task: Task): string {
+        return getExportFloatText(task, "");
+    }
+
+    private getExportCriticalValue(task: Task): boolean {
+        return Number.isFinite(task.userProvidedTotalFloat)
+            ? (task.userProvidedTotalFloat as number) <= 0
+            : task.isCritical;
     }
 
     private getExportTableTasks(): Task[] {
@@ -14455,21 +14962,19 @@ export class Visual implements IVisual {
         html += `<tr style="font-weight: bold; background-color: #f0f0f0;">${headers.map(header => `<th style="padding: 4px; white-space: nowrap;">${this.escapeHtml(header)}</th>`).join("")}</tr>`;
 
         tasks.forEach((task, index) => {
-            const taskType = (task.duration === 0) ? "Milestone" : "Activity";
-            const totalFloat = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
-                ? task.userProvidedTotalFloat
-                : task.totalFloat;
-            const isCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
-                ? task.userProvidedTotalFloat <= 0
-                : task.isCritical;
+            const taskType = this.getExportTaskTypeLabel(task);
+            const totalFloat = this.getExportFloatLabel(task);
+            const isCritical = this.getExportCriticalValue(task);
             const visualStartDate = this.getVisualStart(task);
             const visualFinishDate = this.getVisualFinish(task);
+            const taskId = this.sanitizeExportCell(task.id?.toString() || "");
+            const taskName = this.sanitizeExportCell(task.name || "");
 
             html += `<tr>`;
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(task.id?.toString() || "")}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(task.name || "")}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap;">${taskType}</td>`;
+            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(taskId)}</td>`;
+            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(taskName)}</td>`;
+            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(taskType)}</td>`;
 
             if (this.showBaselineInternal) {
                 html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : ""}</td>`;
@@ -14483,11 +14988,11 @@ export class Visual implements IVisual {
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${visualStartDate ? exportDateFormatter(visualStartDate) : ""}</td>`;
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${visualFinishDate ? exportDateFormatter(visualFinishDate) : ""}</td>`;
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${totalFloat?.toString() || "0"}</td>`;
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${this.escapeHtml(totalFloat)}</td>`;
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${isCritical ? "Yes" : "No"}</td>`;
 
             for (let i = 0; i < maxWbsDepth; i++) {
-                html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(task.wbsLevels?.[i] || "")}</td>`;
+                html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(this.sanitizeExportCell(task.wbsLevels?.[i] || ""))}</td>`;
             }
 
             html += `</tr>`;
@@ -14509,21 +15014,17 @@ export class Visual implements IVisual {
         for (let i = 0; i < maxWbsDepth; i++) headers.push(`WBS Level ${i + 1}`);
 
         const rows = tasks.map((task, index) => {
-            const taskType = (task.duration === 0) ? "Milestone" : "Activity";
-            const totalFloat = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
-                ? task.userProvidedTotalFloat
-                : task.totalFloat;
-            const isCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
-                ? task.userProvidedTotalFloat <= 0
-                : task.isCritical;
+            const taskType = this.getExportTaskTypeLabel(task);
+            const totalFloat = this.getExportFloatLabel(task);
+            const isCritical = this.getExportCriticalValue(task);
             const visualStartDate = this.getVisualStart(task);
             const visualFinishDate = this.getVisualFinish(task);
 
             const row = [
                 String(index + 1),
-                task.id?.toString() || "",
-                (task.name || "").replace(/\t/g, " "),
-                taskType
+                this.sanitizeExportCell(task.id?.toString() || ""),
+                this.sanitizeExportCell(task.name || ""),
+                this.sanitizeExportCell(taskType)
             ];
 
             if (this.showBaselineInternal) {
@@ -14543,15 +15044,15 @@ export class Visual implements IVisual {
                 visualStartDate ? exportDateFormatter(visualStartDate) : "",
                 visualFinishDate ? exportDateFormatter(visualFinishDate) : "",
                 task.duration?.toString() || "0",
-                totalFloat?.toString() || "0",
+                totalFloat,
                 isCritical ? "Yes" : "No"
             );
 
             for (let i = 0; i < maxWbsDepth; i++) {
-                row.push(task.wbsLevels?.[i] || "");
+                row.push(this.sanitizeExportCell(task.wbsLevels?.[i] || ""));
             }
 
-            return row.join('\t');
+            return row.map(value => this.sanitizeExportCell(value)).join('\t');
         });
 
         return [headers.join('\t'), ...rows].join('\n');
@@ -14597,7 +15098,7 @@ export class Visual implements IVisual {
 
             html += `<tr style="background-color: ${bgColor}; color: ${textColor}; font-weight: bold;">`;
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
-            html += `<td style="padding: 2px; padding-left: ${indent + 8}px; white-space: nowrap; border-left: 4px solid ${accentColor};">${this.escapeHtml(this.getWbsDisplayName(group))}</td>`;
+            html += `<td style="padding: 2px; padding-left: ${indent + 8}px; white-space: nowrap; border-left: 4px solid ${accentColor};">${this.escapeHtml(this.sanitizeExportCell(this.getWbsDisplayName(group)))}</td>`;
             if (hasBaseline) {
                 html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : ""}</td>`;
                 html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : ""}</td>`;
@@ -14634,7 +15135,7 @@ export class Visual implements IVisual {
         const rows = visibleWbsGroups.map((group, index) => {
             const row = [
                 String(index + 1),
-                this.getWbsDisplayName(group).replace(/\t/g, " ")
+                this.sanitizeExportCell(this.getWbsDisplayName(group))
             ];
             if (hasBaseline) {
                 row.push(
@@ -14655,7 +15156,7 @@ export class Visual implements IVisual {
             if (hasFloat) {
                 row.push(typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat) ? group.summaryTotalFloat.toFixed(0) : "");
             }
-            return row.join('\t');
+            return row.map(value => this.sanitizeExportCell(value)).join('\t');
         });
 
         return [headers.join('\t'), ...rows].join('\n');
@@ -14829,13 +15330,9 @@ ${tableHtml}
 
         for (const task of tasks) {
             rowIndex++;
-            const taskType = (task.duration === 0) ? "Milestone" : "Activity";
-            const totalFloat = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
-                ? task.userProvidedTotalFloat
-                : task.totalFloat;
-            const isCritical = task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)
-                ? task.userProvidedTotalFloat <= 0
-                : task.isCritical;
+            const taskType = this.getExportTaskTypeLabel(task);
+            const totalFloat = this.getExportFloatLabel(task);
+            const isCritical = this.getExportCriticalValue(task);
             const visualStartDate = this.getVisualStart(task);
             const visualFinishDate = this.getVisualFinish(task);
             const currentLevels = task.wbsLevels || [];
@@ -14861,7 +15358,7 @@ ${tableHtml}
                 const textColor = this.resolveColor(levelStyle.text, "foreground");
                 const accentColor = this.resolveColor(levelStyle.background, "foreground");
                 const indentPx = Math.max(0, levelIndex * indentPerLevel);
-                const groupName = group ? this.getWbsDisplayName(group) : (currentLevels[levelIndex] || "");
+                const groupName = this.sanitizeExportCell(group ? this.getWbsDisplayName(group) : (currentLevels[levelIndex] || ""));
                 const groupFloat = typeof group?.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat)
                     ? group.summaryTotalFloat.toFixed(0)
                     : "";
@@ -14889,12 +15386,14 @@ ${tableHtml}
 
             previousLevels = currentLevels;
             const taskIndentPx = currentLevels.length * indentPerLevel;
+            const taskId = this.sanitizeExportCell(task.id?.toString() || "");
+            const taskName = this.sanitizeExportCell(task.name || "");
 
             html += `<tr>`;
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${rowIndex}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(task.id?.toString() || "")}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap; padding-left: ${taskIndentPx + 2}px;">${this.escapeHtml(task.name || "")}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap;">${taskType}</td>`;
+            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(taskId)}</td>`;
+            html += `<td style="padding: 2px; white-space: nowrap; padding-left: ${taskIndentPx + 2}px;">${this.escapeHtml(taskName)}</td>`;
+            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(taskType)}</td>`;
 
             if (this.showBaselineInternal) {
                 html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : ""}</td>`;
@@ -14908,7 +15407,7 @@ ${tableHtml}
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${visualStartDate ? exportDateFormatter(visualStartDate) : ""}</td>`;
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${visualFinishDate ? exportDateFormatter(visualFinishDate) : ""}</td>`;
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${totalFloat?.toString() || "0"}</td>`;
+            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${this.escapeHtml(totalFloat)}</td>`;
             html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${isCritical ? "Yes" : "No"}</td>`;
             html += `</tr>`;
         }

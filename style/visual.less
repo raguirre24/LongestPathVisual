@@ -324,6 +324,16 @@ text {
 // Phase 1: Reduced motion support - disable animations for users who prefer it
 @media (prefers-reduced-motion: reduce) {
 
+    .visual-wrapper,
+    .visual-wrapper *,
+    .help-overlay,
+    .help-overlay *,
+    .copy-toast {
+        transition: none !important;
+        animation: none !important;
+        scroll-behavior: auto !important;
+    }
+
     .timeline-zoom-slider-container,
     .timeline-zoom-slider-selection,
     .legend-scroll-content,

@@ -255,7 +255,8 @@ class CriticalPathCard extends Card {
 
 
 
-    // Hidden property for persisting toggle state
+    // Hidden persisted toggle.
+    // Keep this default aligned with Visual.DEFAULT_SHOW_ALL_TASKS in visual.ts.
     showAllTasks = new ToggleSwitch({
         name: "showAllTasks",
         displayName: "",

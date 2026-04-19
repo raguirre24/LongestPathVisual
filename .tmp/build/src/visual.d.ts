@@ -3,6 +3,15 @@ import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
 import IVisual = powerbi.extensibility.visual.IVisual;
 export declare class Visual implements IVisual {
+    private static nextInstanceOrdinal;
+    /**
+     * Keep the hidden formatting default and the runtime bootstrap in sync.
+     * The initial render should default to "critical only" until persisted state says otherwise.
+     */
+    private static readonly DEFAULT_SHOW_ALL_TASKS;
+    private static readonly DRIVING_PATH_MAX_PATHS;
+    private static readonly DRIVING_PATH_MAX_EXPANSIONS;
+    private readonly instanceId;
     private target;
     private visualWrapper;
     private host;
@@ -172,10 +181,16 @@ export declare class Visual implements IVisual {
     private landingPageContainer;
     private helpOverlayContainer;
     private isHelpOverlayVisible;
+    private helpOverlayKeydownHandler;
+    private helpOverlayReturnFocusTarget;
+    private liveRegion;
     private relationshipIndex;
     private hasUserProvidedFloat;
     private allDrivingChains;
     private selectedPathIndex;
+    private drivingPathsTruncated;
+    private drivingPathsTruncationMessage;
+    private drivingPathExpansionCount;
     private readonly VIEWPORT_CHANGE_THRESHOLD;
     private forceFullUpdate;
     private preserveScrollOnUpdate;
@@ -242,6 +257,13 @@ export declare class Visual implements IVisual {
     private snapTextCoord;
     private shouldUseCanvasForViewport;
     private createEmptyDataQuality;
+    private static createInstanceId;
+    private getScopedId;
+    private getScopedUrlRef;
+    private ensureOwnedStyle;
+    private removeOwnedStyle;
+    private ensureLiveRegion;
+    private announceToLiveRegion;
     constructor(options: VisualConstructorOptions);
     private forceCanvasRefresh;
     private debouncedUpdate;
@@ -342,6 +364,8 @@ export declare class Visual implements IVisual {
      * Jumps the zoom selection to center on a clicked position
      */
     private jumpZoomTo;
+    private applyZoomKeyboardChange;
+    private handleZoomSliderKeydown;
     /**
      * Updates the zoom slider UI to reflect current zoom state
      */
@@ -538,6 +562,7 @@ export declare class Visual implements IVisual {
      */
     private pathRoundedRect;
     private pathRoundedRectWithCorners;
+    private clearAccessibleCanvasFallback;
     /**
      * ACCESSIBILITY: Creates an invisible but screen-reader accessible fallback for canvas rendering.
      * This ensures users with assistive technology can access task information even when canvas mode is active.
@@ -560,6 +585,7 @@ export declare class Visual implements IVisual {
      * @param event The mouse event that triggered the tooltip
      */
     private positionTooltip;
+    private getRelationshipRenderGeometry;
     private drawArrows;
     private getLineDashArray;
     /**
@@ -589,20 +615,20 @@ export declare class Visual implements IVisual {
      * Identifies which relationships are driving based on minimum float
      */
     private identifyDrivingRelationships;
-    /**
-     * Finds the project finish task (latest finish date)
-     */
-    private findProjectFinishTask;
-    private getTaskDurationForPath;
-    private getRelationshipKey;
-    private arePathDurationsEqual;
+    private findProjectFinishTasks;
     private getDrivingIncoming;
     private getDrivingOutgoing;
+    private getDrivingTerminalTaskIds;
     private compareTaskIdsForTopo;
+    private insertIntoSortedTopoQueue;
     private collectDrivingAncestors;
+    private collectDrivingAncestorsForTargets;
     private collectDrivingDescendants;
     private getDrivingTopologicalOrder;
-    private emitDrivingChain;
+    private updateDrivingPathGenerationState;
+    private getTaskScheduleSpanDays;
+    private createDrivingChain;
+    private buildBestDrivingChains;
     private buildBestDrivingChainsToTarget;
     private buildBestDrivingChainsFromSource;
     private sortAndStoreDrivingChains;
@@ -853,7 +879,12 @@ export declare class Visual implements IVisual {
      * Clears the help overlay from the DOM
      */
     private clearHelpOverlay;
+    private getHelpOverlayFocusableElements;
     private escapeHtml;
+    private sanitizeExportCell;
+    private getExportTaskTypeLabel;
+    private getExportFloatLabel;
+    private getExportCriticalValue;
     private getExportTableTasks;
     private getVisibleExportWbsGroups;
     private generateFlatExportTableHtml;
