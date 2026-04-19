@@ -211,7 +211,7 @@ class CriticalPathCard extends Card {
             { value: "longestPath", displayName: "Longest Path (CPM)" },
             { value: "floatBased", displayName: "Float-Based" }
         ],
-        value: { value: "longestPath", displayName: "Longest Path (CPM)" }
+        value: { value: "floatBased", displayName: "Float-Based" }
     });
 
     criticalPathColor = new ColorPicker({

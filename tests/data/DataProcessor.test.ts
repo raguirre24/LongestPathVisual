@@ -204,6 +204,22 @@ describe('DataProcessor', () => {
 
             expect(result.allTasksData[0].duration).toBe(0);
         });
+
+        it('normalizes legend values so padded categories still match', () => {
+            const columns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'Legend', queryName: 'Table[Legend]', roles: { legend: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), '  Ahead  '],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'Ahead'],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.legendCategories).toEqual(['Ahead']);
+            expect(result.allTasksData.map(task => task.legendValue)).toEqual(['Ahead', 'Ahead']);
+        });
     });
 
     // -----------------------------------------------------------------------

@@ -162,6 +162,8 @@ export declare class Visual implements IVisual {
     private legendContainer;
     private selectedLegendCategories;
     private legendSelectionIds;
+    private legendScrollPosition;
+    private lastLegendRenderSignature;
     private wbsDataExists;
     private wbsDataExistsInMetadata;
     private wbsLevelColumnIndices;
@@ -252,6 +254,12 @@ export declare class Visual implements IVisual {
     private applyHeaderHeight;
     private pointsToCssPx;
     private fontPxFromPtSetting;
+    private updateTaskNameLaneClipRect;
+    private getTaskNameLaneClipRef;
+    private fitSvgTextToWidth;
+    private getWrappedSvgTextLines;
+    private renderWrappedSvgText;
+    private getMaxWrappedLabelLines;
     private snapLineCoord;
     private snapRectCoord;
     private snapTextCoord;
@@ -786,9 +794,12 @@ export declare class Visual implements IVisual {
      * Toggle a legend category on/off for filtering
      */
     private persistLegendSelectionState;
+    private hasLegendFilterAvailable;
+    private sanitizeLegendSelectionState;
     private refreshAfterLegendSelectionChange;
     private clearLegendSelection;
     private toggleLegendCategory;
+    private getLegendRenderSignature;
     /**
      * Render the legend UI in sticky footer with horizontal scrolling
      */

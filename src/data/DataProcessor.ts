@@ -1,6 +1,7 @@
 
 import { Task, WBSGroup, Relationship, BoundFieldState, DataQualityInfo } from "./Interfaces";
 import { VisualSettings } from "../settings";
+import { normalizeLegendCategory } from "../utils/VisualState";
 import powerbi from "powerbi-visuals-api";
 import DataView = powerbi.DataView;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
@@ -509,8 +510,8 @@ export class DataProcessor {
 
 
         const legendIdx = this.getColumnIndex(dataView, 'legend');
-        const legendValue = (legendIdx !== -1 && row[legendIdx] != null)
-            ? String(row[legendIdx])
+        const legendValue = legendIdx !== -1
+            ? normalizeLegendCategory(row[legendIdx]) ?? undefined
             : undefined;
 
         const wbsLevels: string[] = [];

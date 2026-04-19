@@ -39,6 +39,7 @@ import {
 import {
     getExportFloatText,
     getExportTaskType,
+    normalizeLegendCategory,
     parsePersistedLegendSelection,
     sanitizeExportTextField,
     serializeLegendSelection
@@ -271,6 +272,8 @@ export class Visual implements IVisual {
     private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private selectedLegendCategories: Set<string> = new Set();
     private legendSelectionIds: Map<string, powerbi.visuals.ISelectionId> = new Map();
+    private legendScrollPosition: number = 0;
+    private lastLegendRenderSignature: string | null = null;
 
     private wbsDataExists: boolean = false;
     private wbsDataExistsInMetadata: boolean = false;
@@ -459,6 +462,160 @@ export class Visual implements IVisual {
 
     private fontPxFromPtSetting(pt: number): string {
         return `${this.pointsToCssPx(pt)}px`;
+    }
+
+    private updateTaskNameLaneClipRect(currentLeftMargin: number, chartHeight: number): void {
+        if (!this.mainSvg) {
+            return;
+        }
+
+        const taskNameClipId = this.getScopedId("clip-task-name-lane");
+        let defs = this.mainSvg.select("defs");
+        if (defs.empty()) {
+            defs = this.mainSvg.append("defs");
+        }
+
+        const layout = this.getLabelColumnLayout(currentLeftMargin);
+        const clipSelection = defs.selectAll(`#${taskNameClipId}`).data([0]);
+        const clipEnter = clipSelection.enter().append("clipPath").attr("id", taskNameClipId);
+        clipEnter.append("rect");
+
+        clipSelection.merge(clipEnter as any).select("rect")
+            .attr("x", -currentLeftMargin)
+            .attr("y", -50)
+            .attr("width", Math.max(0, layout.remainingWidth))
+            .attr("height", chartHeight + 100);
+    }
+
+    private getTaskNameLaneClipRef(): string {
+        return this.getScopedUrlRef("clip-task-name-lane");
+    }
+
+    private fitSvgTextToWidth(
+        textElement: Selection<SVGTextElement, unknown, null, undefined>,
+        value: string,
+        maxWidth: number
+    ): string {
+        const normalized = value.replace(/\s+/g, " ").trim();
+        if (!normalized) {
+            return "";
+        }
+
+        const node = textElement.node();
+        if (!node || maxWidth <= 0) {
+            return "...";
+        }
+
+        textElement.text(normalized);
+        if (node.getComputedTextLength() <= maxWidth) {
+            return normalized;
+        }
+
+        let candidate = normalized;
+        while (candidate.length > 0) {
+            const nextValue = `${candidate.trimEnd()}...`;
+            textElement.text(nextValue);
+            if (node.getComputedTextLength() <= maxWidth) {
+                return nextValue;
+            }
+            candidate = candidate.slice(0, -1);
+        }
+
+        return "...";
+    }
+
+    private getWrappedSvgTextLines(
+        textElement: Selection<SVGTextElement, unknown, null, undefined>,
+        value: string,
+        maxWidth: number,
+        maxLines: number
+    ): string[] {
+        const normalized = value.replace(/\s+/g, " ").trim();
+        if (!normalized || maxWidth <= 0) {
+            return [];
+        }
+
+        if (maxLines <= 1) {
+            return [this.fitSvgTextToWidth(textElement, normalized, maxWidth)];
+        }
+
+        const node = textElement.node();
+        if (!node) {
+            return [normalized];
+        }
+
+        const words = normalized.split(" ");
+        const lines: string[] = [];
+        let currentLine = "";
+
+        for (let index = 0; index < words.length; index++) {
+            const word = words[index];
+            const candidate = currentLine ? `${currentLine} ${word}` : word;
+            textElement.text(candidate);
+
+            if (node.getComputedTextLength() <= maxWidth) {
+                currentLine = candidate;
+                continue;
+            }
+
+            if (!currentLine) {
+                lines.push(this.fitSvgTextToWidth(textElement, word, maxWidth));
+                return lines;
+            }
+
+            lines.push(currentLine);
+
+            if (lines.length >= maxLines - 1) {
+                const remainingText = words.slice(index).join(" ");
+                lines.push(this.fitSvgTextToWidth(textElement, remainingText, maxWidth));
+                return lines.filter(line => line.length > 0);
+            }
+
+            currentLine = word;
+        }
+
+        if (currentLine) {
+            lines.push(currentLine);
+        }
+
+        return lines.filter(line => line.length > 0).slice(0, maxLines);
+    }
+
+    private renderWrappedSvgText(
+        textElement: Selection<SVGTextElement, unknown, null, undefined>,
+        value: string,
+        x: number,
+        centerY: number,
+        maxWidth: number,
+        maxLines: number,
+        fontSizePx: number,
+        anchorMode: "centerBlock" | "firstLineAtCenter" = "centerBlock"
+    ): void {
+        const lines = this.getWrappedSvgTextLines(textElement, value, maxWidth, maxLines);
+        textElement.text(null);
+
+        if (lines.length === 0) {
+            return;
+        }
+
+        const lineAdvancePx = Math.max(fontSizePx * 1.08, fontSizePx + 1);
+        const firstLineY = anchorMode === "firstLineAtCenter"
+            ? centerY
+            : centerY - ((lines.length - 1) * lineAdvancePx) / 2;
+
+        lines.forEach((line, index) => {
+            textElement.append("tspan")
+                .attr("x", this.snapTextCoord(x))
+                .attr("y", this.snapTextCoord(firstLineY + (index * lineAdvancePx)))
+                .attr("dominant-baseline", "central")
+                .text(line);
+        });
+    }
+
+    private getMaxWrappedLabelLines(availableWidth: number, rowHeight: number, fontSizePx: number): number {
+        const minWidthForTwoLines = Math.max(78, fontSizePx * 6.25);
+        const minHeightForTwoLines = fontSizePx * 2.05;
+        return availableWidth >= minWidthForTwoLines && rowHeight >= minHeightForTwoLines ? 2 : 1;
     }
 
     private snapLineCoord(value: number, strokeWidth = 1): number {
@@ -1255,7 +1412,7 @@ export class Visual implements IVisual {
     }
 
     private isLongestPathMode(): boolean {
-        return (this.settings?.criticalPath?.calculationMode?.value?.value ?? "longestPath") === "longestPath";
+        return (this.settings?.criticalPath?.calculationMode?.value?.value ?? "floatBased") === "longestPath";
     }
 
     private isCpmSafe(): boolean {
@@ -1894,7 +2051,7 @@ export class Visual implements IVisual {
 
     private togglecriticalPath(): void {
         try {
-            const currentMode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
+            const currentMode = this.settings?.criticalPath?.calculationMode?.value?.value || 'floatBased';
             const newMode = currentMode === 'longestPath' ? 'floatBased' : 'longestPath';
 
             this.debugLog(`Toggling criticality mode from ${currentMode} to ${newMode}`);
@@ -3749,6 +3906,7 @@ export class Visual implements IVisual {
                 this.legendCategories = processedData.legendCategories;
                 this.legendColorMap = processedData.legendColorMap;
                 this.legendFieldName = processedData.legendFieldName;
+                this.sanitizeLegendSelectionState(true);
                 this.wbsDataExists = processedData.wbsDataExists;
                 this.wbsGroups = processedData.wbsGroups;
                 this.wbsGroupMap = processedData.wbsGroupMap;
@@ -3959,12 +4117,14 @@ export class Visual implements IVisual {
 
             const wbsGroupingEnabled = this.wbsDataExists &&
                 this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+            const hasActiveLegendFilter = this.hasLegendFilterAvailable() && this.selectedLegendCategories.size > 0;
 
             let tasksAfterLegendFilter = tasksToPlot;
-            if (this.legendDataExists && this.selectedLegendCategories.size > 0) {
+            if (hasActiveLegendFilter) {
                 tasksAfterLegendFilter = tasksToPlot.filter(task => {
-                    if (task.legendValue) {
-                        return this.selectedLegendCategories.has(task.legendValue);
+                    const normalizedLegendValue = normalizeLegendCategory(task.legendValue);
+                    if (normalizedLegendValue) {
+                        return this.selectedLegendCategories.has(normalizedLegendValue);
                     }
                     return true;
                 });
@@ -4014,8 +4174,11 @@ export class Visual implements IVisual {
             const visibleGroupCount = wbsGroupingEnabled ? this.wbsGroups.filter(g => g.yOrder !== undefined).length : 0;
 
             if (tasksWithYOrder.length === 0 && visibleGroupCount === 0) {
-                if (wbsGroupingEnabled) {
-                    this.displayMessage("All WBS groups are collapsed or filtered. Expand a group to view tasks.");
+                if (tasksAfterLegendFilter.length === 0 && hasActiveLegendFilter) {
+                    this.displayMessage("No tasks match the current legend selection.");
+                    this.renderLegend(viewportWidth, viewportHeight);
+                } else if (wbsGroupingEnabled) {
+                    this.displayMessage("All WBS groups are collapsed. Expand a group to view tasks.");
                 } else {
                     this.displayMessage("No tasks to display after filtering.");
                 }
@@ -4282,7 +4445,7 @@ export class Visual implements IVisual {
         const oldSelectedPathIndex = this.settings?.pathSelection?.selectedPathIndex?.value;
         const oldMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
         const oldShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
-        const oldMode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'longestPath';
+        const oldMode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'floatBased';
 
         if (options.dataViews?.[0]) {
             // TODO: Re-integrate legend processing via DataProcessor
@@ -4295,7 +4458,7 @@ export class Visual implements IVisual {
         const newSelectedPathIndex = this.settings?.pathSelection?.selectedPathIndex?.value;
         const newMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
         const newShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
-        const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'longestPath';
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'floatBased';
 
         this.debugLog(`[Settings Update] Old path index: ${oldSelectedPathIndex}, New: ${newSelectedPathIndex}`);
         this.debugLog(`[Settings Update] Old multi-path: ${oldMultiPathEnabled}, New: ${newMultiPathEnabled}`);
@@ -5263,7 +5426,7 @@ export class Visual implements IVisual {
             wbsExpandToLevel: this.getCurrentWbsExpandLevel(),
             wbsManualExpansionOverride: this.wbsManualExpansionOverride,
 
-            currentMode: (this.settings?.criticalPath?.calculationMode?.value as any)?.value || 'longestPath',
+            currentMode: (this.settings?.criticalPath?.calculationMode?.value as any)?.value || 'floatBased',
             floatThreshold: this.floatThreshold,
             showNearCritical: this.showNearCritical,
             showExtraColumns: this.showExtraColumnsInternal,
@@ -5689,6 +5852,7 @@ export class Visual implements IVisual {
             .attr("height", chartHeight + 100);
 
         this.taskLabelLayer?.attr("clip-path", `url(#${leftClipId})`);
+        this.updateTaskNameLaneClipRect(currentLeftMargin, chartHeight);
         const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
         const selectionHighlightColor = this.getSelectionColor();
@@ -6988,12 +7152,15 @@ export class Visual implements IVisual {
         const baseStartOffset = showBase ? occupiedWidth : 0;
         if (showBase) occupiedWidth += baseStartWidth;
 
-        // Calculate available width for Task Name
-        // Allow it to be 0 or negative to trigger hiding logic if space is insufficient
-        let effectiveAvailableWidth = currentLeftMargin - occupiedWidth - this.labelPaddingLeft - 5;
+        const layout = this.getLabelColumnLayout(currentLeftMargin);
+        const laneLeftX = -currentLeftMargin + this.labelPaddingLeft;
+        const laneRightX = (layout.taskNameDividerX - currentLeftMargin) - 4;
+        const effectiveAvailableWidth = Math.max(0, laneRightX - laneLeftX);
 
         const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
         const wbsIndentPerLevel = wbsGroupingEnabled ? (this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20) : 0;
+        const taskNameFontSizePx = this.pointsToCssPx(taskNameFontSize);
+        const taskRowBandHeight = taskHeight + (this.settings?.layoutSettings?.taskPadding?.value ?? 0);
         const renderableTasks = tasks.filter(t => {
             if (t.yOrder === undefined) return false;
             const domainKey = t.yOrder.toString();
@@ -7045,10 +7212,11 @@ export class Visual implements IVisual {
                     const rawIndent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
                     const wbsInset = wbsGroupingEnabled ? this.WBS_TASK_LABEL_INSET : 0;
                     const effectiveIndent = Math.min(rawIndent, Math.max(0, effectiveAvailableWidth - wbsInset - 20));
-                    return this.snapTextCoord(-currentLeftMargin + this.labelPaddingLeft + effectiveIndent + wbsInset);
+                    return this.snapTextCoord(laneLeftX + effectiveIndent + wbsInset);
                 })
                 .attr("y", this.snapTextCoord(taskHeight / 2))
                 .attr("text-anchor", "start")
+                .attr("dominant-baseline", "central")
                 .style("font-family", this.getFontFamily())
                 .style("font-size", this.fontPxFromPtSetting(taskNameFontSize))
                 .style("fill", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelColor : labelColor)
@@ -7058,7 +7226,8 @@ export class Visual implements IVisual {
                     const rawIndent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
                     const wbsInset = wbsGroupingEnabled ? this.WBS_TASK_LABEL_INSET : 0;
                     const effectiveIndent = Math.min(rawIndent, Math.max(0, effectiveAvailableWidth - wbsInset - 20));
-                    const adjustedLabelWidth = effectiveAvailableWidth - effectiveIndent - wbsInset;
+                    const x = laneLeftX + effectiveIndent + wbsInset;
+                    const adjustedLabelWidth = Math.max(0, laneRightX - x);
 
                     // If individual indented row has no space, remove text
                     if (adjustedLabelWidth < 15) {
@@ -7066,59 +7235,22 @@ export class Visual implements IVisual {
                         return;
                     }
 
-                    const words = (d.name || "").split(/\s+/).reverse();
-                    let word: string | undefined;
-                    let line: string[] = [];
-                    const x = parseFloat(textElement.attr("x"));
-                    const y = parseFloat(textElement.attr("y")); // original y is taskHeight / 2 (centered) -> moved to baseline?
+                    const maxLines = this.getMaxWrappedLabelLines(
+                        adjustedLabelWidth,
+                        taskRowBandHeight,
+                        taskNameFontSizePx
+                    );
 
-                    let firstTspan = textElement.text(null).append("tspan").attr("x", x).attr("y", y).attr("dy", "0.32em");
-                    let tspan = firstTspan;
-                    let lineCount = 1;
-                    const maxLines = 2; // Allow wrapping to 2 lines
-
-                    while (word = words.pop()) {
-                        line.push(word);
-                        tspan.text(line.join(" "));
-                        try {
-                            const textLength = tspan.node()!.getComputedTextLength();
-                            if (textLength > adjustedLabelWidth) {
-                                if (line.length > 1) {
-                                    line.pop();
-                                    tspan.text(line.join(" "));
-                                    line = [word];
-                                    if (lineCount >= maxLines) {
-                                        tspan.text(tspan.text() + "...");
-                                        break;
-                                    }
-
-                                    // Keep first line static (dy="0.32em")
-                                    // Position second line below it (0.32 + 1.1 = ~1.42em)
-
-                                    lineCount++;
-                                    tspan = textElement.append("tspan").attr("x", x).attr("y", y).attr("dy", "1.45em").text(word);
-                                } else {
-                                    // Single word is too long for the line
-                                    // If it's the first line and we have more lines allowed, we can just let it wrap effectively (which means this word takes the line and we move to next)
-                                    // BUT if this single word is ALREADY wider than valid width, we must truncate it.
-
-                                    // Simple binary-like backoff or just substring loop
-                                    let subWord = word;
-                                    while (subWord.length > 0 && tspan.node()!.getComputedTextLength() > adjustedLabelWidth) {
-                                        subWord = subWord.slice(0, -1);
-                                        tspan.text(subWord + "...");
-                                    }
-                                    if (subWord.length === 0) tspan.text("..."); // Minimal fallback
-
-                                    // Since we truncated this word on this line, we technically stop here for this line.
-                                    // If we have maxLines > 1, should we try to put the REST of the word on the next line?
-                                    // That's complex hyphenation. simpler to just truncate the word and stop or wrap.
-                                    // Given the user issue is overlapping, HARD truncation is preferred.
-                                    break;
-                                }
-                            }
-                        } catch (e) { break; }
-                    }
+                    this.renderWrappedSvgText(
+                        textElement as Selection<SVGTextElement, unknown, null, undefined>,
+                        d.name || "",
+                        x,
+                        taskHeight / 2,
+                        adjustedLabelWidth,
+                        maxLines,
+                        taskNameFontSizePx,
+                        "firstLineAtCenter"
+                    );
                 });
 
             // Interactivity for Task Labels
@@ -7514,25 +7646,41 @@ export class Visual implements IVisual {
         }
 
         const layout = this.getLabelColumnLayout(currentLeftMargin);
+        const headerTaskNameClipId = this.getScopedId("clip-header-task-name");
+        let defs = headerSvg.select("defs");
+        if (defs.empty()) {
+            defs = headerSvg.append("defs");
+        }
+        const headerClipSelection = defs.selectAll(`#${headerTaskNameClipId}`).data([0]);
+        const headerClipEnter = headerClipSelection.enter().append("clipPath").attr("id", headerTaskNameClipId);
+        headerClipEnter.append("rect");
 
         const fontSize = this.settings.textAndLabels.taskNameFontSize.value;
+        const headerFontSizePx = this.pointsToCssPx(fontSize + 0.5);
         const yPos = bandMetrics.columnY;
         const lineY1 = bandMetrics.dividerTop;
         const lineY2 = bandMetrics.dividerBottom;
 
         const fontFamily = this.getFontFamily();
-        const taskHeaderText = (this.wbsDataExists || this.settings?.wbsGrouping?.enableWbsGrouping?.value)
-            ? "WBS / Task Name"
-            : "Task Name";
+        const showWbsTaskHeader = this.wbsDataExists || this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+        const taskHeaderCandidates = showWbsTaskHeader
+            ? ["WBS / Task Name", "WBS / Task", "Task Name", "Task"]
+            : ["Task Name", "Task"];
         const headerTextData: Array<{ key: string; x: number; text: string; anchor: "start" | "middle" }> = [];
-        if (layout.remainingWidth > 48) {
-            headerTextData.push({ key: "task-name", x: 18, text: taskHeaderText, anchor: "start" });
+        if (layout.remainingWidth > 26) {
+            headerTextData.push({ key: "task-name", x: 18, text: taskHeaderCandidates[0], anchor: "start" });
         }
         layout.items.forEach(item => {
             headerTextData.push({ key: `col-${item.text}`, x: item.centerX, text: item.text, anchor: "middle" });
         });
 
-        colHeaderLayer.selectAll<SVGTextElement, { key: string; x: number; text: string; anchor: "start" | "middle" }>(".column-header-text")
+        headerClipSelection.merge(headerClipEnter as any).select("rect")
+            .attr("x", 0)
+            .attr("y", bandMetrics.top)
+            .attr("width", Math.max(0, layout.taskNameDividerX - 8))
+            .attr("height", bandMetrics.height);
+
+        const headerTexts = colHeaderLayer.selectAll<SVGTextElement, { key: string; x: number; text: string; anchor: "start" | "middle" }>(".column-header-text")
             .data(headerTextData, d => d.key)
             .join(
                 enter => enter.append("text").attr("class", "column-header-text"),
@@ -7542,12 +7690,41 @@ export class Visual implements IVisual {
             .attr("x", d => d.x)
             .attr("y", yPos)
             .attr("text-anchor", d => d.anchor)
+            .attr("dominant-baseline", "central")
             .style("font-family", fontFamily)
             .style("font-size", this.fontPxFromPtSetting(fontSize + 0.5))
             .style("font-weight", "600")
             .style("letter-spacing", "0.15px")
-            .style("fill", headerPalette.label)
+            .style("fill", headerPalette.label);
+
+        headerTexts
+            .attr("clip-path", d => d.key === "task-name" ? `url(#${headerTaskNameClipId})` : null)
             .text(d => d.text);
+
+        headerTexts.filter(d => d.key === "task-name")
+            .each((_d, index, nodes) => {
+                const textElement = d3.select(nodes[index] as SVGTextElement);
+                const node = textElement.node();
+                const maxWidth = Math.max(0, layout.remainingWidth - 28);
+
+                if (!node || maxWidth < 18) {
+                    textElement.text("");
+                    return;
+                }
+
+                let appliedText: string | null = null;
+                for (const candidate of taskHeaderCandidates) {
+                    textElement.text(candidate);
+                    if (node.getComputedTextLength() <= maxWidth) {
+                        appliedText = candidate;
+                        break;
+                    }
+                }
+
+                if (appliedText === null) {
+                    textElement.text(this.fitSvgTextToWidth(textElement, taskHeaderCandidates[0], maxWidth));
+                }
+            });
 
         const separatorData: Array<{ key: string; x: number }> = layout.items.map(item => ({
             key: `col-line-${item.text}`,
@@ -10138,7 +10315,7 @@ export class Visual implements IVisual {
         const showPathInfo = this.settings?.pathSelection?.showPathInfo?.value ?? true;
         const multiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value ?? true;
 
-        const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'longestPath';
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'floatBased';
         const hasMultiplePaths = this.allDrivingChains.length > 1;
         const hasAnyPaths = this.allDrivingChains.length > 0;
 
@@ -11490,7 +11667,7 @@ export class Visual implements IVisual {
         const groupNameFontSizePx = this.pointsToCssPx(groupNameFontSizePt);
         const defaultGroupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? "#333333";
         const criticalPathColor = this.resolveColor(this.settings.criticalPath.criticalPathColor.value.value, "foreground");
-        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || 'floatBased';
         const showNearCriticalSummary = this.showNearCritical && this.floatThreshold > 0 && mode === 'floatBased';
         const showBaseline = this.showBaselineInternal;
         const showPreviousUpdate = this.showPreviousUpdateInternal;
@@ -11781,6 +11958,7 @@ export class Visual implements IVisual {
 
             const cols = self.settings.columns;
             const showExtra = self.showExtraColumnsInternal;
+            const labelLayout = self.getLabelColumnLayout(currentLeftMargin);
             const showStart = showExtra && cols.showStartDate.value;
             const startWidth = cols.startDateWidth.value;
             const showFinish = showExtra && cols.showFinishDate.value;
@@ -11881,7 +12059,7 @@ export class Visual implements IVisual {
                 ? Math.max(40, Math.round(countText.length * badgeFontSize * 0.62 + 16))
                 : 0;
             const taskCellLeftX = bgX + 8;
-            const taskCellRightX = -(occupiedWidth + 4);
+            const taskCellRightX = (labelLayout.taskNameDividerX - currentLeftMargin) - 4;
             const minimumNameLaneWidth = 42;
             const minimumTreeLaneWidth = self.WBS_TOGGLE_BOX_SIZE + minimumNameLaneWidth + 14;
             const maxBadgeReservedWidth = countText ? badgeWidth + 6 : 0;
@@ -11989,62 +12167,30 @@ export class Visual implements IVisual {
                 textElement
                     .attr('x', textX)
                     .attr('y', Math.round(textY))
+                    .attr('clip-path', null)
+                    .attr('dominant-baseline', 'central')
                     .style('font-size', `${groupNameFontSizePx}px`)
                     .style('font-family', self.getFontFamily())
                     .style('fill', textColor)
                     .style('opacity', textOpacity)
                     .style('letter-spacing', '0.1px');
 
-                textElement.text(null);
+                const maxLines = self.getMaxWrappedLabelLines(
+                    availableWidth,
+                    bgHeight,
+                    groupNameFontSizePx
+                );
 
-                const words = displayName.split(/\s+/).reverse();
-                let word: string | undefined;
-                let line: string[] = [];
-                let firstTspan = textElement.append('tspan')
-                    .attr('x', textX)
-                    .attr('y', Math.round(textY))
-                    .attr('dy', '0.35em');
-                let tspan = firstTspan;
-                let lineCount = 1;
-                const maxLines = 2;
-                const lineHeight = '1.1em';
-
-                while (word = words.pop()) {
-                    line.push(word);
-                    tspan.text(line.join(' '));
-                    try {
-                        const node = tspan.node();
-                        if (node && node.getComputedTextLength() > availableWidth) {
-                            if (line.length > 1) {
-                                line.pop();
-                                tspan.text(line.join(' '));
-                                line = [word];
-                                if (lineCount >= maxLines) {
-                                    tspan.text(tspan.text() + "...");
-                                    break;
-                                }
-                                lineCount++;
-                                tspan = textElement.append('tspan')
-                                    .attr('x', textX)
-                                    .attr('dy', lineHeight)
-                                    .text(word);
-                            } else {
-                                let subWord = word;
-                                let subWordLen = subWord.length;
-                                while (subWordLen > 0 && tspan.node()?.getComputedTextLength()! > availableWidth) {
-                                    subWord = subWord.slice(0, -1);
-                                    subWordLen = subWord.length;
-                                    tspan.text(subWord + "...");
-                                }
-                                if (subWord.length === 0) tspan.text("...");
-                                break;
-                            }
-                        }
-                    } catch (e) {
-                        tspan.text(line.join(' '));
-                        break;
-                    }
-                }
+                self.renderWrappedSvgText(
+                    textElement as Selection<SVGTextElement, unknown, null, undefined>,
+                    displayName,
+                    textX,
+                    textY,
+                    availableWidth,
+                    maxLines,
+                    groupNameFontSizePx,
+                    'firstLineAtCenter'
+                );
             }
 
             g.on('click', function (event) {
@@ -12502,7 +12648,7 @@ export class Visual implements IVisual {
     private createTraceModeToggle(): void {
         if (!this.stickyHeaderContainer || !this.settings?.pathSelection) return;
 
-        const criticalPathMode = this.settings?.criticalPath?.calculationMode?.value?.value ?? "longestPath";
+        const criticalPathMode = this.settings?.criticalPath?.calculationMode?.value?.value ?? "floatBased";
         const longestPathDisabled = criticalPathMode === "longestPath" && !this.isCpmSafe();
 
         if (!this.settings.pathSelection.enableTaskSelection.value || longestPathDisabled) {
@@ -13142,6 +13288,40 @@ export class Visual implements IVisual {
         });
     }
 
+    private hasLegendFilterAvailable(): boolean {
+        return !!(this.settings?.legend?.show?.value && this.legendDataExists && this.legendCategories.length > 0);
+    }
+
+    private sanitizeLegendSelectionState(persistIfChanged: boolean = false): void {
+        const availableCategories = new Set(
+            this.legendCategories
+                .map(category => normalizeLegendCategory(category))
+                .filter((category): category is string => category !== null)
+        );
+
+        const sanitized = new Set(
+            Array.from(this.selectedLegendCategories)
+                .map(category => normalizeLegendCategory(category))
+                .filter((category): category is string => category !== null && availableCategories.has(category))
+        );
+
+        const currentKey = Array.from(this.selectedLegendCategories).sort().join("|");
+        const sanitizedKey = Array.from(sanitized).sort().join("|");
+        if (currentKey === sanitizedKey) {
+            return;
+        }
+
+        this.selectedLegendCategories = sanitized;
+        this.lastLegendRenderSignature = null;
+        if (sanitized.size === 0) {
+            this.legendScrollPosition = 0;
+        }
+
+        if (persistIfChanged) {
+            this.persistLegendSelectionState();
+        }
+    }
+
     private refreshAfterLegendSelectionChange(): void {
         this.captureScrollPosition();
         this.forceFullUpdate = true;
@@ -13165,19 +13345,23 @@ export class Visual implements IVisual {
     }
 
     private toggleLegendCategory(category: string): void {
+        const normalizedCategory = normalizeLegendCategory(category);
+        if (!normalizedCategory) {
+            return;
+        }
 
         if (this.selectedLegendCategories.size === 0) {
-            this.selectedLegendCategories.add(category);
+            this.selectedLegendCategories.add(normalizedCategory);
         } else {
 
-            if (this.selectedLegendCategories.has(category)) {
-                this.selectedLegendCategories.delete(category);
+            if (this.selectedLegendCategories.has(normalizedCategory)) {
+                this.selectedLegendCategories.delete(normalizedCategory);
 
                 if (this.selectedLegendCategories.size === 0) {
 
                 }
             } else {
-                this.selectedLegendCategories.add(category);
+                this.selectedLegendCategories.add(normalizedCategory);
 
                 if (this.selectedLegendCategories.size === this.legendCategories.length) {
                     this.selectedLegendCategories.clear();
@@ -13187,6 +13371,31 @@ export class Visual implements IVisual {
 
         this.persistLegendSelectionState();
         this.refreshAfterLegendSelectionChange();
+    }
+
+    private getLegendRenderSignature(viewportWidth: number): string {
+        const layoutMode = this.getLayoutMode(viewportWidth);
+        const titleText = this.settings.legend.titleText.value || this.legendFieldName;
+        const categorySignature = this.legendCategories
+            .map(category => `${category}:${this.legendColorMap.get(category) || ""}`)
+            .join("|");
+        const selectedSignature = Array.from(this.selectedLegendCategories).sort().join("|");
+
+        return JSON.stringify({
+            show: this.settings.legend.show.value,
+            width: viewportWidth,
+            layoutMode,
+            fontSize: this.settings.legend.fontSize.value,
+            showTitle: this.settings.legend.showTitle.value,
+            titleText,
+            fieldName: this.legendFieldName,
+            highContrast: this.highContrastMode,
+            background: this.getBackgroundColor(),
+            foreground: this.getForegroundColor(),
+            fontFamily: this.getFontFamily(),
+            categories: categorySignature,
+            selected: selectedSignature
+        });
     }
 
     /**
@@ -13199,6 +13408,14 @@ export class Visual implements IVisual {
 
         if (!showLegend) {
             this.legendContainer.style("display", "none");
+            this.lastLegendRenderSignature = null;
+            this.legendScrollPosition = 0;
+            return;
+        }
+
+        const legendRenderSignature = this.getLegendRenderSignature(viewportWidth);
+        if (this.lastLegendRenderSignature === legendRenderSignature) {
+            this.legendContainer.style("display", "block");
             return;
         }
 
@@ -13359,8 +13576,19 @@ export class Visual implements IVisual {
             .style("gap", `${UI_TOKENS.spacing.xs}px`)
             .style("flex-shrink", "0");
 
-        const createActionButton = (label: string, ariaLabel: string, compact: boolean = false) => {
-            const button = actions.append("div")
+        const scrollButtons = actions.append("div")
+            .attr("class", "legend-scroll-buttons")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", `${UI_TOKENS.spacing.xs}px`);
+
+        const createActionButton = (
+            label: string,
+            ariaLabel: string,
+            compact: boolean = false,
+            parent: Selection<HTMLDivElement, unknown, null, undefined> = actions
+        ) => {
+            const button = parent.append("div")
                 .attr("class", "legend-action-button")
                 .attr("role", "button")
                 .attr("aria-label", ariaLabel)
@@ -13417,8 +13645,8 @@ export class Visual implements IVisual {
             });
         }
 
-        const leftArrow = createActionButton("<", "Scroll legend left", true);
-        const rightArrow = createActionButton(">", "Scroll legend right", true);
+        const leftArrow = createActionButton("<", "Scroll legend left", true, scrollButtons);
+        const rightArrow = createActionButton(">", "Scroll legend right", true, scrollButtons);
 
         this.legendCategories.forEach(category => {
             const color = this.legendColorMap.get(category) || "#999";
@@ -13496,7 +13724,7 @@ export class Visual implements IVisual {
             });
         });
 
-        let scrollPosition = 0;
+        let scrollPosition = this.legendScrollPosition;
         const getMaxScroll = (): number => {
             const contentWidth = (scrollableContent.node() as HTMLElement).scrollWidth;
             const wrapperWidth = (scrollWrapper.node() as HTMLElement).clientWidth;
@@ -13505,8 +13733,11 @@ export class Visual implements IVisual {
 
         const updateArrowStates = () => {
             const maxScroll = getMaxScroll();
+            const hasOverflow = maxScroll > 0;
             const leftDisabled = scrollPosition <= 0;
-            const rightDisabled = scrollPosition >= maxScroll || maxScroll === 0;
+            const rightDisabled = scrollPosition >= maxScroll || !hasOverflow;
+
+            scrollButtons.style("display", hasOverflow ? "flex" : "none");
 
             [leftArrow, rightArrow].forEach((button, index) => {
                 const disabled = index === 0 ? leftDisabled : rightDisabled;
@@ -13521,6 +13752,7 @@ export class Visual implements IVisual {
 
         const setScrollPosition = (nextPosition: number) => {
             scrollPosition = Math.max(0, Math.min(getMaxScroll(), nextPosition));
+            this.legendScrollPosition = scrollPosition;
             scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
             updateArrowStates();
         };
@@ -13569,7 +13801,12 @@ export class Visual implements IVisual {
             resetButton.style("margin-right", `${UI_TOKENS.spacing.xs}px`);
         }
 
-        setTimeout(() => updateArrowStates(), 0);
+        setScrollPosition(this.legendScrollPosition);
+        requestAnimationFrame(() => {
+            setScrollPosition(this.legendScrollPosition);
+        });
+
+        this.lastLegendRenderSignature = legendRenderSignature;
     }
 
     /**
@@ -14082,7 +14319,7 @@ export class Visual implements IVisual {
 
     private buildTooltipDataItems(task: Task): VisualTooltipDataItem[] {
         const items: VisualTooltipDataItem[] = [];
-        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "longestPath";
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "floatBased";
 
         const taskLabel = this.getLocalizedString("tooltip.task", "Task");
         const startLabel = this.getLocalizedString("tooltip.startDate", "Start Date");
@@ -14245,7 +14482,7 @@ export class Visual implements IVisual {
     }
 
     private getMissingRequiredRoles(dataView: DataView): string[] {
-        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "longestPath";
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "floatBased";
         const requiredRoles = ["taskId", "startDate", "finishDate"];
         requiredRoles.push(mode === "floatBased" ? "taskTotalFloat" : "duration");
         return requiredRoles.filter(role => !this.dataProcessor.hasDataRole(dataView, role));
@@ -14264,7 +14501,7 @@ export class Visual implements IVisual {
         const optionalTitle = this.getLocalizedString("landing.optionalFields", "Optional fields");
         const missingSuffix = this.getLocalizedString("landing.missingSuffix", "(missing)");
 
-        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "longestPath";
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "floatBased";
         const requiredRoles = ["taskId", "startDate", "finishDate", mode === "floatBased" ? "taskTotalFloat" : "duration"];
         const optionalRoles = [
             "taskName",
@@ -14439,7 +14676,7 @@ export class Visual implements IVisual {
         const helpTitle = this.getLocalizedString("ui.helpDialogTitle", "User Guide");
         const helpDescription = this.getLocalizedString(
             "ui.helpDialogDescription",
-            "Keyboard and usage guidance for the current visual."
+            "Usage guidance for controls, tracing, filtering, exports, and accessibility in the current visual."
         );
         const closeHelpLabel = this.getLocalizedString("ui.closeHelp", "Close help");
         const closeGuideLabel = this.getLocalizedString("ui.helpDialogClose", "Close");
@@ -14720,18 +14957,25 @@ export class Visual implements IVisual {
 
         // ========== Introduction ==========
         const introSection = createSection('📊', 'Welcome to the Longest Path Visual');
-        addParagraph(introSection, 'This visual helps you analyze your project schedule and critical path. Below is a guide to all available features and controls.');
+        addParagraph(introSection, 'This visual combines a task table, a schedule timeline, and interactive analysis tools so you can review critical path logic, float-based risk, comparisons, and grouped WBS views in one place.');
+        addParagraph(introSection, 'Use the header to change the analysis mode, filter what is shown, turn comparison layers on or off, search for tasks, and export the current view.');
 
         // ========== Calculation Modes ==========
         const modeSection = createSection('🔄', 'Calculation Modes');
-        addParagraph(modeSection, 'The visual supports two different methods for identifying critical tasks:');
+        addParagraph(modeSection, 'The visual supports two criticality methods. Use the LP / Float toggle in the header to switch between them.');
 
         addSubtitle(modeSection, 'Longest Path (CPM)');
         const cpmPara = modeSection.append('p')
             .style('font-size', '13px')
             .style('margin-bottom', '8px');
-        cpmPara.text('Calculates the longest chain of dependent activities from project start to finish. ');
-        cpmPara.append('span')
+        cpmPara.text('Highlights the driving chain of dependent activities from start to finish using CPM-style relationship logic.');
+
+        addSubtitle(modeSection, 'Float-Based');
+        const floatPara = modeSection.append('p')
+            .style('font-size', '13px')
+            .style('margin-bottom', '8px');
+        floatPara.text('Uses Total Float values instead of the driving chain. Tasks with zero or negative float are critical, and tasks above zero can also be highlighted as near-critical when the threshold is enabled. ');
+        floatPara.append('span')
             .style('display', 'inline-block')
             .style('padding', '2px 8px')
             .style('border-radius', '4px')
@@ -14740,114 +14984,125 @@ export class Visual implements IVisual {
             .style('background', UI_TOKENS.color.primary.light)
             .text('Default');
 
-        addSubtitle(modeSection, 'Float-Based');
-        addParagraph(modeSection, 'Identifies critical tasks based on Total Float values. Tasks with zero or negative float are marked as critical.');
+        const modeList = createList(modeSection);
+        addListItem(modeList, 'Show All / Critical', 'Switch between the full schedule and a focused critical view. In Float mode, near-critical tasks can also stay highlighted when the threshold is enabled.');
+        addListItem(modeList, 'Path Info', 'In Longest Path mode, the path chip can show the active driving path, total tasks, and duration. If multiple valid paths exist, you can step through them.');
 
-        const togglePara = modeSection.append('p')
-            .style('font-size', '13px')
-            .style('margin-bottom', '8px');
-        togglePara.append('strong').text('How to use: ');
-        togglePara.append('span').text('Click the mode toggle button in the header to switch between modes.');
-
-
-        // ========== Data Date & Progress ==========
-        const dataDateSection = createSection('📅', 'Data Date & Progress');
-        addParagraph(dataDateSection, 'The Data Date represents the status date of the project. Tasks interacting with this date are visualized to show progress.');
-
-        addSubtitle(dataDateSection, 'Data Date Line');
-        addParagraph(dataDateSection, 'A vertical dashed line indicates the current Data Date. This serves as the reference point for project progress.');
-
-        addSubtitle(dataDateSection, 'Progress Coloring (P6 Style)');
-        addParagraph(dataDateSection, 'When "Before Data Date Color Override" is enabled in settings:');
-
-        const dataDateList = createList(dataDateSection);
-        addListItem(dataDateList, 'Before Data Date', 'Portions of tasks before the data date are colored (e.g., blue) to indicate completed work or passed time.');
-        addListItem(dataDateList, 'After Data Date', 'Portions after the data date remain in their standard color (Critical/Normal) to show remaining work.');
-
-        // ========== Display Toggles ==========
-        const displaySection = createSection('👁️', 'Display Toggles');
-        const displayList = createList(displaySection);
-        addListItem(displayList, 'Show All / Show Critical', 'Switch between viewing all tasks or only critical and near-critical tasks');
-        addListItem(displayList, 'Baseline', 'Show or hide baseline schedule bars for comparison');
-        addListItem(displayList, 'Previous Update', 'Show or hide previous schedule update bars for trend analysis');
-        addListItem(displayList, 'Connector Lines', 'Show or hide relationship lines connecting tasks');
-        addListItem(displayList, 'Columns Toggle', 'Show or hide additional data columns (Start Date, Finish Date, etc.)');
-
-        // ========== WBS Grouping ==========
-        const wbsSection = createSection('📁', 'WBS Grouping');
-        addParagraph(wbsSection, 'When Work Breakdown Structure levels are available, you can organize tasks hierarchically:');
-        const wbsList = createList(wbsSection);
-        addListItem(wbsList, 'WBS Toggle', 'Enable or disable the hierarchical grouping view');
-        addListItem(wbsList, 'Expand Button (+)', 'Cycle through expansion levels from collapsed to fully expanded');
-        addListItem(wbsList, 'Collapse Button (-)', 'Cycle in reverse order from expanded to collapsed');
-        addListItem(wbsList, 'Click Group Headers', 'Click on any group header row to expand or collapse that specific group');
+        // ========== Header Controls ==========
+        const headerSection = createSection('🧭', 'Header Controls');
+        addParagraph(headerSection, 'The header is the main command area for changing what the visual displays.');
+        const headerList = createList(headerSection);
+        addListItem(headerList, 'Baseline', 'Show or hide baseline comparison bars and the baseline finish marker.');
+        addListItem(headerList, 'Previous Update', 'Show or hide previous update comparison bars and the previous finish marker.');
+        addListItem(headerList, 'Connector Lines', 'Show or hide relationship lines between linked tasks.');
+        addListItem(headerList, 'Columns', 'Show or hide the date, duration, and float columns next to the WBS / task name column.');
+        addListItem(headerList, 'WBS', 'Enable or disable hierarchical WBS grouping when WBS levels are available.');
+        addListItem(headerList, 'Copy', 'Copy the visible rows to the clipboard in a format that can be pasted into Excel.');
+        addListItem(headerList, 'HTML', 'Copy a formatted HTML export of the current visual to the clipboard, including the chart image and visible table.');
+        addListItem(headerList, 'PDF', 'Export the current rendered view as a PDF document.');
 
         // ========== Task Selection & Tracing ==========
         const selectionSection = createSection('🎯', 'Task Selection & Path Tracing');
-        addParagraph(selectionSection, 'Use the search dropdown to find and select specific tasks, then trace their relationships:');
+        addParagraph(selectionSection, 'Use the search field or click directly on bars and milestones to select a task, then trace the schedule around it.');
         const selectionList = createList(selectionSection);
-        addListItem(selectionList, 'Task Dropdown', 'Search and select any task by ID or name');
-        addListItem(selectionList, 'Trace Mode: Backward', 'Highlight all predecessor tasks leading to the selected task');
-        addListItem(selectionList, 'Trace Mode: Forward', 'Highlight all successor tasks following the selected task');
+        addListItem(selectionList, 'Task Search', 'Search by task ID or name, then choose a result from the dropdown list.');
+        addListItem(selectionList, 'Trace Backward', 'Follow predecessors that drive into the selected task.');
+        addListItem(selectionList, 'Trace Forward', 'Follow successors that flow out from the selected task.');
+        addListItem(selectionList, 'Driving Path Navigation', 'When multiple best driving paths exist in Longest Path mode, use the path chip arrows to move between them.');
 
         const tipPara = selectionSection.append('p')
             .style('font-size', '13px')
             .style('margin-bottom', '8px');
         tipPara.append('strong').text('Tip: ');
-        tipPara.append('span').text('Click directly on any task bar in the chart to select it.');
+        tipPara.append('span').text('Press Escape to clear the current selection, close the search dropdown, or close this help dialog.');
 
-        // ========== Near Critical Path ==========
-        const nearCriticalSection = createSection('⚠️', 'Near-Critical Path');
-        addParagraph(nearCriticalSection, 'Tasks that are close to becoming critical are highlighted separately:');
+        // ========== WBS Grouping ==========
+        const wbsSection = createSection('📁', 'WBS Grouping');
+        addParagraph(wbsSection, 'When WBS fields are available, the visual can switch from a flat task list to grouped hierarchical rows.');
+        const wbsList = createList(wbsSection);
+        addListItem(wbsList, 'Group Headers', 'Each group row shows the WBS name, visible task count, and optional summary values.');
+        addListItem(wbsList, 'Enable / Disable', 'Use the WBS button in the header to switch between grouped and flat task views.');
+        addListItem(wbsList, 'Expand / Collapse Level', 'Use the + and − WBS buttons to cycle through grouping depth, from collapsed to fully expanded and back again.');
+        addListItem(wbsList, 'Manual Open / Close', 'Click a group chevron to expand or collapse a single branch without changing the whole view.');
+
+        const wbsNote = wbsSection.append('p')
+            .style('font-size', '13px')
+            .style('margin-bottom', '8px');
+        wbsNote.append('strong').text('Note: ');
+        wbsNote.append('span').text('Copy and export actions respect the current WBS state. If tasks are hidden because groups are collapsed, the visible WBS rows are exported instead.');
+
+        // ========== Bars, Milestones & Lines ==========
+        const timelineSection = createSection('📅', 'Bars, Milestones & Lines');
+        addParagraph(timelineSection, 'The timeline combines current-task bars, optional comparison bars, milestones, and vertical reference lines.');
+        const timelineList = createList(timelineSection);
+        addListItem(timelineList, 'Current Task Bars', 'Show each task using the visual start and visual finish dates used by the current analysis mode.');
+        addListItem(timelineList, 'Milestones', 'Milestones appear as diamonds at a single scheduled date.');
+        addListItem(timelineList, 'Baseline / Previous Bars', 'When enabled, lighter comparison bars appear beneath the current task bar so you can compare plan, previous update, and current dates.');
+        addListItem(timelineList, 'Finish & Reference Lines', 'Project Finish, Baseline Finish, Previous Finish, and Data Date can each draw a vertical line and label.');
+        addListItem(timelineList, 'Data Date Override', 'When the before-data-date override is enabled in settings, the earlier portion of a task bar uses the override color while the remaining portion keeps the task state color.');
+
+        // ========== Near Critical ==========
+        const nearCriticalSection = createSection('⚠️', 'Near-Critical Analysis');
+        addParagraph(nearCriticalSection, 'Near-critical highlighting is available in Float mode.');
         const nearCriticalList = createList(nearCriticalSection);
-        addListItem(nearCriticalList, 'Float Threshold', 'Tasks with float below this threshold are marked as near-critical (shown in yellow/amber)');
-        addListItem(nearCriticalList, 'Visual Indication', 'Near-critical tasks appear between critical (red) and normal tasks in importance');
+        addListItem(nearCriticalList, 'Threshold Chip', 'Use the Near-Critical control in the header to set the maximum Total Float value that should be treated as near-critical.');
+        addListItem(nearCriticalList, 'Critical vs Near-Critical', 'Zero or negative float is critical. Values above zero and at or below the threshold are near-critical.');
+        addListItem(nearCriticalList, 'Visual Priority', 'Near-critical tasks are intended to stand out from normal work without taking precedence over critical tasks.');
 
-        // ========== Zoom & Navigation ==========
-        const zoomSection = createSection('🔍', 'Zoom & Navigation');
+        // ========== Legend & Filtering ==========
+        const legendSection = createSection('🎨', 'Legend & Filtering');
+        addParagraph(legendSection, 'When a legend category field is bound and the legend is enabled, a legend rail appears at the bottom of the visual.');
+        const legendList = createList(legendSection);
+        addListItem(legendList, 'Click a Legend Chip', 'Filter the schedule to one category.');
+        addListItem(legendList, 'Click Additional Chips', 'Add or remove more categories from the current filter.');
+        addListItem(legendList, 'Show All', 'Reset the legend filter and show every category again.');
+        addListItem(legendList, 'Scroll Arrows', 'Move left or right when there are more legend categories than can fit in the footer.');
+
+        // ========== Zoom & Layout ==========
+        const zoomSection = createSection('🔍', 'Zoom & Layout');
         const zoomList = createList(zoomSection);
-        addListItem(zoomList, 'Zoom Slider', 'Use the slider at the bottom to focus on a specific time range');
-        addListItem(zoomList, 'Drag Handles', 'Drag the left or right handles to adjust the visible date range');
-        addListItem(zoomList, 'Drag Middle', 'Drag the center of the selection to pan through the timeline');
-        addListItem(zoomList, 'Vertical Scroll', 'Use your mouse wheel or the scrollbar to navigate through tasks');
-        addListItem(zoomList, 'Resize Margin', 'Drag the divider between task names and the chart to adjust column width');
+        addListItem(zoomList, 'Bottom Range Slider', 'Focus on a smaller time window without changing the underlying data.');
+        addListItem(zoomList, 'Drag Handles', 'Resize the visible time range by dragging the left or right slider handles.');
+        addListItem(zoomList, 'Drag the Window', 'Pan across time by dragging the selected range between the handles.');
+        addListItem(zoomList, 'Vertical Scroll', 'Use the mouse wheel or scrollbar to move through tasks.');
+        addListItem(zoomList, 'Table / Timeline Divider', 'Drag the divider between the left table and the timeline to resize the task-name area.');
 
         // ========== Export & Copy ==========
         const exportSection = createSection('📋', 'Export & Copy');
         const exportList = createList(exportSection);
-        addListItem(exportList, 'Copy Button', 'Copy all visible task data to your clipboard, then paste directly into Excel');
-        addListItem(exportList, 'PDF Export', 'Download the current view as a PDF document');
+        addListItem(exportList, 'Copy Button', 'Copies the visible rows to the clipboard as plain text and HTML so you can paste into Excel or another document.');
+        addListItem(exportList, 'HTML Button', 'Copies an HTML version of the current visual to the clipboard, including the chart image and visible table.');
+        addListItem(exportList, 'PDF Button', 'Exports the current rendered view as a PDF.');
 
         const exportNote = exportSection.append('p')
             .style('font-size', '13px')
             .style('margin-bottom', '8px');
-        exportNote.append('strong').text('Note: ');
-        exportNote.append('span').text('Copied data preserves task type labels and includes user-provided Total Float values when they are available.');
+        exportNote.append('strong').text('Included data: ');
+        exportNote.append('span').text('Exports use the currently visible schedule, preserve WBS structure when applicable, and include displayed float values and task types when those fields are available.');
 
-        // ========== Legend & Filtering ==========
-        const legendSection = createSection('🎨', 'Legend & Filtering');
-        addParagraph(legendSection, 'If categories are shown in the legend at the bottom:');
-        const legendList = createList(legendSection);
-        addListItem(legendList, 'Click Legend Items', 'Filter the view to show only tasks in that category');
-        addListItem(legendList, 'Multiple Selection', 'Click multiple items to show tasks from several categories');
-        addListItem(legendList, 'Scroll Arrows', 'Use the arrows to see more legend items when there are many');
+        // ========== Warnings ==========
+        const warningSection = createSection('🛡️', 'Warnings & Data Quality');
+        addParagraph(warningSection, 'The visual can show warnings when some analysis results should be treated carefully.');
+        const warningList = createList(warningSection);
+        addListItem(warningList, 'CPM Safety Warning', 'If the schedule relationships are not safe for CPM-style tracing, the warning banner explains that Longest Path analysis may be limited or disabled.');
+        addListItem(warningList, 'Plotted Date Warning', 'The banner can also warn when some tasks have invalid visual start / finish ranges and cannot be plotted normally.');
+        addListItem(warningList, 'What to Check', 'Review relationship data, start / finish dates, and float inputs if the schedule does not behave as expected.');
 
         // ========== Tooltips ==========
         const tooltipSection = createSection('💬', 'Tooltips');
-        addParagraph(tooltipSection, 'Hover over any task bar to see detailed information:');
+        addParagraph(tooltipSection, 'Hover over a task bar, milestone, or other plotted item to see more detail.');
         const tooltipList = createList(tooltipSection);
-        addSimpleListItem(tooltipList, 'Task ID and Name');
-        addSimpleListItem(tooltipList, 'Start and Finish Dates');
-        addSimpleListItem(tooltipList, 'Duration and Total Float');
-        addSimpleListItem(tooltipList, 'Criticality Status');
-        addSimpleListItem(tooltipList, 'Additional project-specific information');
+        addSimpleListItem(tooltipList, 'Task ID and task name');
+        addSimpleListItem(tooltipList, 'Start, finish, and duration information');
+        addSimpleListItem(tooltipList, 'Total Float and criticality status');
+        addSimpleListItem(tooltipList, 'Additional project fields included in the bound data');
 
         // ========== Keyboard Shortcuts ==========
         const keyboardSection = createSection('⌨️', 'Keyboard Shortcuts');
         const keyboardList = createList(keyboardSection);
-        addListItem(keyboardList, 'Escape', 'Close this help dialog or clear task selection');
-        addListItem(keyboardList, 'Tab', 'Navigate through interactive elements');
-        addListItem(keyboardList, 'Enter/Space', 'Activate the currently focused button');
+        addListItem(keyboardList, 'Escape', 'Close this help dialog, close the search dropdown, or clear the current selection when applicable.');
+        addListItem(keyboardList, 'Tab', 'Move through interactive controls such as header buttons, the search box, and dialog actions.');
+        addListItem(keyboardList, 'Enter / Space', 'Activate the currently focused control.');
     }
 
     /**

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
     getExportFloatText,
     getExportTaskType,
+    normalizeLegendCategory,
     parsePersistedLegendSelection,
     sanitizeExportTextField,
     serializeLegendSelection
@@ -20,6 +21,12 @@ describe("VisualState helpers", () => {
     it("restores legacy comma-separated legend selections", () => {
         const restored = parsePersistedLegendSelection(" Alpha , Beta,Gamma ");
         expect(restored).toEqual(["Alpha", "Beta", "Gamma"]);
+    });
+
+    it("normalizes legend categories by trimming and dropping blanks", () => {
+        expect(normalizeLegendCategory("  Ahead  ")).toBe("Ahead");
+        expect(normalizeLegendCategory("   ")).toBeNull();
+        expect(normalizeLegendCategory(null)).toBeNull();
     });
 
     it("normalizes tabs and line breaks for export-safe text", () => {

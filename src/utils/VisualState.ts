@@ -2,6 +2,15 @@ import { Task } from "../data/Interfaces";
 
 const MILESTONE_TASK_TYPES = new Set(["TT_Mile", "TT_FinMile"]);
 
+export function normalizeLegendCategory(value: unknown): string | null {
+    if (value == null) {
+        return null;
+    }
+
+    const normalized = String(value).trim();
+    return normalized.length > 0 ? normalized : null;
+}
+
 export function parsePersistedLegendSelection(value: string | null | undefined): string[] {
     if (!value || value.trim().length === 0) {
         return [];
@@ -12,9 +21,8 @@ export function parsePersistedLegendSelection(value: string | null | undefined):
         const parsed = JSON.parse(trimmed) as unknown;
         if (Array.isArray(parsed)) {
             return parsed
-                .filter((entry): entry is string => typeof entry === "string")
-                .map(entry => entry.trim())
-                .filter(entry => entry.length > 0);
+                .map(entry => normalizeLegendCategory(entry))
+                .filter((entry): entry is string => entry !== null);
         }
     } catch {
         // Fall back to the legacy comma-separated format below.
@@ -22,15 +30,15 @@ export function parsePersistedLegendSelection(value: string | null | undefined):
 
     return trimmed
         .split(",")
-        .map(entry => entry.trim())
-        .filter(entry => entry.length > 0);
+        .map(entry => normalizeLegendCategory(entry))
+        .filter((entry): entry is string => entry !== null);
 }
 
 export function serializeLegendSelection(categories: Iterable<string>): string {
     return JSON.stringify(
         Array.from(categories)
-            .map(category => category.trim())
-            .filter(category => category.length > 0)
+            .map(category => normalizeLegendCategory(category))
+            .filter((category): category is string => category !== null)
     );
 }
 
