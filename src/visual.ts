@@ -3892,10 +3892,12 @@ export class Visual implements IVisual {
         eventService?.renderingStarted(options);
 
         // Update lastUpdateOptions early to ensure viewport data is current for rendering
-        this.lastUpdateOptions = options;
+        // Update lastUpdateOptions early to ensure viewport data is current for rendering (MOVED)
 
         try {
             const updateType = this.determineUpdateType(options);
+            // Update lastUpdateOptions after determining update type so we compare against previous state
+            this.lastUpdateOptions = options;
             this.debugLog(`Update type detected: ${updateType}`);
 
             // Hide content during significant viewport changes (e.g. Focus Mode)
@@ -5541,7 +5543,7 @@ export class Visual implements IVisual {
 
         const taskHeight = this.settings.taskBars.taskHeight.value;
         const milestoneSizeSetting = this.settings.taskBars.milestoneSize.value;
-        const visibleTasks = this.allTasksToShow.slice(this.viewportStartIndex, this.viewportEndIndex + 1);
+        const visibleTasks = this.getVisibleTasks();
 
         for (const task of visibleTasks) {
             const domainKey = task.yOrder?.toString() ?? '';
@@ -9557,7 +9559,7 @@ export class Visual implements IVisual {
     ): void {
         if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
 
-        mainGridLayer.select(".data-date-line").remove();
+        mainGridLayer.selectAll(".data-date-line").remove();
         headerLayer.selectAll(".data-date-label-group").remove();
 
         if (!(this.dataDate instanceof Date) || isNaN(this.dataDate.getTime())) { return; }
@@ -11660,6 +11662,8 @@ export class Visual implements IVisual {
             group.visibleTaskCount = 0;
             group.summaryStartDate = null;
             group.summaryFinishDate = null;
+            group.summaryEarlyStartDate = null;
+            group.summaryEarlyFinishDate = null;
             group.hasCriticalTasks = false;
             group.criticalStartDate = null;
             group.criticalFinishDate = null;
@@ -11687,6 +11691,8 @@ export class Visual implements IVisual {
         const calculateFilteredSummary = (group: WBSGroup): void => {
             let minStart: Date | null = null;
             let maxFinish: Date | null = null;
+            let minEarlyStart: Date | null = null;
+            let maxEarlyFinish: Date | null = null;
             let hasCritical = false;
             let criticalMinStart: Date | null = null;
             let criticalMaxFinish: Date | null = null;
@@ -11715,6 +11721,16 @@ export class Visual implements IVisual {
                 }
                 if (isValidFinish && (!maxFinish || visualFinish! > maxFinish)) {
                     maxFinish = visualFinish;
+                }
+
+                // Track Early Start / Early Finish (task.startDate/finishDate) for duration calc
+                const earlyStart = task.startDate;
+                const earlyFinish = task.finishDate;
+                if (earlyStart && earlyStart.getFullYear() > 1980 && (!minEarlyStart || earlyStart < minEarlyStart)) {
+                    minEarlyStart = earlyStart;
+                }
+                if (earlyFinish && earlyFinish.getFullYear() > 1980 && (!maxEarlyFinish || earlyFinish > maxEarlyFinish)) {
+                    maxEarlyFinish = earlyFinish;
                 }
 
                 if (task.isCritical) {
@@ -11776,6 +11792,12 @@ export class Visual implements IVisual {
                 if (child.summaryFinishDate && (!maxFinish || child.summaryFinishDate > maxFinish)) {
                     maxFinish = child.summaryFinishDate;
                 }
+                if (child.summaryEarlyStartDate && (!minEarlyStart || child.summaryEarlyStartDate < minEarlyStart)) {
+                    minEarlyStart = child.summaryEarlyStartDate;
+                }
+                if (child.summaryEarlyFinishDate && (!maxEarlyFinish || child.summaryEarlyFinishDate > maxEarlyFinish)) {
+                    maxEarlyFinish = child.summaryEarlyFinishDate;
+                }
 
                 if (child.criticalStartDate && (!criticalMinStart || child.criticalStartDate < criticalMinStart)) {
                     criticalMinStart = child.criticalStartDate;
@@ -11815,6 +11837,8 @@ export class Visual implements IVisual {
 
             group.summaryStartDate = minStart;
             group.summaryFinishDate = maxFinish;
+            group.summaryEarlyStartDate = minEarlyStart;
+            group.summaryEarlyFinishDate = maxEarlyFinish;
             group.hasCriticalTasks = hasCritical;
             group.criticalStartDate = criticalMinStart;
             group.criticalFinishDate = criticalMaxFinish;
@@ -12335,7 +12359,24 @@ export class Visual implements IVisual {
             if (showStart) drawColumnDate(group.summaryStartDate, startOffset, startWidth);
             if (showFinish) drawColumnDate(group.summaryFinishDate, finishOffset, finishWidth);
             if (showDur) {
-                drawColumnValue('wbs-summary-duration', '', durOffset, durWidth, columnTextColor);
+                let durValue = "";
+                if (group.summaryEarlyStartDate && group.summaryEarlyFinishDate && group.summaryEarlyFinishDate >= group.summaryEarlyStartDate) {
+                    let workingDays = 0;
+                    const cur = new Date(group.summaryEarlyStartDate);
+                    cur.setHours(0, 0, 0, 0);
+                    const end = new Date(group.summaryEarlyFinishDate);
+                    end.setHours(0, 0, 0, 0);
+                    
+                    while (cur < end) {
+                        const day = cur.getDay();
+                        if (day !== 0 && day !== 6) { // Skip Sunday (0) and Saturday (6)
+                            workingDays++;
+                        }
+                        cur.setDate(cur.getDate() + 1);
+                    }
+                    if (workingDays > 0) durValue = workingDays.toString();
+                }
+                drawColumnValue('wbs-summary-duration', durValue, durOffset, durWidth, columnTextColor);
             }
             if (showFloat) {
                 const floatValue = typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat)
@@ -16074,4 +16115,16 @@ ${tableHtml}
     }
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
 

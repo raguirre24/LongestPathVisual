@@ -903,6 +903,8 @@ export class DataProcessor {
             // 2. Initialize metrics with current group's direct tasks
             let minStart: Date | null = null;
             let maxFinish: Date | null = null;
+            let minEarlyStart: Date | null = null;
+            let maxEarlyFinish: Date | null = null;
             let nearCriticalMinStart: Date | null = null;
             let nearCriticalMaxFinish: Date | null = null;
             let baselineMinStart: Date | null = null;
@@ -927,6 +929,12 @@ export class DataProcessor {
                 }
                 if (visualFinish) {
                     if (!maxFinish || visualFinish > maxFinish) maxFinish = visualFinish;
+                }
+                if (task.startDate) {
+                    if (!minEarlyStart || task.startDate < minEarlyStart) minEarlyStart = task.startDate;
+                }
+                if (task.finishDate) {
+                    if (!maxEarlyFinish || task.finishDate > maxEarlyFinish) maxEarlyFinish = task.finishDate;
                 }
 
                 if (task.baselineStartDate) {
@@ -969,6 +977,12 @@ export class DataProcessor {
                 if (child.summaryFinishDate) {
                     if (!maxFinish || child.summaryFinishDate > maxFinish) maxFinish = child.summaryFinishDate;
                 }
+                if (child.summaryEarlyStartDate) {
+                    if (!minEarlyStart || child.summaryEarlyStartDate < minEarlyStart) minEarlyStart = child.summaryEarlyStartDate;
+                }
+                if (child.summaryEarlyFinishDate) {
+                    if (!maxEarlyFinish || child.summaryEarlyFinishDate > maxEarlyFinish) maxEarlyFinish = child.summaryEarlyFinishDate;
+                }
 
                 if (child.summaryBaselineStartDate) {
                     if (!baselineMinStart || child.summaryBaselineStartDate < baselineMinStart) baselineMinStart = child.summaryBaselineStartDate;
@@ -1003,6 +1017,8 @@ export class DataProcessor {
 
             group.summaryStartDate = minStart;
             group.summaryFinishDate = maxFinish;
+            group.summaryEarlyStartDate = minEarlyStart;
+            group.summaryEarlyFinishDate = maxEarlyFinish;
             group.nearCriticalStartDate = nearCriticalMinStart;
             group.nearCriticalFinishDate = nearCriticalMaxFinish;
             group.summaryBaselineStartDate = baselineMinStart;
@@ -1341,3 +1357,4 @@ export class DataProcessor {
         };
     }
 }
+

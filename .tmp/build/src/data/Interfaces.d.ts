@@ -60,6 +60,8 @@ export interface WBSGroup {
     visibleTaskCount: number;
     summaryStartDate?: Date | null;
     summaryFinishDate?: Date | null;
+    summaryEarlyStartDate?: Date | null;
+    summaryEarlyFinishDate?: Date | null;
     hasCriticalTasks: boolean;
     hasNearCriticalTasks?: boolean;
     taskCount: number;
