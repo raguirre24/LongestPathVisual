@@ -33,6 +33,8 @@ export interface HeaderState {
     wbsExpandToLevel?: number;
     wbsManualExpansionOverride: boolean;
     currentMode: string;
+    modeWarningMessage?: string | null;
+    showPathInfoChip?: boolean;
     floatThreshold: number;
     showNearCritical: boolean;
     showExtraColumns: boolean;
@@ -76,6 +78,8 @@ export declare class Header {
      * Extended layout mode determination
      */
     private getExtendedLayoutMode;
+    private getBaseRightReserved;
+    private getTopRightControlWidthBudget;
     /**
      * Returns button dimensions and positions based on current layout mode
      */

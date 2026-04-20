@@ -242,6 +242,9 @@ export declare class Visual implements IVisual {
      * Determines the current layout mode based on viewport width
      */
     private getLayoutMode;
+    private getExtendedHeaderLayoutMode;
+    private getPathInfoChipMaxWidth;
+    private shouldShowPathInfoChip;
     /**
      * Returns button dimensions and positions based on current layout mode
      * This centralizes all responsive layout calculations with smart overflow handling
@@ -254,6 +257,9 @@ export declare class Visual implements IVisual {
      */
     private getSecondRowLayout;
     private getSecondRowControlTop;
+    private hasSecondRowHeaderContent;
+    private shouldShowHeaderWarningBanner;
+    private getWarningBannerTop;
     private getEstimatedHeaderControlsBottom;
     private shouldReserveComparisonFinishSummaryLane;
     private isTraceModeToggleVisible;
@@ -301,6 +307,7 @@ export declare class Visual implements IVisual {
     private isLongestPathMode;
     private isCpmSafe;
     private getUnsafeCpmWarningMessage;
+    private getHeaderBannerWarningMessage;
     private updateDataQualityWarning;
     private ensureTaskSortCache;
     private determineUpdateType;

@@ -38,6 +38,8 @@ export interface HeaderState {
     wbsExpandToLevel?: number;
     wbsManualExpansionOverride: boolean;
     currentMode: string;
+    modeWarningMessage?: string | null;
+    showPathInfoChip?: boolean;
     floatThreshold: number;
     showNearCritical: boolean;
     showExtraColumns: boolean;
@@ -372,36 +374,45 @@ export class Header {
         mode: "tree" | "flat",
         control?: "plus" | "minus"
     ): void {
-        const rowCenters = [-6, 0, 6];
         const rows = mode === "tree"
             ? [
-                { x: -5.5, width: 10.5 },
-                { x: -1.5, width: 8.5 },
-                { x: 0.5, width: 6.5 }
+                { bulletX: -7.2, barX: -2.8, barWidth: 6.8, y: -6 },
+                { bulletX: -4.2, barX: 0.2, barWidth: 5.8, y: 0 },
+                { bulletX: -1.2, barX: 3.2, barWidth: 4.8, y: 6 }
             ]
             : [
-                { x: -5.5, width: 10.5 },
-                { x: -5.5, width: 10.5 },
-                { x: -5.5, width: 10.5 }
+                { bulletX: -7.2, barX: -2.8, barWidth: 8.8, y: -6 },
+                { bulletX: -7.2, barX: -2.8, barWidth: 8.8, y: 0 },
+                { bulletX: -7.2, barX: -2.8, barWidth: 8.8, y: 6 }
             ];
 
         if (mode === "tree") {
             iconG.append("path")
                 .attr("class", "glyph-stroke")
-                .attr("d", "M-8,-6 H-5.5 M-8,-6 V6 M-8,0 H-1.5 M-8,6 H0.5")
+                .attr("d", "M-5.4,-4.2 V7.8 M-5.4,-4.2 H-2.8 M-5.4,1.8 H0.2 M-5.4,7.8 H3.2")
                 .attr("stroke", color)
-                .attr("stroke-width", 1.5)
+                .attr("stroke-width", 1.4)
                 .attr("fill", "none")
                 .attr("stroke-linecap", "round")
                 .attr("stroke-linejoin", "round");
         }
 
-        rows.forEach((row, index) => {
+        rows.forEach(row => {
             iconG.append("rect")
                 .attr("class", "glyph-fill")
-                .attr("x", row.x)
-                .attr("y", rowCenters[index] - 1.6)
-                .attr("width", row.width)
+                .attr("x", row.bulletX)
+                .attr("y", row.y - 1.8)
+                .attr("width", 3.6)
+                .attr("height", 3.6)
+                .attr("rx", 1)
+                .attr("ry", 1)
+                .attr("fill", color);
+
+            iconG.append("rect")
+                .attr("class", "glyph-fill")
+                .attr("x", row.barX)
+                .attr("y", row.y - 1.6)
+                .attr("width", row.barWidth)
                 .attr("height", 3.2)
                 .attr("rx", 1.6)
                 .attr("ry", 1.6)
@@ -598,7 +609,7 @@ export class Header {
         const iconCenterX = buttonWidth / 2;
         const iconCenterY = buttonHeight / 2;
 
-        if (isShowingCritical) {
+        if (!isShowingCritical) {
             svg.append("rect")
                 .attr("x", iconCenterX - 6)
                 .attr("y", iconCenterY - 6)
@@ -1004,6 +1015,50 @@ export class Header {
         return 'very-narrow';
     }
 
+    private getBaseRightReserved(mode: 'wide' | 'medium' | 'narrow' | 'compact' | 'very-narrow'): number {
+        if (mode === 'very-narrow') return 60;
+        if (mode === 'compact') return 100;
+        if (mode === 'narrow') return 150;
+        return 260;
+    }
+
+    private getTopRightControlWidthBudget(
+        viewportWidth: number,
+        state: HeaderState
+    ): { maxWidth: number; mode: 'wide' | 'medium' | 'narrow' | 'compact' | 'very-narrow' } {
+        const mode = this.getExtendedLayoutMode(viewportWidth);
+
+        if (state.currentMode === 'floatBased' && state.showNearCritical) {
+            const maxWidth = mode === 'very-narrow'
+                ? 118
+                : mode === 'compact'
+                    ? 126
+                    : mode === 'narrow'
+                        ? 144
+                        : mode === 'medium'
+                            ? 156
+                            : 170;
+
+            return { maxWidth, mode };
+        }
+
+        if (state.showPathInfoChip) {
+            const maxWidth = mode === 'very-narrow'
+                ? 136
+                : mode === 'compact'
+                    ? 150
+                    : mode === 'narrow'
+                        ? 176
+                        : mode === 'medium'
+                            ? 210
+                            : 232;
+
+            return { maxWidth, mode };
+        }
+
+        return { maxWidth: this.getBaseRightReserved(mode), mode };
+    }
+
     /**
      * Returns button dimensions and positions based on current layout mode
      */
@@ -1012,7 +1067,9 @@ export class Header {
         const mode = this.getExtendedLayoutMode(viewportWidth);
 
         // Reserve space for right-side controls
-        const rightReserved = mode === 'very-narrow' ? 60 : (mode === 'compact' ? 100 : (mode === 'narrow' ? 150 : 260));
+        const baseRightReserved = this.getBaseRightReserved(mode);
+        const topRightBudget = this.getTopRightControlWidthBudget(viewportWidth, state);
+        const rightReserved = Math.max(baseRightReserved, topRightBudget.maxWidth + 24);
         const availableWidth = viewportWidth - rightReserved;
 
         // Gap between buttons based on mode
@@ -1607,10 +1664,16 @@ export class Header {
         }
 
         const effectiveWidth = this.currentViewportWidth;
-        const layoutMode = this.getExtendedLayoutMode(effectiveWidth);
+        const { maxWidth, mode: layoutMode } = this.getTopRightControlWidthBudget(effectiveWidth, this.currentState);
         const isCompact = layoutMode === 'narrow' || layoutMode === 'compact' || layoutMode === 'very-narrow';
         const isMedium = layoutMode === 'medium';
-        const maxWidth = isCompact ? 210 : (isMedium ? 240 : 280);
+        const isVeryCompact = layoutMode === 'compact' || layoutMode === 'very-narrow';
+        const isCompressed = maxWidth <= 144 || isCompact || effectiveWidth < 780;
+        const labelText = isVeryCompact ? "Near ≤" : "Near-Crit ≤";
+        const inputWidth = isVeryCompact ? 34 : (isCompressed ? 38 : (isMedium ? 42 : 44));
+        const showDaysText = !isVeryCompact && !isCompressed;
+        const showHelpIcon = layoutMode === 'wide' && maxWidth >= 170;
+        const iconSize = isVeryCompact ? 10 : 12;
 
         const controlContainer = this.upsertDiv("float-threshold-wrapper")
             .attr("role", "group")
@@ -1621,9 +1684,9 @@ export class Header {
             .style("top", "6px")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("gap", isCompact ? "4px" : "6px")
+            .style("gap", isCompressed ? "3px" : "4px")
             .style("height", "24px")
-            .style("padding", "0 8px")
+            .style("padding", isVeryCompact ? "0 6px" : "0 8px")
             .style("max-width", `${maxWidth}px`)
             .style("background-color", HEADER_DOCK_TOKENS.chipBg)
             .style("border", `1px solid ${HEADER_DOCK_TOKENS.warning}`)
@@ -1636,7 +1699,6 @@ export class Header {
             .style("align-items", "center")
             .style("gap", `${UI_TOKENS.spacing.xs}px`);
 
-        const iconSize = 12;
         const iconSvg = labelContainer.append("svg")
             .attr("width", iconSize)
             .attr("height", iconSize)
@@ -1649,7 +1711,6 @@ export class Header {
             .attr("r", iconSize / 2)
             .attr("fill", HEADER_DOCK_TOKENS.warning);
 
-        const labelText = isCompact ? "Near-Critical ≤" : (isMedium ? "Near-Critical ≤" : "Near-Critical ≤");
         labelContainer.append("span")
             .style("font-size", "11px")
             .style("letter-spacing", "0.1px")
@@ -1658,8 +1719,6 @@ export class Header {
             .style("font-weight", UI_TOKENS.fontWeight.medium)
             .style("white-space", "nowrap")
             .text(labelText);
-
-        const inputWidth = isCompact ? 42 : (isMedium ? 50 : 54);
 
         controlContainer.append("input")
             .attr("type", "number")
@@ -1697,37 +1756,41 @@ export class Header {
                 }
             });
 
-        // Add 'days' text
-        controlContainer.append("span")
-            .style("font-size", "11px")
-            .style("color", HEADER_DOCK_TOKENS.chipMuted)
-            .style("font-family", "Segoe UI, sans-serif")
-            .text("days");
+        if (showDaysText) {
+            controlContainer.append("span")
+                .style("font-size", "11px")
+                .style("color", HEADER_DOCK_TOKENS.chipMuted)
+                .style("font-family", "Segoe UI, sans-serif")
+                .text("days");
+        }
 
-        // Add help icon with tooltip
-        const helpContainer = controlContainer.append("div")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("cursor", "help")
-            .attr("role", "img")
-            .attr("aria-label", "Help: Tasks with Total Float less than or equal to this value will be highlighted as Near-Critical.")
-            .attr("title", "Tasks with Total Float less than or equal to this value will be highlighted as Near-Critical.");
+        if (showHelpIcon) {
+            const helpContainer = controlContainer.append("div")
+                .style("display", "flex")
+                .style("align-items", "center")
+                .style("cursor", "help")
+                .attr("role", "img")
+                .attr("aria-label", "Help: Tasks with Total Float less than or equal to this value will be highlighted as Near-Critical.")
+                .attr("title", "Tasks with Total Float less than or equal to this value will be highlighted as Near-Critical.");
 
-        const helpIconSize = 14;
-        const helpSvg = helpContainer.append("svg")
-            .attr("width", helpIconSize)
-            .attr("height", helpIconSize)
-            .attr("viewBox", "0 0 16 16")
-            .style("fill", HEADER_DOCK_TOKENS.chipMuted);
+            const helpIconSize = 14;
+            const helpSvg = helpContainer.append("svg")
+                .attr("width", helpIconSize)
+                .attr("height", helpIconSize)
+                .attr("viewBox", "0 0 16 16")
+                .style("fill", HEADER_DOCK_TOKENS.chipMuted);
 
-        helpSvg.append("path")
-            .attr("d", "M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm.93 11v1H6.93v-1h2zm-2.97-2.65c0-1.4.67-1.85 1.54-2.28.6-.3.83-.53.83-.97 0-.48-.44-.87-1.42-.87-.82 0-1.28.32-1.57.57l-.87-1.05c.5-.5 1.34-1.02 2.76-1.02 1.93 0 2.9 1.15 2.9 2.22 0 1.25-.66 1.7-1.48 2.12-.66.33-.87.6-.87 1.15v.13h-1.81z");
+            helpSvg.append("path")
+                .attr("d", "M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm.93 11v1H6.93v-1h2zm-2.97-2.65c0-1.4.67-1.85 1.54-2.28.6-.3.83-.53.83-.97 0-.48-.44-.87-1.42-.87-.82 0-1.28.32-1.57.57l-.87-1.05c.5-.5 1.34-1.02 2.76-1.02 1.93 0 2.9 1.15 2.9 2.22 0 1.25-.66 1.7-1.48 2.12-.66.33-.87.6-.87 1.15v.13h-1.81z");
+        }
 
     }
 
     private createModeToggleButton(): void {
         const currentMode = this.currentState.currentMode;
         const isFloatBased = currentMode === 'floatBased';
+        const modeWarningMessage = this.currentState.modeWarningMessage?.trim() || "";
+        const hasModeWarning = modeWarningMessage.length > 0;
 
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, width: buttonWidth, visible } = layout.modeToggle;
@@ -1741,13 +1804,18 @@ export class Header {
         const buttonY = UI_TOKENS.spacing.sm;
 
         const bgColor = HEADER_DOCK_TOKENS.buttonBg;
-        const borderColor = isFloatBased ? HEADER_DOCK_TOKENS.warning : HEADER_DOCK_TOKENS.primary;
+        const borderColor = hasModeWarning
+            ? HEADER_DOCK_TOKENS.warning
+            : (isFloatBased ? HEADER_DOCK_TOKENS.warning : HEADER_DOCK_TOKENS.primary);
         const activeFill = isFloatBased ? HEADER_DOCK_TOKENS.warning : HEADER_DOCK_TOKENS.primary;
+        const modeTitle = hasModeWarning
+            ? `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}. ${modeWarningMessage}`
+            : `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`;
 
         const btn = this.upsertButton("mode-toggle-group")
             .attr("type", "button")
-            .attr("aria-label", `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`)
-            .attr("title", `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`)
+            .attr("aria-label", modeTitle)
+            .attr("title", modeTitle)
             .attr("aria-pressed", isFloatBased.toString())
             .classed("header-toggle-button", true)
             .style("position", "absolute")
@@ -1822,7 +1890,7 @@ export class Header {
                 .attr("ry", UI_TOKENS.radius.pill)
                 .attr("fill", bgColor)
                 .attr("stroke", borderColor)
-                .attr("stroke-width", 1);
+                .attr("stroke-width", hasModeWarning ? 1.5 : 1);
 
             const pillWidth = Math.min(106, buttonWidth - 20);
             const pillHeight = 22;
@@ -1880,8 +1948,33 @@ export class Header {
                 bgRect.attr("stroke-width", 2);
             })
                 .on("mouseout", function () {
-                    bgRect.attr("stroke-width", 1);
+                    bgRect.attr("stroke-width", hasModeWarning ? 1.5 : 1);
                 });
+        }
+
+        if (hasModeWarning) {
+            const badgeRadius = buttonWidth < 80 ? 5.5 : 6.5;
+            const badgeCx = buttonWidth - (buttonWidth < 80 ? 8 : 10);
+            const badgeCy = buttonWidth < 80 ? 8 : 9;
+            const badge = svg.append("g")
+                .attr("transform", `translate(${badgeCx}, ${badgeCy})`);
+
+            badge.append("circle")
+                .attr("r", badgeRadius)
+                .attr("fill", HEADER_DOCK_TOKENS.warning)
+                .attr("stroke", HEADER_DOCK_TOKENS.shell)
+                .attr("stroke-width", 1.2);
+
+            badge.append("text")
+                .attr("text-anchor", "middle")
+                .attr("dominant-baseline", "central")
+                .attr("y", 0.6)
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", buttonWidth < 80 ? "8px" : "9px")
+                .style("font-weight", "800")
+                .style("fill", UI_TOKENS.color.neutral.white)
+                .style("pointer-events", "none")
+                .text("!");
         }
     }
 

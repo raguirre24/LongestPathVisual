@@ -386,6 +386,33 @@ export class Visual implements IVisual {
         return 'narrow';
     }
 
+    private getExtendedHeaderLayoutMode(viewportWidth: number): 'wide' | 'medium' | 'narrow' | 'compact' | 'very-narrow' {
+        if (viewportWidth >= LAYOUT_BREAKPOINTS.wide) return 'wide';
+        if (viewportWidth >= LAYOUT_BREAKPOINTS.medium) return 'medium';
+        if (viewportWidth >= 500) return 'narrow';
+        if (viewportWidth >= 350) return 'compact';
+        return 'very-narrow';
+    }
+
+    private getPathInfoChipMaxWidth(viewportWidth: number): number {
+        const mode = this.getExtendedHeaderLayoutMode(viewportWidth);
+
+        if (mode === 'very-narrow') return 136;
+        if (mode === 'compact') return 150;
+        if (mode === 'narrow') return 176;
+        if (mode === 'medium') return 210;
+        return 232;
+    }
+
+    private shouldShowPathInfoChip(): boolean {
+        const showPathInfo = this.settings?.pathSelection?.showPathInfo?.value ?? true;
+        const multiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value ?? true;
+        const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'floatBased';
+        const hasAnyPaths = this.allDrivingChains.length > 0;
+
+        return showPathInfo && multiPathEnabled && mode === 'longestPath' && this.isCpmSafe() && hasAnyPaths;
+    }
+
     /**
      * Returns button dimensions and positions based on current layout mode
      * This centralizes all responsive layout calculations with smart overflow handling
@@ -452,14 +479,34 @@ export class Visual implements IVisual {
         return this.snapRectCoord(laneTop + Math.max(0, (laneHeight - controlHeight) / 2));
     }
 
+    private hasSecondRowHeaderContent(): boolean {
+        return !!(
+            this.settings?.pathSelection?.enableTaskSelection?.value ||
+            this.shouldReserveComparisonFinishSummaryLane()
+        );
+    }
+
+    private shouldShowHeaderWarningBanner(): boolean {
+        return this.getHeaderBannerWarningMessage() !== null;
+    }
+
+    private getWarningBannerTop(): number {
+        const warningTop = this.hasSecondRowHeaderContent()
+            ? this.SECOND_ROW_TOP + UI_TOKENS.height.compact + 8
+            : this.SECOND_ROW_TOP;
+
+        return this.snapRectCoord(warningTop);
+    }
+
     private getEstimatedHeaderControlsBottom(): number {
         let bottom = 10 + UI_TOKENS.height.compact;
 
-        if (
-            this.settings?.pathSelection?.enableTaskSelection?.value ||
-            this.shouldReserveComparisonFinishSummaryLane()
-        ) {
+        if (this.hasSecondRowHeaderContent()) {
             bottom = Math.max(bottom, this.SECOND_ROW_TOP + UI_TOKENS.height.compact);
+        }
+
+        if (this.shouldShowHeaderWarningBanner()) {
+            bottom = Math.max(bottom, this.getWarningBannerTop() + UI_TOKENS.height.compact);
         }
 
         return bottom;
@@ -1108,7 +1155,8 @@ export class Visual implements IVisual {
             .attr("class", "data-quality-warning")
             .style("position", "absolute")
             .style("left", "10px")
-            .style("bottom", "6px")
+            .style("top", `${this.SECOND_ROW_TOP}px`)
+            .style("bottom", "auto")
             .style("max-width", "calc(100% - 20px)")
             .style("display", "none")
             .style("align-items", "center")
@@ -1125,6 +1173,7 @@ export class Visual implements IVisual {
             .style("white-space", "nowrap")
             .style("overflow", "hidden")
             .style("text-overflow", "ellipsis")
+            .style("z-index", "24")
             .attr("role", "status")
             .attr("aria-live", "polite");
 
@@ -1635,10 +1684,18 @@ export class Visual implements IVisual {
         }
 
         if (reasons.length === 0) {
-            return "Critical path unavailable: cyclic, truncated, or invalid schedule data.";
+            return "Longest Path unavailable: cyclic, truncated, or invalid schedule data.";
         }
 
-        return `Critical path disabled: ${reasons.join("; ")}.`;
+        return `Longest Path disabled: ${reasons.join("; ")}.`;
+    }
+
+    private getHeaderBannerWarningMessage(): string | null {
+        if ((this.dataQuality?.invalidVisualDateRangeTaskIds?.length ?? 0) > 0) {
+            return `Plotted date warning: ${this.dataQuality.invalidVisualDateRangeTaskIds.length} task(s) have invalid visual start/finish ranges.`;
+        }
+
+        return null;
     }
 
     private updateDataQualityWarning(): void {
@@ -1646,11 +1703,7 @@ export class Visual implements IVisual {
             return;
         }
 
-        const warningMessage = this.getUnsafeCpmWarningMessage();
-        const visualWarnings = this.dataQuality?.invalidVisualDateRangeTaskIds?.length
-            ? `Plotted date warning: ${this.dataQuality.invalidVisualDateRangeTaskIds.length} task(s) have invalid visual start/finish ranges.`
-            : null;
-        const message = warningMessage ?? visualWarnings;
+        const message = this.getHeaderBannerWarningMessage();
 
         if (!message) {
             this.warningBanner
@@ -1661,6 +1714,8 @@ export class Visual implements IVisual {
 
         this.warningBanner
             .style("display", "inline-flex")
+            .style("top", `${this.getWarningBannerTop()}px`)
+            .style("bottom", "auto")
             .style("background-color", this.highContrastMode ? this.highContrastBackground : HEADER_DOCK_TOKENS.warningBg)
             .style("border-color", this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.warning)
             .style("color", this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.warningText)
@@ -4172,6 +4227,7 @@ export class Visual implements IVisual {
             }
 
             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+            this.applyHeaderHeight();
             this.updateDataQualityWarning();
 
             if (this.wbsEnableOverride !== null && this.settings?.wbsGrouping?.enableWbsGrouping) {
@@ -5649,6 +5705,8 @@ export class Visual implements IVisual {
             wbsManualExpansionOverride: this.wbsManualExpansionOverride,
 
             currentMode: (this.settings?.criticalPath?.calculationMode?.value as any)?.value || 'floatBased',
+            modeWarningMessage: this.getUnsafeCpmWarningMessage(),
+            showPathInfoChip: this.shouldShowPathInfoChip(),
             floatThreshold: this.floatThreshold,
             showNearCritical: this.showNearCritical,
             showExtraColumns: this.showExtraColumnsInternal,
@@ -10574,14 +10632,9 @@ export class Visual implements IVisual {
     private updatePathInfoLabel(viewportWidth?: number): void {
         if (!this.pathInfoLabel) return;
 
-        const showPathInfo = this.settings?.pathSelection?.showPathInfo?.value ?? true;
-        const multiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value ?? true;
-
-        const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'floatBased';
         const hasMultiplePaths = this.allDrivingChains.length > 1;
-        const hasAnyPaths = this.allDrivingChains.length > 0;
 
-        if (!showPathInfo || mode !== 'longestPath' || !this.isCpmSafe() || !hasAnyPaths || !multiPathEnabled) {
+        if (!this.shouldShowPathInfoChip()) {
             this.pathInfoLabel.style("display", "none");
             return;
         }
@@ -10594,13 +10647,20 @@ export class Visual implements IVisual {
 
         // Use provided viewportWidth, falling back to lastUpdateOptions or default
         const effectiveWidth = viewportWidth ?? this.lastUpdateOptions?.viewport?.width ?? 800;
-        const layoutMode = this.getLayoutMode(effectiveWidth);
-        const isCompact = layoutMode === 'narrow';
-        const isMedium = layoutMode === 'medium';
+        const maxChipWidth = this.getPathInfoChipMaxWidth(effectiveWidth);
+        const isTight = maxChipWidth <= 150;
+        const showTaskCount = maxChipWidth >= 170;
+        const showDuration = maxChipWidth >= 228;
+        const navButtonSize = isTight ? 18 : 20;
+        const navIconSize = isTight ? 10 : 12;
 
         this.pathInfoLabel
-            .style("padding", isCompact ? `0 ${UI_TOKENS.spacing.xs}px` : `0 ${UI_TOKENS.spacing.sm}px`)
-            .style("gap", isCompact ? `${UI_TOKENS.spacing.xs}px` : `${UI_TOKENS.spacing.sm}px`)
+            .style("padding", isTight ? `0 ${UI_TOKENS.spacing.xs}px` : `0 ${UI_TOKENS.spacing.sm}px`)
+            .style("gap", isTight ? `${UI_TOKENS.spacing.xs}px` : `${UI_TOKENS.spacing.sm}px`)
+            .style("max-width", `${maxChipWidth}px`)
+            .style("min-width", "0")
+            .style("overflow", "hidden")
+            .style("box-sizing", "border-box")
             .style("background-color", this.highContrastMode ? this.highContrastBackground : HEADER_DOCK_TOKENS.chipBg)
             .style("border", `1px solid ${this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.primary}`)
             .style("color", this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.chipText)
@@ -10617,7 +10677,6 @@ export class Visual implements IVisual {
         const totalPaths = this.allDrivingChains.length;
         const duration = currentChain.totalDuration.toFixed(1);
         const taskCount = currentChain.tasks.size;
-        const truncationMessage = this.drivingPathsTruncationMessage;
 
         const buttonOpacity = hasMultiplePaths ? "1" : "0.35";
         const buttonCursor = hasMultiplePaths ? "pointer" : "default";
@@ -10633,13 +10692,13 @@ export class Visual implements IVisual {
             .style("justify-content", "center")
             .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
             .style("user-select", "none")
-            .style("width", "22px")
-            .style("height", "22px")
+            .style("width", `${navButtonSize}px`)
+            .style("height", `${navButtonSize}px`)
             .attr("title", buttonTitle);
 
         const prevSvg = prevButton.append("svg")
-            .attr("width", "12")
-            .attr("height", "12")
+            .attr("width", `${navIconSize}`)
+            .attr("height", `${navIconSize}`)
             .attr("viewBox", "0 0 12 12");
 
         prevSvg.append("path")
@@ -10695,18 +10754,21 @@ export class Visual implements IVisual {
         const infoContainer = this.pathInfoLabel.append("div")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("gap", isCompact ? `${UI_TOKENS.spacing.xs}px` : `${UI_TOKENS.spacing.sm}px`)
-            .style("padding", isCompact ? "0 1px" : "0 4px")
-            .style("font-size", `${UI_TOKENS.fontSize.sm}px`);
+            .style("gap", isTight ? `${UI_TOKENS.spacing.xs}px` : `${UI_TOKENS.spacing.sm}px`)
+            .style("padding", isTight ? "0 1px" : "0 4px")
+            .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
+            .style("min-width", "0")
+            .style("overflow", "hidden")
+            .style("white-space", "nowrap");
 
         infoContainer.append("span")
             .style("font-weight", "700")
             .style("letter-spacing", "0.15px")
             .style("color", HEADER_DOCK_TOKENS.chipText)
-            .text(isCompact ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`)
+            .text(isTight ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`)
             .attr("aria-label", `Currently viewing path ${pathNumber} of ${totalPaths}`);
 
-        if (!isCompact) {
+        if (showTaskCount) {
             infoContainer.append("span")
                 .style("color", HEADER_DOCK_TOKENS.primary)
                 .style("font-weight", "600")
@@ -10719,7 +10781,7 @@ export class Visual implements IVisual {
                 .attr("aria-label", `${taskCount} tasks in this path`)
                 .text(`${taskCount} tasks`);
 
-            if (!isMedium) {
+            if (showDuration) {
                 infoContainer.append("span")
                     .style("color", HEADER_DOCK_TOKENS.primary)
                     .style("font-weight", "600")
@@ -10730,25 +10792,8 @@ export class Visual implements IVisual {
                     .style("font-weight", "500")
                     .style("color", HEADER_DOCK_TOKENS.chipText)
                     .attr("aria-label", `Total duration ${duration} days`)
-                    .text(`${duration} days`);
+                    .text(`${duration}d`);
             }
-        }
-
-        if (truncationMessage && !isCompact) {
-            infoContainer.append("span")
-                .style("color", HEADER_DOCK_TOKENS.primary)
-                .style("font-weight", "600")
-                .attr("aria-hidden", "true")
-                .text("|");
-
-            infoContainer.append("span")
-                .style("font-weight", "600")
-                .style("color", HEADER_DOCK_TOKENS.warningText)
-                .style("background-color", HEADER_DOCK_TOKENS.warningBg)
-                .style("border-radius", `${UI_TOKENS.radius.small}px`)
-                .style("padding", "1px 6px")
-                .attr("aria-label", truncationMessage)
-                .text(truncationMessage);
         }
 
         const nextButtonTitle = hasMultiplePaths ? "Next driving path" : "Only one driving path";
@@ -10762,13 +10807,13 @@ export class Visual implements IVisual {
             .style("justify-content", "center")
             .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
             .style("user-select", "none")
-            .style("width", "22px")
-            .style("height", "22px")
+            .style("width", `${navButtonSize}px`)
+            .style("height", `${navButtonSize}px`)
             .attr("title", nextButtonTitle);
 
         const nextSvg = nextButton.append("svg")
-            .attr("width", "12")
-            .attr("height", "12")
+            .attr("width", `${navIconSize}`)
+            .attr("height", `${navIconSize}`)
             .attr("viewBox", "0 0 12 12");
 
         nextSvg.append("path")
@@ -13959,7 +14004,7 @@ export class Visual implements IVisual {
             item.append("span")
                 .attr("class", "legend-label")
                 .style("font-size", `${itemFontSizePx}px`)
-                .style("white-space", "nowrap")
+                .style("white-space", "pre")
                 .style("color", labelColor)
                 .style("font-weight", String(isSelected ? UI_TOKENS.fontWeight.semibold : UI_TOKENS.fontWeight.medium))
                 .text(category);
@@ -15348,7 +15393,7 @@ export class Visual implements IVisual {
         const warningSection = createSection('🛡️', 'Warnings & Data Quality');
         addParagraph(warningSection, 'The visual can show warnings when some analysis results should be treated carefully.');
         const warningList = createList(warningSection);
-        addListItem(warningList, 'CPM Safety Warning', 'If the schedule relationships are not safe for CPM-style tracing, the warning banner explains that Longest Path analysis may be limited or disabled.');
+        addListItem(warningList, 'CPM Safety Warning', 'If the schedule relationships are not safe for CPM-style tracing, the LP / Float mode control shows a warning indicator and explains that Longest Path analysis is unavailable.');
         addListItem(warningList, 'Plotted Date Warning', 'The banner can also warn when some tasks have invalid visual start / finish ranges and cannot be plotted normally.');
         addListItem(warningList, 'What to Check', 'Review relationship data, start / finish dates, and float inputs if the schedule does not behave as expected.');
 

@@ -18,13 +18,21 @@ describe("VisualState helpers", () => {
         expect(restored).toEqual(["North, Region", "South"]);
     });
 
+    it("round-trips legend selections without trimming visible whitespace", () => {
+        const serialized = serializeLegendSelection([" <1Month", "Ready  "]);
+        const restored = parsePersistedLegendSelection(serialized);
+
+        expect(serialized).toBe('[" <1Month","Ready  "]');
+        expect(restored).toEqual([" <1Month", "Ready  "]);
+    });
+
     it("restores legacy comma-separated legend selections", () => {
         const restored = parsePersistedLegendSelection(" Alpha , Beta,Gamma ");
         expect(restored).toEqual(["Alpha", "Beta", "Gamma"]);
     });
 
-    it("normalizes legend categories by trimming and dropping blanks", () => {
-        expect(normalizeLegendCategory("  Ahead  ")).toBe("Ahead");
+    it("preserves legend category text while still dropping blank values", () => {
+        expect(normalizeLegendCategory("  Ahead  ")).toBe("  Ahead  ");
         expect(normalizeLegendCategory("   ")).toBeNull();
         expect(normalizeLegendCategory(null)).toBeNull();
     });

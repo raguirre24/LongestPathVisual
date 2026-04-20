@@ -7,8 +7,8 @@ export function normalizeLegendCategory(value: unknown): string | null {
         return null;
     }
 
-    const normalized = String(value).trim();
-    return normalized.length > 0 ? normalized : null;
+    const rawValue = String(value);
+    return rawValue.trim().length > 0 ? rawValue : null;
 }
 
 export function parsePersistedLegendSelection(value: string | null | undefined): string[] {
@@ -30,7 +30,10 @@ export function parsePersistedLegendSelection(value: string | null | undefined):
 
     return trimmed
         .split(",")
-        .map(entry => normalizeLegendCategory(entry))
+        .map(entry => {
+            const legacyValue = entry.trim();
+            return legacyValue.length > 0 ? legacyValue : null;
+        })
         .filter((entry): entry is string => entry !== null);
 }
 
