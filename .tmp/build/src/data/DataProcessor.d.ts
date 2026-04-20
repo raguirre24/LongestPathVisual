@@ -36,6 +36,8 @@ export declare class DataProcessor {
     private tooltipDebugLogged;
     constructor(host: IVisualHost);
     private debugLog;
+    private getRoleColumnInfos;
+    private getRoleColumnInfo;
     processData(dataView: DataView, settings: VisualSettings, wbsExpandedState: Map<string, boolean>, wbsManuallyToggledGroups: Set<string>, lastExpandCollapseAllState: boolean | null, highContrastMode: boolean, highContrastForeground: string): ProcessedData;
     private extractTaskId;
     private extractPredecessorId;
@@ -53,6 +55,10 @@ export declare class DataProcessor {
     private detectCircularDependencies;
     hasDataRole(dataView: DataView, roleName: string): boolean;
     getColumnIndex(dataView: DataView, roleName: string): number;
+    getRoleColumnLayout(dataView: DataView, roleName: string): {
+        indices: number[];
+        names: string[];
+    };
     validateDataView(dataView: DataView, settings: VisualSettings): boolean;
     parseDate(dateValue: PrimitiveValue): Date | null;
     mightBeDate(value: PrimitiveValue): boolean;

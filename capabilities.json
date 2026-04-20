@@ -1861,6 +1861,12 @@
                         "numeric": true
                     }
                 },
+                "sliderHandleSize": {
+                    "displayName": "Handle Size (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
                 "sliderTrackColor": {
                     "displayName": "Track Color",
                     "type": {

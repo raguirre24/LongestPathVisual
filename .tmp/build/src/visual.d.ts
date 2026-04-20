@@ -132,6 +132,9 @@ export declare class Visual implements IVisual {
     private marginResizer;
     private selectedTaskLabel;
     private pathInfoLabel;
+    private secondRowComparisonSummaryWidth;
+    private secondRowComparisonSummaryUsesRightLane;
+    private pendingComparisonFinishSummaryEntries;
     private warningBanner;
     private isDropdownInteracting;
     private traceMode;
@@ -168,6 +171,8 @@ export declare class Visual implements IVisual {
     private wbsDataExistsInMetadata;
     private wbsLevelColumnIndices;
     private wbsLevelColumnNames;
+    private lastWbsBindingSignature;
+    private rememberedWbsGroupingEnabled;
     private wbsGroups;
     private wbsGroupMap;
     private wbsRootGroups;
@@ -250,6 +255,12 @@ export declare class Visual implements IVisual {
     private getSecondRowLayout;
     private getSecondRowControlTop;
     private getEstimatedHeaderControlsBottom;
+    private shouldReserveComparisonFinishSummaryLane;
+    private isTraceModeToggleVisible;
+    private getSecondRowRightLaneBounds;
+    private getSecondRowLeftLaneBounds;
+    private getComparisonFinishSummaryBounds;
+    private updateSelectedTaskStatusLabel;
     private getMinimumRequiredHeaderHeight;
     private applyHeaderHeight;
     private pointsToCssPx;
@@ -279,6 +290,8 @@ export declare class Visual implements IVisual {
     private applyPublishModeOptimizations;
     private setupSVGRenderingHints;
     private getDataSignature;
+    private getWbsBindingSignature;
+    private resetWbsBindingState;
     private getVisualStart;
     private getVisualFinish;
     private getVisualMilestoneDate;
@@ -378,6 +391,7 @@ export declare class Visual implements IVisual {
      * Updates the zoom slider UI to reflect current zoom state
      */
     private updateZoomSliderUI;
+    private getZoomSliderHandleBorderWidth;
     /**
      * Called when zoom changes - triggers visual update with throttling
      */
@@ -799,6 +813,8 @@ export declare class Visual implements IVisual {
     private refreshAfterLegendSelectionChange;
     private clearLegendSelection;
     private toggleLegendCategory;
+    private getLegendTitleState;
+    private getLegendEffectiveFooterHeight;
     private getLegendRenderSignature;
     /**
      * Render the legend UI in sticky footer with horizontal scrolling

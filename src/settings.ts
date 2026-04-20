@@ -1096,12 +1096,13 @@ class TimelineZoomCard extends Card {
 
     enableZoomSlider = new ToggleSwitch({ name: "enableZoomSlider", displayName: "Enable Zoom Slider", value: true });
     sliderHeight = new NumUpDown({ name: "sliderHeight", displayName: "Slider Height (px)", value: 32, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 24 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 60 } } });
+    sliderHandleSize = new NumUpDown({ name: "sliderHandleSize", displayName: "Handle Size (px)", value: 24, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 14 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 40 } } });
     sliderTrackColor = new ColorPicker({ name: "sliderTrackColor", displayName: "Track Color", value: { value: "#E1DFDD" } });
     sliderSelectedColor = new ColorPicker({ name: "sliderSelectedColor", displayName: "Selected Range Color", value: { value: "#C8C6C4" } });
     sliderHandleColor = new ColorPicker({ name: "sliderHandleColor", displayName: "Handle Color", value: { value: "#605E5C" } });
     showMiniChart = new ToggleSwitch({ name: "showMiniChart", displayName: "Show Mini Preview", value: false });
 
-    slices: Slice[] = [this.enableZoomSlider, this.sliderHeight, this.showMiniChart, this.sliderTrackColor, this.sliderSelectedColor, this.sliderHandleColor];
+    slices: Slice[] = [this.enableZoomSlider, this.sliderHeight, this.sliderHandleSize, this.showMiniChart, this.sliderTrackColor, this.sliderSelectedColor, this.sliderHandleColor];
 }
 
 // ============================================================================

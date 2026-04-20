@@ -59,6 +59,79 @@ export class DataProcessor {
         }
     }
 
+    private getRoleColumnInfos(
+        dataView: DataView,
+        roleName: string
+    ): Array<{ column: { queryName?: string; displayName?: string; roles?: { [key: string]: boolean } }; index: number }> {
+        const tableColumns = dataView.table?.columns ?? [];
+        const metadataColumns = dataView.metadata?.columns ?? [];
+
+        if (tableColumns.length === 0 && metadataColumns.length === 0) {
+            return [];
+        }
+
+        // Power BI can push transient dataViews where role flags drift between
+        // metadata.columns and table.columns (e.g., after swapping a bound field).
+        // metadata.columns reflects the field well ordering (top-to-bottom),
+        // while table.columns reflects query order and may append newly-added
+        // fields regardless of their field-well position. Iterate metadata
+        // first for correct ordering, resolving each match to its position in
+        // table.columns so row access stays valid. Fall back to table-only
+        // matches for role-bound columns that metadata hasn't captured yet.
+        const queryNameToTableIndex = new Map<string, number>();
+        tableColumns.forEach((column, index) => {
+            const key = column.queryName;
+            if (key && !queryNameToTableIndex.has(key)) {
+                queryNameToTableIndex.set(key, index);
+            }
+        });
+
+        const seen = new Set<string>();
+        const results: Array<{ column: { queryName?: string; displayName?: string; roles?: { [key: string]: boolean } }; index: number }> = [];
+
+        metadataColumns.forEach((column, metadataIndex) => {
+            if (!column.roles?.[roleName]) return;
+            const queryName = column.queryName;
+            const dedupeKey = queryName ?? `${roleName}-meta-${metadataIndex}`;
+            if (seen.has(dedupeKey)) return;
+
+            if (queryName && queryNameToTableIndex.has(queryName)) {
+                // Column is present in table rows; use the table position so
+                // row[index] returns the correct cell.
+                const tableIndex = queryNameToTableIndex.get(queryName)!;
+                seen.add(dedupeKey);
+                results.push({ column: tableColumns[tableIndex], index: tableIndex });
+                return;
+            }
+
+            if (tableColumns.length === 0) {
+                // No table rows available yet; fall back to metadata index.
+                seen.add(dedupeKey);
+                results.push({ column, index: metadataIndex });
+            }
+            // Otherwise: role-bound in metadata but absent from table rows —
+            // stale entry, skip to avoid reading the wrong cell.
+        });
+
+        tableColumns.forEach((column, index) => {
+            if (!column.roles?.[roleName]) return;
+            const dedupeKey = column.queryName ?? `${roleName}-table-${index}`;
+            if (seen.has(dedupeKey)) return;
+            seen.add(dedupeKey);
+            results.push({ column, index });
+        });
+
+        return results;
+    }
+
+    private getRoleColumnInfo(
+        dataView: DataView,
+        roleName: string
+    ): { column: { queryName?: string; displayName?: string; roles?: { [key: string]: boolean } }; index: number } | null {
+        const matches = this.getRoleColumnInfos(dataView, roleName);
+        return matches.length > 0 ? matches[0] : null;
+    }
+
     public processData(
         dataView: DataView,
         settings: VisualSettings,
@@ -108,9 +181,9 @@ export class DataProcessor {
         // const columns = dataView.metadata.columns; // Unused variable
 
         // --- Metadata Extraction ---
-        const idIdx = this.getColumnIndex(dataView, "taskId");
-        if (idIdx !== -1) {
-            result.taskIdQueryName = dataView.metadata.columns[idIdx].queryName || null;
+        const idColumnInfo = this.getRoleColumnInfo(dataView, "taskId");
+        if (idColumnInfo) {
+            result.taskIdQueryName = idColumnInfo.column.queryName || null;
             const match = result.taskIdQueryName
                 ? result.taskIdQueryName.match(/([^\[]+)\[([^\]]+)\]/)
                 : null;
@@ -127,26 +200,9 @@ export class DataProcessor {
             return result;
         }
 
-        const wbsIndices: number[] = [];
-        const wbsNames: string[] = [];
-        dataView.metadata.columns.forEach((col, idx) => {
-            if (col.roles?.wbsLevels) {
-                wbsIndices.push(idx);
-                wbsNames.push(col.displayName);
-            }
-        });
-
-        // Fix: Sort by index to maintain level order (Level 1, Level 2, etc.)
-        // Assuming Power BI delivers them in order explicitly or we rely on queryName/index
-        // Often role-based columns might be out of order. 
-        // For SAFETY, if multiple columns have 'wbsLevels', we should probably sort them.
-        // Implementation in visual.ts used `this.wbsLevelColumnIndices` but logic for populating it was in `updateInternal` (lines 3037-3065 in outline).
-        // I will replicate a simple collection here.
-        // Replicating `updateInternal` logic for WBS columns:
-        // "for (let i = 0; i < dataView.table.columns.length; i++) ... if (column.roles && column.roles['wbsLevels']) ..."
-        // It seems visual.ts just pushed them.
-        result.wbsLevelColumnIndices = wbsIndices;
-        result.wbsLevelColumnNames = wbsNames;
+        const wbsColumnInfos = this.getRoleColumnInfos(dataView, "wbsLevels");
+        result.wbsLevelColumnIndices = wbsColumnInfos.map(info => info.index);
+        result.wbsLevelColumnNames = wbsColumnInfos.map((info, index) => info.column.displayName || `Level ${index + 1}`);
 
 
         const predIdIdx = this.getColumnIndex(dataView, "predecessorId");
@@ -570,7 +626,7 @@ export class DataProcessor {
     }
 
     private extractTooltipData(row: any[], dataView: DataView): Array<{ key: string, value: PrimitiveValue }> | undefined {
-        const columns = dataView.metadata?.columns;
+        const columns = dataView.table?.columns ?? dataView.metadata?.columns;
         if (!columns) return undefined;
 
         const tooltipColumns: Array<{ column: any, rowIndex: number }> = [];
@@ -646,19 +702,15 @@ export class DataProcessor {
         data.legendCategories = [];
         data.legendFieldName = "";
 
-        const columns = dataView.metadata?.columns;
-        if (!columns) return;
-
-        const legendColumn = columns.find(col => col.roles?.legend);
-        if (!legendColumn) {
+        const legendColumnInfo = this.getRoleColumnInfo(dataView, "legend");
+        if (!legendColumnInfo) {
             for (const task of data.allTasksData) {
                 task.legendColor = undefined;
             }
             return;
         }
 
-        data.legendFieldName = legendColumn.displayName || "Legend";
-        data.legendFieldName = legendColumn.displayName || "Legend";
+        data.legendFieldName = legendColumnInfo.column.displayName || "Legend";
         // data.legendDataExists = true; // Moved after checking categories
 
         const legendValueSet = new Set<string>();
@@ -1153,13 +1205,20 @@ export class DataProcessor {
     // --- Utilities ---
 
     public hasDataRole(dataView: DataView, roleName: string): boolean {
-        if (!dataView?.metadata?.columns) return false;
-        return dataView.metadata.columns.some(column => column.roles?.[roleName]);
+        return this.getRoleColumnInfos(dataView, roleName).length > 0;
     }
 
     public getColumnIndex(dataView: DataView, roleName: string): number {
-        if (!dataView?.metadata?.columns) return -1;
-        return dataView.metadata.columns.findIndex(column => column.roles?.[roleName]);
+        const columnInfo = this.getRoleColumnInfo(dataView, roleName);
+        return columnInfo ? columnInfo.index : -1;
+    }
+
+    public getRoleColumnLayout(dataView: DataView, roleName: string): { indices: number[]; names: string[] } {
+        const infos = this.getRoleColumnInfos(dataView, roleName);
+        return {
+            indices: infos.map(info => info.index),
+            names: infos.map((info, i) => info.column.displayName || `Level ${i + 1}`)
+        };
     }
 
     public validateDataView(dataView: DataView, settings: VisualSettings): boolean {

@@ -93,6 +93,30 @@ function buildDataView(columns: ColumnDef[], rows: any[][]): DataView {
     } as any;
 }
 
+function buildDataViewWithSeparateColumns(metadataColumns: ColumnDef[], tableColumns: ColumnDef[], rows: any[][]): DataView {
+    return {
+        metadata: {
+            columns: metadataColumns.map((col, idx) => ({
+                displayName: col.displayName,
+                queryName: col.queryName,
+                roles: col.roles,
+                type: col.type || {},
+                index: col.index ?? idx,
+            })),
+        },
+        table: {
+            columns: tableColumns.map((col, idx) => ({
+                displayName: col.displayName,
+                queryName: col.queryName,
+                roles: col.roles,
+                type: col.type || {},
+                index: col.index ?? idx,
+            })),
+            rows: rows,
+        },
+    } as any;
+}
+
 /** Minimal settings stub */
 function createMockSettings(): any {
     return {
@@ -368,6 +392,98 @@ describe('DataProcessor', () => {
 
             expect(result.wbsDataExists).toBe(true);
             expect(result.wbsGroups.length).toBeGreaterThan(0);
+        });
+
+        it('reads WBS columns from table column positions when metadata and table columns drift', () => {
+            const metadataColumns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'WBS L1', queryName: 'Table[WBS1]', roles: { wbsLevels: true } },
+                { displayName: 'WBS L2 (stale)', queryName: 'Table[WBS2_Old]', roles: { wbsLevels: true } },
+                { displayName: 'Legend', queryName: 'Table[Legend]', roles: { legend: true } },
+            ];
+
+            const tableColumns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'WBS L1', queryName: 'Table[WBS1]', roles: { wbsLevels: true } },
+                { displayName: 'Legend', queryName: 'Table[Legend]', roles: { legend: true } },
+                { displayName: 'WBS L2 (new)', queryName: 'Table[WBS2_New]', roles: { wbsLevels: true } },
+            ];
+
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'Phase 1', 'Zone A', 'Subphase X'],
+            ];
+
+            const dv = buildDataViewWithSeparateColumns(metadataColumns, tableColumns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.wbsLevelColumnNames).toEqual(['WBS L1', 'WBS L2 (new)']);
+            expect(result.allTasksData[0].wbsLevels).toEqual(['Phase 1', 'Subphase X']);
+            expect(result.legendCategories).toEqual(['Zone A']);
+        });
+
+        it('orders WBS levels by field-well position even when table.columns appends a newly-added field at the end', () => {
+            // User drags a new field (ProjectName) to the TOP of the WBS Levels
+            // well. metadata.columns reflects the field-well order, but Power BI
+            // appends the newly-added column at the tail of table.columns. The
+            // visual should still treat ProjectName as Level 1, not Level 4.
+            const metadataColumns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'ProjectName', queryName: 'Table[ProjectName]', roles: { wbsLevels: true } },
+                { displayName: 'Level_2', queryName: 'Table[Level2]', roles: { wbsLevels: true } },
+                { displayName: 'Level_3', queryName: 'Table[Level3]', roles: { wbsLevels: true } },
+                { displayName: 'Level_4', queryName: 'Table[Level4]', roles: { wbsLevels: true } },
+            ];
+
+            const tableColumns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'Level_2', queryName: 'Table[Level2]', roles: { wbsLevels: true } },
+                { displayName: 'Level_3', queryName: 'Table[Level3]', roles: { wbsLevels: true } },
+                { displayName: 'Level_4', queryName: 'Table[Level4]', roles: { wbsLevels: true } },
+                { displayName: 'ProjectName', queryName: 'Table[ProjectName]', roles: { wbsLevels: true } },
+            ];
+
+            // Row values follow table.columns order: Level_2, Level_3, Level_4, ProjectName
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'L2 value', 'L3 value', 'L4 value', 'Project X'],
+            ];
+
+            const dv = buildDataViewWithSeparateColumns(metadataColumns, tableColumns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.wbsLevelColumnNames).toEqual(['ProjectName', 'Level_2', 'Level_3', 'Level_4']);
+            expect(result.allTasksData[0].wbsLevels).toEqual(['Project X', 'L2 value', 'L3 value', 'L4 value']);
+        });
+
+        it('picks up a newly-bound WBS column when metadata reflects the change but table role flags are stale', () => {
+            // Simulates swapping one WBS field for another: metadata.columns has
+            // the new binding but table.columns still carries the stale role
+            // flags — the new column is present in table rows, just without
+            // roles.wbsLevels set. The union logic should still detect it.
+            const metadataColumns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'WBS A', queryName: 'Table[WBSA]', roles: { wbsLevels: true } },
+                { displayName: 'WBS B', queryName: 'Table[WBSB]', roles: { wbsLevels: true } },
+                { displayName: 'WBS C', queryName: 'Table[WBSC]', roles: { wbsLevels: true } },
+                { displayName: 'WBS E', queryName: 'Table[WBSE]', roles: { wbsLevels: true } },
+            ];
+
+            const tableColumns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'WBS A', queryName: 'Table[WBSA]', roles: { wbsLevels: true } },
+                { displayName: 'WBS B', queryName: 'Table[WBSB]', roles: { wbsLevels: true } },
+                { displayName: 'WBS C', queryName: 'Table[WBSC]', roles: { wbsLevels: true } },
+                { displayName: 'WBS E', queryName: 'Table[WBSE]', roles: {} },
+            ];
+
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'Phase 1', 'Sub 2', 'Sub 3', 'Sub 4'],
+            ];
+
+            const dv = buildDataViewWithSeparateColumns(metadataColumns, tableColumns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.wbsLevelColumnNames).toEqual(['WBS A', 'WBS B', 'WBS C', 'WBS E']);
+            expect(result.allTasksData[0].wbsLevels).toEqual(['Phase 1', 'Sub 2', 'Sub 3', 'Sub 4']);
         });
     });
 

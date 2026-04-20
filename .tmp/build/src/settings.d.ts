@@ -289,6 +289,7 @@ declare class TimelineZoomCard extends Card {
     displayName: string;
     enableZoomSlider: formattingSettings.ToggleSwitch;
     sliderHeight: formattingSettings.NumUpDown;
+    sliderHandleSize: formattingSettings.NumUpDown;
     sliderTrackColor: formattingSettings.ColorPicker;
     sliderSelectedColor: formattingSettings.ColorPicker;
     sliderHandleColor: formattingSettings.ColorPicker;

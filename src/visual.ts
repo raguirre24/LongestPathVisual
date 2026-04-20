@@ -44,6 +44,7 @@ import {
     sanitizeExportTextField,
     serializeLegendSelection
 } from "./utils/VisualState";
+import { buildDataSignature } from "./utils/DataSignature";
 
 type DrivingChain = {
     tasks: Set<string>;
@@ -197,7 +198,7 @@ export class Visual implements IVisual {
     private readonly WBS_LEVEL_ACCENT_WIDTH = 4;
     private readonly WBS_TOGGLE_BOX_SIZE = 18;
     private readonly WBS_TASK_LABEL_INSET = 30;
-    private legendFooterHeight = 72;
+    private legendFooterHeight = 52;
     private dateLabelOffset = 8;
     private floatTolerance = 0.001;
     private defaultMaxTasks = 500;
@@ -235,6 +236,24 @@ export class Visual implements IVisual {
     private marginResizer: Selection<HTMLDivElement, unknown, null, undefined>;
     private selectedTaskLabel: Selection<HTMLDivElement, unknown, null, undefined>;
     private pathInfoLabel: Selection<HTMLDivElement, unknown, null, undefined>;
+    private secondRowComparisonSummaryWidth: number = 0;
+    private secondRowComparisonSummaryUsesRightLane: boolean = false;
+    private pendingComparisonFinishSummaryEntries: Array<{
+        className: string;
+        targetDate: Date | null;
+        showLabel: boolean;
+        lineColor: string;
+        lineWidth: number;
+        lineStyle: string;
+        labelColor: string;
+        labelFontSize: number;
+        labelBackgroundColor: string;
+        labelBackgroundOpacity: number;
+        labelPosition?: string;
+        rowY: number;
+        labelText: string;
+        labelPriority?: number;
+    }> = [];
     private warningBanner: Selection<HTMLDivElement, unknown, null, undefined>;
     private isDropdownInteracting: boolean = false;
 
@@ -279,6 +298,8 @@ export class Visual implements IVisual {
     private wbsDataExistsInMetadata: boolean = false;
     private wbsLevelColumnIndices: number[] = [];
     private wbsLevelColumnNames: string[] = [];
+    private lastWbsBindingSignature: string = "";
+    private rememberedWbsGroupingEnabled: boolean | null = null;
     private wbsGroups: WBSGroup[] = [];
     private wbsGroupMap: Map<string, WBSGroup> = new Map();
     private wbsRootGroups: WBSGroup[] = [];
@@ -434,11 +455,159 @@ export class Visual implements IVisual {
     private getEstimatedHeaderControlsBottom(): number {
         let bottom = 10 + UI_TOKENS.height.compact;
 
-        if (this.settings?.pathSelection?.enableTaskSelection?.value) {
+        if (
+            this.settings?.pathSelection?.enableTaskSelection?.value ||
+            this.shouldReserveComparisonFinishSummaryLane()
+        ) {
             bottom = Math.max(bottom, this.SECOND_ROW_TOP + UI_TOKENS.height.compact);
         }
 
         return bottom;
+    }
+
+    private shouldReserveComparisonFinishSummaryLane(): boolean {
+        const projectSummaryVisible = !!(
+            this.settings?.projectEndLine?.show?.value &&
+            (this.settings?.projectEndLine?.showLabel?.value ?? true)
+        );
+        const baselineSummaryVisible = !!(
+            this.showBaselineInternal &&
+            this.settings?.baselineFinishLine?.show?.value &&
+            (this.settings?.baselineFinishLine?.showLabel?.value ?? true)
+        );
+        const previousSummaryVisible = !!(
+            this.showPreviousUpdateInternal &&
+            this.settings?.previousUpdateFinishLine?.show?.value &&
+            (this.settings?.previousUpdateFinishLine?.showLabel?.value ?? true)
+        );
+
+        return projectSummaryVisible || baselineSummaryVisible || previousSummaryVisible;
+    }
+
+    private isTraceModeToggleVisible(): boolean {
+        const enableTaskSelection = this.settings?.pathSelection?.enableTaskSelection?.value ?? false;
+        const criticalPathMode = this.settings?.criticalPath?.calculationMode?.value?.value ?? "floatBased";
+        const longestPathDisabled = criticalPathMode === "longestPath" && !this.isCpmSafe();
+
+        return enableTaskSelection && !!this.selectedTaskId && !longestPathDisabled;
+    }
+
+    private getSecondRowRightLaneBounds(viewportWidth: number): { left: number; width: number; top: number } {
+        const horizontalPadding = 10;
+        const top = this.getSecondRowControlTop(UI_TOKENS.height.compact);
+
+        if (!(this.settings?.pathSelection?.enableTaskSelection?.value ?? false)) {
+            return {
+                left: horizontalPadding,
+                width: Math.max(0, viewportWidth - horizontalPadding * 2),
+                top
+            };
+        }
+
+        const secondRowLayout = this.getSecondRowLayout(viewportWidth);
+        const dropdownRight = secondRowLayout.dropdown.left + secondRowLayout.dropdown.width;
+        const traceRight = secondRowLayout.traceModeToggle.left + secondRowLayout.traceModeToggle.width;
+        const contentLeft = (this.isTraceModeToggleVisible() ? traceRight : dropdownRight) + 12;
+
+        return {
+            left: Math.max(horizontalPadding, contentLeft),
+            width: Math.max(0, viewportWidth - horizontalPadding - Math.max(horizontalPadding, contentLeft)),
+            top
+        };
+    }
+
+    private getSecondRowLeftLaneBounds(viewportWidth: number): { left: number; width: number; top: number } {
+        const horizontalPadding = 10;
+        const top = this.getSecondRowControlTop(UI_TOKENS.height.compact);
+
+        if (!(this.settings?.pathSelection?.enableTaskSelection?.value ?? false)) {
+            return {
+                left: horizontalPadding,
+                width: Math.max(0, viewportWidth - horizontalPadding * 2),
+                top
+            };
+        }
+
+        const secondRowLayout = this.getSecondRowLayout(viewportWidth);
+        return {
+            left: horizontalPadding,
+            width: Math.max(0, secondRowLayout.dropdown.left - horizontalPadding - 12),
+            top
+        };
+    }
+
+    private getComparisonFinishSummaryBounds(viewportWidth: number): {
+        left: number;
+        width: number;
+        top: number;
+        align: "left" | "right";
+        usesRightLane: boolean;
+    } {
+        const rightLane = this.getSecondRowRightLaneBounds(viewportWidth);
+        const leftLane = this.getSecondRowLeftLaneBounds(viewportWidth);
+
+        if (!(this.settings?.pathSelection?.enableTaskSelection?.value ?? false)) {
+            return {
+                ...rightLane,
+                align: "left",
+                usesRightLane: false
+            };
+        }
+
+        if (rightLane.width >= 180 || rightLane.width >= leftLane.width) {
+            return {
+                ...rightLane,
+                align: "right",
+                usesRightLane: true
+            };
+        }
+
+        return {
+            ...leftLane,
+            align: "left",
+            usesRightLane: false
+        };
+    }
+
+    private updateSelectedTaskStatusLabel(viewportWidth?: number): void {
+        if (!this.selectedTaskLabel) {
+            return;
+        }
+
+        const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
+        const shouldShow = !!(
+            this.selectedTaskId &&
+            this.selectedTaskName &&
+            this.settings?.pathSelection?.showSelectedTaskLabel?.value
+        );
+
+        if (!shouldShow) {
+            this.selectedTaskLabel.style("display", "none");
+            return;
+        }
+
+        const effectiveWidth = viewportWidth ?? this.lastUpdateOptions?.viewport?.width ?? this.target?.clientWidth ?? 800;
+        const rightLane = this.getSecondRowRightLaneBounds(effectiveWidth);
+        const reservedWidth = this.secondRowComparisonSummaryUsesRightLane && this.secondRowComparisonSummaryWidth > 0
+            ? this.secondRowComparisonSummaryWidth + 8
+            : 0;
+        const labelWidth = Math.max(0, rightLane.width - reservedWidth);
+
+        this.selectedTaskLabel
+            .style("position", "absolute")
+            .style("top", `${rightLane.top}px`)
+            .style("left", `${rightLane.left}px`)
+            .style("right", "auto")
+            .style("width", `${labelWidth}px`)
+            .style("max-width", `${labelWidth}px`);
+
+        if (labelWidth >= 96) {
+            this.selectedTaskLabel
+                .style("display", "inline-flex")
+                .text(`${selectedLabelPrefix}: ${this.selectedTaskName}`);
+        } else {
+            this.selectedTaskLabel.style("display", "none");
+        }
     }
 
     private getMinimumRequiredHeaderHeight(): number {
@@ -1077,8 +1246,8 @@ export class Visual implements IVisual {
         this.legendContainer = this.visualWrapper.append("div")
             .attr("class", "sticky-legend-footer")
             .style("width", "100%")
-            .style("height", `${this.legendFooterHeight}px`)
-            .style("min-height", `${this.legendFooterHeight}px`)
+            .style("height", `${this.getLegendEffectiveFooterHeight()}px`)
+            .style("min-height", `${this.getLegendEffectiveFooterHeight()}px`)
             .style("flex-shrink", "0")
             .style("z-index", "100")
             .style("background-color", HEADER_DOCK_TOKENS.shell)
@@ -1373,11 +1542,24 @@ export class Visual implements IVisual {
     }
 
     private getDataSignature(dataView: DataView): string {
-        const rowCount = dataView.table?.rows?.length ?? 0;
-        const columnKey = dataView.metadata?.columns
-            ? dataView.metadata.columns.map(col => col.queryName || col.displayName || "").join("|")
-            : "";
-        return `${rowCount}|${columnKey}`;
+        return buildDataSignature(dataView);
+    }
+
+    private getWbsBindingSignature(dataView: DataView): string {
+        const columns = dataView.table?.columns ?? dataView.metadata?.columns ?? [];
+
+        return columns
+            .filter(column => column.roles?.wbsLevels)
+            .map((column, index) => `${column.queryName ?? column.displayName ?? `wbs-${index}`}`)
+            .join("|");
+    }
+
+    private resetWbsBindingState(): void {
+        this.wbsExpandedState.clear();
+        this.wbsManuallyToggledGroups.clear();
+        this.wbsManualExpansionOverride = false;
+        this.wbsExpandToLevel = undefined;
+        this.wbsToggleScrollAnchor = null;
     }
 
     private getVisualStart(task: Task): Date | null {
@@ -1884,6 +2066,7 @@ export class Visual implements IVisual {
             const newEnabled = !this.settings.wbsGrouping.enableWbsGrouping.value;
             this.settings.wbsGrouping.enableWbsGrouping.value = newEnabled;
             this.wbsEnableOverride = newEnabled;
+            this.rememberedWbsGroupingEnabled = newEnabled;
             this.lastWbsToggleTimestamp = Date.now();
             this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
 
@@ -2142,6 +2325,8 @@ export class Visual implements IVisual {
      */
     private createZoomSliderUI(visualWrapper: Selection<HTMLDivElement, unknown, null, undefined>): void {
         const sliderHeight = 32;
+        const handleSize = 24;
+        const handleBorderWidth = 3;
 
         this.zoomSliderContainer = visualWrapper.append("div")
             .attr("class", "timeline-zoom-slider-container")
@@ -2153,7 +2338,7 @@ export class Visual implements IVisual {
             .style("background-color", "#FFFFFF")
             .style("border-top", "1px solid #EDEBE9")
             .style("display", "none")
-            .style("z-index", "50")
+            .style("z-index", "90")
             .style("flex-shrink", "0")
             .style("user-select", "none");
 
@@ -2204,10 +2389,10 @@ export class Visual implements IVisual {
             .style("left", "0")
             .style("top", "50%")
             .style("transform", "translate(-50%, -50%)")
-            .style("width", "24px")
-            .style("height", "24px")
+            .style("width", `${handleSize}px`)
+            .style("height", `${handleSize}px`)
             .style("background-color", "#605E5C")
-            .style("border", "3px solid #FFFFFF")
+            .style("border", `${handleBorderWidth}px solid #FFFFFF`)
             .style("border-radius", "50%")
             .style("cursor", "ew-resize")
             .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
@@ -2222,10 +2407,10 @@ export class Visual implements IVisual {
             .style("right", "0")
             .style("top", "50%")
             .style("transform", "translate(50%, -50%)")
-            .style("width", "24px")
-            .style("height", "24px")
+            .style("width", `${handleSize}px`)
+            .style("height", `${handleSize}px`)
             .style("background-color", "#605E5C")
-            .style("border", "3px solid #FFFFFF")
+            .style("border", `${handleBorderWidth}px solid #FFFFFF`)
             .style("border-radius", "50%")
             .style("cursor", "ew-resize")
             .style("box-shadow", "0 1px 3px rgba(0,0,0,0.2)")
@@ -2667,6 +2852,10 @@ export class Visual implements IVisual {
             .attr("aria-valuetext", rangeValueText);
     }
 
+    private getZoomSliderHandleBorderWidth(handleSize: number): number {
+        return Math.max(2, Math.min(4, Math.round(handleSize / 8)));
+    }
+
     /**
      * Called when zoom changes - triggers visual update with throttling
      */
@@ -2693,7 +2882,10 @@ export class Visual implements IVisual {
         if (!this.zoomSliderContainer) return;
 
         const isEnabled = this.settings?.timelineZoom?.enableZoomSlider?.value ?? true;
-        const sliderHeight = this.settings?.timelineZoom?.sliderHeight?.value ?? 32;
+        const requestedSliderHeight = this.settings?.timelineZoom?.sliderHeight?.value ?? 32;
+        const handleSize = this.settings?.timelineZoom?.sliderHandleSize?.value ?? 24;
+        const handleBorderWidth = this.getZoomSliderHandleBorderWidth(handleSize);
+        const sliderHeight = Math.max(requestedSliderHeight, handleSize + 6);
         const trackColor = this.settings?.timelineZoom?.sliderTrackColor?.value?.value ?? "#E1DFDD";
         const selectedColor = this.settings?.timelineZoom?.sliderSelectedColor?.value?.value ?? "#C8C6C4";
         const handleColor = this.settings?.timelineZoom?.sliderHandleColor?.value?.value ?? "#605E5C";
@@ -2718,12 +2910,18 @@ export class Visual implements IVisual {
         if (this.zoomSliderLeftHandle) {
             this.zoomSliderLeftHandle
                 .style("background-color", handleColor)
+                .style("width", `${handleSize}px`)
+                .style("height", `${handleSize}px`)
+                .style("border-width", `${handleBorderWidth}px`)
                 .attr("aria-disabled", isEnabled ? "false" : "true");
         }
 
         if (this.zoomSliderRightHandle) {
             this.zoomSliderRightHandle
                 .style("background-color", handleColor)
+                .style("width", `${handleSize}px`)
+                .style("height", `${handleSize}px`)
+                .style("border-width", `${handleBorderWidth}px`)
                 .attr("aria-disabled", isEnabled ? "false" : "true");
         }
 
@@ -3723,6 +3921,11 @@ export class Visual implements IVisual {
                 ? viewport.height
                 : Math.max(viewport.height, this.target?.clientHeight ?? viewport.height);
             const dataSignature = this.getDataSignature(dataView);
+            const hadWbsInPreviousUpdate = this.wbsDataExistsInMetadata || this.wbsDataExists;
+            const previousWbsEnabled = this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+            if (hadWbsInPreviousUpdate && previousWbsEnabled !== undefined && previousWbsEnabled !== null) {
+                this.rememberedWbsGroupingEnabled = previousWbsEnabled;
+            }
             const dataChanged = (options.type & VisualUpdateType.Data) !== 0 ||
                 this.lastDataSignature !== dataSignature;
 
@@ -3735,19 +3938,36 @@ export class Visual implements IVisual {
             this.wbsLevelColumnIndices = [];
             this.wbsLevelColumnNames = [];
             this.wbsDataExistsInMetadata = this.dataProcessor.hasDataRole(dataView, 'wbsLevels');
+            const wbsBindingSignature = this.getWbsBindingSignature(dataView);
+            const wbsBindingChanged = wbsBindingSignature !== this.lastWbsBindingSignature;
 
-            if (this.wbsDataExistsInMetadata && dataView.table?.columns) {
+            if (wbsBindingChanged) {
+                this.debugLog("WBS binding change detected; resetting WBS expand state.", {
+                    previous: this.lastWbsBindingSignature,
+                    current: wbsBindingSignature
+                });
+                this.resetWbsBindingState();
+                this.lastWbsBindingSignature = wbsBindingSignature;
+            }
 
-                for (let i = 0; i < dataView.table.columns.length; i++) {
-                    const column = dataView.table.columns[i];
-                    if (column.roles && column.roles['wbsLevels']) {
-                        this.wbsLevelColumnIndices.push(i);
-                        this.wbsLevelColumnNames.push(column.displayName || `Level ${this.wbsLevelColumnIndices.length}`);
-                    }
-                }
+            if (this.wbsDataExistsInMetadata) {
+                const layout = this.dataProcessor.getRoleColumnLayout(dataView, 'wbsLevels');
+                this.wbsLevelColumnIndices = layout.indices;
+                this.wbsLevelColumnNames = layout.names;
             }
 
             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+
+            if (this.settings?.wbsGrouping?.enableWbsGrouping) {
+                if (this.wbsEnableOverride !== null) {
+                    this.settings.wbsGrouping.enableWbsGrouping.value = this.wbsEnableOverride;
+                    this.rememberedWbsGroupingEnabled = this.wbsEnableOverride;
+                } else if (this.wbsDataExistsInMetadata && !hadWbsInPreviousUpdate && this.rememberedWbsGroupingEnabled !== null) {
+                    this.settings.wbsGrouping.enableWbsGrouping.value = this.rememberedWbsGroupingEnabled;
+                } else if (this.wbsDataExistsInMetadata) {
+                    this.rememberedWbsGroupingEnabled = this.settings.wbsGrouping.enableWbsGrouping.value;
+                }
+            }
 
             if (this.settings?.comparisonBars?.showBaseline !== undefined) {
                 this.showBaselineInternal = this.settings.comparisonBars.showBaseline.value;
@@ -3984,15 +4204,7 @@ export class Visual implements IVisual {
                 }
             }
 
-            if (this.selectedTaskLabel) {
-                if (this.selectedTaskId && this.selectedTaskName && this.settings.pathSelection.showSelectedTaskLabel.value) {
-                    this.selectedTaskLabel
-                        .style("display", "inline-flex")
-                        .text(`${this.getLocalizedString("ui.selectedLabel", "Selected")}: ${this.selectedTaskName}`);
-                } else {
-                    this.selectedTaskLabel.style("display", "none");
-                }
-            }
+            this.updateSelectedTaskStatusLabel(viewportWidth);
 
             if (this.dropdownList && this.dropdownList.style("display") !== "none") {
                 this.populateTaskDropdown();
@@ -4243,7 +4455,7 @@ export class Visual implements IVisual {
             this.createMarginResizer();
 
             const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
-            const legendOffset = legendVisible ? this.legendFooterHeight : 0;
+            const legendOffset = legendVisible ? this.getLegendEffectiveFooterHeight(viewportWidth) : 0;
             const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
 
             this.scrollableContainer
@@ -4375,7 +4587,7 @@ export class Visual implements IVisual {
 
         const chartWidth = Math.max(10, viewportWidth - this.getEffectiveLeftMargin() - this.margin.right);
         const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
-        const legendOffset = legendVisible ? this.legendFooterHeight : 0;
+        const legendOffset = legendVisible ? this.getLegendEffectiveFooterHeight(viewportWidth) : 0;
         const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
         const totalSvgHeight = this.taskTotalCount * this.taskElementHeight +
             this.margin.top + this.margin.bottom;
@@ -4538,15 +4750,7 @@ export class Visual implements IVisual {
             }
         }
 
-        if (this.selectedTaskLabel) {
-            if (this.selectedTaskId && this.selectedTaskName && this.settings.pathSelection.showSelectedTaskLabel.value) {
-                this.selectedTaskLabel
-                    .style("display", "inline-flex")
-                    .text(`${this.getLocalizedString("ui.selectedLabel", "Selected")}: ${this.selectedTaskName}`);
-            } else {
-                this.selectedTaskLabel.style("display", "none");
-            }
-        }
+        this.updateSelectedTaskStatusLabel(options.viewport.width);
 
         if (this.dropdownList && this.dropdownList.style("display") !== "none") {
             this.populateTaskDropdown();
@@ -4983,6 +5187,10 @@ export class Visual implements IVisual {
         this.wbsGroupLayer?.selectAll("*").remove();
 
         this.headerGridLayer?.selectAll("*").remove();
+        this.headerSvg?.selectAll(".comparison-finish-key-group, .comparison-finish-key-layer").remove();
+        this.secondRowComparisonSummaryWidth = 0;
+        this.secondRowComparisonSummaryUsesRightLane = false;
+        this.pendingComparisonFinishSummaryEntries = [];
 
         /* Stop removing persistent header elements. They will be updated in place.
         this.headerSvg?.selectAll(".divider-line").remove();
@@ -7525,7 +7733,7 @@ export class Visual implements IVisual {
         const edgePadding = this.HEADER_LINE_LABEL_EDGE_PADDING;
         const gap = this.HEADER_LINE_LABEL_GAP;
         const labelGroups = Array.from(headerLayer.selectAll<SVGGElement, unknown>(
-            ".data-date-label-group, .previous-update-end-label-group, .baseline-end-label-group, .project-end-label-group, .comparison-finish-key-group"
+            ".data-date-label-group, .previous-update-end-label-group, .baseline-end-label-group, .project-end-label-group"
         ).nodes());
 
         if (labelGroups.length === 0) {
@@ -9241,7 +9449,7 @@ export class Visual implements IVisual {
             lineColor,
             lineWidth,
             lineStyle,
-            showLabel,
+            showLabel: false,
             labelColor,
             labelFontSize,
             labelBackgroundColor,
@@ -9255,6 +9463,31 @@ export class Visual implements IVisual {
             mainGridLayer,
             headerLayer
         });
+
+        const comparisonSummaryEntries = [
+            ...this.pendingComparisonFinishSummaryEntries,
+            {
+                className: "project-end",
+                targetDate: latestFinishDate,
+                showLabel,
+                lineColor,
+                lineWidth,
+                lineStyle,
+                labelColor,
+                labelFontSize,
+                labelBackgroundColor,
+                labelBackgroundOpacity,
+                labelPosition: settings.labelPosition?.value?.value as string,
+                rowY: headerBandMetrics.bottomLabelY,
+                labelText: latestFinishDate
+                    ? (showLabelPrefix ? `Finish: ${this.formatLineDate(latestFinishDate)}` : this.formatLineDate(latestFinishDate))
+                    : "",
+                labelPriority: 5
+            }
+        ];
+
+        this.drawComparisonFinishKey(headerLayer, chartWidth, comparisonSummaryEntries);
+        this.pendingComparisonFinishSummaryEntries = [];
     }
 
     private drawDataDateLine(
@@ -9379,7 +9612,7 @@ export class Visual implements IVisual {
         headerLayer: Selection<SVGGElement, unknown, null, undefined>
     ): void {
         if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
-        headerLayer.selectAll(".comparison-finish-key-group").remove();
+        this.headerSvg?.selectAll(".comparison-finish-key-group").remove();
 
         // Use the new separate baselineFinishLine card
         const baselineSettings = this.settings.baselineFinishLine;
@@ -9464,8 +9697,7 @@ export class Visual implements IVisual {
             headerLayer
         });
 
-        const chartWidth = Math.max(0, xScale.range()?.[1] ?? 0);
-        this.drawComparisonFinishKey(headerLayer, chartWidth, [
+        this.pendingComparisonFinishSummaryEntries = [
             {
                 className: "previous-update-end",
                 targetDate: prevTargetDate,
@@ -9480,7 +9712,7 @@ export class Visual implements IVisual {
                 labelPosition: prevSettings.labelPosition?.value?.value as string,
                 rowY: headerBandMetrics.topLabelY,
                 labelText: prevTargetDate
-                    ? (prevShowLabelPrefix ? `Previous ${this.formatLineDate(prevTargetDate)}` : this.formatLineDate(prevTargetDate))
+                    ? (prevShowLabelPrefix ? `Previous: ${this.formatLineDate(prevTargetDate)}` : this.formatLineDate(prevTargetDate))
                     : "",
                 labelPriority: 5
             },
@@ -9498,11 +9730,11 @@ export class Visual implements IVisual {
                 labelPosition: baselineSettings.labelPosition?.value?.value as string,
                 rowY: headerBandMetrics.middleLabelY,
                 labelText: baselineTargetDate
-                    ? (baselineShowLabelPrefix ? `Baseline ${this.formatLineDate(baselineTargetDate)}` : this.formatLineDate(baselineTargetDate))
+                    ? (baselineShowLabelPrefix ? `Baseline: ${this.formatLineDate(baselineTargetDate)}` : this.formatLineDate(baselineTargetDate))
                     : "",
                 labelPriority: 5
             }
-        ]);
+        ];
     }
 
     private drawComparisonFinishKey(
@@ -9525,7 +9757,7 @@ export class Visual implements IVisual {
             labelPriority?: number;
         }>
     ): void {
-        if (!headerLayer?.node() || chartWidth <= 0) {
+        if (!headerLayer?.node() || !this.headerSvg?.node() || chartWidth <= 0) {
             return;
         }
 
@@ -9537,104 +9769,120 @@ export class Visual implements IVisual {
         );
 
         if (visibleEntries.length === 0) {
+            this.secondRowComparisonSummaryWidth = 0;
+            this.secondRowComparisonSummaryUsesRightLane = false;
+            this.updateSelectedTaskStatusLabel();
             return;
         }
 
-        const bySide = {
-            left: visibleEntries.filter(entry => entry.labelPosition === "left"),
-            right: visibleEntries.filter(entry => entry.labelPosition !== "left")
-        };
+        const viewportWidth = Math.max(
+            1,
+            this.snapRectCoord(parseFloat(this.headerSvg?.attr("width") || "0") || this.lastUpdateOptions?.viewport?.width || this.target?.clientWidth || 0)
+        );
+        const summaryBounds = this.getComparisonFinishSummaryBounds(viewportWidth);
 
-        (["left", "right"] as const).forEach(side => {
-            const sideEntries = [...bySide[side]].sort((a, b) => a.rowY - b.rowY);
-            if (sideEntries.length === 0) {
+        if (summaryBounds.width <= 0) {
+            this.secondRowComparisonSummaryWidth = 0;
+            this.secondRowComparisonSummaryUsesRightLane = false;
+            this.updateSelectedTaskStatusLabel(viewportWidth);
+            return;
+        }
+
+        let summaryLayer = this.headerSvg.select<SVGGElement>(".comparison-finish-key-layer");
+        if (summaryLayer.empty()) {
+            summaryLayer = this.headerSvg.append("g")
+                .attr("class", "comparison-finish-key-layer")
+                .style("pointer-events", "none");
+        }
+
+        const keyGroup = summaryLayer.append("g")
+            .attr("class", `comparison-finish-key-group comparison-finish-key-group-${summaryBounds.align}`)
+            .attr("data-label-priority", String(Math.min(...visibleEntries.map(entry => entry.labelPriority ?? 5))))
+            .style("pointer-events", "none");
+
+        const compactSummary = summaryBounds.width < 240;
+        const chipPaddingX = compactSummary ? 4 : 5;
+        const chipPaddingY = compactSummary ? 2 : 3;
+        const chipGap = compactSummary ? 5 : 6;
+        const minTextWidth = compactSummary ? 16 : 24;
+        const availableTextWidth = Math.max(
+            minTextWidth,
+            Math.floor(
+                (
+                    summaryBounds.width -
+                    (chipGap * Math.max(0, visibleEntries.length - 1)) -
+                    (visibleEntries.length * (chipPaddingX * 2))
+                ) / visibleEntries.length
+            )
+        );
+
+        let cursorX = 0;
+        visibleEntries.forEach(entry => {
+            const chipGroup = keyGroup.append("g")
+                .attr("class", `comparison-finish-key-chip ${entry.className}-summary-chip`)
+                .attr("transform", `translate(${Math.round(cursorX)}, 0)`);
+
+            const text = chipGroup.append("text")
+                .attr("class", `${entry.className}-summary-label`)
+                .attr("x", this.snapTextCoord(chipPaddingX))
+                .attr("y", 0)
+                .attr("text-anchor", "start")
+                .attr("dominant-baseline", "central")
+                .style("font-family", this.getFontFamily())
+                .style("fill", entry.labelColor)
+                .style("font-size", this.fontPxFromPtSetting(entry.labelFontSize))
+                .style("font-weight", "600");
+
+            const fittedText = this.fitSvgTextToWidth(
+                text as Selection<SVGTextElement, unknown, null, undefined>,
+                entry.labelText,
+                availableTextWidth
+            );
+            text.text(fittedText);
+
+            const textBBox = (text.node() as SVGTextElement)?.getBBox();
+            if (!textBBox) {
                 return;
             }
 
-            const keyGroup = headerLayer.append("g")
-                .attr("class", `comparison-finish-key-group comparison-finish-key-group-${side}`)
-                .attr("data-label-priority", String(Math.min(...sideEntries.map(entry => entry.labelPriority ?? 5))))
-                .style("pointer-events", "none");
+            const chipHeight = Math.max(
+                this.HEADER_LINE_LABEL_MIN_HEIGHT + 2,
+                this.snapRectCoord(textBBox.height + chipPaddingY * 2)
+            );
+            const chipWidth = Math.max(
+                1,
+                this.snapRectCoord(textBBox.width + chipPaddingX * 2)
+            );
 
-            const sampleWidth = 16;
-            const sampleGap = 6;
-            const chipPaddingX = 6;
-            const chipPaddingY = 4;
-            const rowGap = 4;
-            let stackOffsetY = 0;
-            const rowMetrics: Array<{
-                rowGroup: Selection<SVGGElement, unknown, null, undefined>;
-                text: Selection<SVGTextElement, unknown, null, undefined>;
-                rect: Selection<SVGRectElement, unknown, null, undefined>;
-                chipHeight: number;
-            }> = [];
-            let maxTextWidth = 0;
+            chipGroup.insert("rect", `.${entry.className}-summary-label`)
+                .attr("x", 0)
+                .attr("y", this.snapRectCoord(-chipHeight / 2))
+                .attr("width", chipWidth)
+                .attr("height", chipHeight)
+                .attr("rx", 5)
+                .attr("ry", 5)
+                .style("fill", entry.labelBackgroundOpacity > 0 ? entry.labelBackgroundColor : HEADER_DOCK_TOKENS.chipBg)
+                .style("fill-opacity", entry.labelBackgroundOpacity > 0 ? entry.labelBackgroundOpacity : 1)
+                .style("stroke", this.highContrastMode ? this.highContrastForeground : entry.lineColor)
+                .style("stroke-width", "1");
 
-            sideEntries.forEach(entry => {
-                const rowGroup = keyGroup.append("g")
-                    .attr("class", `comparison-finish-key-row ${entry.className}-summary-row`);
-
-                rowGroup.append("line")
-                    .attr("x1", -(sampleWidth + sampleGap))
-                    .attr("x2", -sampleGap)
-                    .attr("y1", this.snapLineCoord(0, entry.lineWidth))
-                    .attr("y2", this.snapLineCoord(0, entry.lineWidth))
-                    .attr("stroke", entry.lineColor)
-                    .attr("stroke-width", entry.lineWidth)
-                    .attr("stroke-dasharray", this.getLineDashArray(entry.lineStyle))
-                    .attr("stroke-linecap", "round");
-
-                const text = rowGroup.append("text")
-                    .attr("class", `${entry.className}-summary-label`)
-                    .attr("x", chipPaddingX)
-                    .attr("y", 0)
-                    .attr("text-anchor", "start")
-                    .attr("dominant-baseline", "central")
-                    .style("font-family", this.getFontFamily())
-                    .style("fill", entry.labelColor)
-                    .style("font-size", this.fontPxFromPtSetting(entry.labelFontSize))
-                    .style("font-weight", "600")
-                    .text(entry.labelText);
-
-                const textBBox = (text.node() as SVGTextElement)?.getBBox();
-                if (textBBox) {
-                    const chipHeight = Math.max(
-                        this.HEADER_LINE_LABEL_MIN_HEIGHT + 2,
-                        this.snapRectCoord(textBBox.height + chipPaddingY * 2)
-                    );
-                    maxTextWidth = Math.max(maxTextWidth, textBBox.width);
-
-                    const rect = rowGroup.insert("rect", `.${entry.className}-summary-label`)
-                        .attr("x", 0)
-                        .attr("y", this.snapRectCoord(-chipHeight / 2))
-                        .attr("width", this.snapRectCoord(textBBox.width + chipPaddingX * 2))
-                        .attr("height", chipHeight)
-                        .attr("rx", 5)
-                        .attr("ry", 5)
-                        .style("fill", entry.labelBackgroundOpacity > 0 ? entry.labelBackgroundColor : "transparent")
-                        .style("fill-opacity", entry.labelBackgroundOpacity > 0 ? entry.labelBackgroundOpacity : 1);
-
-                    rowMetrics.push({ rowGroup, text, rect, chipHeight });
-                }
-            });
-
-            rowMetrics.forEach(metric => {
-                const sharedChipWidth = this.snapRectCoord(maxTextWidth + chipPaddingX * 2);
-                metric.text.attr("x", this.snapTextCoord(chipPaddingX));
-                metric.rect
-                    .attr("width", sharedChipWidth);
-                metric.rowGroup.attr("transform", `translate(0, ${Math.round(stackOffsetY + metric.chipHeight / 2)})`);
-                stackOffsetY += metric.chipHeight + rowGap;
-            });
-
-            const bbox = (keyGroup.node() as SVGGElement).getBBox();
-            const targetY = Math.max(4, Math.min(...sideEntries.map(entry => entry.rowY)) - 5);
-            const targetX = side === "right"
-                ? Math.max(this.HEADER_LINE_LABEL_EDGE_PADDING, chartWidth - this.HEADER_LINE_LABEL_EDGE_PADDING - bbox.width - bbox.x)
-                : Math.max(this.HEADER_LINE_LABEL_EDGE_PADDING - bbox.x, this.HEADER_LINE_LABEL_EDGE_PADDING);
-
-            keyGroup.attr("transform", `translate(${Math.round(targetX)}, ${Math.round(targetY - bbox.y)})`);
+            cursorX += chipWidth + chipGap;
         });
+
+        const bbox = (keyGroup.node() as SVGGElement).getBBox();
+        const centerY = summaryBounds.top + (UI_TOKENS.height.compact / 2);
+        const targetLeft = summaryBounds.align === "right"
+            ? summaryBounds.left + Math.max(0, summaryBounds.width - bbox.width)
+            : summaryBounds.left;
+
+        keyGroup.attr(
+            "transform",
+            `translate(${Math.round(targetLeft - bbox.x)}, ${Math.round(centerY - (bbox.y + (bbox.height / 2)))})`
+        );
+
+        this.secondRowComparisonSummaryWidth = Math.ceil(bbox.width);
+        this.secondRowComparisonSummaryUsesRightLane = summaryBounds.usesRightLane;
+        this.updateSelectedTaskStatusLabel(viewportWidth);
     }
 
     /**
@@ -12438,13 +12686,11 @@ export class Visual implements IVisual {
         const secondRowLayout = this.getSecondRowLayout(viewportWidth);
         const dropdownWidth = secondRowLayout.dropdown.width;
         const secondRowControlTop = this.getSecondRowControlTop(UI_TOKENS.height.compact);
-        const showSelectedTaskLabel = this.settings.pathSelection.showSelectedTaskLabel.value;
         const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
-        const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
 
         this.dropdownContainer.style("display", enableTaskSelection ? "block" : "none");
         if (!enableTaskSelection) {
-            this.selectedTaskLabel.style("display", "none");
+            this.updateSelectedTaskStatusLabel(viewportWidth);
             return;
         }
 
@@ -12633,23 +12879,7 @@ export class Visual implements IVisual {
             this.dropdownInput.property("value", this.selectedTaskName);
         }
 
-        if (this.selectedTaskLabel) {
-            this.selectedTaskLabel
-                .style("position", "absolute")
-                .style("top", `${secondRowControlTop}px`)
-                .style("left", `${secondRowLayout.statusLabel.left}px`)
-                .style("right", "auto")
-                .style("width", `${secondRowLayout.statusLabel.width}px`)
-                .style("max-width", `${secondRowLayout.statusLabel.width}px`);
-
-            if (this.selectedTaskId && this.selectedTaskName && showSelectedTaskLabel && secondRowLayout.statusLabel.width >= 96) {
-                this.selectedTaskLabel
-                    .style("display", "inline-flex")
-                    .text(`${selectedLabelPrefix}: ${this.selectedTaskName}`);
-            } else {
-                this.selectedTaskLabel.style("display", "none");
-            }
-        }
+        this.updateSelectedTaskStatusLabel(viewportWidth);
     }
 
     private normalizeTraceMode(value: unknown): "backward" | "forward" {
@@ -13124,15 +13354,7 @@ export class Visual implements IVisual {
             this.dropdownInput.property("value", taskName || "");
         }
 
-        if (this.selectedTaskLabel) {
-            if (taskId && taskName && this.settings.pathSelection.showSelectedTaskLabel.value) {
-                this.selectedTaskLabel
-                    .style("display", "inline-flex")
-                    .text(`${selectedLabelPrefix}: ${taskName}`);
-            } else {
-                this.selectedTaskLabel.style("display", "none");
-            }
-        }
+        this.updateSelectedTaskStatusLabel();
 
         this.announceToLiveRegion(taskId && taskName
             ? `${selectedLabelPrefix}: ${taskName}`
@@ -13387,9 +13609,35 @@ export class Visual implements IVisual {
         this.refreshAfterLegendSelectionChange();
     }
 
+    private getLegendTitleState(): { titleText: string; showTitle: boolean } {
+        const customTitleText = this.settings?.legend?.titleText?.value?.trim() || "";
+        const fallbackTitleText = this.legendFieldName?.trim() || "";
+        const titleText = customTitleText || fallbackTitleText;
+        const showTitleToggle = this.settings?.legend?.showTitle?.value ?? true;
+        const showTitle = customTitleText.length > 0 || (showTitleToggle && fallbackTitleText.length > 0);
+
+        return { titleText, showTitle };
+    }
+
+    private getLegendEffectiveFooterHeight(viewportWidth?: number): number {
+        const effectiveWidth = viewportWidth ?? Math.max(this.target?.clientWidth ?? 0, LAYOUT_BREAKPOINTS.medium);
+        const isNarrow = this.getLayoutMode(effectiveWidth) === "narrow";
+        const { showTitle } = this.getLegendTitleState();
+
+        if (isNarrow && showTitle) {
+            return this.legendFooterHeight + 10;
+        }
+
+        if (isNarrow) {
+            return this.legendFooterHeight + 4;
+        }
+
+        return this.legendFooterHeight;
+    }
+
     private getLegendRenderSignature(viewportWidth: number): string {
         const layoutMode = this.getLayoutMode(viewportWidth);
-        const titleText = this.settings.legend.titleText.value || this.legendFieldName;
+        const { titleText, showTitle } = this.getLegendTitleState();
         const categorySignature = this.legendCategories
             .map(category => `${category}:${this.legendColorMap.get(category) || ""}`)
             .join("|");
@@ -13400,7 +13648,7 @@ export class Visual implements IVisual {
             width: viewportWidth,
             layoutMode,
             fontSize: this.settings.legend.fontSize.value,
-            showTitle: this.settings.legend.showTitle.value,
+            showTitle,
             titleText,
             fieldName: this.legendFieldName,
             highContrast: this.highContrastMode,
@@ -13436,19 +13684,22 @@ export class Visual implements IVisual {
         const layoutMode = this.getLayoutMode(viewportWidth);
         const isNarrow = layoutMode === "narrow";
         const fontSize = this.settings.legend.fontSize.value;
-        const showTitle = this.settings.legend.showTitle.value;
-        const titleText = this.settings.legend.titleText.value || this.legendFieldName;
+        const { titleText, showTitle } = this.getLegendTitleState();
+        const legendFooterHeight = this.getLegendEffectiveFooterHeight(viewportWidth);
         const legendFontSizePx = this.pointsToCssPx(fontSize);
         const sectionLabelSizePx = Math.max(10, legendFontSizePx - 3);
-        const titleFontSizePx = this.pointsToCssPx(fontSize + (isNarrow ? 0.35 : 0.8));
-        const statusFontSizePx = Math.max(10, legendFontSizePx - 1);
-        const itemFontSizePx = legendFontSizePx;
+        const titleFontSizePx = Math.max(10, this.pointsToCssPx(fontSize + (isNarrow ? 0 : 0.25)));
+        const statusFontSizePx = Math.max(9, legendFontSizePx - 1);
+        const itemFontSizePx = Math.max(10, legendFontSizePx - 0.5);
+        const compactSummaryWidth = isNarrow
+            ? Math.max(180, Math.min(260, Math.round(viewportWidth * 0.3)))
+            : Math.max(260, Math.min(440, Math.round(viewportWidth * 0.28)));
         const shellBackground = this.highContrastMode
             ? this.getBackgroundColor()
             : HEADER_DOCK_TOKENS.shell;
         const shellBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.groupStroke;
-        const shellText = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonText;
-        const shellMuted = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonMuted;
+        const shellText = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.chipText;
+        const shellMuted = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.chipMuted;
         const railBackground = this.highContrastMode ? this.getBackgroundColor() : HEADER_DOCK_TOKENS.shell;
         const railBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.contextStroke;
         const buttonBackground = this.highContrastMode ? this.getBackgroundColor() : HEADER_DOCK_TOKENS.buttonBg;
@@ -13465,8 +13716,8 @@ export class Visual implements IVisual {
         this.legendContainer.selectAll("*").remove();
         this.legendContainer
             .style("display", "block")
-            .style("height", `${this.legendFooterHeight}px`)
-            .style("min-height", `${this.legendFooterHeight}px`)
+            .style("height", `${legendFooterHeight}px`)
+            .style("min-height", `${legendFooterHeight}px`)
             .style("background", shellBackground)
             .style("border-top", `1px solid ${shellBorder}`)
             .style("box-shadow", this.highContrastMode ? "none" : "0 -6px 18px rgba(15, 23, 34, 0.18)")
@@ -13475,22 +13726,22 @@ export class Visual implements IVisual {
         const mainContainer = this.legendContainer.append("div")
             .attr("class", "legend-main")
             .style("display", "flex")
-            .style("align-items", "stretch")
-            .style("gap", `${UI_TOKENS.spacing.md}px`)
+            .style("align-items", "center")
+            .style("gap", `${UI_TOKENS.spacing.sm}px`)
             .style("height", "100%")
-            .style("padding", isNarrow ? "8px 10px" : "10px 12px")
+            .style("padding", isNarrow ? "6px 10px" : "6px 12px")
             .style("box-sizing", "border-box")
             .style("font-family", this.getFontFamily());
 
         const metaBlock = mainContainer.append("div")
             .attr("class", "legend-meta")
             .style("display", "flex")
-            .style("flex-direction", "column")
-            .style("justify-content", "center")
-            .style("gap", "5px")
-            .style("flex-shrink", "0")
+            .style("flex-direction", "row")
+            .style("align-items", "center")
+            .style("gap", `${UI_TOKENS.spacing.xs}px`)
+            .style("flex", "0 1 auto")
             .style("min-width", "0")
-            .style("max-width", isNarrow ? "150px" : "260px")
+            .style("max-width", `${compactSummaryWidth}px`)
             .style("padding-right", `${UI_TOKENS.spacing.sm}px`);
 
         metaBlock.append("div")
@@ -13500,6 +13751,7 @@ export class Visual implements IVisual {
             .style("letter-spacing", "0.08em")
             .style("text-transform", "uppercase")
             .style("color", shellMuted)
+            .style("flex-shrink", "0")
             .text("Legend");
 
         if (showTitle && titleText) {
@@ -13508,6 +13760,9 @@ export class Visual implements IVisual {
                 .style("font-size", `${titleFontSizePx}px`)
                 .style("font-weight", String(UI_TOKENS.fontWeight.semibold))
                 .style("color", shellText)
+                .style("line-height", "1.1")
+                .style("flex", "1")
+                .style("min-width", "0")
                 .style("white-space", "nowrap")
                 .style("overflow", "hidden")
                 .style("text-overflow", "ellipsis")
@@ -13515,25 +13770,20 @@ export class Visual implements IVisual {
                 .text(titleText);
         }
 
-        const statusRow = metaBlock.append("div")
-            .attr("class", "legend-status-row")
-            .style("display", "flex")
-            .style("align-items", "center")
-            .style("gap", `${UI_TOKENS.spacing.xs}px`)
-            .style("flex-wrap", "wrap");
-
         const createStatusChip = (text: string, bg: string, border: string, color: string) => {
-            statusRow.append("div")
+            metaBlock.append("div")
                 .attr("class", "legend-status-chip")
                 .style("display", "inline-flex")
                 .style("align-items", "center")
-                .style("padding", "3px 8px")
+                .style("padding", "2px 7px")
                 .style("border-radius", `${UI_TOKENS.radius.full}px`)
                 .style("background", bg)
                 .style("border", `1px solid ${border}`)
                 .style("font-size", `${statusFontSizePx}px`)
                 .style("font-weight", String(UI_TOKENS.fontWeight.medium))
                 .style("color", color)
+                .style("line-height", "1.1")
+                .style("flex-shrink", "0")
                 .style("white-space", "nowrap")
                 .text(text);
         };
@@ -13560,9 +13810,9 @@ export class Visual implements IVisual {
             .style("min-width", "0")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("gap", `${UI_TOKENS.spacing.sm}px`)
-            .style("padding", isNarrow ? "6px" : "7px")
-            .style("border-radius", `${UI_TOKENS.radius.large}px`)
+            .style("gap", `${UI_TOKENS.spacing.xs}px`)
+            .style("padding", isNarrow ? "4px 5px" : "5px 6px")
+            .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("background", railBackground)
             .style("border", `1px solid ${railBorder}`)
             .style("box-shadow", this.highContrastMode ? "none" : "inset 0 1px 0 rgba(255,255,255,0.04)");
@@ -13577,10 +13827,10 @@ export class Visual implements IVisual {
         const scrollableContent = scrollWrapper.append("div")
             .attr("class", "legend-scroll-content")
             .style("display", "flex")
-            .style("gap", `${UI_TOKENS.spacing.sm}px`)
+            .style("gap", `${UI_TOKENS.spacing.xs}px`)
             .style("align-items", "center")
             .style("transition", `transform ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.standard}`)
-            .style("padding", "1px 0")
+            .style("padding", "0")
             .style("width", "max-content");
 
         const actions = rail.append("div")
@@ -13610,14 +13860,14 @@ export class Visual implements IVisual {
                 .style("display", "inline-flex")
                 .style("align-items", "center")
                 .style("justify-content", "center")
-                .style("height", compact ? "30px" : "32px")
-                .style("min-width", compact ? "30px" : "32px")
-                .style("padding", compact ? "0" : "0 11px")
+                .style("height", compact ? "26px" : "28px")
+                .style("min-width", compact ? "26px" : "28px")
+                .style("padding", compact ? "0" : "0 9px")
                 .style("border-radius", compact ? `${UI_TOKENS.radius.medium}px` : `${UI_TOKENS.radius.full}px`)
                 .style("background", buttonBackground)
                 .style("border", `1px solid ${buttonBorder}`)
                 .style("color", buttonTextColor)
-                .style("font-size", `${compact ? titleFontSizePx : statusFontSizePx}px`)
+                .style("font-size", `${Math.max(10, compact ? statusFontSizePx : statusFontSizePx - 0.5)}px`)
                 .style("font-weight", String(UI_TOKENS.fontWeight.medium))
                 .style("line-height", "1")
                 .style("cursor", "pointer")
@@ -13683,9 +13933,9 @@ export class Visual implements IVisual {
                 .attr("title", `Click to ${isSelected ? 'hide' : 'show'} "${category}" tasks`)
                 .style("display", "flex")
                 .style("align-items", "center")
-                .style("gap", `${UI_TOKENS.spacing.sm}px`)
+                .style("gap", `${UI_TOKENS.spacing.xs}px`)
                 .style("flex-shrink", "0")
-                .style("padding", isNarrow ? "6px 10px" : "7px 12px")
+                .style("padding", isNarrow ? "4px 8px" : "5px 10px")
                 .style("border-radius", `${UI_TOKENS.radius.full}px`)
                 .style("background", isSelected ? selectedBackground : unselectedBackground)
                 .style("border", `1px solid ${isSelected ? selectedBorder : unselectedBorder}`)
@@ -13697,13 +13947,13 @@ export class Visual implements IVisual {
 
             item.append("div")
                 .attr("class", "legend-swatch")
-                .style("width", "12px")
-                .style("height", "12px")
+                .style("width", "10px")
+                .style("height", "10px")
                 .style("background-color", isSelected ? color : "transparent")
                 .style("border", `2px solid ${color}`)
                 .style("border-radius", `${UI_TOKENS.radius.full}px`)
                 .style("flex-shrink", "0")
-                .style("box-shadow", isSelected && !this.highContrastMode ? `0 0 0 3px ${this.toRgba(color, 0.16)}` : "none")
+                .style("box-shadow", isSelected && !this.highContrastMode ? `0 0 0 2px ${this.toRgba(color, 0.16)}` : "none")
                 .style("transition", `transform ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, box-shadow ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}`);
 
             item.append("span")
