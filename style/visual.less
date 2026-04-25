@@ -5,6 +5,8 @@
 .criticalPathVisual {
     font-family: 'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif;
     overflow: visible; // Allow elements like labels to go outside the main SVG bounds if needed
+    max-width: none;
+    flex-shrink: 0;
 }
 
 // Fix for sticky header flickering/blurriness
@@ -505,7 +507,7 @@ text {
     position: absolute;
     padding: 0;
     box-sizing: border-box; // Fixes jitter when border width changes
-    will-change: transform; // Hint for compositor
+    will-change: auto; // Avoid persistent compositor rasterization during host scroll
     border-style: solid;
     border-radius: 4px; // Matches UI_TOKENS.radius.medium typical value
     box-shadow: 0 1.6px 3.6px 0 rgba(0, 0, 0, 0.132), 0 0.3px 0.9px 0 rgba(0, 0, 0, 0.108); // Matches UI_TOKENS.shadow[2] typical value

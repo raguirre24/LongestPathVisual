@@ -54,6 +54,8 @@ export declare class Visual implements IVisual {
     private useCanvasRendering;
     private CANVAS_THRESHOLD;
     private readonly MODE_TRANSITION_DURATION;
+    private readonly MAX_CANVAS_PIXEL_RATIO;
+    private readonly POWER_BI_CANVAS_SHARPNESS_SCALE;
     private static readonly MIN_DATE_WIDTH;
     private canvasLayer;
     private watermarkOverlay;
@@ -161,6 +163,7 @@ export declare class Visual implements IVisual {
     private legendDataExists;
     private legendColorMap;
     private legendCategories;
+    private legendCategoriesInCurrentScope;
     private legendFieldName;
     private legendContainer;
     private selectedLegendCategories;
@@ -215,6 +218,10 @@ export declare class Visual implements IVisual {
     private updateDebounceTimeout;
     private pendingUpdate;
     private readonly UPDATE_DEBOUNCE_MS;
+    private resizeSettleTimeout;
+    private resizeSettleRaf;
+    private settledResizeViewportKey;
+    private readonly RESIZE_SETTLE_DEBOUNCE_MS;
     private zoomSliderContainer;
     private zoomSliderTrack;
     private zoomSliderSelection;
@@ -280,6 +287,10 @@ export declare class Visual implements IVisual {
     private snapLineCoord;
     private snapRectCoord;
     private snapTextCoord;
+    private isEmbeddedPowerBiHost;
+    private getLocalCssScale;
+    private getCanvasPixelRatio;
+    private syncSvgPixelSize;
     private shouldUseCanvasForViewport;
     private createEmptyDataQuality;
     private static createInstanceId;
@@ -292,6 +303,12 @@ export declare class Visual implements IVisual {
     constructor(options: VisualConstructorOptions);
     private forceCanvasRefresh;
     private debouncedUpdate;
+    private createViewportFromDimensions;
+    private getViewportKey;
+    private getCurrentTargetViewport;
+    private createResizeUpdateOptions;
+    private queueSettledResizeUpdate;
+    private scheduleSettledResizeUpdate;
     private requestUpdate;
     private applyPublishModeOptimizations;
     private setupSVGRenderingHints;
@@ -812,8 +829,12 @@ export declare class Visual implements IVisual {
     private ensureTaskVisible;
     getFormattingModel(): powerbi.visuals.FormattingModel;
     /**
-     * Toggle a legend category on/off for filtering
+     * Keeps legend chips aligned with the currently rendered task scope.
      */
+    private getLegendCategoriesForTaskScope;
+    private updateLegendScopeForTasks;
+    private getRenderableLegendCategories;
+    private getRenderableLegendCategorySet;
     private persistLegendSelectionState;
     private hasLegendFilterAvailable;
     private sanitizeLegendSelectionState;

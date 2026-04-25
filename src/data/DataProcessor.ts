@@ -566,8 +566,11 @@ export class DataProcessor {
 
 
         const legendIdx = this.getColumnIndex(dataView, 'legend');
-        const legendValue = legendIdx !== -1
-            ? normalizeLegendCategory(row[legendIdx]) ?? undefined
+        const normalizedLegendValue = legendIdx !== -1
+            ? normalizeLegendCategory(row[legendIdx])
+            : null;
+        const legendValue = normalizedLegendValue !== null
+            ? normalizedLegendValue.trim()
             : undefined;
 
         const wbsLevels: string[] = [];

@@ -145,6 +145,8 @@ export class Visual implements IVisual {
     private useCanvasRendering: boolean = false;
     private CANVAS_THRESHOLD: number = 250;
     private readonly MODE_TRANSITION_DURATION: number = 150;
+    private readonly MAX_CANVAS_PIXEL_RATIO: number = 3;
+    private readonly POWER_BI_CANVAS_SHARPNESS_SCALE: number = 1.25;
     private static readonly MIN_DATE_WIDTH: number = 80;
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
     private watermarkOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -287,6 +289,7 @@ export class Visual implements IVisual {
     private legendDataExists: boolean = false;
     private legendColorMap: Map<string, string> = new Map();
     private legendCategories: string[] = [];
+    private legendCategoriesInCurrentScope: string[] = [];
     private legendFieldName: string = "";
     private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private selectedLegendCategories: Set<string> = new Set();
@@ -350,6 +353,10 @@ export class Visual implements IVisual {
     private updateDebounceTimeout: ReturnType<typeof setTimeout> | null = null;
     private pendingUpdate: VisualUpdateOptions | null = null;
     private readonly UPDATE_DEBOUNCE_MS = 30;
+    private resizeSettleTimeout: ReturnType<typeof setTimeout> | null = null;
+    private resizeSettleRaf: number | null = null;
+    private settledResizeViewportKey: string | null = null;
+    private readonly RESIZE_SETTLE_DEBOUNCE_MS = 80;
 
     private zoomSliderContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private zoomSliderTrack: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -866,7 +873,69 @@ export class Visual implements IVisual {
         return Math.round(value);
     }
 
-    private shouldUseCanvasForViewport(taskCount: number, chartWidth: number, chartHeight: number, dpr: number): boolean {
+    private isEmbeddedPowerBiHost(): boolean {
+        try {
+            return window.self !== window.top || window.location.hostname.includes("powerbi.com");
+        } catch {
+            return true;
+        }
+    }
+
+    private getLocalCssScale(): number {
+        const targetNode = this.target;
+        if (!targetNode) {
+            return 1;
+        }
+
+        const rect = targetNode.getBoundingClientRect();
+        const widthScale = targetNode.clientWidth > 0 ? rect.width / targetNode.clientWidth : 1;
+        const heightScale = targetNode.clientHeight > 0 ? rect.height / targetNode.clientHeight : 1;
+
+        return Math.max(1, widthScale, heightScale);
+    }
+
+    private getCanvasPixelRatio(): number {
+        const devicePixelRatio = window.devicePixelRatio || 1;
+        const hostScale = this.getLocalCssScale();
+        const sharpnessScale = this.isEmbeddedPowerBiHost()
+            ? this.POWER_BI_CANVAS_SHARPNESS_SCALE
+            : 1;
+
+        return Math.min(
+            this.MAX_CANVAS_PIXEL_RATIO,
+            Math.max(1, devicePixelRatio * hostScale * sharpnessScale)
+        );
+    }
+
+    private syncSvgPixelSize(
+        svg: Selection<SVGSVGElement, unknown, null, undefined> | null | undefined,
+        width?: number,
+        height?: number
+    ): void {
+        if (!svg?.node()) {
+            return;
+        }
+
+        if (typeof width === "number" && Number.isFinite(width)) {
+            const snappedWidth = Math.max(1, this.snapRectCoord(width));
+            svg
+                .attr("width", snappedWidth)
+                .style("width", `${snappedWidth}px`)
+                .style("max-width", "none")
+                .style("flex-shrink", "0");
+        }
+
+        if (typeof height === "number" && Number.isFinite(height)) {
+            const snappedHeight = Math.max(1, this.snapRectCoord(height));
+            svg
+                .attr("height", snappedHeight)
+                .style("height", `${snappedHeight}px`)
+                .style("max-height", "none")
+                .style("flex-shrink", "0");
+        }
+    }
+
+    private shouldUseCanvasForViewport(taskCount: number, chartWidth: number, chartHeight: number, pixelRatio: number): boolean {
         if (this.forceSvgRenderingForExport) {
             return false;
         }
@@ -875,9 +944,9 @@ export class Visual implements IVisual {
             return false;
         }
 
-        const safeDpr = Math.max(1, dpr || 1);
-        const backingWidth = Math.ceil(Math.max(0, chartWidth) * safeDpr);
-        const backingHeight = Math.ceil(Math.max(0, chartHeight) * safeDpr);
+        const safePixelRatio = Math.max(1, pixelRatio || 1);
+        const backingWidth = Math.ceil(Math.max(0, chartWidth) * safePixelRatio);
+        const backingHeight = Math.ceil(Math.max(0, chartHeight) * safePixelRatio);
         const totalBackingPixels = backingWidth * backingHeight;
         const maxBackingDimension = 6144;
         const maxBackingPixels = 18_000_000;
@@ -1057,7 +1126,10 @@ export class Visual implements IVisual {
         this.headerSvg = this.stickyHeaderContainer.append("svg")
             .attr("class", "header-svg")
             .attr("width", "100%")
-            .attr("height", "100%");
+            .attr("height", "100%")
+            .style("display", "block")
+            .style("max-width", "none")
+            .style("flex-shrink", "0");
 
         this.headerGridLayer = this.headerSvg.append("g")
             .attr("class", "header-grid-layer");
@@ -1259,7 +1331,9 @@ export class Visual implements IVisual {
 
         this.mainSvg = this.scrollableContainer.append("svg")
             .classed("criticalPathVisual", true)
-            .style("display", "block");
+            .style("display", "block")
+            .style("max-width", "none")
+            .style("flex-shrink", "0");
 
         this.mainGroup = this.mainSvg.append("g").classed("main-group", true);
 
@@ -1428,23 +1502,28 @@ export class Visual implements IVisual {
             this.resizeObserver = new ResizeObserver((entries) => {
                 for (const entry of entries) {
                     if (entry.contentRect) {
-                        const newWidth = entry.contentRect.width;
-                        const newHeight = entry.contentRect.height;
+                        const measuredViewport = this.createViewportFromDimensions(
+                            entry.contentRect.width,
+                            entry.contentRect.height
+                        );
+                        if (!measuredViewport) {
+                            continue;
+                        }
 
                         // Check if dimensions actually changed significantly from what we last rendered
                         if (this.lastViewport) {
-                            const widthDiff = Math.abs(newWidth - this.lastViewport.width);
-                            const heightDiff = Math.abs(newHeight - this.lastViewport.height);
+                            const widthDiff = Math.abs(measuredViewport.width - this.lastViewport.width);
+                            const heightDiff = Math.abs(measuredViewport.height - this.lastViewport.height);
 
                             // If difference is significant (>2px to avoid sub-pixel jitter loops), trigger update
                             if (widthDiff > 2 || heightDiff > 2) {
-                                this.debugLog(`ResizeObserver detected change: [${newWidth}x${newHeight}]. Requesting update.`);
-                                this.requestUpdate(true);
+                                this.debugLog(`ResizeObserver detected change: [${measuredViewport.width}x${measuredViewport.height}]. Requesting update.`);
+                                this.requestUpdate(true, measuredViewport);
                             }
-                        } else if (newWidth > 0 && newHeight > 0) {
+                        } else {
                             // Initial state or lost viewport
-                            this.debugLog(`ResizeObserver detected initial size: [${newWidth}x${newHeight}]. Requesting update.`);
-                            this.requestUpdate(true);
+                            this.debugLog(`ResizeObserver detected initial size: [${measuredViewport.width}x${measuredViewport.height}]. Requesting update.`);
+                            this.requestUpdate(true, measuredViewport);
                         }
                     }
                 }
@@ -1504,7 +1583,88 @@ export class Visual implements IVisual {
         }, this.UPDATE_DEBOUNCE_MS);
     }
 
-    private requestUpdate(forceFullUpdate: boolean = false): void {
+    private createViewportFromDimensions(width: number, height: number): IViewport | null {
+        if (!Number.isFinite(width) || !Number.isFinite(height)) {
+            return null;
+        }
+
+        const normalizedWidth = Math.max(0, this.snapRectCoord(width));
+        const normalizedHeight = Math.max(0, this.snapRectCoord(height));
+        if (normalizedWidth <= 0 || normalizedHeight <= 0) {
+            return null;
+        }
+
+        return {
+            width: normalizedWidth,
+            height: normalizedHeight
+        };
+    }
+
+    private getViewportKey(viewport: IViewport): string {
+        return `${this.snapRectCoord(viewport.width)}x${this.snapRectCoord(viewport.height)}`;
+    }
+
+    private getCurrentTargetViewport(fallback: IViewport): IViewport {
+        if (!this.target) {
+            return fallback;
+        }
+
+        return this.createViewportFromDimensions(
+            this.target.clientWidth || fallback.width,
+            this.target.clientHeight || fallback.height
+        ) ?? fallback;
+    }
+
+    private createResizeUpdateOptions(baseOptions: VisualUpdateOptions, viewport: IViewport): VisualUpdateOptions {
+        return {
+            ...baseOptions,
+            type: baseOptions.type | VisualUpdateType.Resize,
+            viewport
+        };
+    }
+
+    private queueSettledResizeUpdate(options: VisualUpdateOptions): void {
+        this.settledResizeViewportKey = this.getViewportKey(options.viewport);
+        this.forceFullUpdate = true;
+
+        if (this.isUpdating) {
+            this.pendingUpdate = options;
+            this.debouncedUpdate();
+            return;
+        }
+
+        this.update(options);
+    }
+
+    private scheduleSettledResizeUpdate(baseOptions: VisualUpdateOptions): void {
+        if (this.resizeSettleTimeout) {
+            clearTimeout(this.resizeSettleTimeout);
+            this.resizeSettleTimeout = null;
+        }
+
+        if (this.resizeSettleRaf !== null) {
+            cancelAnimationFrame(this.resizeSettleRaf);
+            this.resizeSettleRaf = null;
+        }
+
+        this.resizeSettleTimeout = setTimeout(() => {
+            this.resizeSettleTimeout = null;
+            this.resizeSettleRaf = requestAnimationFrame(() => {
+                this.resizeSettleRaf = requestAnimationFrame(() => {
+                    this.resizeSettleRaf = null;
+
+                    const settledViewport = this.getCurrentTargetViewport(baseOptions.viewport);
+                    const settledOptions = this.createResizeUpdateOptions(baseOptions, settledViewport);
+
+                    this.viewportResizeCooldownUntil = 0;
+                    this.debugLog(`Resize settled at [${settledViewport.width}x${settledViewport.height}]. Queuing full update.`);
+                    this.queueSettledResizeUpdate(settledOptions);
+                });
+            });
+        }, this.RESIZE_SETTLE_DEBOUNCE_MS);
+    }
+
+    private requestUpdate(forceFullUpdate: boolean = false, viewport?: IViewport): void {
         if (!this.lastUpdateOptions) {
             console.error("Cannot trigger update - lastUpdateOptions is null.");
             return;
@@ -1514,18 +1674,34 @@ export class Visual implements IVisual {
             this.forceFullUpdate = true;
         }
 
-        this.pendingUpdate = this.lastUpdateOptions;
+        this.pendingUpdate = viewport
+            ? this.createResizeUpdateOptions(this.lastUpdateOptions, viewport)
+            : this.lastUpdateOptions;
         this.debouncedUpdate();
     }
 
     private applyPublishModeOptimizations(): void {
 
-        const isInIframe = window.self !== window.top;
-
-        if (isInIframe || window.location.hostname.includes('powerbi.com')) {
+        if (this.isEmbeddedPowerBiHost()) {
             this.ensureOwnedStyle(
                 "critical-path-publish-fixes",
                 `
+[data-owner="${this.instanceId}"] .visual-wrapper,
+[data-owner="${this.instanceId}"] .criticalPathContainer,
+[data-owner="${this.instanceId}"] .sticky-header-container,
+[data-owner="${this.instanceId}"] .criticalPathVisual,
+[data-owner="${this.instanceId}"] .header-svg,
+[data-owner="${this.instanceId}"] .canvas-layer,
+[data-owner="${this.instanceId}"] .header-toggle-button {
+    backface-visibility: visible !important;
+    -webkit-backface-visibility: visible !important;
+    will-change: auto !important;
+}
+[data-owner="${this.instanceId}"] .criticalPathVisual,
+[data-owner="${this.instanceId}"] .header-svg {
+    max-width: none !important;
+    flex-shrink: 0 !important;
+}
 [data-owner="${this.instanceId}"] .criticalPathVisual {
     -webkit-font-smoothing: antialiased !important;
     -moz-osx-font-smoothing: grayscale !important;
@@ -1840,6 +2016,16 @@ export class Visual implements IVisual {
             this.updateDebounceTimeout = null;
         }
 
+        if (this.resizeSettleTimeout) {
+            clearTimeout(this.resizeSettleTimeout);
+            this.resizeSettleTimeout = null;
+        }
+
+        if (this.resizeSettleRaf !== null) {
+            cancelAnimationFrame(this.resizeSettleRaf);
+            this.resizeSettleRaf = null;
+        }
+
         if (this.watermarkOverlayRaf !== null) {
             cancelAnimationFrame(this.watermarkOverlayRaf);
             this.watermarkOverlayRaf = null;
@@ -1865,6 +2051,7 @@ export class Visual implements IVisual {
         this.detachZoomDragListeners();
 
         this.pendingUpdate = null;
+        this.settledResizeViewportKey = null;
 
         this.removeOwnedStyle("critical-path-publish-fixes");
 
@@ -1894,6 +2081,7 @@ export class Visual implements IVisual {
         this.relationshipByPredecessor.clear();
         this.relationshipIndex.clear();
         this.legendColorMap.clear();
+        this.legendCategoriesInCurrentScope = [];
         this.wbsExpandedState.clear();
         this.wbsGroupMap.clear();
         this.allFilteredTasks = [];
@@ -3006,9 +3194,9 @@ export class Visual implements IVisual {
         const rect = canvas.parentElement?.getBoundingClientRect();
         if (!rect) return;
 
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
+        const dpr = this.getCanvasPixelRatio();
+        canvas.width = Math.max(1, Math.round(rect.width * dpr));
+        canvas.height = Math.max(1, Math.round(rect.height * dpr));
         canvas.style.width = `${rect.width}px`;
         canvas.style.height = `${rect.height}px`;
 
@@ -3770,13 +3958,14 @@ export class Visual implements IVisual {
         // Fix for stale updates: Force viewport to match actual container size if larger
         // This prevents the visual from resizing down to a cached small size when in Focus Mode
         // Note: Create a local copy to avoid mutating the host-owned options object
+        const bypassResizeSettle = this.settledResizeViewportKey === this.getViewportKey(options.viewport);
         if (this.target) {
             const actualWidth = this.target.clientWidth;
             const actualHeight = this.target.clientHeight;
 
             // Detect significant resize (entering OR exiting Focus Mode)
             // If dimensions change by >10%, trigger the clean re-render flow.
-            const isSignificantResize = this.lastViewport && (
+            const isSignificantResize = !bypassResizeSettle && this.lastViewport && (
                 Math.abs(this.lastViewport.width - options.viewport.width) / (this.lastViewport.width || 1) > this.VIEWPORT_CHANGE_THRESHOLD ||
                 Math.abs(this.lastViewport.height - options.viewport.height) / (this.lastViewport.height || 1) > this.VIEWPORT_CHANGE_THRESHOLD
             );
@@ -3795,40 +3984,9 @@ export class Visual implements IVisual {
                 }
                 this.viewportResizeCooldownUntil = Date.now() + 400;
                 this.hideContentForResize();
-                this.lastViewport = options.viewport;
-                this.lastUpdateOptions = options;
-                // Don't render now — container might be transitioning.
-                // Schedule a clean re-render after the container has settled.
-                setTimeout(() => {
-                    this.viewportResizeCooldownUntil = 0; // Clear cooldown
-                    if (this.target) {
-                        const settledWidth = this.target.clientWidth;
-                        const settledHeight = this.target.clientHeight;
-                        this.debugLog(`Container settled at [${settledWidth}x${settledHeight}]. Triggering clean re-render.`);
-                        const settledOptions: VisualUpdateOptions = {
-                            ...options,
-                            viewport: { width: settledWidth, height: settledHeight }
-                        };
-                        this.lastViewport = settledOptions.viewport;
-                        // Force a Full update so the settled re-render goes through
-                        // clearVisual() + full scale/layout rebuild instead of the
-                        // incremental ViewportOnly path which can leave stale elements
-                        // (bars/milestones clipped or missing on the right side).
-                        this.forceFullUpdate = true;
-                        this.updateInternal(settledOptions)
-                            .then(() => {
-                                requestAnimationFrame(() => this.revealContentAfterResize());
-                            })
-                            .catch(error => {
-                                console.error("Error during settled update:", error);
-                                this.revealContentAfterResize();
-                            });
-                    } else {
-                        this.revealContentAfterResize();
-                    }
-                }, 50);
+                this.scheduleSettledResizeUpdate(options);
                 return;
-            } else if (inResizeCooldown) {
+            } else if (inResizeCooldown && !bypassResizeSettle) {
                 this.debugLog(`In resize cooldown — skipping update`);
                 return;
             } else if (options.viewport.width < actualWidth || options.viewport.height < actualHeight) {
@@ -3846,6 +4004,10 @@ export class Visual implements IVisual {
             this.pendingUpdate = options;
             this.debouncedUpdate();
             return;
+        }
+
+        if (bypassResizeSettle) {
+            this.settledResizeViewportKey = null;
         }
 
         this.debugLog("===== UPDATE() CALLED =====");
@@ -3977,6 +4139,9 @@ export class Visual implements IVisual {
             const viewportHeight = inCooldown
                 ? viewport.height
                 : Math.max(viewport.height, this.target?.clientHeight ?? viewport.height);
+            const renderedViewport: IViewport = { width: viewportWidth, height: viewportHeight };
+            this.lastViewport = renderedViewport;
+            this.lastUpdateOptions = { ...options, viewport: renderedViewport };
             const dataSignature = this.getDataSignature(dataView);
             const hadWbsInPreviousUpdate = this.wbsDataExistsInMetadata || this.wbsDataExists;
             const previousWbsEnabled = this.settings?.wbsGrouping?.enableWbsGrouping?.value;
@@ -4388,14 +4553,18 @@ export class Visual implements IVisual {
             const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
 
             if (limitedTasks.length === 0) {
+                this.updateLegendScopeForTasks([], true);
                 this.displayMessage("No tasks to display after filtering/limiting.");
+                this.renderLegend(viewportWidth, viewportHeight);
                 return;
             }
 
             const tasksToPlot = limitedTasks.filter(task => this.hasValidPlotDates(task));
+            this.updateLegendScopeForTasks(tasksToPlot, true);
 
             if (tasksToPlot.length === 0) {
                 this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
+                this.renderLegend(viewportWidth, viewportHeight);
                 return;
             }
 
@@ -4460,12 +4629,12 @@ export class Visual implements IVisual {
             if (tasksWithYOrder.length === 0 && visibleGroupCount === 0) {
                 if (tasksAfterLegendFilter.length === 0 && hasActiveLegendFilter) {
                     this.displayMessage("No tasks match the current legend selection.");
-                    this.renderLegend(viewportWidth, viewportHeight);
                 } else if (wbsGroupingEnabled) {
                     this.displayMessage("All WBS groups are collapsed. Expand a group to view tasks.");
                 } else {
                     this.displayMessage("No tasks to display after filtering.");
                 }
+                this.renderLegend(viewportWidth, viewportHeight);
                 return;
             }
 
@@ -4503,8 +4672,8 @@ export class Visual implements IVisual {
                 return;
             }
 
-            this.mainSvg.attr("width", viewportWidth).attr("height", totalSvgHeight);
-            this.headerSvg.attr("width", viewportWidth);
+            this.syncSvgPixelSize(this.mainSvg, viewportWidth, totalSvgHeight);
+            this.syncSvgPixelSize(this.headerSvg, viewportWidth, this.headerHeight);
 
             const effectiveMargin = this.getEffectiveLeftMargin();
             this.mainGroup.attr("transform", `translate(${this.snapRectCoord(effectiveMargin)}, ${this.snapRectCoord(this.margin.top)})`);
@@ -4512,7 +4681,7 @@ export class Visual implements IVisual {
 
             this.createMarginResizer();
 
-            const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
+            const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.getRenderableLegendCategories().length > 0;
             const legendOffset = legendVisible ? this.getLegendEffectiveFooterHeight(viewportWidth) : 0;
             const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
 
@@ -4640,11 +4809,14 @@ export class Visual implements IVisual {
             viewportWidth = Math.max(viewportWidth, this.target.clientWidth);
             viewportHeight = Math.max(viewportHeight, this.target.clientHeight);
         }
+        const renderedViewport: IViewport = { width: viewportWidth, height: viewportHeight };
+        this.lastViewport = renderedViewport;
+        this.lastUpdateOptions = { ...options, viewport: renderedViewport };
 
         this.updateHeaderElements(viewportWidth);
 
         const chartWidth = Math.max(10, viewportWidth - this.getEffectiveLeftMargin() - this.margin.right);
-        const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
+        const legendVisible = this.settings.legend.show.value && this.legendDataExists && this.getRenderableLegendCategories().length > 0;
         const legendOffset = legendVisible ? this.getLegendEffectiveFooterHeight(viewportWidth) : 0;
         const availableContentHeight = Math.max(0, viewportHeight - this.headerHeight - legendOffset);
         const totalSvgHeight = this.taskTotalCount * this.taskElementHeight +
@@ -4653,8 +4825,8 @@ export class Visual implements IVisual {
         this.scrollableContainer.style("height", `${availableContentHeight}px`)
             .style("overflow-y", totalSvgHeight > availableContentHeight ? "scroll" : "hidden");
 
-        this.mainSvg.attr("width", viewportWidth);
-        this.headerSvg.attr("width", viewportWidth);
+        this.syncSvgPixelSize(this.mainSvg, viewportWidth);
+        this.syncSvgPixelSize(this.headerSvg, viewportWidth, this.headerHeight);
 
         if (this.xScale) {
             this.xScale.range([0, chartWidth]);
@@ -4852,7 +5024,7 @@ export class Visual implements IVisual {
             this.taskElementHeight = taskHeight + taskPadding;
 
             const totalSvgHeight = Math.max(50, totalRows * this.taskElementHeight) + this.margin.top + this.margin.bottom;
-            this.mainSvg.attr("height", totalSvgHeight);
+            this.syncSvgPixelSize(this.mainSvg, options.viewport.width, totalSvgHeight);
             this.taskTotalCount = totalRows;
 
             this.calculateVisibleTasks();
@@ -5498,8 +5670,11 @@ export class Visual implements IVisual {
 
         const totalContentHeight = this.taskTotalCount * this.taskElementHeight;
 
-        this.mainSvg
-            .attr("height", totalContentHeight + this.margin.top + this.margin.bottom);
+        this.syncSvgPixelSize(
+            this.mainSvg,
+            undefined,
+            totalContentHeight + this.margin.top + this.margin.bottom
+        );
 
         if (this.scrollListener) {
             this.scrollableContainer.on("scroll", null);
@@ -5846,7 +6021,7 @@ export class Visual implements IVisual {
             renderableTasks.length,
             xScale.range()[1],
             yScale.range()[1],
-            window.devicePixelRatio || 1
+            this.getCanvasPixelRatio()
         );
         const modeChanged = shouldUseCanvas !== this.useCanvasRendering;
 
@@ -6151,7 +6326,7 @@ export class Visual implements IVisual {
             renderableTasks.length,
             chartWidth,
             chartHeight,
-            window.devicePixelRatio || 1
+            this.getCanvasPixelRatio()
         );
         if (!this.useCanvasRendering) {
             this.clearAccessibleCanvasFallback();
@@ -8682,14 +8857,14 @@ export class Visual implements IVisual {
         }
 
         const ctx = this.canvasElement.getContext('2d');
-        const devicePixelRatio = window.devicePixelRatio || 1;
+        const canvasPixelRatio = this.getCanvasPixelRatio();
         const backingStoreRatio = (ctx as any).webkitBackingStorePixelRatio ||
             (ctx as any).mozBackingStorePixelRatio ||
             (ctx as any).msBackingStorePixelRatio ||
             (ctx as any).oBackingStorePixelRatio ||
             (ctx as any).backingStorePixelRatio || 1;
 
-        const ratio = devicePixelRatio / backingStoreRatio;
+        const ratio = canvasPixelRatio / backingStoreRatio;
 
         const displayWidth = Math.max(1, this.snapRectCoord(chartWidth));
         const displayHeight = Math.max(1, this.snapRectCoord(chartHeight));
@@ -10655,10 +10830,14 @@ export class Visual implements IVisual {
         const showDuration = maxChipWidth >= 228;
         const navButtonSize = isTight ? 18 : 20;
         const navIconSize = isTight ? 10 : 12;
+        const chipPaddingX = isTight ? 4 : 5;
+        const chipGap = isTight ? 3 : 4;
+        const infoGap = isTight ? 3 : 4;
+        const infoPaddingX = isTight ? 1 : 2;
 
         this.pathInfoLabel
-            .style("padding", isTight ? `0 ${UI_TOKENS.spacing.xs}px` : `0 ${UI_TOKENS.spacing.sm}px`)
-            .style("gap", isTight ? `${UI_TOKENS.spacing.xs}px` : `${UI_TOKENS.spacing.sm}px`)
+            .style("padding", `0 ${chipPaddingX}px`)
+            .style("gap", `${chipGap}px`)
             .style("max-width", `${maxChipWidth}px`)
             .style("min-width", "0")
             .style("overflow", "hidden")
@@ -10687,13 +10866,15 @@ export class Visual implements IVisual {
         const prevButton = this.pathInfoLabel.append("div")
             .style("cursor", buttonCursor)
             .style("opacity", buttonOpacity)
-            .style("padding", "4px")
+            .style("padding", "2px")
             .style("border-radius", `${UI_TOKENS.radius.small}px`)
             .style("display", "flex")
+            .style("flex", "0 0 auto")
             .style("align-items", "center")
             .style("justify-content", "center")
             .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
             .style("user-select", "none")
+            .style("box-sizing", "border-box")
             .style("width", `${navButtonSize}px`)
             .style("height", `${navButtonSize}px`)
             .attr("title", buttonTitle);
@@ -10755,9 +10936,10 @@ export class Visual implements IVisual {
 
         const infoContainer = this.pathInfoLabel.append("div")
             .style("display", "flex")
+            .style("flex", "1 1 auto")
             .style("align-items", "center")
-            .style("gap", isTight ? `${UI_TOKENS.spacing.xs}px` : `${UI_TOKENS.spacing.sm}px`)
-            .style("padding", isTight ? "0 1px" : "0 4px")
+            .style("gap", `${infoGap}px`)
+            .style("padding", `0 ${infoPaddingX}px`)
             .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
             .style("min-width", "0")
             .style("overflow", "hidden")
@@ -10765,7 +10947,7 @@ export class Visual implements IVisual {
 
         infoContainer.append("span")
             .style("font-weight", "700")
-            .style("letter-spacing", "0.15px")
+            .style("letter-spacing", "0")
             .style("color", HEADER_DOCK_TOKENS.chipText)
             .text(isTight ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`)
             .attr("aria-label", `Currently viewing path ${pathNumber} of ${totalPaths}`);
@@ -10802,13 +10984,15 @@ export class Visual implements IVisual {
         const nextButton = this.pathInfoLabel.append("div")
             .style("cursor", buttonCursor)
             .style("opacity", buttonOpacity)
-            .style("padding", "4px")
+            .style("padding", "2px")
             .style("border-radius", `${UI_TOKENS.radius.small}px`)
             .style("display", "flex")
+            .style("flex", "0 0 auto")
             .style("align-items", "center")
             .style("justify-content", "center")
             .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
             .style("user-select", "none")
+            .style("box-sizing", "border-box")
             .style("width", `${navButtonSize}px`)
             .style("height", `${navButtonSize}px`)
             .attr("title", nextButtonTitle);
@@ -12742,7 +12926,7 @@ export class Visual implements IVisual {
         const width = containerNode?.clientWidth || 300;
         const height = containerNode?.clientHeight || Math.max(100, this.target.clientHeight - this.headerHeight);
 
-        this.mainSvg.attr("width", width).attr("height", height);
+        this.syncSvgPixelSize(this.mainSvg, width, height);
         this.mainGroup?.attr("transform", null);
 
         this.mainSvg.append("text")
@@ -13597,8 +13781,60 @@ export class Visual implements IVisual {
     }
 
     /**
-     * Toggle a legend category on/off for filtering
+     * Keeps legend chips aligned with the currently rendered task scope.
      */
+    private getLegendCategoriesForTaskScope(tasks: Task[]): string[] {
+        if (!this.legendDataExists || this.legendCategories.length === 0 || tasks.length === 0) {
+            return [];
+        }
+
+        const scopedValues = new Set<string>();
+        for (const task of tasks) {
+            const category = normalizeLegendCategory(task.legendValue);
+            if (category) {
+                scopedValues.add(category);
+            }
+        }
+
+        const includedCategories = new Set<string>();
+        const scopedCategories: string[] = [];
+        for (const category of this.legendCategories) {
+            const normalizedCategory = normalizeLegendCategory(category);
+            if (normalizedCategory && scopedValues.has(normalizedCategory) && !includedCategories.has(normalizedCategory)) {
+                scopedCategories.push(category);
+                includedCategories.add(normalizedCategory);
+            }
+        }
+
+        return scopedCategories;
+    }
+
+    private updateLegendScopeForTasks(tasks: Task[], persistSelectionChanges: boolean = false): void {
+        const scopedCategories = this.getLegendCategoriesForTaskScope(tasks);
+        const currentSignature = JSON.stringify(this.legendCategoriesInCurrentScope);
+        const nextSignature = JSON.stringify(scopedCategories);
+
+        this.legendCategoriesInCurrentScope = scopedCategories;
+        if (currentSignature !== nextSignature) {
+            this.lastLegendRenderSignature = null;
+            this.legendScrollPosition = 0;
+        }
+
+        this.sanitizeLegendSelectionState(persistSelectionChanges, scopedCategories);
+    }
+
+    private getRenderableLegendCategories(): string[] {
+        return this.legendCategoriesInCurrentScope;
+    }
+
+    private getRenderableLegendCategorySet(): Set<string> {
+        return new Set(
+            this.getRenderableLegendCategories()
+                .map(category => normalizeLegendCategory(category))
+                .filter((category): category is string => category !== null)
+        );
+    }
+
     private persistLegendSelectionState(): void {
         const selectedCategoriesStr = serializeLegendSelection(this.selectedLegendCategories);
         this.host.persistProperties({
@@ -13611,12 +13847,16 @@ export class Visual implements IVisual {
     }
 
     private hasLegendFilterAvailable(): boolean {
-        return !!(this.settings?.legend?.show?.value && this.legendDataExists && this.legendCategories.length > 0);
+        return !!(this.settings?.legend?.show?.value && this.legendDataExists && this.getRenderableLegendCategories().length > 0);
     }
 
-    private sanitizeLegendSelectionState(persistIfChanged: boolean = false): void {
+    private sanitizeLegendSelectionState(
+        persistIfChanged: boolean = false,
+        availableLegendCategories?: Iterable<string>
+    ): void {
+        const categorySource = availableLegendCategories ?? this.legendCategories;
         const availableCategories = new Set(
-            this.legendCategories
+            Array.from(categorySource)
                 .map(category => normalizeLegendCategory(category))
                 .filter((category): category is string => category !== null)
         );
@@ -13685,7 +13925,11 @@ export class Visual implements IVisual {
             } else {
                 this.selectedLegendCategories.add(normalizedCategory);
 
-                if (this.selectedLegendCategories.size === this.legendCategories.length) {
+                const renderedCategories = this.getRenderableLegendCategorySet();
+                const selectedRenderedCount = Array.from(this.selectedLegendCategories)
+                    .filter(selectedCategory => renderedCategories.has(selectedCategory))
+                    .length;
+                if (renderedCategories.size > 0 && selectedRenderedCount === renderedCategories.size) {
                     this.selectedLegendCategories.clear();
                 }
             }
@@ -13721,10 +13965,10 @@ export class Visual implements IVisual {
         return this.legendFooterHeight;
     }
 
-    private getLegendRenderSignature(viewportWidth: number): string {
+    private getLegendRenderSignature(viewportWidth: number, renderCategories: string[]): string {
         const layoutMode = this.getLayoutMode(viewportWidth);
         const { titleText, showTitle } = this.getLegendTitleState();
-        const categorySignature = this.legendCategories
+        const categorySignature = renderCategories
             .map(category => `${category}:${this.legendColorMap.get(category) || ""}`)
             .join("|");
         const selectedSignature = Array.from(this.selectedLegendCategories).sort().join("|");
@@ -13752,7 +13996,8 @@ export class Visual implements IVisual {
     private renderLegend(viewportWidth: number, viewportHeight: number): void {
         if (!this.legendContainer) return;
 
-        const showLegend = this.settings.legend.show.value && this.legendDataExists && this.legendCategories.length > 0;
+        const renderCategories = this.getRenderableLegendCategories();
+        const showLegend = this.settings.legend.show.value && this.legendDataExists && renderCategories.length > 0;
 
         if (!showLegend) {
             this.legendContainer.style("display", "none");
@@ -13761,7 +14006,7 @@ export class Visual implements IVisual {
             return;
         }
 
-        const legendRenderSignature = this.getLegendRenderSignature(viewportWidth);
+        const legendRenderSignature = this.getLegendRenderSignature(viewportWidth, renderCategories);
         if (this.lastLegendRenderSignature === legendRenderSignature) {
             this.legendContainer.style("display", "block");
             return;
@@ -13794,8 +14039,12 @@ export class Visual implements IVisual {
         const buttonHoverBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonHoverStroke;
         const buttonTextColor = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonText;
         const buttonDisabledColor = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonMuted;
-        const totalCount = this.legendCategories.length;
-        const selectedCount = this.selectedLegendCategories.size === 0 ? totalCount : this.selectedLegendCategories.size;
+        const renderedCategorySet = this.getRenderableLegendCategorySet();
+        const selectedRenderedCount = Array.from(this.selectedLegendCategories)
+            .filter(category => renderedCategorySet.has(category))
+            .length;
+        const totalCount = renderCategories.length;
+        const selectedCount = this.selectedLegendCategories.size === 0 ? totalCount : selectedRenderedCount;
         const hiddenCount = Math.max(0, totalCount - selectedCount);
         const isFiltered = this.selectedLegendCategories.size > 0 && selectedCount < totalCount;
 
@@ -13998,9 +14247,10 @@ export class Visual implements IVisual {
         const leftArrow = createActionButton("<", "Scroll legend left", true, scrollButtons);
         const rightArrow = createActionButton(">", "Scroll legend right", true, scrollButtons);
 
-        this.legendCategories.forEach(category => {
+        renderCategories.forEach(category => {
+            const normalizedCategory = normalizeLegendCategory(category);
             const color = this.legendColorMap.get(category) || "#999";
-            const isSelected = this.selectedLegendCategories.size === 0 || this.selectedLegendCategories.has(category);
+            const isSelected = this.selectedLegendCategories.size === 0 || (!!normalizedCategory && this.selectedLegendCategories.has(normalizedCategory));
             const selectedBackground = this.highContrastMode ? "transparent" : this.toRgba(color, 0.18);
             const selectedBorder = this.highContrastMode ? shellText : this.toRgba(color, 0.42);
             const unselectedBackground = this.highContrastMode ? "transparent" : "rgba(255,255,255,0.03)";
