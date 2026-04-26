@@ -558,6 +558,7 @@ export declare class Visual implements IVisual {
      * preferred WBS/task-name lane; visible columns are added to that lane.
      */
     private getEffectiveLeftMargin;
+    private getResolvedHeaderPalette;
     private updateHeaderElements;
     private calculateVisibleTasks;
     private handleScroll;
@@ -971,6 +972,7 @@ export declare class Visual implements IVisual {
     private generateVisibleWbsOnlyExportTableText;
     private generateVisibleExportTableHtml;
     private generateVisibleExportTableText;
+    private getClipboardExportTimestamp;
     private generateClipboardExportMetadataFragment;
     private generateClipboardTableExportFragment;
     private generateClipboardHtmlExportFragment;

@@ -1,5 +1,6 @@
 import { Selection } from "d3-selection";
 import { VisualSettings } from "../settings";
+import { HEADER_DOCK_TOKENS } from "../utils/Theme";
 import { BoundFieldState } from "../data/Interfaces";
 export interface HeaderCallbacks {
     onToggleCriticalPath: () => void;
@@ -45,13 +46,21 @@ export interface HeaderState {
     lookAheadWindowDays: number;
     lookAheadDisplayMode: "filter" | "highlight";
 }
+export type HeaderPalette = Partial<typeof HEADER_DOCK_TOKENS> & {
+    isHighContrast?: boolean;
+};
 export declare class Header {
+    private static nextMenuOrdinal;
     private container;
     private svg;
     private callbacks;
     private exportButtonLoading;
     private copySuccessTimeout;
     private controlsMenuOpen;
+    private currentLayout;
+    private currentPalette;
+    private readonly overflowMenuId;
+    private overflowDocumentPointerDownHandler;
     private toggleButtonGroup;
     private baselineToggleButtonGroup;
     private previousUpdateToggleButtonGroup;
@@ -64,7 +73,11 @@ export declare class Header {
     private upsertButton;
     private upsertDiv;
     private hideControl;
-    render(viewportWidth: number, settings: VisualSettings, state: HeaderState): void;
+    render(viewportWidth: number, settings: VisualSettings, state: HeaderState, palette?: HeaderPalette): void;
+    destroy(): void;
+    private getCurrentLayout;
+    private getPaletteToken;
+    private applyHeaderPaletteOverrides;
     private renderButtons;
     /**
      * Shows visual feedback on the copy button when copy succeeds.
@@ -103,10 +116,16 @@ export declare class Header {
     private createExportButton;
     private createExportHtmlButton;
     private createHelpButton;
+    private attachOverflowOutsideClickHandler;
+    private detachOverflowOutsideClickHandler;
+    private closeControlsMenu;
+    private focusFirstOverflowMenuItem;
+    private focusOverflowMenuItem;
+    private getOverflowFocusableItems;
+    private handleOverflowMenuKeydown;
     private createActionOverflowButton;
     private getHeaderMenuItems;
     private getActiveHiddenControlCount;
-    private getLookAheadMenuOptions;
     private renderActionOverflowMenu;
     private renderHeaderMenuItem;
     private renderLookAheadMenuItem;

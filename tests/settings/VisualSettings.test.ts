@@ -58,15 +58,27 @@ describe("VisualSettings", () => {
         expect(visualSource).toContain("properties: { lookAheadWindowDays: nextDays }");
     });
 
+    it("keeps look-ahead selector and option text compact", () => {
+        const headerSource = readFileSync("src/components/Header.ts", "utf8");
+
+        expect(headerSource).toContain("const LOOK_AHEAD_SELECT_FONT_SIZE = `${UI_TOKENS.fontSize.sm}px`;");
+        expect(headerSource.match(/\.style\("font-size", LOOK_AHEAD_SELECT_FONT_SIZE\)/g)?.length).toBeGreaterThanOrEqual(4);
+        expect(headerSource.match(/\.style\("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT\)/g)?.length).toBe(2);
+        expect(headerSource.match(/\.style\("text-align-last", "left"\)/g)?.length).toBeGreaterThanOrEqual(2);
+    });
+
     it("keeps crowded header controls available through the responsive controls menu", () => {
         const headerSource = readFileSync("src/components/Header.ts", "utf8");
 
-        expect(headerSource).toContain('type HeaderMenuAction');
+        expect(readFileSync("src/utils/HeaderLayout.ts", "utf8")).toContain('export type HeaderMenuAction');
         expect(headerSource).toContain('"floatThreshold"');
         expect(headerSource).toContain('"baseline"');
         expect(headerSource).toContain('"wbsCollapse"');
         expect(headerSource).toContain('Controls and actions');
-        expect(headerSource).toContain('A single menu button is the fallback');
+        expect(headerSource).toContain('aria-controls');
+        expect(headerSource).toContain('focusFirstOverflowMenuItem');
+        expect(headerSource).toContain('attachOverflowOutsideClickHandler');
+        expect(headerSource).toContain('Copy HTML');
         expect(headerSource).toContain('renderLookAheadMenuItem');
         expect(headerSource).toContain('renderFloatThresholdMenuItem');
     });
@@ -101,10 +113,31 @@ describe("VisualSettings", () => {
         expect(properties.showPreviousUpdateDateColumns.type.bool).toBe(true);
     });
 
+    it("keeps task and WBS wrapped label rows anchored consistently", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+
+        expect(visualSource).toContain('anchorMode: "centerBlock" | "firstLineAtCenter" = "firstLineAtCenter"');
+        expect(visualSource).toContain("const wbsRowBandHeight = taskHeight + taskPadding;");
+        expect(visualSource).toContain("availableWidth,\n                    wbsRowBandHeight,\n                    groupNameFontSizePx");
+    });
+
     it("shows comparison date columns when bars are on or when the keep-visible toggle is enabled", () => {
         const visualSource = readFileSync("src/visual.ts", "utf8");
 
         expect(visualSource).toContain("this.boundFields.baselineAvailable && (this.showBaselineInternal || cols.showBaselineDateColumns?.value)");
         expect(visualSource).toContain("this.boundFields.previousUpdateAvailable && (this.showPreviousUpdateInternal || cols.showPreviousUpdateDateColumns?.value)");
+    });
+
+    it("places copy-to-clipboard export metadata after the copied table", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+
+        const tableFragmentIndex = visualSource.indexOf("private generateClipboardTableExportFragment(tableHtml: string)");
+        const tableHtmlIndex = visualSource.indexOf("${tableHtml}", tableFragmentIndex);
+        const metadataIndex = visualSource.indexOf("${this.generateClipboardExportMetadataFragment()}", tableFragmentIndex);
+
+        expect(tableFragmentIndex).toBeGreaterThan(-1);
+        expect(tableHtmlIndex).toBeGreaterThan(tableFragmentIndex);
+        expect(metadataIndex).toBeGreaterThan(tableHtmlIndex);
+        expect(visualSource).not.toContain("injectClipboardExportTimestampCell");
     });
 });

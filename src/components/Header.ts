@@ -3,6 +3,15 @@ import { select, Selection } from "d3-selection";
 import { VisualSettings } from "../settings";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "../utils/Theme";
 import { BoundFieldState } from "../data/Interfaces";
+import {
+    computeHeaderButtonLayout,
+    getActiveHiddenHeaderControlCount,
+    getLookAheadOptions,
+    HeaderButtonLayout,
+    HeaderDesiredControls,
+    HeaderMenuAction,
+    shouldInlineHeaderFloatThreshold
+} from "../utils/HeaderLayout";
 
 export interface HeaderCallbacks {
     onToggleCriticalPath: () => void;
@@ -50,21 +59,6 @@ export interface HeaderState {
     lookAheadDisplayMode: "filter" | "highlight";
 }
 
-type HeaderMenuAction =
-    | "lookAhead"
-    | "floatThreshold"
-    | "baseline"
-    | "previousUpdate"
-    | "connectorLines"
-    | "columns"
-    | "wbsEnable"
-    | "wbsExpand"
-    | "wbsCollapse"
-    | "copy"
-    | "html"
-    | "pdf"
-    | "help";
-
 type HeaderMenuSection = "Analysis" | "Timeline Layers" | "WBS" | "Actions";
 
 interface HeaderMenuItem {
@@ -78,13 +72,23 @@ interface HeaderMenuItem {
     callback?: () => void;
 }
 
+export type HeaderPalette = Partial<typeof HEADER_DOCK_TOKENS> & { isHighContrast?: boolean };
+
+const LOOK_AHEAD_SELECT_FONT_SIZE = `${UI_TOKENS.fontSize.sm}px`;
+const LOOK_AHEAD_OPTION_LINE_HEIGHT = "1.2";
+
 export class Header {
+    private static nextMenuOrdinal: number = 0;
     private container: Selection<HTMLDivElement, unknown, null, undefined>;
     private svg!: Selection<SVGSVGElement, unknown, null, undefined>;
     private callbacks: HeaderCallbacks;
     private exportButtonLoading: boolean = false;
     private copySuccessTimeout: number | null = null;
     private controlsMenuOpen: boolean = false;
+    private currentLayout: HeaderButtonLayout | null = null;
+    private currentPalette: HeaderPalette = {};
+    private readonly overflowMenuId: string;
+    private overflowDocumentPointerDownHandler: ((event: PointerEvent) => void) | null = null;
 
     // Button Selections
     private toggleButtonGroup!: Selection<SVGGElement, unknown, null, undefined>;
@@ -99,6 +103,7 @@ export class Header {
     constructor(container: Selection<HTMLDivElement, unknown, null, undefined>, callbacks: HeaderCallbacks) {
         this.container = container;
         this.callbacks = callbacks;
+        this.overflowMenuId = `header-controls-menu-${Header.nextMenuOrdinal++}`;
         this.initialize();
     }
 
@@ -118,7 +123,7 @@ export class Header {
     }
 
     private renderDockChrome(): void {
-        const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
+        const layout = this.getCurrentLayout();
         const controlY = UI_TOKENS.spacing.sm;
         const controlHeight = UI_TOKENS.height.standard;
         const shellPaddingY = 4;
@@ -169,11 +174,12 @@ export class Header {
             .attr("y", rowY)
             .attr("width", d => d)
             .attr("height", rowHeight)
-            .attr("rx", 14)
-            .attr("ry", 14)
-            .attr("fill", HEADER_DOCK_TOKENS.shell)
-            .attr("stroke", HEADER_DOCK_TOKENS.commandStroke)
-            .attr("stroke-width", 1);
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", this.getPaletteToken("shell"))
+            .attr("stroke", this.getPaletteToken("commandStroke"))
+            .attr("stroke-width", 1)
+            .attr("stroke-opacity", 0.85);
 
         this.toggleButtonGroup.selectAll<SVGRectElement, GroupRect>(".header-command-group")
             .data(visibleGroups, d => d.key)
@@ -186,11 +192,12 @@ export class Header {
             .attr("y", groupY)
             .attr("width", d => d.width)
             .attr("height", groupHeight)
-            .attr("rx", 10)
-            .attr("ry", 10)
-            .attr("fill", HEADER_DOCK_TOKENS.shell)
-            .attr("stroke", HEADER_DOCK_TOKENS.groupStroke)
-            .attr("stroke-width", 1);
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .attr("fill", this.getPaletteToken("shell"))
+            .attr("stroke", this.getPaletteToken("groupStroke"))
+            .attr("stroke-width", 1)
+            .attr("stroke-opacity", 0.7);
     }
 
     private upsertButton(className: string): Selection<HTMLButtonElement, unknown, null, undefined> {
@@ -230,12 +237,106 @@ export class Header {
         this.container.select<HTMLElement>(`div.${normalized}`).style("display", "none");
     }
 
-    public render(viewportWidth: number, settings: VisualSettings, state: HeaderState) {
+    public render(viewportWidth: number, settings: VisualSettings, state: HeaderState, palette: HeaderPalette = {}) {
         this.currentViewportWidth = viewportWidth;
         this.currentSettings = settings;
         this.currentState = state;
+        this.currentPalette = palette;
+        this.currentLayout = null;
+        this.currentLayout = this.getHeaderButtonLayout(viewportWidth, settings, state);
 
         this.renderButtons();
+        this.applyHeaderPaletteOverrides();
+    }
+
+    public destroy(): void {
+        this.detachOverflowOutsideClickHandler();
+
+        if (this.copySuccessTimeout !== null) {
+            clearTimeout(this.copySuccessTimeout);
+            this.copySuccessTimeout = null;
+        }
+    }
+
+    private getCurrentLayout(): HeaderButtonLayout {
+        if (!this.currentLayout) {
+            this.currentLayout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
+        }
+
+        return this.currentLayout;
+    }
+
+    private getPaletteToken<K extends keyof typeof HEADER_DOCK_TOKENS>(key: K): (typeof HEADER_DOCK_TOKENS)[K] {
+        return this.currentPalette[key] ?? HEADER_DOCK_TOKENS[key];
+    }
+
+    private applyHeaderPaletteOverrides(): void {
+        if (!this.currentPalette.isHighContrast) {
+            return;
+        }
+
+        const foreground = this.getPaletteToken("buttonText");
+        const background = this.getPaletteToken("shell");
+        const border = this.getPaletteToken("buttonStroke");
+        const inputBackground = this.getPaletteToken("inputBg");
+
+        this.toggleButtonGroup
+            .selectAll<SVGRectElement, unknown>(".header-command-shell, .header-command-group")
+            .attr("fill", background)
+            .attr("stroke", border)
+            .attr("stroke-width", 1.5);
+
+        this.container
+            .selectAll<HTMLButtonElement, unknown>("button.header-toggle-button")
+            .style("background-color", "transparent")
+            .style("color", foreground);
+
+        this.container
+            .selectAll<SVGRectElement, unknown>("button.header-toggle-button svg rect")
+            .attr("fill", background)
+            .attr("stroke", border)
+            .style("fill", background)
+            .style("stroke", border);
+
+        this.container
+            .selectAll<SVGPathElement | SVGLineElement, unknown>("button.header-toggle-button svg path, button.header-toggle-button svg line")
+            .attr("stroke", foreground)
+            .style("stroke", foreground);
+
+        this.container
+            .selectAll<SVGCircleElement, unknown>("button.header-toggle-button svg circle")
+            .attr("stroke", foreground)
+            .attr("fill", background)
+            .style("stroke", foreground)
+            .style("fill", background);
+
+        this.container
+            .selectAll<SVGTextElement, unknown>("button.header-toggle-button svg text")
+            .style("fill", foreground);
+
+        this.container
+            .selectAll<HTMLDivElement, unknown>("div.look-ahead-control-wrapper, div.float-threshold-wrapper")
+            .style("background-color", background)
+            .style("border", `1.5px solid ${border}`)
+            .style("box-shadow", "none")
+            .style("color", foreground);
+
+        this.container
+            .selectAll<HTMLSelectElement | HTMLInputElement, unknown>("div.look-ahead-control-wrapper select, div.float-threshold-wrapper input, div.action-overflow-menu select, div.action-overflow-menu input")
+            .style("color", foreground)
+            .style("background-color", inputBackground)
+            .style("border", `1.5px solid ${border}`);
+
+        this.container
+            .selectAll<HTMLDivElement, unknown>("div.action-overflow-menu")
+            .style("background-color", background)
+            .style("border", `1.5px solid ${border}`)
+            .style("box-shadow", "none")
+            .style("color", foreground);
+
+        this.container
+            .selectAll<HTMLElement, unknown>("div.action-overflow-menu button, div.action-overflow-menu span, div.action-overflow-menu div")
+            .style("color", foreground);
     }
 
     private renderButtons() {
@@ -600,7 +701,6 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonWidth}px`)
             .style("height", `${buttonHeight}px`)
-            .style("height", `${buttonHeight}px`)
             .style("padding", "0")
             .style("box-sizing", "border-box")
             .style("display", "flex")
@@ -671,26 +771,34 @@ export class Header {
                 .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
 
             iconG.append("path")
-                .attr("d", "M 0,-7 L 8,7 L -8,7 Z")
-                .attr("fill", UI_TOKENS.color.danger.default)
-                .attr("stroke", UI_TOKENS.color.danger.default)
-                .attr("stroke-width", 4)
+                .attr("d", "M-7,-7 H7 L2,0 V6 L-2,7 V0 Z")
+                .attr("fill", "none")
+                .attr("stroke", iconColor)
+                .attr("stroke-width", 1.8)
                 .attr("stroke-linejoin", "round")
                 .attr("stroke-linecap", "round");
 
             iconG.append("rect")
-                .attr("x", -1.25)
-                .attr("y", -3)
-                .attr("width", 2.5)
-                .attr("height", 5.5)
-                .attr("rx", 1.25)
-                .attr("fill", UI_TOKENS.color.neutral.white);
+                .attr("x", -6)
+                .attr("y", -3.3)
+                .attr("width", 7.2)
+                .attr("height", 1.7)
+                .attr("rx", 0.85)
+                .attr("fill", iconColor);
+
+            iconG.append("rect")
+                .attr("x", -6)
+                .attr("y", 1.3)
+                .attr("width", 4.8)
+                .attr("height", 1.7)
+                .attr("rx", 0.85)
+                .attr("fill", iconColor);
 
             iconG.append("circle")
-                .attr("cx", 0)
-                .attr("cy", 5)
-                .attr("r", 1.5)
-                .attr("fill", UI_TOKENS.color.neutral.white);
+                .attr("cx", 5.4)
+                .attr("cy", -5.3)
+                .attr("r", 1.8)
+                .attr("fill", HEADER_DOCK_TOKENS.danger);
         }
 
         btn.append("title")
@@ -726,7 +834,6 @@ export class Header {
         const showBaseline = this.currentState.showBaseline;
 
         const baselineColor = this.currentSettings.comparisonBars.baselineColor.value.value;
-        const previousUpdateColor = this.currentSettings.comparisonBars.previousUpdateColor.value.value;
         const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
         const buttonStroke = showBaseline ? baselineColor : HEADER_DOCK_TOKENS.buttonStroke;
         const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
@@ -758,7 +865,6 @@ export class Header {
             .style("left", `${buttonX}px`)
             .style("top", `${buttonY}px`)
             .style("width", `${buttonWidth}px`)
-            .style("height", `${buttonHeight}px`)
             .style("height", `${buttonHeight}px`)
             .style("padding", "0")
             .style("box-sizing", "border-box")
@@ -795,45 +901,46 @@ export class Header {
             .attr("stroke", buttonStroke)
             .attr("stroke-width", showBaseline ? 1.5 : 1);
 
-        const iconX = iconOnly ? (buttonWidth / 2 - 8) : (UI_TOKENS.spacing.lg + 2);
+        const iconX = iconOnly ? (buttonWidth / 2) : (UI_TOKENS.spacing.lg + 2);
         const iconY = buttonHeight / 2;
 
         const iconG = svg.append("g")
             .attr("transform", `translate(${iconX}, ${iconY})`);
 
-        iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", -7.75)
-            .attr("width", 16)
-            .attr("height", 4.5)
-            .attr("rx", 2)
-            .attr("ry", 2)
-            .attr("fill", showBaseline ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey90);
+        iconG.append("line")
+            .attr("x1", -8)
+            .attr("x2", 8)
+            .attr("y1", 6)
+            .attr("y2", 6)
+            .attr("stroke", showBaseline ? baselineColor : UI_TOKENS.color.neutral.grey60)
+            .attr("stroke-width", 2)
+            .attr("stroke-linecap", "round");
 
         iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", -1.25)
-            .attr("width", 16)
-            .attr("height", 3.5)
-            .attr("rx", 1.5)
-            .attr("ry", 1.5)
-            .attr("fill", showBaseline ? previousUpdateColor : UI_TOKENS.color.neutral.grey60)
-            .style("opacity", showBaseline ? "1" : "0.6");
-
-        iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", 4.25)
-            .attr("width", 16)
-            .attr("height", 3.5)
-            .attr("rx", 1.5)
-            .attr("ry", 1.5)
+            .attr("x", -7)
+            .attr("y", -1)
+            .attr("width", 14)
+            .attr("height", 4)
+            .attr("rx", 1.8)
+            .attr("ry", 1.8)
             .attr("fill", showBaseline ? baselineColor : UI_TOKENS.color.neutral.grey60)
-            .style("opacity", showBaseline ? "1" : "0.6");
+            .style("opacity", showBaseline ? "1" : "0.7");
+
+        iconG.append("text")
+            .attr("x", 0)
+            .attr("y", -5.8)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "7px")
+            .style("font-weight", "800")
+            .style("fill", showBaseline ? HEADER_DOCK_TOKENS.buttonText : UI_TOKENS.color.neutral.grey60)
+            .text("BL");
 
         if (!iconOnly) {
             svg.append("text")
                 .attr("class", "toggle-text")
-                .attr("x", iconX + 26)
+                .attr("x", iconX + 18)
                 .attr("y", buttonHeight / 2)
                 .attr("dominant-baseline", "central")
                 .style("font-family", "Segoe UI, sans-serif")
@@ -889,7 +996,6 @@ export class Header {
         const showPreviousUpdate = this.currentState.showPreviousUpdate;
 
         const previousUpdateColor = this.currentSettings.comparisonBars.previousUpdateColor.value.value;
-        const baselineColor = this.currentSettings.comparisonBars.baselineColor.value.value;
         const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
         const buttonStroke = showPreviousUpdate ? previousUpdateColor : HEADER_DOCK_TOKENS.buttonStroke;
         const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
@@ -921,7 +1027,6 @@ export class Header {
             .style("left", `${buttonX}px`)
             .style("top", `${buttonY}px`)
             .style("width", `${buttonWidth}px`)
-            .style("height", `${buttonHeight}px`)
             .style("height", `${buttonHeight}px`)
             .style("padding", "0")
             .style("box-sizing", "border-box")
@@ -958,45 +1063,45 @@ export class Header {
             .attr("stroke", buttonStroke)
             .attr("stroke-width", showPreviousUpdate ? 1.5 : 1);
 
-        const iconX = iconOnly ? (buttonWidth / 2 - 8) : (UI_TOKENS.spacing.lg + 2);
+        const iconX = iconOnly ? (buttonWidth / 2) : (UI_TOKENS.spacing.lg + 2);
         const iconY = buttonHeight / 2;
 
         const iconG = svg.append("g")
             .attr("transform", `translate(${iconX}, ${iconY})`);
 
-        iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", -7.75)
-            .attr("width", 16)
-            .attr("height", 4.5)
-            .attr("rx", 2)
-            .attr("ry", 2)
-            .attr("fill", showPreviousUpdate ? UI_TOKENS.color.primary.default : UI_TOKENS.color.neutral.grey90);
+        iconG.append("path")
+            .attr("d", "M-8,5.5 H6 M3,2.8 L6,5.5 L3,8.2")
+            .attr("fill", "none")
+            .attr("stroke", showPreviousUpdate ? previousUpdateColor : UI_TOKENS.color.neutral.grey60)
+            .attr("stroke-width", 1.8)
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round");
 
         iconG.append("rect")
-            .attr("x", 0)
-            .attr("y", -1.25)
-            .attr("width", 16)
-            .attr("height", 3.5)
-            .attr("rx", 1.5)
-            .attr("ry", 1.5)
+            .attr("x", -7)
+            .attr("y", -1)
+            .attr("width", 14)
+            .attr("height", 4)
+            .attr("rx", 1.8)
+            .attr("ry", 1.8)
             .attr("fill", showPreviousUpdate ? previousUpdateColor : UI_TOKENS.color.neutral.grey60)
-            .style("opacity", showPreviousUpdate ? "1" : "0.6");
+            .style("opacity", showPreviousUpdate ? "1" : "0.7");
 
-        iconG.append("rect")
+        iconG.append("text")
             .attr("x", 0)
-            .attr("y", 4.25)
-            .attr("width", 16)
-            .attr("height", 3.5)
-            .attr("rx", 1.5)
-            .attr("ry", 1.5)
-            .attr("fill", showPreviousUpdate ? baselineColor : UI_TOKENS.color.neutral.grey60)
-            .style("opacity", showPreviousUpdate ? "1" : "0.6");
+            .attr("y", -5.8)
+            .attr("text-anchor", "middle")
+            .attr("dominant-baseline", "central")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "7px")
+            .style("font-weight", "800")
+            .style("fill", showPreviousUpdate ? HEADER_DOCK_TOKENS.buttonText : UI_TOKENS.color.neutral.grey60)
+            .text("PV");
 
         if (!iconOnly) {
             svg.append("text")
                 .attr("class", "toggle-text")
-                .attr("x", iconX + 26)
+                .attr("x", iconX + 18)
                 .attr("y", buttonHeight / 2)
                 .attr("dominant-baseline", "central")
                 .style("font-family", "Segoe UI, sans-serif")
@@ -1058,12 +1163,7 @@ export class Header {
     }
 
     private shouldInlineFloatThreshold(viewportWidth: number, state: HeaderState): boolean {
-        if (state.currentMode !== 'floatBased' || !state.showNearCritical) {
-            return false;
-        }
-
-        const mode = this.getExtendedLayoutMode(viewportWidth);
-        return mode === 'wide' || mode === 'medium';
+        return shouldInlineHeaderFloatThreshold(viewportWidth, state.currentMode, state.showNearCritical);
     }
 
     private getTopRightControlWidthBudget(
@@ -1106,376 +1206,40 @@ export class Header {
     /**
      * Returns button dimensions and positions based on current layout mode
      */
-    private getHeaderButtonLayout(viewportWidth: number, settings: VisualSettings, state: HeaderState) {
-        // Extended layout modes for better responsiveness
-        const mode = this.getExtendedLayoutMode(viewportWidth);
+    private getHeaderButtonLayout(viewportWidth: number, settings: VisualSettings, state: HeaderState): HeaderButtonLayout {
+        if (
+            this.currentLayout &&
+            viewportWidth === this.currentViewportWidth &&
+            settings === this.currentSettings &&
+            state === this.currentState
+        ) {
+            return this.currentLayout;
+        }
 
-        // Reserve space for right-side controls
-        const baseRightReserved = this.getBaseRightReserved(mode);
-        const topRightBudget = this.getTopRightControlWidthBudget(viewportWidth, state);
-        const rightReserved = Math.max(baseRightReserved, topRightBudget.maxWidth + 24);
-        const availableWidth = viewportWidth - rightReserved;
-
-        // Gap between buttons based on mode
-        const gap = mode === 'wide' ? 12 : (mode === 'medium' ? 8 : (mode === 'narrow' ? 6 : 4));
-        // Using UI_TOKENS for sizes would be ideal but logic uses hardcoded numbers in visual.ts mostly
-        // We can map them:
-        const iconButtonSize = UI_TOKENS.height.standard;
-        const smallIconSize = UI_TOKENS.height.standard;
-
-        // Calculate dimensions for each button type based on mode
-        const showAllWidth = iconButtonSize; // Force icon-only
-        const modeWidth = mode === 'wide' ? 150 : (mode === 'medium' ? 130 : iconButtonSize); // Keep mode somewhat wide or icon
-        const lookAheadWidth = mode === 'wide' ? 88 : (mode === 'medium' ? 82 : (mode === 'narrow' ? 74 : 66));
-        const baselineWidth = iconButtonSize;
-        const prevWidth = iconButtonSize;
-        const wbsEnableWidth = iconButtonSize;
-
-        // Calculate total width needed for all buttons
-        const allButtonWidths = [
-            showAllWidth,
-            modeWidth,
-            lookAheadWidth,
-            baselineWidth,
-            prevWidth,
-            iconButtonSize, // connector lines
-            iconButtonSize, // column toggle
-            wbsEnableWidth,
-            iconButtonSize, // wbs expand
-            iconButtonSize, // wbs collapse
-            smallIconSize,  // copy
-            smallIconSize,  // export html
-            smallIconSize,  // export
-            smallIconSize   // help
-        ];
-
-        const numButtons = allButtonWidths.length;
-        // const totalNeeded = allButtonWidths.reduce((a, b) => a + b, 0) + (numButtons - 1) * gap;
-
-        const desiredControls = {
+        const desiredControls: HeaderDesiredControls = {
             lookAhead: true,
-            floatThreshold: state.currentMode === 'floatBased' && state.showNearCritical,
+            floatThreshold: state.currentMode === "floatBased" && state.showNearCritical,
             baseline: true,
             previousUpdate: true,
             connectorLines: settings.connectorLines?.showConnectorToggle?.value ?? false,
             columns: settings.columns?.showColumnToggleButton?.value ?? true,
             wbsEnable: state.wbsDataExists && (settings.wbsGrouping?.showWbsToggle?.value ?? true),
-            wbsExpand: state.wbsDataExists && (settings.wbsGrouping?.enableWbsGrouping?.value ?? true),
-            wbsCollapse: state.wbsDataExists && (settings.wbsGrouping?.enableWbsGrouping?.value ?? true),
+            wbsExpand: state.wbsDataExists && state.wbsEnabled,
+            wbsCollapse: state.wbsDataExists && state.wbsEnabled,
             copyButton: true,
             htmlExportButton: settings.generalSettings?.showExportButton?.value ?? true,
             exportButton: settings.generalSettings?.showExportButton?.value ?? true,
             helpButton: true
         };
 
-        let visibleButtons = {
-            showAll: true,
-            modeToggle: true,
-            lookAhead: desiredControls.lookAhead,
-            baseline: desiredControls.baseline,
-            previousUpdate: desiredControls.previousUpdate,
-            connectorLines: desiredControls.connectorLines,
-            colToggle: desiredControls.columns,
-            wbsEnable: desiredControls.wbsEnable,
-            wbsExpand: desiredControls.wbsExpand,
-            wbsCollapse: desiredControls.wbsCollapse,
-            copyButton: false,
-            htmlExportButton: false,
-            exportButton: false,
-            helpButton: false
-        };
-
-        if (mode === 'medium') {
-            visibleButtons.wbsCollapse = false;
-            visibleButtons.wbsExpand = false;
-            visibleButtons.connectorLines = false;
-            visibleButtons.colToggle = false;
-        } else if (mode === 'narrow') {
-            visibleButtons.baseline = false;
-            visibleButtons.previousUpdate = false;
-            visibleButtons.connectorLines = false;
-            visibleButtons.colToggle = false;
-            visibleButtons.wbsEnable = false;
-            visibleButtons.wbsExpand = false;
-            visibleButtons.wbsCollapse = false;
-        } else if (mode === 'compact' || mode === 'very-narrow') {
-            visibleButtons.lookAhead = false;
-            visibleButtons.baseline = false;
-            visibleButtons.previousUpdate = false;
-            visibleButtons.connectorLines = false;
-            visibleButtons.colToggle = false;
-            visibleButtons.wbsEnable = false;
-            visibleButtons.wbsExpand = false;
-            visibleButtons.wbsCollapse = false;
-        } else if (viewportWidth < 1240) {
-            visibleButtons.wbsCollapse = false;
-            visibleButtons.wbsExpand = false;
-        }
-
-        const getHiddenControls = (): HeaderMenuAction[] => {
-            const controls: HeaderMenuAction[] = [];
-            if (desiredControls.lookAhead && !visibleButtons.lookAhead) controls.push("lookAhead");
-            if (desiredControls.floatThreshold && !this.shouldInlineFloatThreshold(viewportWidth, state)) controls.push("floatThreshold");
-            if (desiredControls.baseline && !visibleButtons.baseline) controls.push("baseline");
-            if (desiredControls.previousUpdate && !visibleButtons.previousUpdate) controls.push("previousUpdate");
-            if (desiredControls.connectorLines && !visibleButtons.connectorLines) controls.push("connectorLines");
-            if (desiredControls.columns && !visibleButtons.colToggle) controls.push("columns");
-            if (desiredControls.wbsEnable && !visibleButtons.wbsEnable) controls.push("wbsEnable");
-            if (desiredControls.wbsExpand && !visibleButtons.wbsExpand) controls.push("wbsExpand");
-            if (desiredControls.wbsCollapse && !visibleButtons.wbsCollapse) controls.push("wbsCollapse");
-            if (desiredControls.copyButton && !visibleButtons.copyButton) controls.push("copy");
-            if (desiredControls.htmlExportButton && !visibleButtons.htmlExportButton) controls.push("html");
-            if (desiredControls.exportButton && !visibleButtons.exportButton) controls.push("pdf");
-            if (desiredControls.helpButton && !visibleButtons.helpButton) controls.push("help");
-            return controls;
-        };
-
-        let actionOverflowVisible = getHiddenControls().length > 0;
-
-        // Progressive hiding based on available width
-        const calculateVisibleWidth = () => {
-            let width = 0;
-            let count = 0;
-            if (visibleButtons.showAll) { width += showAllWidth; count++; }
-            if (visibleButtons.modeToggle) { width += modeWidth; count++; }
-            if (visibleButtons.lookAhead) { width += lookAheadWidth; count++; }
-            if (visibleButtons.baseline) { width += baselineWidth; count++; }
-            if (visibleButtons.previousUpdate) { width += prevWidth; count++; }
-            if (visibleButtons.connectorLines) { width += iconButtonSize; count++; }
-            if (visibleButtons.colToggle) { width += iconButtonSize; count++; }
-            if (visibleButtons.wbsEnable) { width += wbsEnableWidth; count++; }
-            if (visibleButtons.wbsExpand) { width += iconButtonSize; count++; }
-            if (visibleButtons.wbsCollapse) { width += iconButtonSize; count++; }
-            if (visibleButtons.copyButton) { width += smallIconSize; count++; }
-            if (visibleButtons.htmlExportButton) { width += smallIconSize; count++; }
-            if (visibleButtons.exportButton) { width += smallIconSize; count++; }
-            if (visibleButtons.helpButton) { width += smallIconSize; count++; }
-            if (actionOverflowVisible) { width += smallIconSize; count++; }
-            return width + Math.max(0, count - 1) * gap;
-        };
-
-        const refreshActionOverflow = () => {
-            actionOverflowVisible = getHiddenControls().length > 0;
-            return calculateVisibleWidth();
-        };
-
-        // Progressively hide buttons if needed (in order of decreasing priority)
-        let visibleWidth = calculateVisibleWidth();
-
-        // Hide WBS collapse button first
-        if (visibleWidth > availableWidth && visibleButtons.wbsCollapse) {
-            visibleButtons.wbsCollapse = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Hide WBS expand button
-        if (visibleWidth > availableWidth && visibleButtons.wbsExpand) {
-            visibleButtons.wbsExpand = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Hide WBS enable button
-        if (visibleWidth > availableWidth && visibleButtons.wbsEnable) {
-            visibleButtons.wbsEnable = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Hide column toggle
-        if (visibleWidth > availableWidth && visibleButtons.colToggle) {
-            visibleButtons.colToggle = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Hide connector lines toggle
-        if (visibleWidth > availableWidth && visibleButtons.connectorLines) {
-            visibleButtons.connectorLines = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Hide help button
-        if (visibleWidth > availableWidth && visibleButtons.helpButton) {
-            visibleButtons.helpButton = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Hide HTML export button
-        if (visibleWidth > availableWidth && visibleButtons.htmlExportButton) {
-            visibleButtons.htmlExportButton = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Hide export button
-        if (visibleWidth > availableWidth && visibleButtons.exportButton) {
-            visibleButtons.exportButton = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Hide copy button
-        if (visibleWidth > availableWidth && visibleButtons.copyButton) {
-            visibleButtons.copyButton = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Hide previous update
-        if (visibleWidth > availableWidth && visibleButtons.previousUpdate) {
-            visibleButtons.previousUpdate = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Hide baseline
-        if (visibleWidth > availableWidth && visibleButtons.baseline) {
-            visibleButtons.baseline = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        // Keep look-ahead available as long as the core mode buttons fit.
-        if (visibleWidth > availableWidth && visibleButtons.lookAhead && availableWidth < (showAllWidth + modeWidth + lookAheadWidth + gap * 2)) {
-            visibleButtons.lookAhead = false;
-            visibleWidth = refreshActionOverflow();
-        }
-
-        const hiddenActions = getHiddenControls();
-
-        // Keep the controls menu visible when it is carrying hidden controls.
-        // A single menu button is the fallback that prevents controls from silently disappearing.
-        if (visibleWidth > availableWidth && actionOverflowVisible && hiddenActions.length === 0) {
-            actionOverflowVisible = false;
-            visibleWidth = calculateVisibleWidth();
-        }
-
-        // Now calculate positions for visible buttons
-        let x = 10;
-
-        const showAllCritical = {
-            x,
-            width: showAllWidth,
-            showText: false,
-            visible: visibleButtons.showAll
-        };
-        if (visibleButtons.showAll) x += showAllWidth + gap;
-
-        const modeToggle = {
-            x,
-            width: modeWidth,
-            showFullLabels: mode === 'wide',
-            visible: visibleButtons.modeToggle
-        };
-        if (visibleButtons.modeToggle) x += modeWidth + gap;
-
-        const lookAhead = {
-            x,
-            width: lookAheadWidth,
-            visible: visibleButtons.lookAhead
-        };
-        if (visibleButtons.lookAhead) x += lookAheadWidth + gap;
-
-        const baseline = {
-            x,
-            width: baselineWidth,
-            iconOnly: true,
-            visible: visibleButtons.baseline
-        };
-        if (visibleButtons.baseline) x += baselineWidth + gap;
-
-        const previousUpdate = {
-            x,
-            width: prevWidth,
-            iconOnly: true,
-            visible: visibleButtons.previousUpdate
-        };
-        if (visibleButtons.previousUpdate) x += prevWidth + gap;
-
-        const connectorLines = {
-            x,
-            size: iconButtonSize,
-            visible: visibleButtons.connectorLines
-        };
-        if (visibleButtons.connectorLines) x += iconButtonSize + gap;
-
-        const colToggle = {
-            x,
-            size: iconButtonSize,
-            visible: visibleButtons.colToggle
-        };
-        if (visibleButtons.colToggle) x += iconButtonSize + gap;
-
-        const wbsEnable = {
-            x,
-            width: wbsEnableWidth,
-            visible: visibleButtons.wbsEnable
-        };
-        if (visibleButtons.wbsEnable) x += wbsEnableWidth + gap;
-
-        const wbsExpandToggle = {
-            x,
-            size: iconButtonSize,
-            visible: visibleButtons.wbsExpand
-        };
-        if (visibleButtons.wbsExpand) x += iconButtonSize + gap;
-
-        const wbsCollapseToggle = {
-            x,
-            size: iconButtonSize,
-            visible: visibleButtons.wbsCollapse
-        };
-        if (visibleButtons.wbsCollapse) x += iconButtonSize + gap;
-
-        const copyButton = {
-            x,
-            size: smallIconSize,
-            visible: visibleButtons.copyButton
-        };
-        if (visibleButtons.copyButton) x += smallIconSize + gap;
-
-        const htmlExportButton = {
-            x,
-            size: smallIconSize,
-            visible: visibleButtons.htmlExportButton
-        };
-        if (visibleButtons.htmlExportButton) x += smallIconSize + gap;
-
-        const exportButton = {
-            x,
-            size: smallIconSize,
-            visible: visibleButtons.exportButton
-        };
-        if (visibleButtons.exportButton) x += smallIconSize + gap;
-
-        const helpButton = {
-            x,
-            size: smallIconSize,
-            visible: visibleButtons.helpButton
-        };
-        if (visibleButtons.helpButton) x += smallIconSize + (actionOverflowVisible && hiddenActions.length > 0 ? gap : 0);
-
-        const actionOverflowButton = {
-            x,
-            size: smallIconSize,
-            visible: actionOverflowVisible && hiddenActions.length > 0,
-            hiddenActions
-        };
-        if (actionOverflowButton.visible) x += smallIconSize;
-
-        return {
-            mode,
-            showAllCritical,
-            modeToggle,
-            lookAhead,
-            colToggle,
-            baseline,
-            previousUpdate,
-            connectorLines,
-            wbsEnable,
-            wbsExpandToggle,
-            wbsCollapseToggle,
-            copyButton,
-            htmlExportButton,
-            exportButton,
-            helpButton,
-            actionOverflowButton,
-            gap,
-            totalWidth: x
-        };
+        return computeHeaderButtonLayout({
+            viewportWidth,
+            currentMode: state.currentMode,
+            showNearCritical: state.showNearCritical,
+            showPathInfoChip: state.showPathInfoChip,
+            lookAheadActive: Math.max(0, Math.round(state.lookAheadWindowDays || 0)) > 0,
+            desiredControls
+        });
     }
 
     private createConnectorLinesToggleButton(): void {
@@ -1510,7 +1274,6 @@ export class Header {
             .style("left", `${buttonX}px`)
             .style("top", `${buttonY}px`)
             .style("width", `${buttonSize}px`) // Square button
-            .style("height", `${buttonSize}px`)
             .style("height", `${buttonSize}px`)
             .style("padding", "0")
             .style("box-sizing", "border-box")
@@ -1620,7 +1383,6 @@ export class Header {
             .style("left", `${buttonX}px`)
             .style("top", `${buttonY}px`)
             .style("width", `${buttonSize}px`)
-            .style("height", `${buttonSize}px`)
             .style("height", `${buttonSize}px`)
             .style("padding", "0")
             .style("box-sizing", "border-box")
@@ -1732,7 +1494,6 @@ export class Header {
             .style("left", `${buttonX}px`)
             .style("top", `${buttonY}px`)
             .style("width", `${buttonSize}px`)
-            .style("height", `${buttonSize}px`)
             .style("height", `${buttonSize}px`)
             .style("padding", "0")
             .style("box-sizing", "border-box")
@@ -2151,24 +1912,11 @@ export class Header {
         const isCompact = controlWidth < 76;
         const selectWidth = isCompact ? Math.max(42, controlWidth - 10) : Math.max(46, controlWidth - 33);
 
-        const options = [
-            { value: 0, label: "Off" },
-            { value: 14, label: "2W" },
-            { value: 21, label: "3W" },
-            { value: 28, label: "4W" },
-            { value: 42, label: "6W" },
-            { value: 56, label: "8W" },
-            { value: 84, label: "12W" }
-        ];
-
-        if (activeDays > 0 && !options.some(option => option.value === activeDays)) {
-            options.push({ value: activeDays, label: `${activeDays}d` });
-            options.sort((a, b) => a.value - b.value);
-        }
+        const options = getLookAheadOptions(activeDays);
 
         const wrapper = this.upsertDiv("look-ahead-control-wrapper")
             .attr("role", "group")
-            .attr("aria-label", "Look-ahead task filter")
+            .attr("aria-label", `Look-ahead ${displayModeText} window: ${activeDays > 0 ? `${activeDays} days` : "Off"}`)
             .attr("title", title)
             .style("position", "absolute")
             .style("left", `${controlX}px`)
@@ -2211,8 +1959,10 @@ export class Header {
             .style("appearance", "none")
             .style("-webkit-appearance", "none")
             .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
+            .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("line-height", "1")
+            .style("text-align-last", "left")
             .style("color", HEADER_DOCK_TOKENS.buttonText)
             .style("background-color", isActive ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.inputBg)
             .style("cursor", isAvailable ? "pointer" : "not-allowed")
@@ -2241,6 +1991,10 @@ export class Header {
             .enter()
             .append("option")
             .attr("value", option => String(option.value))
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
+            .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
             .text(option => option.label);
 
         selectEl.property("value", String(activeDays));
@@ -2273,7 +2027,6 @@ export class Header {
             .style("left", `${buttonX}px`)
             .style("top", `${buttonY}px`)
             .style("width", `${buttonSize}px`)
-            .style("height", `${buttonSize}px`)
             .style("height", `${buttonSize}px`)
             .style("padding", "0")
             .style("box-sizing", "border-box")
@@ -2363,7 +2116,6 @@ export class Header {
             .style("top", `${buttonY}px`)
             .style("width", `${buttonWidth}px`)
             .style("height", `${buttonHeight}px`)
-            .style("height", `${buttonHeight}px`)
             .style("padding", "0")
             .style("box-sizing", "border-box")
             .style("display", "flex")
@@ -2446,7 +2198,6 @@ export class Header {
             .style("left", `${buttonX}px`)
             .style("top", `${buttonY}px`)
             .style("width", `${buttonSize}px`)
-            .style("height", `${buttonSize}px`)
             .style("height", `${buttonSize}px`)
             .style("padding", "0")
             .style("box-sizing", "border-box")
@@ -2631,8 +2382,8 @@ export class Header {
 
         const btn = this.upsertButton("export-html-button-group")
             .attr("type", "button")
-            .attr("aria-label", "Export visual as HTML")
-            .attr("title", "Export visual as HTML")
+            .attr("aria-label", "Copy HTML export to clipboard")
+            .attr("title", "Copy HTML export to clipboard")
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -2793,14 +2544,108 @@ export class Header {
             });
     }
 
+    private attachOverflowOutsideClickHandler(): void {
+        if (this.overflowDocumentPointerDownHandler) {
+            return;
+        }
+
+        this.overflowDocumentPointerDownHandler = (event: PointerEvent) => {
+            const target = event.target as Node | null;
+            const menuNode = this.container.select<HTMLDivElement>(`#${this.overflowMenuId}`).node();
+            const buttonNode = this.container.select<HTMLButtonElement>("button.action-overflow-button-group").node();
+
+            if (!target || menuNode?.contains(target) || buttonNode?.contains(target)) {
+                return;
+            }
+
+            this.closeControlsMenu(false);
+        };
+
+        document.addEventListener("pointerdown", this.overflowDocumentPointerDownHandler, true);
+    }
+
+    private detachOverflowOutsideClickHandler(): void {
+        if (!this.overflowDocumentPointerDownHandler) {
+            return;
+        }
+
+        document.removeEventListener("pointerdown", this.overflowDocumentPointerDownHandler, true);
+        this.overflowDocumentPointerDownHandler = null;
+    }
+
+    private closeControlsMenu(returnFocus: boolean = true): void {
+        this.controlsMenuOpen = false;
+        this.detachOverflowOutsideClickHandler();
+
+        this.container.select<HTMLDivElement>("div.action-overflow-menu")
+            .style("display", "none");
+
+        const button = this.container.select<HTMLButtonElement>("button.action-overflow-button-group")
+            .attr("aria-expanded", "false");
+
+        if (returnFocus) {
+            button.node()?.focus();
+        }
+    }
+
+    private focusFirstOverflowMenuItem(): void {
+        this.getOverflowFocusableItems()[0]?.focus();
+    }
+
+    private focusOverflowMenuItem(direction: 1 | -1): void {
+        const items = this.getOverflowFocusableItems();
+        if (items.length === 0) {
+            return;
+        }
+
+        const activeElement = document.activeElement as HTMLElement | null;
+        const currentIndex = activeElement ? items.indexOf(activeElement) : -1;
+        const nextIndex = currentIndex === -1
+            ? (direction > 0 ? 0 : items.length - 1)
+            : (currentIndex + direction + items.length) % items.length;
+
+        items[nextIndex]?.focus();
+    }
+
+    private getOverflowFocusableItems(): HTMLElement[] {
+        const menuNode = this.container.select<HTMLDivElement>(`#${this.overflowMenuId}`).node();
+        if (!menuNode) {
+            return [];
+        }
+
+        return Array.from(menuNode.querySelectorAll<HTMLElement>(
+            "button:not([disabled]), select:not([disabled]), input:not([disabled])"
+        )).filter(item => item.getAttribute("aria-hidden") !== "true");
+    }
+
+    private handleOverflowMenuKeydown(event: KeyboardEvent): void {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            this.closeControlsMenu(true);
+            return;
+        }
+
+        const tagName = (event.target as HTMLElement | null)?.tagName?.toLowerCase();
+        if (tagName === "select" || tagName === "input" || tagName === "textarea") {
+            return;
+        }
+
+        if (event.key === "ArrowDown") {
+            event.preventDefault();
+            this.focusOverflowMenuItem(1);
+        } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            this.focusOverflowMenuItem(-1);
+        }
+    }
+
     private createActionOverflowButton(): void {
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: buttonX, size: buttonSize, visible, hiddenActions } = layout.actionOverflowButton;
 
         if (!visible || hiddenActions.length === 0) {
             this.hideControl("action-overflow-button-group");
-            this.container.select<HTMLDivElement>("div.action-overflow-menu").style("display", "none");
-            this.controlsMenuOpen = false;
+            this.closeControlsMenu(false);
             return;
         }
 
@@ -2818,6 +2663,7 @@ export class Header {
             .attr("title", title)
             .attr("aria-haspopup", "dialog")
             .attr("aria-expanded", String(this.controlsMenuOpen))
+            .attr("aria-controls", this.overflowMenuId)
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -2834,9 +2680,16 @@ export class Header {
             .style("z-index", "45")
             .on("click", (event) => {
                 event.stopPropagation();
-                this.controlsMenuOpen = !this.controlsMenuOpen;
-                this.renderActionOverflowMenu(buttonX, buttonSize, hiddenActions);
-                btn.attr("aria-expanded", String(this.controlsMenuOpen));
+                if (this.controlsMenuOpen) {
+                    this.closeControlsMenu(true);
+                    return;
+                }
+
+                this.controlsMenuOpen = true;
+                this.renderActionOverflowMenu(buttonX, buttonSize, hiddenActions, true);
+                this.attachOverflowOutsideClickHandler();
+                this.applyHeaderPaletteOverrides();
+                btn.attr("aria-expanded", "true");
             });
 
         const svg = btn.append("svg")
@@ -3005,7 +2858,7 @@ export class Header {
                 callback: this.callbacks.onToggleWbsCollapse
             },
             copy: { id: "copy", section: "Actions", label: "Copy data", callback: this.callbacks.onCopy },
-            html: { id: "html", section: "Actions", label: "Export HTML", callback: this.callbacks.onExportHtml },
+            html: { id: "html", section: "Actions", label: "Copy HTML", title: "Copy formatted HTML export to the clipboard.", callback: this.callbacks.onExportHtml },
             pdf: { id: "pdf", section: "Actions", label: "Export PDF", callback: this.callbacks.onExport },
             help: { id: "help", section: "Actions", label: "Help", callback: this.callbacks.onHelp }
         };
@@ -3014,65 +2867,33 @@ export class Header {
     }
 
     private getActiveHiddenControlCount(actions: HeaderMenuAction[]): number {
-        return actions.reduce((count, action) => {
-            switch (action) {
-                case "lookAhead":
-                    return count + (this.currentState.lookAheadWindowDays > 0 ? 1 : 0);
-                case "floatThreshold":
-                    return count + 1;
-                case "baseline":
-                    return count + (this.currentState.showBaseline ? 1 : 0);
-                case "previousUpdate":
-                    return count + (this.currentState.showPreviousUpdate ? 1 : 0);
-                case "connectorLines":
-                    return count + (this.currentState.showConnectorLines ? 1 : 0);
-                case "columns":
-                    return count + (this.currentState.showExtraColumns ? 1 : 0);
-                case "wbsEnable":
-                    return count + (this.currentState.wbsEnabled ? 1 : 0);
-                default:
-                    return count;
-            }
-        }, 0);
+        return getActiveHiddenHeaderControlCount(actions, {
+            lookAheadWindowDays: this.currentState.lookAheadWindowDays,
+            showBaseline: this.currentState.showBaseline,
+            showPreviousUpdate: this.currentState.showPreviousUpdate,
+            showConnectorLines: this.currentState.showConnectorLines,
+            showExtraColumns: this.currentState.showExtraColumns,
+            wbsEnabled: this.currentState.wbsEnabled
+        });
     }
 
-    private getLookAheadMenuOptions(activeDays: number): Array<{ value: number; label: string }> {
-        const options = [
-            { value: 0, label: "Off" },
-            { value: 14, label: "2W" },
-            { value: 21, label: "3W" },
-            { value: 28, label: "4W" },
-            { value: 42, label: "6W" },
-            { value: 56, label: "8W" },
-            { value: 84, label: "12W" }
-        ];
-
-        if (activeDays > 0 && !options.some(option => option.value === activeDays)) {
-            options.push({ value: activeDays, label: `${activeDays}d` });
-            options.sort((a, b) => a.value - b.value);
-        }
-
-        return options;
-    }
-
-    private renderActionOverflowMenu(buttonX: number, buttonSize: number, hiddenActions: HeaderMenuAction[]): void {
+    private renderActionOverflowMenu(
+        buttonX: number,
+        buttonSize: number,
+        hiddenActions: HeaderMenuAction[],
+        focusFirstItem: boolean = false
+    ): void {
         const menu = this.upsertDiv("action-overflow-menu")
+            .attr("id", this.overflowMenuId)
             .attr("role", "dialog")
             .attr("aria-label", "Visual controls and actions")
             .attr("aria-modal", "false")
             .on("click", event => event.stopPropagation())
-            .on("keydown", (event: KeyboardEvent) => {
-                if (event.key === "Escape") {
-                    this.controlsMenuOpen = false;
-                    menu.style("display", "none");
-                    this.container.select<HTMLButtonElement>("button.action-overflow-button-group")
-                        .attr("aria-expanded", "false")
-                        .node()?.focus();
-                }
-            });
+            .on("keydown", (event: KeyboardEvent) => this.handleOverflowMenuKeydown(event));
 
         if (!this.controlsMenuOpen) {
             menu.style("display", "none");
+            this.detachOverflowOutsideClickHandler();
             return;
         }
 
@@ -3122,13 +2943,16 @@ export class Header {
                 .style("color", HEADER_DOCK_TOKENS.chipMuted)
                 .text(section);
 
-            sectionItems.forEach(item => this.renderHeaderMenuItem(sectionEl, menu, item));
+            sectionItems.forEach(item => this.renderHeaderMenuItem(sectionEl, item));
         });
+
+        if (focusFirstItem) {
+            window.setTimeout(() => this.focusFirstOverflowMenuItem(), 0);
+        }
     }
 
     private renderHeaderMenuItem(
         sectionEl: Selection<HTMLDivElement, unknown, null, undefined>,
-        menu: Selection<HTMLDivElement, unknown, null, undefined>,
         item: HeaderMenuItem
     ): void {
         if (item.kind === "select") {
@@ -3175,10 +2999,7 @@ export class Header {
                     return;
                 }
 
-                this.controlsMenuOpen = false;
-                menu.style("display", "none");
-                this.container.select<HTMLButtonElement>("button.action-overflow-button-group")
-                    .attr("aria-expanded", "false");
+                this.closeControlsMenu(true);
                 item.callback();
             });
 
@@ -3230,23 +3051,29 @@ export class Header {
             .style("border-radius", "4px")
             .style("padding", "0 4px")
             .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", "12px")
+            .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("line-height", "1")
+            .style("text-align-last", "left")
             .style("color", HEADER_DOCK_TOKENS.buttonText)
             .style("background-color", HEADER_DOCK_TOKENS.inputBg)
             .style("cursor", item.disabled ? "not-allowed" : "pointer")
             .on("change", (event) => {
                 event.stopPropagation();
                 const value = parseInt((event.target as HTMLSelectElement).value, 10);
-                this.controlsMenuOpen = false;
+                this.closeControlsMenu(true);
                 this.callbacks.onLookAheadWindowChanged(Number.isFinite(value) ? value : 0);
             });
 
         selectEl.selectAll("option")
-            .data(this.getLookAheadMenuOptions(activeDays))
+            .data(getLookAheadOptions(activeDays))
             .enter()
             .append("option")
             .attr("value", option => String(option.value))
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
+            .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
             .text(option => option.label);
 
         selectEl.property("value", String(activeDays));
@@ -3295,7 +3122,7 @@ export class Header {
                 event.stopPropagation();
                 const value = parseFloat((event.target as HTMLInputElement).value);
                 if (Number.isFinite(value) && value >= 0) {
-                    this.controlsMenuOpen = false;
+                    this.closeControlsMenu(true);
                     this.callbacks.onFloatThresholdChanged(value);
                 }
             });

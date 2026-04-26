@@ -25,7 +25,7 @@ import { jsPDF } from "jspdf";
 import { VisualSettings } from "./settings";
 import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 import { DataProcessor, ProcessedData } from "./data/DataProcessor";
-import { Header, HeaderCallbacks, HeaderState } from "./components/Header";
+import { Header, HeaderCallbacks, HeaderPalette, HeaderState } from "./components/Header";
 import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState, DataQualityInfo } from "./data/Interfaces";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "./utils/Theme";
 import {
@@ -56,6 +56,7 @@ import {
     MIN_WBS_TASK_NAME_WIDTH,
     packLabelColumns
 } from "./utils/ColumnLayout";
+import { computeSecondRowLayout } from "./utils/HeaderLayout";
 
 type DrivingChain = {
     tasks: Set<string>;
@@ -471,42 +472,15 @@ export class Visual implements IVisual {
         floatThreshold: { maxWidth: number };
     } {
         const mode = this.getLayoutMode(viewportWidth);
+        const defaultWidth = mode === "wide" ? 350 : (mode === "medium" ? 280 : 200);
 
-        const defaultWidth = mode === 'wide' ? 350 : (mode === 'medium' ? 280 : 200);
-        const configuredWidth = this.settings?.pathSelection?.dropdownWidth?.value ?? defaultWidth;
-        const minWidth = 150;
-        const maxWidth = Math.max(minWidth, viewportWidth - 20);
-        const dropdownWidth = Math.min(Math.max(configuredWidth, minWidth), maxWidth);
-
-        const position = this.settings?.pathSelection?.dropdownPosition?.value?.value || "left";
-        const horizontalPadding = 10;
-        const maxLeft = Math.max(horizontalPadding, viewportWidth - dropdownWidth - horizontalPadding);
-        let dropdownLeft = horizontalPadding;
-
-        if (position === "center") {
-            dropdownLeft = (viewportWidth - dropdownWidth) / 2;
-        } else if (position === "right") {
-            dropdownLeft = viewportWidth - dropdownWidth - horizontalPadding;
-        }
-
-        dropdownLeft = Math.max(horizontalPadding, Math.min(dropdownLeft, maxLeft));
-
-        const traceButtonWidth = mode === "narrow" ? 30 : (mode === "medium" ? 68 : 92);
-        const traceContainerWidth = (traceButtonWidth * 2) + 10;
-        const traceGap = 12;
-        const traceModeLeft = dropdownLeft + dropdownWidth + traceGap;
-        const statusGap = 12;
-        const statusLeft = traceModeLeft + traceContainerWidth + statusGap;
-        const statusWidth = Math.max(0, viewportWidth - statusLeft - horizontalPadding);
-
-        const floatThresholdMaxWidth = mode === 'narrow' ? 180 : 250;
-
-        return {
-            dropdown: { width: dropdownWidth, left: dropdownLeft },
-            traceModeToggle: { left: traceModeLeft, width: traceContainerWidth },
-            statusLabel: { left: statusLeft, width: statusWidth },
-            floatThreshold: { maxWidth: floatThresholdMaxWidth }
-        };
+        return computeSecondRowLayout({
+            viewportWidth,
+            mode,
+            configuredDropdownWidth: this.settings?.pathSelection?.dropdownWidth?.value ?? defaultWidth,
+            dropdownPosition: String(this.settings?.pathSelection?.dropdownPosition?.value?.value || "left"),
+            traceVisible: this.isTraceModeToggleVisible()
+        });
     }
 
     private getSecondRowControlTop(controlHeight: number): number {
@@ -856,7 +830,7 @@ export class Visual implements IVisual {
         maxWidth: number,
         maxLines: number,
         fontSizePx: number,
-        anchorMode: "centerBlock" | "firstLineAtCenter" = "centerBlock"
+        anchorMode: "centerBlock" | "firstLineAtCenter" = "firstLineAtCenter"
     ): void {
         const lines = this.getWrappedSvgTextLines(textElement, value, maxWidth, maxLines);
         textElement.text(null);
@@ -2152,6 +2126,7 @@ export class Visual implements IVisual {
 
         // Clean up help overlay if visible
         this.clearHelpOverlay();
+        this.header?.destroy();
         this.hideWbsHeaderContextMenu();
         this.wbsHeaderContextMenu?.remove();
         this.wbsHeaderContextMenu = null;
@@ -6088,6 +6063,57 @@ export class Visual implements IVisual {
         return this.getPackedLabelColumns().totalLeftPaneWidth;
     }
 
+    private getResolvedHeaderPalette(): HeaderPalette {
+        if (!this.highContrastMode) {
+            return {};
+        }
+
+        const foreground = this.highContrastForeground;
+        const background = this.highContrastBackground;
+        const selected = this.highContrastForegroundSelected || foreground;
+
+        return {
+            isHighContrast: true,
+            shell: background,
+            commandBg: background,
+            commandStroke: foreground,
+            contextBg: background,
+            contextStroke: foreground,
+            groupBg: background,
+            groupStroke: foreground,
+            buttonBg: background,
+            buttonHoverBg: background,
+            buttonStroke: foreground,
+            buttonHoverStroke: selected,
+            buttonText: foreground,
+            buttonMuted: foreground,
+            buttonSubtle: foreground,
+            chipBg: background,
+            chipStroke: foreground,
+            chipText: foreground,
+            chipMuted: foreground,
+            inputBg: background,
+            inputStroke: foreground,
+            inputFocus: selected,
+            inputPlaceholder: foreground,
+            menuBg: background,
+            menuStroke: foreground,
+            menuHover: background,
+            menuActive: background,
+            rowDivider: foreground,
+            primary: selected,
+            primaryBg: background,
+            success: selected,
+            successBg: background,
+            warning: selected,
+            warningBg: background,
+            warningText: foreground,
+            danger: selected,
+            dangerBg: background,
+            shadow: "none"
+        };
+    }
+
     private updateHeaderElements(viewportWidth: number): void {
         const baselineAvailable = this.boundFields.baselineAvailable;
         const previousUpdateAvailable = this.boundFields.previousUpdateAvailable;
@@ -6119,7 +6145,7 @@ export class Visual implements IVisual {
             lookAheadDisplayMode: this.getLookAheadDisplayMode()
         };
 
-        this.header.render(viewportWidth, this.settings, state);
+        this.header.render(viewportWidth, this.settings, state, this.getResolvedHeaderPalette());
 
         const dividerLine = this.headerSvg?.select(".divider-line");
         const headerPalette = this.getHeaderBandPalette();
@@ -12890,6 +12916,7 @@ export class Visual implements IVisual {
 
         const self = this;
         const taskPadding = self.settings.layoutSettings.taskPadding.value;
+        const wbsRowBandHeight = taskHeight + taskPadding;
         const rowBorderColor = self.resolveColor("#DEE3EA", "foreground");
         const buttonFillColor = self.resolveColor("#FFFFFF", "background");
         const buttonStrokeColor = self.resolveColor("#CDD4DE", "foreground");
@@ -13336,7 +13363,7 @@ export class Visual implements IVisual {
 
                 const maxLines = self.getMaxWrappedLabelLines(
                     availableWidth,
-                    bgHeight,
+                    wbsRowBandHeight,
                     groupNameFontSizePx
                 );
 
@@ -16886,11 +16913,15 @@ export class Visual implements IVisual {
         return this.generateFlatExportTableText(exportDateFormatter, tasks);
     }
 
-    private generateClipboardExportMetadataFragment(): string {
-        const timestamp = new Intl.DateTimeFormat(undefined, {
+    private getClipboardExportTimestamp(): string {
+        return new Intl.DateTimeFormat(undefined, {
             dateStyle: 'medium',
             timeStyle: 'short'
         }).format(new Date());
+    }
+
+    private generateClipboardExportMetadataFragment(): string {
+        const timestamp = this.getClipboardExportTimestamp();
         const selectedTaskBlock = this.selectedTaskName
             ? `<div style="margin-top: 4px;"><strong>Selected task:</strong> ${this.escapeHtml(this.selectedTaskName)}</div>`
             : "";
@@ -16903,10 +16934,10 @@ ${selectedTaskBlock}
 
     private generateClipboardTableExportFragment(tableHtml: string): string {
         return `<div style="font-family: 'Segoe UI', Arial, sans-serif; color: #1f1f1f; background: #ffffff;">
-${this.generateClipboardExportMetadataFragment()}
 <div>
 ${tableHtml}
 </div>
+${this.generateClipboardExportMetadataFragment()}
 </div>`;
     }
 
