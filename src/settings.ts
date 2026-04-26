@@ -24,6 +24,11 @@ const labelPositionItems: powerbi.IEnumMember[] = [
     { value: "left", displayName: "Left" }
 ];
 
+const lookAheadDisplayModeItems: powerbi.IEnumMember[] = [
+    { value: "filter", displayName: "Filter Tasks" },
+    { value: "highlight", displayName: "Highlight Only" }
+];
+
 const fontFamilyItems: powerbi.IEnumMember[] = [
     { value: "Segoe UI", displayName: "Segoe UI" },
     { value: "Arial", displayName: "Arial" },
@@ -568,32 +573,38 @@ class ColumnsCard extends Card {
 
     showColumnToggleButton = new ToggleSwitch({ name: "showColumnToggleButton", displayName: "Show Column Toggle Button", value: true });
     enableColumnDisplay = new ToggleSwitch({ name: "enableColumnDisplay", displayName: "Enable Columns", value: true });
-    showStartDate = new ToggleSwitch({ name: "showStartDate", displayName: "Show Start Date", value: false });
-    startDateWidth = new NumUpDown({ name: "startDateWidth", displayName: "Start Date Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    autoFitColumns = new ToggleSwitch({ name: "autoFitColumns", displayName: "Auto-fit Columns", value: true });
+    showStartDate = new ToggleSwitch({ name: "showStartDate", displayName: "Show Start Date", value: true });
+    startDateWidth = new NumUpDown({ name: "startDateWidth", displayName: "Start Date Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
-    showFinishDate = new ToggleSwitch({ name: "showFinishDate", displayName: "Show Finish Date", value: false });
-    finishDateWidth = new NumUpDown({ name: "finishDateWidth", displayName: "Finish Date Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    showFinishDate = new ToggleSwitch({ name: "showFinishDate", displayName: "Show Finish Date", value: true });
+    finishDateWidth = new NumUpDown({ name: "finishDateWidth", displayName: "Finish Date Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
-    showDuration = new ToggleSwitch({ name: "showDuration", displayName: "Show Duration", value: false });
-    durationWidth = new NumUpDown({ name: "durationWidth", displayName: "Duration Width (px)", value: 60, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    showDuration = new ToggleSwitch({ name: "showDuration", displayName: "Show Duration", value: true });
+    durationWidth = new NumUpDown({ name: "durationWidth", displayName: "Duration Width (px)", value: 58, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
-    showTotalFloat = new ToggleSwitch({ name: "showTotalFloat", displayName: "Show Total Float", value: false });
-    totalFloatWidth = new NumUpDown({ name: "totalFloatWidth", displayName: "Total Float Width (px)", value: 50, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    showTotalFloat = new ToggleSwitch({ name: "showTotalFloat", displayName: "Show Total Float", value: true });
+    totalFloatWidth = new NumUpDown({ name: "totalFloatWidth", displayName: "Total Float Width (px)", value: 58, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
-    baselineStartDateWidth = new NumUpDown({ name: "baselineStartDateWidth", displayName: "Baseline Start Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
-    baselineFinishDateWidth = new NumUpDown({ name: "baselineFinishDateWidth", displayName: "Baseline Finish Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
-    previousUpdateStartDateWidth = new NumUpDown({ name: "previousUpdateStartDateWidth", displayName: "Previous Start Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
-    previousUpdateFinishDateWidth = new NumUpDown({ name: "previousUpdateFinishDateWidth", displayName: "Previous Finish Width (px)", value: 65, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    showBaselineDateColumns = new ToggleSwitch({ name: "showBaselineDateColumns", displayName: "Show Baseline Columns When Bars Are Off", value: false });
+    baselineStartDateWidth = new NumUpDown({ name: "baselineStartDateWidth", displayName: "Baseline Start Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    baselineFinishDateWidth = new NumUpDown({ name: "baselineFinishDateWidth", displayName: "Baseline Finish Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    showPreviousUpdateDateColumns = new ToggleSwitch({ name: "showPreviousUpdateDateColumns", displayName: "Show Previous Columns When Bars Are Off", value: false });
+    previousUpdateStartDateWidth = new NumUpDown({ name: "previousUpdateStartDateWidth", displayName: "Previous Start Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    previousUpdateFinishDateWidth = new NumUpDown({ name: "previousUpdateFinishDateWidth", displayName: "Previous Finish Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
     slices: Slice[] = [
         this.showColumnToggleButton,
         this.enableColumnDisplay,
+        this.autoFitColumns,
         this.showStartDate, this.startDateWidth,
         this.showFinishDate, this.finishDateWidth,
         this.showDuration, this.durationWidth,
         this.showTotalFloat, this.totalFloatWidth,
+        this.showBaselineDateColumns,
         this.baselineStartDateWidth,
         this.baselineFinishDateWidth,
+        this.showPreviousUpdateDateColumns,
         this.previousUpdateStartDateWidth,
         this.previousUpdateFinishDateWidth
     ];
@@ -882,7 +893,102 @@ class DataDateColorOverrideCard extends Card {
 }
 
 // ============================================================================
-// 13. PATH SELECTION - Task selection and multi-path
+// 13. LOOK-AHEAD WINDOW
+// ============================================================================
+class LookAheadCard extends Card {
+    name: string = "lookAhead";
+    displayName: string = "Look-Ahead Window";
+
+    enabled = new ToggleSwitch({
+        name: "enabled",
+        displayName: "Enable Look-Ahead Window",
+        description: "Filter or highlight tasks in a forward review window from the data date",
+        value: false
+    });
+
+    displayMode = new ItemDropdown({
+        name: "displayMode",
+        displayName: "Display Mode",
+        items: lookAheadDisplayModeItems,
+        value: lookAheadDisplayModeItems.find(item => item.value === "filter")
+    });
+
+    windowDays = new NumUpDown({
+        name: "windowDays",
+        displayName: "Window (days)",
+        value: 28,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 365 }
+        }
+    });
+
+    windowColor = new ColorPicker({
+        name: "windowColor",
+        displayName: "Window Color",
+        value: { value: "#D8ECFF" }
+    });
+
+    windowTransparency = new NumUpDown({
+        name: "windowTransparency",
+        displayName: "Window Transparency (%)",
+        value: 62,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
+        }
+    });
+
+    highlightTasks = new ToggleSwitch({
+        name: "highlightTasks",
+        displayName: "Highlight Tasks In Window",
+        value: true
+    });
+
+    taskOutlineColor = new ColorPicker({
+        name: "taskOutlineColor",
+        displayName: "Task Outline Color",
+        value: { value: "#0078D4" }
+    });
+
+    taskOutlineWidth = new NumUpDown({
+        name: "taskOutlineWidth",
+        displayName: "Task Outline Width (px)",
+        value: 1.75,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 5 }
+        }
+    });
+
+    showEndLine = new ToggleSwitch({
+        name: "showEndLine",
+        displayName: "Show Window End Line",
+        value: true
+    });
+
+    showLabel = new ToggleSwitch({
+        name: "showLabel",
+        displayName: "Show End Label",
+        value: true
+    });
+
+    slices: Slice[] = [
+        this.enabled,
+        this.displayMode,
+        this.windowDays,
+        this.windowColor,
+        this.windowTransparency,
+        this.highlightTasks,
+        this.taskOutlineColor,
+        this.taskOutlineWidth,
+        this.showEndLine,
+        this.showLabel
+    ];
+}
+
+// ============================================================================
+// 14. PATH SELECTION - Task selection and multi-path
 // ============================================================================
 class PathSelectionCard extends Card {
     name: string = "pathSelection";
@@ -968,7 +1074,7 @@ class PathSelectionCard extends Card {
 }
 
 // ============================================================================
-// 14. WBS GROUPING
+// 15. WBS GROUPING
 // ============================================================================
 class WBSGroupingCard extends Card {
     name: string = "wbsGrouping";
@@ -990,7 +1096,7 @@ class WBSGroupingCard extends Card {
 }
 
 // ============================================================================
-// 15. WBS LEVEL STYLES
+// 16. WBS LEVEL STYLES
 // ============================================================================
 class WbsLevelStylesCard extends Card {
     name: string = "wbsLevelStyles";
@@ -1027,7 +1133,7 @@ class WbsLevelStylesCard extends Card {
 }
 
 // ============================================================================
-// 16. LEGEND
+// 17. LEGEND
 // ============================================================================
 class LegendCard extends Card {
     name: string = "legend";
@@ -1052,7 +1158,7 @@ class LegendCard extends Card {
 }
 
 // ============================================================================
-// 17. LEGEND COLORS
+// 18. LEGEND COLORS
 // ============================================================================
 class LegendColorsCard extends Card {
     name: string = "legendColors";
@@ -1088,7 +1194,7 @@ class LegendColorsCard extends Card {
 }
 
 // ============================================================================
-// 18. TIMELINE ZOOM SLIDER
+// 19. TIMELINE ZOOM SLIDER
 // ============================================================================
 class TimelineZoomCard extends Card {
     name: string = "timelineZoom";
@@ -1106,7 +1212,7 @@ class TimelineZoomCard extends Card {
 }
 
 // ============================================================================
-// 19. PERSISTED STATE (Hidden)
+// 20. PERSISTED STATE (Hidden)
 // ============================================================================
 class PersistedStateCard extends Card {
     name: string = "persistedState";
@@ -1122,8 +1228,9 @@ class PersistedStateCard extends Card {
     wbsManualToggledGroups = new TextInput({ name: "wbsManualToggledGroups", displayName: "", value: "", placeholder: "", visible: false });
     zoomRangeStart = new NumUpDown({ name: "zoomRangeStart", displayName: "", value: 0, visible: false });
     zoomRangeEnd = new NumUpDown({ name: "zoomRangeEnd", displayName: "", value: 1, visible: false });
+    lookAheadWindowDays = new NumUpDown({ name: "lookAheadWindowDays", displayName: "", value: -1, visible: false });
 
-    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories, this.wbsExpandLevel, this.wbsExpandedState, this.wbsManualToggledGroups, this.zoomRangeStart, this.zoomRangeEnd];
+    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories, this.wbsExpandLevel, this.wbsExpandedState, this.wbsManualToggledGroups, this.zoomRangeStart, this.zoomRangeEnd, this.lookAheadWindowDays];
 }
 
 // ============================================================================
@@ -1143,6 +1250,7 @@ export class VisualSettings extends Model {
     baselineFinishLine = new BaselineFinishLineCard();
     previousUpdateFinishLine = new PreviousUpdateFinishLineCard();
     dataDateLine = new DataDateLineCard();
+    lookAhead = new LookAheadCard();
     pathSelection = new PathSelectionCard();
     wbsGrouping = new WBSGroupingCard();
     wbsLevelStyles = new WbsLevelStylesCard();
@@ -1168,6 +1276,7 @@ export class VisualSettings extends Model {
         this.previousUpdateFinishLine,
         this.dataDateLine,
         this.dataDateColorOverride,
+        this.lookAhead,
         this.pathSelection,
         this.wbsGrouping,
         this.wbsLevelStyles,

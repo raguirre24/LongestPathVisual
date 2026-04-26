@@ -16,6 +16,7 @@ export interface HeaderCallbacks {
     onExport: () => void;
     onExportHtml: () => void;
     onCopy: () => void;
+    onLookAheadWindowChanged: (days: number) => void;
     onZoomIn?: () => void;
     onZoomOut?: () => void;
 }
@@ -40,6 +41,9 @@ export interface HeaderState {
     showNearCritical: boolean;
     showExtraColumns: boolean;
     wbsEnabled: boolean;
+    lookAheadAvailable: boolean;
+    lookAheadWindowDays: number;
+    lookAheadDisplayMode: "filter" | "highlight";
 }
 export declare class Header {
     private container;
@@ -47,7 +51,7 @@ export declare class Header {
     private callbacks;
     private exportButtonLoading;
     private copySuccessTimeout;
-    private actionOverflowMenuOpen;
+    private controlsMenuOpen;
     private toggleButtonGroup;
     private baselineToggleButtonGroup;
     private previousUpdateToggleButtonGroup;
@@ -81,6 +85,7 @@ export declare class Header {
      */
     private getExtendedLayoutMode;
     private getBaseRightReserved;
+    private shouldInlineFloatThreshold;
     private getTopRightControlWidthBudget;
     /**
      * Returns button dimensions and positions based on current layout mode
@@ -91,6 +96,7 @@ export declare class Header {
     private createWbsCollapseCycleToggleButton;
     private createFloatThresholdControl;
     private createModeToggleButton;
+    private createLookAheadControl;
     private createColumnDisplayToggleButton;
     private createWbsEnableToggleButton;
     private createCopyButton;
@@ -98,6 +104,11 @@ export declare class Header {
     private createExportHtmlButton;
     private createHelpButton;
     private createActionOverflowButton;
-    private getOverflowActionItems;
+    private getHeaderMenuItems;
+    private getActiveHiddenControlCount;
+    private getLookAheadMenuOptions;
     private renderActionOverflowMenu;
+    private renderHeaderMenuItem;
+    private renderLookAheadMenuItem;
+    private renderFloatThresholdMenuItem;
 }

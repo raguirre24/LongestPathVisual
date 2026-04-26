@@ -45,6 +45,17 @@ import {
     serializeLegendSelection
 } from "./utils/VisualState";
 import { buildDataSignature } from "./utils/DataSignature";
+import {
+    buildLabelColumnLayout,
+    DEFAULT_LABEL_COLUMN_PADDING,
+    DEFAULT_MIN_TIMELINE_WIDTH,
+    LabelColumnId,
+    LabelColumnLayout,
+    LabelColumnSpec,
+    MIN_TASK_NAME_WIDTH,
+    MIN_WBS_TASK_NAME_WIDTH,
+    packLabelColumns
+} from "./utils/ColumnLayout";
 
 type DrivingChain = {
     tasks: Set<string>;
@@ -81,6 +92,16 @@ type BeforeDataDateOverlay = {
     corners: CornerRadii;
     dividerX: number | null;
 };
+
+type LookAheadWindow = {
+    start: Date;
+    end: Date;
+    startTime: number;
+    endTime: number;
+    days: number;
+};
+
+type LookAheadDisplayMode = "filter" | "highlight";
 
 type RelationshipRenderGeometry = {
     pathData: string;
@@ -155,7 +176,6 @@ export class Visual implements IVisual {
     private readonly MODE_TRANSITION_DURATION: number = 150;
     private readonly MAX_CANVAS_PIXEL_RATIO: number = 3;
     private readonly POWER_BI_CANVAS_SHARPNESS_SCALE: number = 1.25;
-    private static readonly MIN_DATE_WIDTH: number = 80;
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
     private watermarkOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
     private watermarkOverlayRaf: number | null = null;
@@ -207,7 +227,7 @@ export class Visual implements IVisual {
     private readonly HEADER_LINE_LABEL_PADDING_Y = 3;
     private readonly WBS_LEVEL_ACCENT_WIDTH = 4;
     private readonly WBS_TOGGLE_BOX_SIZE = 18;
-    private readonly WBS_TASK_LABEL_INSET = 30;
+    private readonly WBS_TASK_LABEL_INSET = 22;
     private legendFooterHeight = 52;
     private dateLabelOffset = 8;
     private floatTolerance = 0.001;
@@ -272,6 +292,7 @@ export class Visual implements IVisual {
     private floatThresholdInput: Selection<HTMLInputElement, unknown, null, undefined>;
     private floatThreshold: number = 0;
     private showNearCritical: boolean = true;
+    private lookAheadWindowDaysOverride: number | null = null;
 
     private viewportStartIndex: number = 0;
     private viewportEndIndex: number = 0;
@@ -1137,6 +1158,7 @@ export class Visual implements IVisual {
                 this.floatThreshold = val;
                 if (this.lastUpdateOptions) this.update(this.lastUpdateOptions);
             },
+            onLookAheadWindowChanged: (days) => this.setLookAheadWindowDays(days),
             onHelp: () => this.showHelpOverlay(),
             onExport: () => this.exportToPDF(),
             onExportHtml: () => this.exportVisualAsHtml(),
@@ -2358,6 +2380,38 @@ export class Visual implements IVisual {
             this.update(this.lastUpdateOptions);
         } else {
             this.forceFullUpdate = true;
+            this.requestUpdate();
+        }
+    }
+
+    private setLookAheadWindowDays(days: number): void {
+        const nextDays = this.clampLookAheadWindowDays(days);
+        if (this.lookAheadWindowDaysOverride === nextDays) {
+            return;
+        }
+
+        this.lookAheadWindowDaysOverride = nextDays;
+        if (this.settings?.persistedState?.lookAheadWindowDays) {
+            this.settings.persistedState.lookAheadWindowDays.value = nextDays;
+        }
+
+        this.host.persistProperties({
+            merge: [{
+                objectName: "persistedState",
+                properties: { lookAheadWindowDays: nextDays },
+                selector: null
+            }]
+        });
+
+        this.forceCanvasRefresh();
+        this.forceFullUpdate = true;
+        if (this.scrollableContainer?.node()) {
+            this.scrollableContainer.node().scrollTop = 0;
+        }
+
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        } else {
             this.requestUpdate();
         }
     }
@@ -4305,6 +4359,12 @@ export class Visual implements IVisual {
                 if (this.settings?.persistedState?.floatThreshold !== undefined) {
                     this.floatThreshold = this.settings.persistedState.floatThreshold.value;
                 }
+                if (this.settings?.persistedState?.lookAheadWindowDays !== undefined) {
+                    const persistedDays = this.settings.persistedState.lookAheadWindowDays.value;
+                    this.lookAheadWindowDaysOverride = typeof persistedDays === "number" && isFinite(persistedDays) && persistedDays >= 0
+                        ? persistedDays
+                        : null;
+                }
                 if (this.settings?.persistedState?.traceMode !== undefined) {
                     const persistedMode = this.settings.persistedState.traceMode.value;
                     this.traceMode = persistedMode ? persistedMode : "backward";
@@ -4623,12 +4683,19 @@ export class Visual implements IVisual {
                 tasksToConsider = [...plottableTasksSorted];
             }
 
+            const lookAheadFilterActive = this.shouldFilterToLookAhead();
+            if (lookAheadFilterActive) {
+                tasksToConsider = this.filterTasksToLookAhead(tasksToConsider);
+            }
+
             const maxTasksToShowSetting = this.settings.layoutSettings.maxTasksToShow.value;
             const limitedTasks = this.limitTasks(tasksToConsider, maxTasksToShowSetting);
 
             if (limitedTasks.length === 0) {
                 this.updateLegendScopeForTasks([], true);
-                this.displayMessage("No tasks to display after filtering/limiting.");
+                this.displayMessage(lookAheadFilterActive
+                    ? "No tasks fall within the current look-ahead window."
+                    : "No tasks to display after filtering/limiting.");
                 this.renderLegend(viewportWidth, viewportHeight);
                 return;
             }
@@ -4976,6 +5043,8 @@ export class Visual implements IVisual {
         const oldMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
         const oldShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
         const oldMode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'floatBased';
+        const oldLookAheadFilterSignature = this.getLookAheadFilterSignature();
+        const oldLookAheadFilterActive = this.shouldFilterToLookAhead();
 
         if (options.dataViews?.[0]) {
             // TODO: Re-integrate legend processing via DataProcessor
@@ -4989,6 +5058,8 @@ export class Visual implements IVisual {
         const newMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
         const newShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
         const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'floatBased';
+        const newLookAheadFilterSignature = this.getLookAheadFilterSignature();
+        const newLookAheadFilterActive = this.shouldFilterToLookAhead();
 
         this.debugLog(`[Settings Update] Old path index: ${oldSelectedPathIndex}, New: ${newSelectedPathIndex}`);
         this.debugLog(`[Settings Update] Old multi-path: ${oldMultiPathEnabled}, New: ${newMultiPathEnabled}`);
@@ -4997,6 +5068,8 @@ export class Visual implements IVisual {
         const requiresPathRecalc = oldSelectedPathIndex !== newSelectedPathIndex ||
             oldMultiPathEnabled !== newMultiPathEnabled ||
             oldMode !== mode;
+        const requiresLookAheadFilterRefresh = oldLookAheadFilterSignature !== newLookAheadFilterSignature &&
+            (oldLookAheadFilterActive || newLookAheadFilterActive);
         const pathInfoVisibilityChanged = oldShowPathInfo !== newShowPathInfo;
 
         if (this.settings?.comparisonBars?.showBaseline !== undefined) {
@@ -5028,8 +5101,8 @@ export class Visual implements IVisual {
         this.updateDataQualityWarning();
 
 
-        if (requiresPathRecalc) {
-            this.debugLog("Path-related settings changed; scheduling a full refresh.");
+        if (requiresPathRecalc || requiresLookAheadFilterRefresh) {
+            this.debugLog(`${requiresPathRecalc ? "Path-related" : "Look-ahead filter"} settings changed; scheduling a full refresh.`);
             this.forceFullUpdate = true;
             this.requestUpdate();
             return;
@@ -5168,12 +5241,14 @@ export class Visual implements IVisual {
         let previousUserSelect = "";
 
         const getMarginBounds = (): { min: number; max: number } => {
-            const minValue = this.settings?.layoutSettings?.leftMargin?.options?.minValue?.value ?? 50;
+            const configuredMin = this.settings?.layoutSettings?.leftMargin?.options?.minValue?.value ?? 50;
+            const minValue = Math.max(configuredMin, this.getMinimumNameLaneWidth());
             const maxValue = this.settings?.layoutSettings?.leftMargin?.options?.maxValue?.value ?? 1000;
             const viewportWidth = this.lastViewport?.width
                 || this.lastUpdateOptions?.viewport?.width
                 || (this.target instanceof HTMLElement ? this.target.clientWidth : 0);
-            const maxByViewport = Math.max(minValue, viewportWidth - this.margin.right - 10);
+            const currentColumnWidth = this.getPackedLabelColumns().occupiedWidth;
+            const maxByViewport = Math.max(minValue, viewportWidth - this.margin.right - currentColumnWidth - 10);
             return {
                 min: minValue,
                 max: Math.min(maxValue, maxByViewport)
@@ -5355,6 +5430,9 @@ export class Visual implements IVisual {
         if (!this.xScale || !this.yScale || !this.allTasksToShow) return;
 
         this.margin.left = Math.round(newLeftMargin);
+        if (this.settings?.layoutSettings?.leftMargin) {
+            this.settings.layoutSettings.leftMargin.value = this.margin.left;
+        }
         const effectiveMargin = this.getEffectiveLeftMargin();
         if (this.canvasElement) {
             this.canvasElement.style.display = 'none';
@@ -5365,9 +5443,6 @@ export class Visual implements IVisual {
         // 1. Update group transforms
         this.mainGroup?.attr("transform", `translate(${this.snapRectCoord(effectiveMargin)}, ${this.snapRectCoord(this.margin.top)})`);
         this.headerGridLayer?.attr("transform", `translate(${this.snapRectCoord(effectiveMargin)}, 0)`);
-        if (this.settings?.layoutSettings?.leftMargin) {
-            this.settings.layoutSettings.leftMargin.value = newLeftMargin;
-        }
 
         // 2. Compute new chart dimensions
         const viewportWidth = this.lastViewport?.width || 0;
@@ -5410,13 +5485,15 @@ export class Visual implements IVisual {
         const dateBgOpacity = 1 - (dateBgTransparency / 100);
         const showHorzGridLines = this.settings.gridLines.showHorizontalLines.value;
 
-        // Vertical grid lines + x-axis date labels
-        this.drawgridLines(this.xScale, chartHeight, this.gridLayer, this.headerGridLayer);
-
         // Horizontal grid lines + alternating row backgrounds
         if (showHorzGridLines) {
             this.drawHorizontalGridLines(renderableTasks, this.yScale, chartWidth, effectiveMargin, chartHeight);
         }
+
+        this.drawLookAheadWindow(chartWidth, this.xScale, chartHeight, this.gridLayer, this.headerGridLayer);
+
+        // Vertical grid lines + x-axis date labels
+        this.drawgridLines(this.xScale, chartHeight, this.gridLayer, this.headerGridLayer);
 
         // Column headers
         this.drawColumnHeaders(this.headerHeight, effectiveMargin);
@@ -5578,6 +5655,11 @@ export class Visual implements IVisual {
 
         if (this.dataDate instanceof Date && !isNaN(this.dataDate.getTime())) {
             allTimestamps.push(this.dataDate.getTime());
+        }
+
+        const lookAheadWindow = this.getLookAheadWindow();
+        if (lookAheadWindow) {
+            allTimestamps.push(lookAheadWindow.startTime, lookAheadWindow.endTime);
         }
 
         const includeBaselineInScale = this.showBaselineInternal;
@@ -5899,42 +5981,111 @@ export class Visual implements IVisual {
         }
     }
 
-    /**
-     * Calculates the total width of *conditional* extra columns (Baseline, Previous Update).
-     * This width is added to the user's base leftMargin to preserve Task Name width.
-     */
-    private getExtraColumnWidth(): number {
-        if (!this.settings) return 0;
+    private getMinimumNameLaneWidth(): number {
+        const wbsLaneNeeded = this.wbsDataExists ||
+            this.wbsDataExistsInMetadata ||
+            !!this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+        return wbsLaneNeeded ? MIN_WBS_TASK_NAME_WIDTH : MIN_TASK_NAME_WIDTH;
+    }
 
-        let extraWidth = 0;
-        const cols = this.settings.columns;
-        const comp = this.settings.comparisonBars;
-        const showExtra = this.showExtraColumnsInternal; // Based on enableColumnDisplay
+    private getViewportWidthForColumnLayout(): number | null {
+        return this.lastViewport?.width
+            ?? this.lastUpdateOptions?.viewport?.width
+            ?? (this.target instanceof HTMLElement ? this.target.clientWidth : null);
+    }
 
-        if (showExtra) {
-            // Mirror the WBS summary row's collision floor (see drawWbsGroupHeaders).
-            // Both sides must use Math.max(configuredWidth, MIN_DATE_WIDTH) so the
-            // left margin grows by the same amount the WBS row will subtract —
-            // otherwise WBS names wrap/truncate when toggling these columns on.
-            if (this.showBaselineInternal) {
-                extraWidth += Math.max(cols.baselineStartDateWidth.value, Visual.MIN_DATE_WIDTH);
-                extraWidth += Math.max(cols.baselineFinishDateWidth.value, Visual.MIN_DATE_WIDTH);
-            }
-            if (this.showPreviousUpdateInternal) {
-                extraWidth += Math.max(cols.previousUpdateStartDateWidth.value, Visual.MIN_DATE_WIDTH);
-                extraWidth += Math.max(cols.previousUpdateFinishDateWidth.value, Visual.MIN_DATE_WIDTH);
-            }
+    private getConfiguredLabelColumnSpecs(): LabelColumnSpec[] {
+        if (!this.settings || !this.showExtraColumnsInternal) {
+            return [];
         }
-        return extraWidth;
+
+        const cols = this.settings.columns;
+        const clampWidth = (value: number | undefined, fallback: number): number => Math.max(30, value ?? fallback);
+        const specs: LabelColumnSpec[] = [];
+
+        if (cols.showTotalFloat.value) {
+            specs.push({
+                id: "totalFloat",
+                text: "Total Float",
+                headerCandidates: ["Total Float", "Float", "TF"],
+                width: clampWidth(cols.totalFloatWidth.value, 58)
+            });
+        }
+        if (cols.showDuration.value) {
+            specs.push({
+                id: "duration",
+                text: "Rem Dur",
+                headerCandidates: ["Rem Dur", "Dur"],
+                width: clampWidth(cols.durationWidth.value, 58)
+            });
+        }
+        if (cols.showFinishDate.value) {
+            specs.push({
+                id: "finish",
+                text: "Finish",
+                headerCandidates: ["Finish", "Fin"],
+                width: clampWidth(cols.finishDateWidth.value, 72)
+            });
+        }
+        if (cols.showStartDate.value) {
+            specs.push({
+                id: "start",
+                text: "Start",
+                headerCandidates: ["Start", "St"],
+                width: clampWidth(cols.startDateWidth.value, 72)
+            });
+        }
+        if (this.boundFields.previousUpdateAvailable && (this.showPreviousUpdateInternal || cols.showPreviousUpdateDateColumns?.value)) {
+            specs.push({
+                id: "previousFinish",
+                text: "Prev Finish",
+                headerCandidates: ["Prev Finish", "Prev Fin", "PF"],
+                width: clampWidth(cols.previousUpdateFinishDateWidth.value, 72)
+            });
+            specs.push({
+                id: "previousStart",
+                text: "Prev Start",
+                headerCandidates: ["Prev Start", "Prev St", "PS"],
+                width: clampWidth(cols.previousUpdateStartDateWidth.value, 72)
+            });
+        }
+        if (this.boundFields.baselineAvailable && (this.showBaselineInternal || cols.showBaselineDateColumns?.value)) {
+            specs.push({
+                id: "baselineFinish",
+                text: "BL Finish",
+                headerCandidates: ["BL Finish", "BL Fin", "BF"],
+                width: clampWidth(cols.baselineFinishDateWidth.value, 72)
+            });
+            specs.push({
+                id: "baselineStart",
+                text: "BL Start",
+                headerCandidates: ["BL Start", "BL St", "BS"],
+                width: clampWidth(cols.baselineStartDateWidth.value, 72)
+            });
+        }
+
+        return specs;
+    }
+
+    private getPackedLabelColumns() {
+        return packLabelColumns({
+            preferredNameLaneWidth: this.settings?.layoutSettings?.leftMargin?.value ?? this.margin.left,
+            minimumNameLaneWidth: this.getMinimumNameLaneWidth(),
+            viewportWidth: this.getViewportWidthForColumnLayout(),
+            rightMargin: this.settings?.layoutSettings?.rightMargin?.value ?? this.margin.right,
+            minTimelineWidth: DEFAULT_MIN_TIMELINE_WIDTH,
+            autoFitColumns: this.settings?.columns?.autoFitColumns?.value ?? true,
+            columnPadding: DEFAULT_LABEL_COLUMN_PADDING,
+            columns: this.getConfiguredLabelColumnSpecs()
+        });
     }
 
     /**
-     * Returns the effective left margin to use for rendering.
-     * effectiveLeftMargin = userBaseMargin + extraColumnWidths
+     * Returns the effective left pane width. The configured left margin is the
+     * preferred WBS/task-name lane; visible columns are added to that lane.
      */
     private getEffectiveLeftMargin(): number {
-        const baseMargin = this.settings?.layoutSettings?.leftMargin?.value ?? 0;
-        return baseMargin + this.getExtraColumnWidth();
+        return this.getPackedLabelColumns().totalLeftPaneWidth;
     }
 
     private updateHeaderElements(viewportWidth: number): void {
@@ -5962,7 +6113,10 @@ export class Visual implements IVisual {
             floatThreshold: this.floatThreshold,
             showNearCritical: this.showNearCritical,
             showExtraColumns: this.showExtraColumnsInternal,
-            wbsEnabled: !!this.settings?.wbsGrouping?.enableWbsGrouping?.value
+            wbsEnabled: !!this.settings?.wbsGrouping?.enableWbsGrouping?.value,
+            lookAheadAvailable: this.dataDate instanceof Date && !isNaN(this.dataDate.getTime()),
+            lookAheadWindowDays: this.getEffectiveLookAheadWindowDays(),
+            lookAheadDisplayMode: this.getLookAheadDisplayMode()
         };
 
         this.header.render(viewportWidth, this.settings, state);
@@ -6416,6 +6570,8 @@ export class Visual implements IVisual {
             this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
         }
 
+        this.drawLookAheadWindow(chartWidth, xScale, chartHeight, this.gridLayer, this.headerGridLayer, !this.useCanvasRendering);
+
         // --- 1. Draw Grid Lines ---
         if (showVertGridLines) {
             this.drawgridLines(xScale, chartHeight, this.gridLayer, this.headerGridLayer);
@@ -6434,6 +6590,8 @@ export class Visual implements IVisual {
         // --- 4. Draw Tasks ---
         if (this.useCanvasRendering) {
             if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
+                this.drawLookAheadWindowCanvasBand(xScale, chartWidth, chartHeight);
+
                 this.drawTasksCanvas(
                     renderableTasks, xScale, yScale,
                     taskColor, milestoneColor, criticalColor,
@@ -7236,8 +7394,9 @@ export class Visual implements IVisual {
                         .attr("role", "button")
                         .attr("aria-label", (d: Task) => {
                             const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+                            const lookAheadText = self.isTaskInLookAheadWindow(d) ? ", In look-ahead window" : "";
                             const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
-                            return `${d.name}, ${statusText} task, Start: ${self.formatDate(start)}, Finish: ${self.formatDate(finish)}${selectedText}. Press Enter or Space to select.`;
+                            return `${d.name}, ${statusText} task${lookAheadText}, Start: ${self.formatDate(start)}, Finish: ${self.formatDate(finish)}${selectedText}. Press Enter or Space to select.`;
                         })
                         .attr("tabindex", 0)
                         .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
@@ -7321,8 +7480,9 @@ export class Visual implements IVisual {
                         .attr("role", "button")
                         .attr("aria-label", (d: Task) => {
                             const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
+                            const lookAheadText = self.isTaskInLookAheadWindow(d) ? ", In look-ahead window" : "";
                             const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
-                            return `${d.name}, ${statusText} milestone, Date: ${self.formatDate(mDate)}${selectedText}. Press Enter or Space to select.`;
+                            return `${d.name}, ${statusText} milestone${lookAheadText}, Date: ${self.formatDate(mDate)}${selectedText}. Press Enter or Space to select.`;
                         })
                         .attr("tabindex", 0)
                         .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
@@ -7608,83 +7768,8 @@ export class Visual implements IVisual {
     ): void {
         if (!this.taskLabelLayer || !yScale) return;
 
-        // Column Settings
-        const cols = this.settings.columns;
-        const comp = this.settings.comparisonBars;
-        const showExtra = this.showExtraColumnsInternal;
-
-        // 1. Calculate Widths and Offsets (Right-to-Left stacking from 0)
-
-        // Order from Grid Edge (x=0) moving Left:
-        // 1. Float
-        // 2. Duration 
-        // 3. Finish
-        // 4. Start
-        // 5. Previous Finish
-        // 6. Previous Start
-        // 7. Baseline Finish
-        // 8. Baseline Start
-
-        const showFloat = showExtra && cols.showTotalFloat.value;
-        const floatWidth = cols.totalFloatWidth.value;
-
-        const showDur = showExtra && cols.showDuration.value;
-        const durWidth = cols.durationWidth.value;
-
-        const showFinish = showExtra && cols.showFinishDate.value;
-        const finishWidth = cols.finishDateWidth.value;
-
-        const showStart = showExtra && cols.showStartDate.value;
-        const startWidth = cols.startDateWidth.value;
-
-        // New Columns
-        const showPrev = showExtra && this.showPreviousUpdateInternal;
-        // Check if data roles are present for Previous? The toggle determines if we *want* to show it, 
-        // but if no data is mapped, it will modify layout but show empty. 
-        // Standard PowerBI behavior: if enabled in settings, show the space. 
-        // Data existence check is usually done to hide the setting, but here we reuse "Show Previous Update" toggle which controls bars too.
-        // Let's stick to the setting value.
-
-        const prevFinishWidth = cols.previousUpdateFinishDateWidth.value;
-        const prevStartWidth = cols.previousUpdateStartDateWidth.value;
-
-        const showBase = showExtra && this.showBaselineInternal;
-        const baseFinishWidth = cols.baselineFinishDateWidth.value;
-        const baseStartWidth = cols.baselineStartDateWidth.value;
-
-        let occupiedWidth = 0;
-
-        // Add padding between the last column (closest to chart) and the chart start
-        const columnPadding = 20;
-        occupiedWidth += columnPadding;
-
-        const floatOffset = showFloat ? occupiedWidth : 0;
-        if (showFloat) occupiedWidth += floatWidth;
-
-        const durOffset = showDur ? occupiedWidth : 0;
-        if (showDur) occupiedWidth += durWidth;
-
-        const finishOffset = showFinish ? occupiedWidth : 0;
-        if (showFinish) occupiedWidth += finishWidth;
-
-        const startOffset = showStart ? occupiedWidth : 0;
-        if (showStart) occupiedWidth += startWidth;
-
-        // Previous Update Columns
-        const prevFinishOffset = showPrev ? occupiedWidth : 0;
-        if (showPrev) occupiedWidth += prevFinishWidth;
-
-        const prevStartOffset = showPrev ? occupiedWidth : 0;
-        if (showPrev) occupiedWidth += prevStartWidth;
-
-        // Baseline Columns
-        const baseFinishOffset = showBase ? occupiedWidth : 0;
-        if (showBase) occupiedWidth += baseFinishWidth;
-
-        const baseStartOffset = showBase ? occupiedWidth : 0;
-        if (showBase) occupiedWidth += baseStartWidth;
-
         const layout = this.getLabelColumnLayout(currentLeftMargin);
+        const columnItems = layout.items;
         const laneLeftX = -currentLeftMargin + this.labelPaddingLeft;
         const laneRightX = (layout.taskNameDividerX - currentLeftMargin) - 4;
         const effectiveAvailableWidth = Math.max(0, laneRightX - laneLeftX);
@@ -7780,9 +7865,9 @@ export class Visual implements IVisual {
                         taskHeight / 2,
                         adjustedLabelWidth,
                         maxLines,
-                        taskNameFontSizePx,
-                        "firstLineAtCenter"
+                        taskNameFontSizePx
                     );
+                    textElement.append("title").text(d.name || "");
                 });
 
             // Interactivity for Task Labels
@@ -7799,25 +7884,48 @@ export class Visual implements IVisual {
             const columnFontSize = taskNameFontSize * 0.9;
             const colY = this.snapTextCoord(taskHeight / 2);
 
-            // Helper to append column text
+            const getColumnText = (columnId: LabelColumnId, task: Task): string => {
+                switch (columnId) {
+                    case "start": {
+                        const date = this.getVisualStart(task);
+                        return date ? this.formatColumnDate(date) : "";
+                    }
+                    case "finish": {
+                        const date = this.getVisualFinish(task);
+                        return date ? this.formatColumnDate(date) : "";
+                    }
+                    case "duration":
+                        return task.duration !== undefined ? task.duration.toFixed(0) : "";
+                    case "totalFloat": {
+                        const val = task.userProvidedTotalFloat ?? task.totalFloat;
+                        return (val !== undefined && isFinite(val)) ? val.toFixed(0) : "-";
+                    }
+                    case "previousFinish":
+                        return task.previousUpdateFinishDate ? this.formatColumnDate(task.previousUpdateFinishDate) : "";
+                    case "previousStart":
+                        return task.previousUpdateStartDate ? this.formatColumnDate(task.previousUpdateStartDate) : "";
+                    case "baselineFinish":
+                        return task.baselineFinishDate ? this.formatColumnDate(task.baselineFinishDate) : "";
+                    case "baselineStart":
+                        return task.baselineStartDate ? this.formatColumnDate(task.baselineStartDate) : "";
+                }
+            };
+
             const appendColumnText = (
                 selection: Selection<SVGGElement, Task, any, any>,
-                xOffsetFromRight: number, // positive value, will be negated
-                colWidth: number,
-                getText: (d: Task) => string,
-                align: "start" | "end" | "middle" = "middle", // Default to middle
-                isFloat: boolean = false
+                column: typeof columnItems[number],
+                align: "start" | "end" | "middle" = "middle"
             ) => {
                 selection.append("text")
                     .attr("class", "column-label")
-                    .attr("x", this.snapTextCoord(-xOffsetFromRight - (align === "end" ? 5 : (align === "start" ? colWidth - 5 : colWidth / 2))))
+                    .attr("x", this.snapTextCoord(-column.offset - (align === "end" ? 5 : (align === "start" ? column.width - 5 : column.width / 2))))
                     .attr("y", colY)
                     .attr("text-anchor", align)
                     .attr("dominant-baseline", "central")
                     .style("font-family", this.getFontFamily())
                     .style("font-size", this.fontPxFromPtSetting(columnFontSize))
                     .style("fill", (d: Task) => {
-                        if (isFloat) {
+                        if (column.id === "totalFloat") {
                             if (d.isCritical) return this.settings?.criticalPath?.criticalPathColor?.value?.value ?? '#FF0000';
                             if (d.isNearCritical) return this.settings?.criticalPath?.nearCriticalColor?.value?.value ?? '#FF8C00';
                             const floatValue = d.userProvidedTotalFloat ?? d.totalFloat;
@@ -7827,121 +7935,31 @@ export class Visual implements IVisual {
                         }
                         return labelColor;
                     })
-                    .text(getText);
+                    .each((d: Task, _i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
+                        const textElement = d3.select(nodes[_i] as SVGTextElement);
+                        const value = getColumnText(column.id, d);
+                        textElement.text(this.fitSvgTextToWidth(
+                            textElement as Selection<SVGTextElement, unknown, null, undefined>,
+                            value,
+                            Math.max(0, column.width - 6)
+                        ));
+                    });
             };
 
-            // Render Start Date
-            if (showStart) {
-                appendColumnText(mergedGroups, startOffset, startWidth, (d: Task) => {
-                    const date = this.getVisualStart(d);
-                    return date ? this.formatColumnDate(date) : "";
-                }, "middle");
-            }
-
-            // Render Finish Date
-            if (showFinish) {
-                appendColumnText(mergedGroups, finishOffset, finishWidth, (d: Task) => {
-                    const date = this.getVisualFinish(d);
-                    return date ? this.formatColumnDate(date) : "";
-                }, "middle");
-            }
-
-            // Render Duration
-            if (showDur) {
-                appendColumnText(mergedGroups, durOffset, durWidth, (d: Task) => d.duration !== undefined ? d.duration.toFixed(0) : "", "middle");
-            }
-
-            // Render Total Float
-            if (showFloat) {
-                appendColumnText(mergedGroups, floatOffset, floatWidth, (d: Task) => {
-                    const val = d.userProvidedTotalFloat ?? d.totalFloat;
-                    return (val !== undefined && isFinite(val)) ? val.toFixed(0) : "-";
-                }, "middle", true);
-            }
-
-            // Render Previous Update Finish
-            if (showPrev) {
-                appendColumnText(mergedGroups, prevFinishOffset, prevFinishWidth, (d: Task) => {
-                    return d.previousUpdateFinishDate ? this.formatColumnDate(d.previousUpdateFinishDate) : "";
-                }, "middle");
-            }
-
-            // Render Previous Update Start
-            if (showPrev) {
-                appendColumnText(mergedGroups, prevStartOffset, prevStartWidth, (d: Task) => {
-                    return d.previousUpdateStartDate ? this.formatColumnDate(d.previousUpdateStartDate) : "";
-                }, "middle");
-            }
-
-            // Render Baseline Finish
-            if (showBase) {
-                appendColumnText(mergedGroups, baseFinishOffset, baseFinishWidth, (d: Task) => {
-                    return d.baselineFinishDate ? this.formatColumnDate(d.baselineFinishDate) : "";
-                }, "middle");
-            }
-
-            // Render Baseline Start
-            if (showBase) {
-                appendColumnText(mergedGroups, baseStartOffset, baseStartWidth, (d: Task) => {
-                    return d.baselineStartDate ? this.formatColumnDate(d.baselineStartDate) : "";
-                }, "middle");
-            }
+            columnItems.forEach(column => appendColumnText(mergedGroups, column, "middle"));
         };
 
         renderColumns();
     }
 
-    private getLabelColumnLayout(currentLeftMargin: number): {
-        items: Array<{ text: string; width: number; offset: number; centerX: number; lineX: number }>;
-        occupiedWidth: number;
-        taskNameDividerX: number;
-        taskNameCenterX: number;
-        showExtra: boolean;
-        remainingWidth: number;
-    } {
-        const cols = this.settings.columns;
-        const showExtra = this.showExtraColumnsInternal;
-        const columnPadding = 20;
-        let occupiedWidth = columnPadding;
-        const items: Array<{ text: string; width: number; offset: number; centerX: number; lineX: number }> = [];
-
-        const pushItem = (text: string, width: number): void => {
-            const offset = occupiedWidth;
-            occupiedWidth += width;
-            items.push({
-                text,
-                width,
-                offset,
-                centerX: this.snapTextCoord(currentLeftMargin - offset - (width / 2)),
-                lineX: this.snapLineCoord(currentLeftMargin - offset - width)
-            });
-        };
-
-        if (showExtra && cols.showTotalFloat.value) pushItem("Total Float", cols.totalFloatWidth.value);
-        if (showExtra && cols.showDuration.value) pushItem("Rem Dur", cols.durationWidth.value);
-        if (showExtra && cols.showFinishDate.value) pushItem("Finish", cols.finishDateWidth.value);
-        if (showExtra && cols.showStartDate.value) pushItem("Start", cols.startDateWidth.value);
-
-        if (showExtra && this.showPreviousUpdateInternal) {
-            pushItem("Prev Finish", cols.previousUpdateFinishDateWidth.value);
-            pushItem("Prev Start", cols.previousUpdateStartDateWidth.value);
-        }
-
-        if (showExtra && this.showBaselineInternal) {
-            pushItem("BL Finish", cols.baselineFinishDateWidth.value);
-            pushItem("BL Start", cols.baselineStartDateWidth.value);
-        }
-
-        const remainingWidth = Math.max(0, currentLeftMargin - occupiedWidth);
-
-        return {
-            items,
-            occupiedWidth,
-            taskNameDividerX: this.snapLineCoord(currentLeftMargin - occupiedWidth),
-            taskNameCenterX: this.snapTextCoord(remainingWidth / 2),
-            showExtra,
-            remainingWidth
-        };
+    private getLabelColumnLayout(currentLeftMargin: number): LabelColumnLayout {
+        return buildLabelColumnLayout({
+            leftPaneWidth: currentLeftMargin,
+            columns: this.getPackedLabelColumns().columns,
+            columnPadding: DEFAULT_LABEL_COLUMN_PADDING,
+            snapText: value => this.snapTextCoord(value),
+            snapLine: value => this.snapLineCoord(value)
+        });
     }
 
     private getHeaderBandMetrics(): {
@@ -8043,7 +8061,7 @@ export class Visual implements IVisual {
         const edgePadding = this.HEADER_LINE_LABEL_EDGE_PADDING;
         const gap = this.HEADER_LINE_LABEL_GAP;
         const labelGroups = Array.from(headerLayer.selectAll<SVGGElement, unknown>(
-            ".data-date-label-group, .previous-update-end-label-group, .baseline-end-label-group, .project-end-label-group"
+            ".data-date-label-group, .look-ahead-window-label-group, .previous-update-end-label-group, .baseline-end-label-group, .project-end-label-group"
         ).nodes());
 
         if (labelGroups.length === 0) {
@@ -8198,12 +8216,33 @@ export class Visual implements IVisual {
         const taskHeaderCandidates = showWbsTaskHeader
             ? ["WBS / Task Name", "WBS / Task", "Task Name", "Task"]
             : ["Task Name", "Task"];
-        const headerTextData: Array<{ key: string; x: number; text: string; anchor: "start" | "middle" }> = [];
+        const headerTextData: Array<{
+            key: string;
+            x: number;
+            text: string;
+            anchor: "start" | "middle";
+            candidates: string[];
+            maxWidth: number;
+        }> = [];
         if (layout.remainingWidth > 26) {
-            headerTextData.push({ key: "task-name", x: 18, text: taskHeaderCandidates[0], anchor: "start" });
+            headerTextData.push({
+                key: "task-name",
+                x: 18,
+                text: taskHeaderCandidates[0],
+                anchor: "start",
+                candidates: taskHeaderCandidates,
+                maxWidth: Math.max(0, layout.remainingWidth - 28)
+            });
         }
         layout.items.forEach(item => {
-            headerTextData.push({ key: `col-${item.text}`, x: item.centerX, text: item.text, anchor: "middle" });
+            headerTextData.push({
+                key: `col-${item.id}`,
+                x: item.centerX,
+                text: item.text,
+                anchor: "middle",
+                candidates: item.headerCandidates,
+                maxWidth: Math.max(0, item.width - 6)
+            });
         });
 
         headerClipSelection.merge(headerClipEnter as any).select("rect")
@@ -8212,7 +8251,14 @@ export class Visual implements IVisual {
             .attr("width", Math.max(0, layout.taskNameDividerX - 8))
             .attr("height", bandMetrics.height);
 
-        const headerTexts = colHeaderLayer.selectAll<SVGTextElement, { key: string; x: number; text: string; anchor: "start" | "middle" }>(".column-header-text")
+        const headerTexts = colHeaderLayer.selectAll<SVGTextElement, {
+            key: string;
+            x: number;
+            text: string;
+            anchor: "start" | "middle";
+            candidates: string[];
+            maxWidth: number;
+        }>(".column-header-text")
             .data(headerTextData, d => d.key)
             .join(
                 enter => enter.append("text").attr("class", "column-header-text"),
@@ -8233,33 +8279,32 @@ export class Visual implements IVisual {
             .attr("clip-path", d => d.key === "task-name" ? `url(#${headerTaskNameClipId})` : null)
             .text(d => d.text);
 
-        headerTexts.filter(d => d.key === "task-name")
-            .each((_d, index, nodes) => {
+        headerTexts
+            .each((d, index, nodes) => {
                 const textElement = d3.select(nodes[index] as SVGTextElement);
                 const node = textElement.node();
-                const maxWidth = Math.max(0, layout.remainingWidth - 28);
 
-                if (!node || maxWidth < 18) {
+                if (!node || d.maxWidth < 18) {
                     textElement.text("");
                     return;
                 }
 
                 let appliedText: string | null = null;
-                for (const candidate of taskHeaderCandidates) {
+                for (const candidate of d.candidates) {
                     textElement.text(candidate);
-                    if (node.getComputedTextLength() <= maxWidth) {
+                    if (node.getComputedTextLength() <= d.maxWidth) {
                         appliedText = candidate;
                         break;
                     }
                 }
 
                 if (appliedText === null) {
-                    textElement.text(this.fitSvgTextToWidth(textElement, taskHeaderCandidates[0], maxWidth));
+                    textElement.text(this.fitSvgTextToWidth(textElement, d.text, d.maxWidth));
                 }
             });
 
         const separatorData: Array<{ key: string; x: number }> = layout.items.map(item => ({
-            key: `col-line-${item.text}`,
+            key: `col-line-${item.id}`,
             x: item.lineX
         }));
         if (layout.showExtra) {
@@ -8290,7 +8335,7 @@ export class Visual implements IVisual {
 
         const layout = this.getLabelColumnLayout(currentLeftMargin);
         const separatorData: Array<{ key: string; x: number }> = layout.items.map(item => ({
-            key: `label-line-${item.text}`,
+            key: `label-line-${item.id}`,
             x: item.lineX - currentLeftMargin
         }));
         if (layout.showExtra) {
@@ -9798,6 +9843,142 @@ export class Visual implements IVisual {
 
         this.drawComparisonFinishKey(headerLayer, chartWidth, comparisonSummaryEntries);
         this.pendingComparisonFinishSummaryEntries = [];
+    }
+
+    private drawLookAheadWindow(
+        chartWidth: number,
+        xScale: ScaleTime<number, number>,
+        chartHeight: number,
+        mainGridLayer: Selection<SVGGElement, unknown, null, undefined>,
+        headerLayer: Selection<SVGGElement, unknown, null, undefined>,
+        includeBand: boolean = true
+    ): void {
+        if (!mainGridLayer?.node() || !headerLayer?.node() || !xScale) { return; }
+
+        mainGridLayer.selectAll(".look-ahead-window-band, .look-ahead-window-end-line").remove();
+        headerLayer.selectAll(".look-ahead-window-label-group").remove();
+
+        const lookAheadWindow = this.getLookAheadWindow();
+        if (!lookAheadWindow) { return; }
+
+        const settings = this.settings.lookAhead;
+        const rawStartX = xScale(lookAheadWindow.start);
+        const rawEndX = xScale(lookAheadWindow.end);
+        if (!isFinite(rawStartX) || !isFinite(rawEndX)) { return; }
+
+        const startX = Math.max(0, Math.min(chartWidth, rawStartX));
+        const endX = Math.max(0, Math.min(chartWidth, rawEndX));
+        const bandX = Math.min(startX, endX);
+        const bandWidth = Math.abs(endX - startX);
+        const effectiveHeight = chartHeight > 0 ? chartHeight : (this.mainSvg ? (parseFloat(this.mainSvg.attr("height")) || 0) : 0);
+        const bandColor = this.resolveColor(settings.windowColor?.value?.value ?? "#D8ECFF", "foreground");
+        const bandOpacity = Math.max(0, Math.min(1, 1 - ((settings.windowTransparency?.value ?? 62) / 100)));
+
+        if (includeBand && bandWidth > 0.5 && bandOpacity > 0) {
+            mainGridLayer.append("rect")
+                .attr("class", "look-ahead-window-band")
+                .attr("x", this.snapRectCoord(bandX))
+                .attr("y", 0)
+                .attr("width", this.snapRectCoord(bandWidth))
+                .attr("height", this.snapRectCoord(effectiveHeight))
+                .attr("clip-path", this.getScopedUrlRef("chart-area-clip"))
+                .style("fill", bandColor)
+                .style("fill-opacity", bandOpacity)
+                .style("pointer-events", "none");
+        }
+
+        const showEndLine = settings.showEndLine?.value ?? true;
+        if (!showEndLine) { return; }
+
+        const lineColor = this.resolveColor(settings.taskOutlineColor?.value?.value ?? "#0078D4", "foreground");
+        const lineWidth = 1.25;
+        const lineX = this.snapLineCoord(rawEndX, lineWidth);
+        if (!isFinite(lineX) || lineX < 0 || lineX > chartWidth) { return; }
+
+        mainGridLayer.append("line")
+            .attr("class", "look-ahead-window-end-line")
+            .attr("x1", lineX)
+            .attr("y1", 0)
+            .attr("x2", lineX)
+            .attr("y2", this.snapRectCoord(effectiveHeight))
+            .attr("stroke", lineColor)
+            .attr("stroke-width", lineWidth)
+            .attr("stroke-dasharray", "4,3")
+            .attr("clip-path", this.getScopedUrlRef("chart-area-clip"))
+            .style("pointer-events", "none");
+
+        const showLabel = settings.showLabel?.value ?? true;
+        if (!showLabel) { return; }
+
+        const headerBandMetrics = this.getHeaderBandMetrics();
+        const labelText = `Look-ahead +${lookAheadWindow.days}d: ${this.formatLineDate(lookAheadWindow.end)}`;
+        const labelX = this.snapTextCoord(lineX + 5);
+        const labelY = headerBandMetrics.topLabelY;
+        const labelBackgroundColor = this.resolveColor("#FFFFFF", "background");
+
+        const labelGroup = headerLayer.append("g")
+            .attr("class", "look-ahead-window-label-group")
+            .attr("data-label-priority", "15")
+            .style("pointer-events", "none");
+
+        const textElement = labelGroup.append("text")
+            .attr("class", "look-ahead-window-label")
+            .attr("x", labelX)
+            .attr("y", this.snapTextCoord(labelY))
+            .attr("text-anchor", "start")
+            .attr("dominant-baseline", "central")
+            .style("font-family", this.getFontFamily())
+            .style("fill", lineColor)
+            .style("font-size", this.fontPxFromPtSetting(Math.max(8, this.settings.textAndLabels.fontSize.value * 0.85)))
+            .style("font-weight", "600")
+            .text(labelText);
+
+        const bbox = (textElement.node() as SVGTextElement)?.getBBox();
+        if (bbox) {
+            const chipHeight = Math.max(
+                this.HEADER_LINE_LABEL_MIN_HEIGHT,
+                this.snapRectCoord(bbox.height + this.HEADER_LINE_LABEL_PADDING_Y * 2)
+            );
+            labelGroup.insert("rect", ".look-ahead-window-label")
+                .attr("x", this.snapRectCoord(bbox.x - this.HEADER_LINE_LABEL_PADDING_X))
+                .attr("y", this.snapRectCoord(labelY - chipHeight / 2))
+                .attr("width", Math.max(1, this.snapRectCoord(bbox.width + this.HEADER_LINE_LABEL_PADDING_X * 2)))
+                .attr("height", chipHeight)
+                .attr("rx", 4)
+                .attr("ry", 4)
+                .style("fill", labelBackgroundColor)
+                .style("fill-opacity", 0.86);
+        }
+    }
+
+    private drawLookAheadWindowCanvasBand(
+        xScale: ScaleTime<number, number>,
+        chartWidth: number,
+        chartHeight: number
+    ): void {
+        if (!this.canvasContext || !xScale) { return; }
+
+        const lookAheadWindow = this.getLookAheadWindow();
+        if (!lookAheadWindow) { return; }
+
+        const settings = this.settings.lookAhead;
+        const rawStartX = xScale(lookAheadWindow.start);
+        const rawEndX = xScale(lookAheadWindow.end);
+        if (!isFinite(rawStartX) || !isFinite(rawEndX)) { return; }
+
+        const startX = Math.max(0, Math.min(chartWidth, rawStartX));
+        const endX = Math.max(0, Math.min(chartWidth, rawEndX));
+        const bandX = Math.min(startX, endX);
+        const bandWidth = Math.abs(endX - startX);
+        const bandOpacity = Math.max(0, Math.min(1, 1 - ((settings.windowTransparency?.value ?? 62) / 100)));
+        if (bandWidth <= 0.5 || bandOpacity <= 0) { return; }
+
+        const ctx = this.canvasContext;
+        ctx.save();
+        ctx.globalAlpha = bandOpacity;
+        ctx.fillStyle = this.resolveColor(settings.windowColor?.value?.value ?? "#D8ECFF", "foreground");
+        ctx.fillRect(this.snapRectCoord(bandX), 0, this.snapRectCoord(bandWidth), this.snapRectCoord(chartHeight));
+        ctx.restore();
     }
 
     private drawDataDateLine(
@@ -12933,46 +13114,7 @@ export class Visual implements IVisual {
                 }
             }
 
-            const cols = self.settings.columns;
-            const showExtra = self.showExtraColumnsInternal;
             const labelLayout = self.getLabelColumnLayout(currentLeftMargin);
-            const showStart = showExtra && cols.showStartDate.value;
-            const startWidth = cols.startDateWidth.value;
-            const showFinish = showExtra && cols.showFinishDate.value;
-            const finishWidth = cols.finishDateWidth.value;
-            const showDur = showExtra && cols.showDuration.value;
-            const durWidth = cols.durationWidth.value;
-            const showFloat = showExtra && cols.showTotalFloat.value;
-            const floatWidth = cols.totalFloatWidth.value;
-
-            let occupiedWidth = 0;
-            const columnPadding = 20;
-            occupiedWidth += columnPadding;
-
-            const floatOffset = showFloat ? occupiedWidth : 0;
-            if (showFloat) { occupiedWidth += floatWidth; }
-            const durOffset = showDur ? occupiedWidth : 0;
-            if (showDur) { occupiedWidth += durWidth; }
-
-            const finishOffset = showFinish ? occupiedWidth : 0;
-            if (showFinish) { occupiedWidth += finishWidth; }
-            const startOffset = showStart ? occupiedWidth : 0;
-            if (showStart) { occupiedWidth += startWidth; }
-
-            let prevFinishOffset = 0;
-            let prevStartOffset = 0;
-            let baseFinishOffset = 0;
-            let baseStartOffset = 0;
-
-            if (showExtra && showPreviousUpdate) {
-                prevFinishOffset = occupiedWidth; occupiedWidth += cols.previousUpdateFinishDateWidth.value;
-                prevStartOffset = occupiedWidth; occupiedWidth += cols.previousUpdateStartDateWidth.value;
-            }
-
-            if (showExtra && showBaseline) {
-                baseFinishOffset = occupiedWidth; occupiedWidth += cols.baselineFinishDateWidth.value;
-                baseStartOffset = occupiedWidth; occupiedWidth += cols.baselineStartDateWidth.value;
-            }
 
             g.selectAll('.wbs-summary-date, .wbs-summary-value').remove();
 
@@ -12983,67 +13125,90 @@ export class Visual implements IVisual {
             const drawColumnValue = (
                 className: string,
                 value: string,
-                offset: number,
-                width: number,
+                column: typeof labelLayout.items[number],
                 fill: string = columnTextColor
             ) => {
                 if (!value) return;
                 g.append('text').attr('class', `wbs-summary-value ${className}`)
-                    .attr('x', Math.round(-offset - width / 2)).attr('y', Math.round(bandCenter))
+                    .attr('x', Math.round(-column.offset - column.width / 2)).attr('y', Math.round(bandCenter))
                     .attr('text-anchor', 'middle').attr('dominant-baseline', 'central')
                     .style('font-size', `${dateFontSize}px`).style('font-family', self.getFontFamily())
                     .style('font-weight', '500')
                     .style('fill', fill).style('opacity', textOpacity)
-                    .text(value);
+                    .each((_d: WBSGroup, _i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
+                        const textElement = d3.select(nodes[_i] as SVGTextElement);
+                        textElement.text(self.fitSvgTextToWidth(
+                            textElement as Selection<SVGTextElement, unknown, null, undefined>,
+                            value,
+                            Math.max(0, column.width - 6)
+                        ));
+                    });
             };
 
-            const drawColumnDate = (dateVal: Date | undefined | null, offset: number, width: number) => {
+            const drawColumnDate = (dateVal: Date | undefined | null, column: typeof labelLayout.items[number]) => {
                 if (!dateVal) return;
-                drawColumnValue('wbs-summary-date', self.formatColumnDate(dateVal), offset, width, columnTextColor);
+                drawColumnValue('wbs-summary-date', self.formatColumnDate(dateVal), column, columnTextColor);
             };
 
-            if (showStart) drawColumnDate(group.summaryStartDate, startOffset, startWidth);
-            if (showFinish) drawColumnDate(group.summaryFinishDate, finishOffset, finishWidth);
-            if (showDur) {
-                let durValue = "";
-                if (group.summaryEarlyStartDate && group.summaryEarlyFinishDate && group.summaryEarlyFinishDate >= group.summaryEarlyStartDate) {
-                    let workingDays = 0;
-                    const cur = new Date(group.summaryEarlyStartDate);
-                    cur.setHours(0, 0, 0, 0);
-                    const end = new Date(group.summaryEarlyFinishDate);
-                    end.setHours(0, 0, 0, 0);
-                    
-                    while (cur < end) {
-                        const day = cur.getDay();
-                        if (day !== 0 && day !== 6) { // Skip Sunday (0) and Saturday (6)
-                            workingDays++;
-                        }
-                        cur.setDate(cur.getDate() + 1);
-                    }
-                    if (workingDays > 0) durValue = workingDays.toString();
+            const getSummaryDuration = (): string => {
+                if (!group.summaryEarlyStartDate || !group.summaryEarlyFinishDate || group.summaryEarlyFinishDate < group.summaryEarlyStartDate) {
+                    return "";
                 }
-                drawColumnValue('wbs-summary-duration', durValue, durOffset, durWidth, columnTextColor);
-            }
-            if (showFloat) {
-                const floatValue = typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat)
-                    ? group.summaryTotalFloat.toFixed(0)
-                    : "";
-                drawColumnValue(
-                    'wbs-summary-float',
-                    floatValue,
-                    floatOffset,
-                    floatWidth,
-                    self.getFloatDisplayColor(group.summaryTotalFloat, columnTextColor)
-                );
-            }
-            if (showExtra && showPreviousUpdate) {
-                drawColumnDate(group.summaryPreviousUpdateFinishDate, prevFinishOffset, cols.previousUpdateFinishDateWidth.value);
-                drawColumnDate(group.summaryPreviousUpdateStartDate, prevStartOffset, cols.previousUpdateStartDateWidth.value);
-            }
-            if (showExtra && showBaseline) {
-                drawColumnDate(group.summaryBaselineFinishDate, baseFinishOffset, cols.baselineFinishDateWidth.value);
-                drawColumnDate(group.summaryBaselineStartDate, baseStartOffset, cols.baselineStartDateWidth.value);
-            }
+
+                let workingDays = 0;
+                const cur = new Date(group.summaryEarlyStartDate);
+                cur.setHours(0, 0, 0, 0);
+                const end = new Date(group.summaryEarlyFinishDate);
+                end.setHours(0, 0, 0, 0);
+
+                while (cur < end) {
+                    const day = cur.getDay();
+                    if (day !== 0 && day !== 6) {
+                        workingDays++;
+                    }
+                    cur.setDate(cur.getDate() + 1);
+                }
+
+                return workingDays > 0 ? workingDays.toString() : "";
+            };
+
+            labelLayout.items.forEach(column => {
+                switch (column.id) {
+                    case "start":
+                        drawColumnDate(group.summaryStartDate, column);
+                        break;
+                    case "finish":
+                        drawColumnDate(group.summaryFinishDate, column);
+                        break;
+                    case "duration":
+                        drawColumnValue('wbs-summary-duration', getSummaryDuration(), column, columnTextColor);
+                        break;
+                    case "totalFloat": {
+                        const floatValue = typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat)
+                            ? group.summaryTotalFloat.toFixed(0)
+                            : "";
+                        drawColumnValue(
+                            'wbs-summary-float',
+                            floatValue,
+                            column,
+                            self.getFloatDisplayColor(group.summaryTotalFloat, columnTextColor)
+                        );
+                        break;
+                    }
+                    case "previousFinish":
+                        drawColumnDate(group.summaryPreviousUpdateFinishDate, column);
+                        break;
+                    case "previousStart":
+                        drawColumnDate(group.summaryPreviousUpdateStartDate, column);
+                        break;
+                    case "baselineFinish":
+                        drawColumnDate(group.summaryBaselineFinishDate, column);
+                        break;
+                    case "baselineStart":
+                        drawColumnDate(group.summaryBaselineStartDate, column);
+                        break;
+                }
+            });
 
             const countText = self.getWbsCountLabel(group);
             const badgeGroup = g.select<SVGGElement>('.wbs-count-badge');
@@ -13148,7 +13313,7 @@ export class Visual implements IVisual {
                 : taskCellLeftX + 4;
             const textY = bandCenter;
             const availableWidth = nameRightX - textX;
-            const showGroupName = availableWidth > 20;
+            const showGroupName = availableWidth > 36;
 
             const textElement = g.select<SVGTextElement>('.wbs-group-name');
             const displayName = self.getWbsDisplayName(group);
@@ -13182,9 +13347,9 @@ export class Visual implements IVisual {
                     textY,
                     availableWidth,
                     maxLines,
-                    groupNameFontSizePx,
-                    'firstLineAtCenter'
+                    groupNameFontSizePx
                 );
+                textElement.append('title').text(displayName);
             }
 
             g.attr('role', 'button')
@@ -15052,6 +15217,94 @@ export class Visual implements IVisual {
         ].join(" ");
     }
 
+    private getLookAheadWindow(): LookAheadWindow | null {
+        const dataDate = this.dataDate;
+        const days = this.getEffectiveLookAheadWindowDays();
+        if (days <= 0 || !(dataDate instanceof Date) || isNaN(dataDate.getTime())) {
+            return null;
+        }
+
+        const startTime = this.normalizeToStartOfDay(dataDate);
+        const start = new Date(startTime);
+        const end = new Date(startTime);
+        end.setUTCDate(end.getUTCDate() + days);
+        const endTime = end.getTime();
+
+        return { start, end, startTime, endTime, days };
+    }
+
+    private clampLookAheadWindowDays(value: number, allowZero: boolean = true): number {
+        if (!isFinite(value)) {
+            return allowZero ? 0 : 28;
+        }
+        const minimum = allowZero ? 0 : 1;
+        return Math.max(minimum, Math.min(365, Math.round(value)));
+    }
+
+    private getConfiguredLookAheadWindowDays(): number {
+        return this.clampLookAheadWindowDays(Number(this.settings?.lookAhead?.windowDays?.value ?? 28), false);
+    }
+
+    private getEffectiveLookAheadWindowDays(): number {
+        if (this.lookAheadWindowDaysOverride !== null) {
+            return this.clampLookAheadWindowDays(this.lookAheadWindowDaysOverride);
+        }
+
+        return this.settings?.lookAhead?.enabled?.value
+            ? this.getConfiguredLookAheadWindowDays()
+            : 0;
+    }
+
+    private getLookAheadDisplayMode(): LookAheadDisplayMode {
+        const rawMode = this.settings?.lookAhead?.displayMode?.value?.value;
+        return rawMode === "highlight" ? "highlight" : "filter";
+    }
+
+    private shouldFilterToLookAhead(): boolean {
+        return this.getLookAheadDisplayMode() === "filter" && this.getLookAheadWindow() !== null;
+    }
+
+    private getLookAheadFilterSignature(): string {
+        return JSON.stringify({
+            displayMode: this.getLookAheadDisplayMode(),
+            windowDays: this.getEffectiveLookAheadWindowDays()
+        });
+    }
+
+    private filterTasksToLookAhead(tasks: Task[]): Task[] {
+        const lookAheadWindow = this.getLookAheadWindow();
+        if (!lookAheadWindow) {
+            return tasks;
+        }
+
+        return tasks.filter(task => this.isTaskInLookAheadWindow(task, lookAheadWindow));
+    }
+
+    private isTaskInLookAheadWindow(task: Task, lookAheadWindow: LookAheadWindow | null = this.getLookAheadWindow()): boolean {
+        if (!task || !lookAheadWindow) {
+            return false;
+        }
+
+        if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+            const milestoneDate = this.getVisualMilestoneDate(task);
+            if (!(milestoneDate instanceof Date) || isNaN(milestoneDate.getTime())) {
+                return false;
+            }
+            const milestoneTime = this.normalizeToStartOfDay(milestoneDate);
+            return milestoneTime >= lookAheadWindow.startTime && milestoneTime <= lookAheadWindow.endTime;
+        }
+
+        const start = this.getVisualStart(task);
+        const finish = this.getVisualFinish(task);
+        if (!(start instanceof Date) || !(finish instanceof Date) || isNaN(start.getTime()) || isNaN(finish.getTime()) || finish < start) {
+            return false;
+        }
+
+        const startTime = this.normalizeToStartOfDay(start);
+        const finishTime = this.normalizeToStartOfDay(finish);
+        return finishTime >= lookAheadWindow.startTime && startTime <= lookAheadWindow.endTime;
+    }
+
     private getBeforeDataDateOverlay(
         start: Date,
         finish: Date,
@@ -15163,6 +15416,31 @@ export class Visual implements IVisual {
             hoverStrokeColor = nearCriticalColor;
             hoverStrokeWidth = Math.max(hoverStrokeWidth, strokeWidth + 0.3);
             hoverStrokeOpacity = 1;
+        }
+
+        const lookAheadHighlightEnabled = this.settings?.lookAhead?.highlightTasks?.value ?? true;
+        if (
+            lookAheadHighlightEnabled &&
+            !task.isCritical &&
+            !task.isNearCritical &&
+            task.internalId !== this.selectedTaskId &&
+            this.isTaskInLookAheadWindow(task)
+        ) {
+            const lookAheadColor = this.resolveColor(this.settings.lookAhead.taskOutlineColor?.value?.value ?? "#0078D4", "foreground");
+            const lookAheadWidth = Math.max(0.5, this.settings.lookAhead.taskOutlineWidth?.value ?? 1.75);
+            strokeColor = lookAheadColor;
+            strokeWidth = Math.max(strokeWidth, lookAheadWidth);
+            strokeOpacity = Math.max(strokeOpacity, 0.95);
+            hoverStrokeColor = lookAheadColor;
+            hoverStrokeWidth = Math.max(hoverStrokeWidth, strokeWidth + 0.35);
+            hoverStrokeOpacity = 1;
+
+            if (visualWidth >= 10 || isMilestone) {
+                shadowColor = this.toRgba(lookAheadColor, 0.2);
+                shadowBlur = Math.max(shadowBlur, isMilestone ? 2.5 : 3);
+                shadowOffsetY = 0;
+                svgFilter = `drop-shadow(0 0 ${shadowBlur}px ${shadowColor})`;
+            }
         }
 
         if (task.internalId === this.selectedTaskId) {
@@ -15444,6 +15722,7 @@ export class Visual implements IVisual {
         const totalFloatLabel = this.getLocalizedString("tooltip.totalFloat", "Total Float");
         const taskFreeFloatLabel = this.getLocalizedString("tooltip.taskFreeFloat", "Task Free Float");
         const nearCriticalLabel = this.getLocalizedString("tooltip.nearCriticalThreshold", "Near Critical Threshold");
+        const lookAheadLabel = this.getLocalizedString("tooltip.lookAhead", "Look-Ahead Window");
 
         const modeValue = mode === "floatBased"
             ? this.getLocalizedString("tooltip.mode.floatBased", "Float-Based")
@@ -15473,6 +15752,14 @@ export class Visual implements IVisual {
 
         const finishText = this.formatDate(this.getVisualFinish(task));
         if (finishText) items.push({ displayName: finishLabel, value: finishText });
+
+        const lookAheadWindow = this.getLookAheadWindow();
+        if (this.isTaskInLookAheadWindow(task, lookAheadWindow) && lookAheadWindow) {
+            items.push({
+                displayName: lookAheadLabel,
+                value: `${this.formatLineDate(lookAheadWindow.start)} - ${this.formatLineDate(lookAheadWindow.end)}`
+            });
+        }
 
         items.push({ displayName: modeLabel, value: modeValue });
         items.push({ displayName: statusLabel, value: statusValue });
@@ -16071,24 +16358,24 @@ export class Visual implements IVisual {
 
         // ========== Introduction ==========
         const introSection = createSection('📊', 'Welcome to the Longest Path Visual');
-        addParagraph(introSection, 'This visual combines a task table, a schedule timeline, and interactive analysis tools so you can review critical path logic, float-based risk, comparisons, and grouped WBS views in one place.');
-        addParagraph(introSection, 'Use the header to change the analysis mode, filter what is shown, turn comparison layers on or off, search for tasks, and export the current view.');
+        addParagraph(introSection, 'This visual combines a P6-oriented task table, a schedule timeline, and interactive analysis tools so you can review driving logic, float-based risk, comparisons, look-ahead windows, and grouped WBS views in one place.');
+        addParagraph(introSection, 'Use the header to change analysis mode, filter what is shown, trace from a selected task, search for activities, adjust WBS detail, manage timeline layers, and export the current view.');
 
         // ========== Calculation Modes ==========
         const modeSection = createSection('🔄', 'Calculation Modes');
-        addParagraph(modeSection, 'The visual supports two criticality methods. Use the LP / Float toggle in the header to switch between them.');
+        addParagraph(modeSection, 'The visual supports two criticality methods. Use the LP / Float toggle in the header to switch between Longest Path and Float-Based analysis.');
 
         addSubtitle(modeSection, 'Longest Path (CPM)');
         const cpmPara = modeSection.append('p')
             .style('font-size', '13px')
             .style('margin-bottom', '8px');
-        cpmPara.text('Highlights the driving chain of dependent activities from start to finish using CPM-style relationship logic.');
+        cpmPara.text('Highlights the driving chain of dependent activities using relationship logic. When P6 Relationship Free Float is provided, that value is authoritative for driving relationship decisions.');
 
         addSubtitle(modeSection, 'Float-Based');
         const floatPara = modeSection.append('p')
             .style('font-size', '13px')
             .style('margin-bottom', '8px');
-        floatPara.text('Uses Total Float values instead of the driving chain. Tasks with zero or negative float are critical, and tasks above zero can also be highlighted as near-critical when the threshold is enabled. ');
+        floatPara.text('Uses Task Total Float values instead of the relationship driving chain. Tasks with zero or negative float are critical, and tasks above zero can be highlighted as near-critical when the threshold is enabled. ');
         floatPara.append('span')
             .style('display', 'inline-block')
             .style('padding', '2px 8px')
@@ -16099,30 +16386,45 @@ export class Visual implements IVisual {
             .text('Default');
 
         const modeList = createList(modeSection);
-        addListItem(modeList, 'Show All / Critical', 'Switch between the full schedule and a focused critical view. In Float mode, near-critical tasks can also stay highlighted when the threshold is enabled.');
-        addListItem(modeList, 'Path Info', 'In Longest Path mode, the path chip can show the active driving path, total tasks, and duration. If multiple valid paths exist, you can step through them.');
-        addListItem(modeList, 'Relationship Free Float', 'When P6 Relationship Free Float is bound, it is used as the authoritative driving-path input. If it is not provided, driving logic is approximated from dates, relationship type, and lag.');
+        addListItem(modeList, 'Show All / Critical', 'Switch between the full filtered schedule and a focused critical view. In Float mode, near-critical tasks can remain highlighted while the visible set follows the active Show All or Critical choice.');
+        addListItem(modeList, 'Relationship Free Float', 'When P6 Relationship Free Float is bound and populated, Longest Path uses it directly. Task Total Float does not trigger relationship-free-float strict mode.');
+        addListItem(modeList, 'Approximate Fallback', 'If Relationship Free Float is not provided, Longest Path falls back to scheduled dates, relationship type, and lag. That fallback is approximate because P6 calendars are not recalculated in the visual.');
+        addListItem(modeList, 'Multiple Driving Paths', 'If multiple valid driving paths exist, the path chip can show the active path and lets you step between paths when multi-path navigation is enabled.');
+        addListItem(modeList, 'Circular Logic', 'If circular relationships are detected, Longest Path analysis is disabled and the visual explains the data-quality issue instead of returning a misleading path.');
 
         // ========== Header Controls ==========
         const headerSection = createSection('🧭', 'Header Controls');
-        addParagraph(headerSection, 'The header is the main command area for changing what the visual displays.');
+        addParagraph(headerSection, 'The header is the main command area for changing what the visual displays. On wide visuals, the most-used controls are shown inline. On smaller widths, lower-priority controls move into the Controls and actions menu instead of disappearing.');
         const headerList = createList(headerSection);
-        addListItem(headerList, 'Baseline', 'Show or hide baseline comparison bars and the baseline finish marker.');
-        addListItem(headerList, 'Previous Update', 'Show or hide previous update comparison bars and the previous finish marker.');
-        addListItem(headerList, 'Connector Lines', 'Show or hide relationship lines between linked tasks.');
-        addListItem(headerList, 'Columns', 'Show or hide the date, duration, and float columns next to the WBS / task name column.');
-        addListItem(headerList, 'WBS', 'Enable or disable hierarchical WBS grouping when WBS levels are available.');
-        addListItem(headerList, 'Copy', 'Copy the visible rows to the clipboard in a format that can be pasted into Excel.');
-        addListItem(headerList, 'HTML', 'Copy a formatted HTML export of the current visual to the clipboard, including the chart image and visible table.');
-        addListItem(headerList, 'PDF', 'Export the current rendered view as a PDF document.');
+        addListItem(headerList, 'Show All / Critical', 'Controls whether the visual shows the full filtered task set or only critical/near-critical results for the current mode.');
+        addListItem(headerList, 'LP / Float', 'Switches between Longest Path relationship logic and Float-Based criticality.');
+        addListItem(headerList, 'LA Selector', 'Lets report users turn look-ahead off or choose a 2W, 3W, 4W, 6W, 8W, or 12W review window from the Data Date.');
+        addListItem(headerList, 'Near-Critical Threshold', 'In Float mode, sets the Total Float threshold used to identify near-critical tasks. On tighter headers this moves into the controls menu.');
+        addListItem(headerList, 'Controls and Actions Menu', 'Opens grouped controls for Analysis, Timeline Layers, WBS, and Actions when the header is crowded. A badge indicates hidden controls that are active.');
+        addListItem(headerList, 'Timeline Layers', 'Show or hide baseline bars, previous update bars, connector lines, and extra table columns. Baseline and previous update bars also show their matching date columns when columns are enabled.');
+        addListItem(headerList, 'WBS Controls', 'Enable WBS grouping and cycle expand/collapse depth from the header or the controls menu.');
+        addListItem(headerList, 'Copy / HTML / PDF / Help', 'Copy visible rows, copy an HTML export, export a PDF, or open this guide. These actions are available from the controls menu when they do not fit inline.');
+
+        // ========== Look-Ahead ==========
+        const lookAheadSection = createSection('🔎', 'Look-Ahead Review');
+        addParagraph(lookAheadSection, 'Look-ahead is a report-user control. The report builder can set the default and styling, but users can interact with the LA selector in the visual header.');
+        const lookAheadList = createList(lookAheadSection);
+        addListItem(lookAheadList, 'Window Source', 'The window starts at the Data Date and ends after the selected number of days or weeks.');
+        addListItem(lookAheadList, 'Filter Tasks Mode', 'When Display Mode is Filter Tasks, only tasks or milestones that overlap the look-ahead window remain visible.');
+        addListItem(lookAheadList, 'Highlight Only Mode', 'When Display Mode is Highlight Only, all tasks remain visible and matching tasks receive the look-ahead outline/highlight.');
+        addListItem(lookAheadList, 'Task Matching', 'Normal tasks match when their visual date range overlaps the window. Milestones match when their plotted milestone date falls inside the window.');
+        addListItem(lookAheadList, 'Persistence', 'The user-selected LA value is persisted with the visual state so the chosen window survives refresh and reopen.');
+        addListItem(lookAheadList, 'Data Date Required', 'If no valid Data Date is available, the look-ahead selector is disabled.');
 
         // ========== Task Selection & Tracing ==========
         const selectionSection = createSection('🎯', 'Task Selection & Path Tracing');
-        addParagraph(selectionSection, 'Use the search field or click directly on bars and milestones to select a task, then trace the schedule around it.');
+        addParagraph(selectionSection, 'Use the search field or click directly on task bars, milestones, or table rows to select a task, then trace the schedule around it.');
         const selectionList = createList(selectionSection);
-        addListItem(selectionList, 'Task Search', 'Search by task ID or name, then choose a result from the dropdown list.');
-        addListItem(selectionList, 'Trace Backward', 'Follow predecessors that drive into the selected task.');
-        addListItem(selectionList, 'Trace Forward', 'Follow successors that flow out from the selected task.');
+        addListItem(selectionList, 'Task Search', 'Search by task ID or name, then choose a result from the dropdown list. Search combines with the current mode, legend, look-ahead, and WBS filters.');
+        addListItem(selectionList, 'Select Task', 'Click a bar, milestone, or row to focus a task. The selected task is highlighted and can drive trace filtering.');
+        addListItem(selectionList, 'Trace Backward', 'Shows the predecessor chain leading into the selected task. In Longest Path mode, this can be constrained to the driving path.');
+        addListItem(selectionList, 'Trace Forward', 'Shows successor work flowing out from the selected task.');
+        addListItem(selectionList, 'Mode Interaction', 'Trace Backward/Forward, Show All/Critical, Float-Based mode, Longest Path mode, legend filtering, and look-ahead filtering combine. If no tasks survive the combined filters, the visual shows an empty-state message.');
         addListItem(selectionList, 'Driving Path Navigation', 'When multiple best driving paths exist in Longest Path mode, use the path chip arrows to move between them.');
 
         const tipPara = selectionSection.append('p')
@@ -16135,11 +16437,13 @@ export class Visual implements IVisual {
         const wbsSection = createSection('📁', 'WBS Grouping');
         addParagraph(wbsSection, 'When WBS fields are available, the visual can switch from a flat task list to grouped hierarchical rows.');
         const wbsList = createList(wbsSection);
-        addListItem(wbsList, 'Group Headers', 'Each group row shows the WBS name, visible task count, and optional summary values.');
+        addListItem(wbsList, 'Group Headers', 'Each group row shows the WBS name, visible task count, optional summary bar, and summary values based on the currently filtered task set.');
         addListItem(wbsList, 'Enable / Disable', 'Use the WBS button in the header to switch between grouped and flat task views.');
         addListItem(wbsList, 'Expand / Collapse Level', 'Use the + and − WBS buttons to cycle through grouping depth, from collapsed to fully expanded and back again.');
         addListItem(wbsList, 'Manual Open / Close', 'Click a group chevron to expand or collapse a single branch without changing the whole view.');
-        addListItem(wbsList, 'Header Menu', 'Right-click a WBS group header to expand all, collapse all, or show the hierarchy through any available WBS level.');
+        addListItem(wbsList, 'Header Context Menu', 'Right-click a WBS group header, or use Shift+F10 from a focused WBS header, to expand all, collapse all, or show the hierarchy through any available WBS level.');
+        addListItem(wbsList, 'Collapse To Level', 'Choose a WBS level from the context menu to show levels 1 through the selected level and collapse deeper branches.');
+        addListItem(wbsList, 'Scroll Anchoring', 'When a global WBS expand/collapse action is applied, the visual attempts to keep the visible WBS area anchored so the viewport does not jump unexpectedly.');
 
         const wbsNote = wbsSection.append('p')
             .style('font-size', '13px')
@@ -16151,19 +16455,23 @@ export class Visual implements IVisual {
         const timelineSection = createSection('📅', 'Bars, Milestones & Lines');
         addParagraph(timelineSection, 'The timeline combines current-task bars, optional comparison bars, milestones, and vertical reference lines.');
         const timelineList = createList(timelineSection);
-        addListItem(timelineList, 'Current Task Bars', 'Show each task using the visual start and visual finish dates used by the current analysis mode.');
+        addListItem(timelineList, 'Current Task Bars', 'Show each task using the visual start and visual finish dates. Manual Start/Finish fields affect plotting only and do not change CPM logic.');
         addListItem(timelineList, 'Milestones', 'Milestones appear as diamonds at a single scheduled date.');
-        addListItem(timelineList, 'Baseline / Previous Bars', 'When enabled, lighter comparison bars appear beneath the current task bar so you can compare plan, previous update, and current dates.');
+        addListItem(timelineList, 'Baseline / Previous Bars', 'When enabled, lighter comparison bars appear beneath the current task bar so you can compare baseline, previous update, and current dates.');
         addListItem(timelineList, 'Finish & Reference Lines', 'Project Finish, Baseline Finish, Previous Finish, and Data Date can each draw a vertical line and label.');
         addListItem(timelineList, 'Data Date Override', 'When the before-data-date override is enabled in settings, the earlier portion of a task bar uses the override color while the remaining portion keeps the task state color.');
+        addListItem(timelineList, 'Look-Ahead Window', 'Shows the review band, optional end line, and optional end label when look-ahead is active.');
+        addListItem(timelineList, 'Header Label Reflow', 'Date-line labels are reflowed to reduce overlap when project finish, data date, comparison finish, and look-ahead labels are close together.');
+        addListItem(timelineList, 'Invalid Date Ranges', 'Tasks with invalid plotted start/finish ranges are excluded from normal plotting and reported through data-quality feedback.');
 
         // ========== Near Critical ==========
         const nearCriticalSection = createSection('⚠️', 'Near-Critical Analysis');
         addParagraph(nearCriticalSection, 'Near-critical highlighting is available in Float mode.');
         const nearCriticalList = createList(nearCriticalSection);
-        addListItem(nearCriticalList, 'Threshold Chip', 'Use the Near-Critical control in the header to set the maximum Total Float value that should be treated as near-critical.');
+        addListItem(nearCriticalList, 'Threshold Control', 'Use the Near-Critical control in the header, or in the Controls and actions menu on smaller visuals, to set the maximum Total Float value that should be treated as near-critical.');
         addListItem(nearCriticalList, 'Critical vs Near-Critical', 'Zero or negative float is critical. Values above zero and at or below the threshold are near-critical.');
-        addListItem(nearCriticalList, 'Visual Priority', 'Near-critical tasks are intended to stand out from normal work without taking precedence over critical tasks.');
+        addListItem(nearCriticalList, 'Task Total Float', 'Float-Based mode uses Task Total Float. Relationship Free Float is reserved for relationship-driving logic in Longest Path mode.');
+        addListItem(nearCriticalList, 'Visual Priority', 'Critical styling takes precedence over near-critical styling, and selected tasks take precedence over both.');
 
         // ========== Legend & Filtering ==========
         const legendSection = createSection('🎨', 'Legend & Filtering');
@@ -16173,6 +16481,7 @@ export class Visual implements IVisual {
         addListItem(legendList, 'Click Additional Chips', 'Add or remove more categories from the current filter.');
         addListItem(legendList, 'Show All', 'Reset the legend filter and show every category again.');
         addListItem(legendList, 'Scroll Arrows', 'Move left or right when there are more legend categories than can fit in the footer.');
+        addListItem(legendList, 'Combined Filters', 'Legend selection combines with mode, selected task tracing, look-ahead, search, max task limits, and WBS collapse state.');
 
         // ========== Zoom & Layout ==========
         const zoomSection = createSection('🔍', 'Zoom & Layout');
@@ -16182,6 +16491,8 @@ export class Visual implements IVisual {
         addListItem(zoomList, 'Drag the Window', 'Pan across time by dragging the selected range between the handles.');
         addListItem(zoomList, 'Vertical Scroll', 'Use the mouse wheel or scrollbar to move through tasks.');
         addListItem(zoomList, 'Table / Timeline Divider', 'Drag the divider between the left table and the timeline to resize the task-name area.');
+        addListItem(zoomList, 'Responsive Header', 'The command bar adapts to available width. Controls that do not fit move into the grouped Controls and actions menu.');
+        addListItem(zoomList, 'Canvas Rendering', 'Large schedules can use canvas rendering for task bars while preserving SVG header, labels, and interaction layers.');
 
         // ========== Export & Copy ==========
         const exportSection = createSection('📋', 'Export & Copy');
@@ -16189,6 +16500,7 @@ export class Visual implements IVisual {
         addListItem(exportList, 'Copy Button', 'Copies the visible rows to the clipboard as plain text and HTML so you can paste into Excel or another document.');
         addListItem(exportList, 'HTML Button', 'Copies an HTML version of the current visual to the clipboard, including the chart image and visible table.');
         addListItem(exportList, 'PDF Button', 'Exports the current rendered view as a PDF.');
+        addListItem(exportList, 'Controls Menu', 'If copy/export/help buttons do not fit inline, open the Controls and actions menu and use the Actions section.');
 
         const exportNote = exportSection.append('p')
             .style('font-size', '13px')
@@ -16200,10 +16512,13 @@ export class Visual implements IVisual {
         const warningSection = createSection('🛡️', 'Warnings & Data Quality');
         addParagraph(warningSection, 'The visual can show warnings when some analysis results should be treated carefully.');
         const warningList = createList(warningSection);
-        addListItem(warningList, 'CPM Safety Warning', 'If the schedule relationships are not safe for CPM-style tracing, the LP / Float mode control shows a warning indicator and explains that Longest Path analysis is unavailable.');
-        addListItem(warningList, 'Plotted Date Warning', 'The banner can also warn when some tasks have invalid visual start / finish ranges and cannot be plotted normally.');
-        addListItem(warningList, 'P6 Relationship Float', 'Warnings identify whether Longest Path is using P6 Relationship Free Float or approximating driving logic because relationship float is missing.');
-        addListItem(warningList, 'What to Check', 'Review relationship data, start / finish dates, and float inputs if the schedule does not behave as expected.');
+        addListItem(warningList, 'Relationship Free Float Source', 'The visual distinguishes between using P6 Relationship Free Float and approximating driving logic from dates, relationship type, and lag.');
+        addListItem(warningList, 'Blank Relationship Float', 'If Relationship Free Float is missing or blank, Longest Path can still run using the approximate fallback, but the results should be reviewed.');
+        addListItem(warningList, 'Missing Predecessor Activities', 'Predecessor IDs that are not present as task rows are tolerated so the visual does not break longest-path logic. They are represented as missing predecessor references in data quality feedback.');
+        addListItem(warningList, 'Circular Logic', 'Detected circular dependencies disable Longest Path analysis because a valid driving chain cannot be calculated safely.');
+        addListItem(warningList, 'Duplicate Activity Rows', 'Conflicting duplicate activity rows are flagged when the same activity ID has inconsistent schedule fields.');
+        addListItem(warningList, 'Row Limit', 'If the dataset appears to hit the 30,000-row custom visual limit, relationship or WBS results may be incomplete.');
+        addListItem(warningList, 'Invalid Plotted Dates', 'Rows with invalid visual start/finish ranges are excluded from plotting and reported through data-quality feedback.');
 
         // ========== Tooltips ==========
         const tooltipSection = createSection('💬', 'Tooltips');
@@ -16211,15 +16526,19 @@ export class Visual implements IVisual {
         const tooltipList = createList(tooltipSection);
         addSimpleListItem(tooltipList, 'Task ID and task name');
         addSimpleListItem(tooltipList, 'Start, finish, and duration information');
-        addSimpleListItem(tooltipList, 'Total Float and criticality status');
+        addSimpleListItem(tooltipList, 'Total Float, Task Free Float, and criticality status when available');
+        addSimpleListItem(tooltipList, 'Look-ahead window membership when the task is inside the active window');
+        addSimpleListItem(tooltipList, 'Relationship/path mode context for the current analysis');
         addSimpleListItem(tooltipList, 'Additional project fields included in the bound data');
 
         // ========== Keyboard Shortcuts ==========
         const keyboardSection = createSection('⌨️', 'Keyboard Shortcuts');
         const keyboardList = createList(keyboardSection);
-        addListItem(keyboardList, 'Escape', 'Close this help dialog, close the search dropdown, or clear the current selection when applicable.');
+        addListItem(keyboardList, 'Escape', 'Close this help dialog, close the controls menu, close the search dropdown, or clear the current selection when applicable.');
         addListItem(keyboardList, 'Tab', 'Move through interactive controls such as header buttons, the search box, and dialog actions.');
         addListItem(keyboardList, 'Enter / Space', 'Activate the currently focused control.');
+        addListItem(keyboardList, 'Arrow Keys', 'Use native keyboard behavior inside dropdowns, number inputs, and scrollable menus.');
+        addListItem(keyboardList, 'Shift + F10', 'Open WBS group header actions when a WBS group header is focused.');
     }
 
     /**

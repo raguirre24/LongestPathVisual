@@ -19,6 +19,7 @@ export interface HeaderCallbacks {
     onExport: () => void;
     onExportHtml: () => void;
     onCopy: () => void;
+    onLookAheadWindowChanged: (days: number) => void;
     onZoomIn?: () => void;
     onZoomOut?: () => void;
 }
@@ -44,9 +45,38 @@ export interface HeaderState {
     showNearCritical: boolean;
     showExtraColumns: boolean;
     wbsEnabled: boolean;
+    lookAheadAvailable: boolean;
+    lookAheadWindowDays: number;
+    lookAheadDisplayMode: "filter" | "highlight";
 }
 
-type HeaderOverflowAction = "copy" | "html" | "pdf" | "help";
+type HeaderMenuAction =
+    | "lookAhead"
+    | "floatThreshold"
+    | "baseline"
+    | "previousUpdate"
+    | "connectorLines"
+    | "columns"
+    | "wbsEnable"
+    | "wbsExpand"
+    | "wbsCollapse"
+    | "copy"
+    | "html"
+    | "pdf"
+    | "help";
+
+type HeaderMenuSection = "Analysis" | "Timeline Layers" | "WBS" | "Actions";
+
+interface HeaderMenuItem {
+    id: HeaderMenuAction;
+    section: HeaderMenuSection;
+    label: string;
+    status?: string;
+    title?: string;
+    disabled?: boolean;
+    kind?: "button" | "select" | "number";
+    callback?: () => void;
+}
 
 export class Header {
     private container: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -54,7 +84,7 @@ export class Header {
     private callbacks: HeaderCallbacks;
     private exportButtonLoading: boolean = false;
     private copySuccessTimeout: number | null = null;
-    private actionOverflowMenuOpen: boolean = false;
+    private controlsMenuOpen: boolean = false;
 
     // Button Selections
     private toggleButtonGroup!: Selection<SVGGElement, unknown, null, undefined>;
@@ -102,7 +132,7 @@ export class Header {
 
         type GroupRect = { key: string; x: number; width: number };
         const groups: Array<{ key: string; items: Array<{ x: number; width?: number; size?: number; visible: boolean }> }> = [
-            { key: "analysis", items: [layout.showAllCritical, layout.modeToggle] },
+            { key: "analysis", items: [layout.showAllCritical, layout.modeToggle, layout.lookAhead] },
             { key: "layers", items: [layout.baseline, layout.previousUpdate, layout.connectorLines, layout.colToggle] },
             { key: "wbs", items: [layout.wbsEnable, layout.wbsExpandToggle, layout.wbsCollapseToggle] },
             { key: "actions", items: [layout.copyButton, layout.htmlExportButton, layout.exportButton, layout.helpButton, layout.actionOverflowButton] }
@@ -212,6 +242,7 @@ export class Header {
         this.renderDockChrome();
         this.createOrUpdateToggleButton();
         this.createModeToggleButton();
+        this.createLookAheadControl();
         this.createColumnDisplayToggleButton();
         this.createOrUpdateBaselineToggleButton();
         this.createOrUpdatePreviousUpdateToggleButton();
@@ -1026,13 +1057,22 @@ export class Header {
         return 260;
     }
 
+    private shouldInlineFloatThreshold(viewportWidth: number, state: HeaderState): boolean {
+        if (state.currentMode !== 'floatBased' || !state.showNearCritical) {
+            return false;
+        }
+
+        const mode = this.getExtendedLayoutMode(viewportWidth);
+        return mode === 'wide' || mode === 'medium';
+    }
+
     private getTopRightControlWidthBudget(
         viewportWidth: number,
         state: HeaderState
     ): { maxWidth: number; mode: 'wide' | 'medium' | 'narrow' | 'compact' | 'very-narrow' } {
         const mode = this.getExtendedLayoutMode(viewportWidth);
 
-        if (state.currentMode === 'floatBased' && state.showNearCritical) {
+        if (this.shouldInlineFloatThreshold(viewportWidth, state)) {
             const maxWidth = mode === 'very-narrow'
                 ? 118
                 : mode === 'compact'
@@ -1086,6 +1126,7 @@ export class Header {
         // Calculate dimensions for each button type based on mode
         const showAllWidth = iconButtonSize; // Force icon-only
         const modeWidth = mode === 'wide' ? 150 : (mode === 'medium' ? 130 : iconButtonSize); // Keep mode somewhat wide or icon
+        const lookAheadWidth = mode === 'wide' ? 88 : (mode === 'medium' ? 82 : (mode === 'narrow' ? 74 : 66));
         const baselineWidth = iconButtonSize;
         const prevWidth = iconButtonSize;
         const wbsEnableWidth = iconButtonSize;
@@ -1094,6 +1135,7 @@ export class Header {
         const allButtonWidths = [
             showAllWidth,
             modeWidth,
+            lookAheadWidth,
             baselineWidth,
             prevWidth,
             iconButtonSize, // connector lines
@@ -1110,7 +1152,16 @@ export class Header {
         const numButtons = allButtonWidths.length;
         // const totalNeeded = allButtonWidths.reduce((a, b) => a + b, 0) + (numButtons - 1) * gap;
 
-        const desiredActionButtons = {
+        const desiredControls = {
+            lookAhead: true,
+            floatThreshold: state.currentMode === 'floatBased' && state.showNearCritical,
+            baseline: true,
+            previousUpdate: true,
+            connectorLines: settings.connectorLines?.showConnectorToggle?.value ?? false,
+            columns: settings.columns?.showColumnToggleButton?.value ?? true,
+            wbsEnable: state.wbsDataExists && (settings.wbsGrouping?.showWbsToggle?.value ?? true),
+            wbsExpand: state.wbsDataExists && (settings.wbsGrouping?.enableWbsGrouping?.value ?? true),
+            wbsCollapse: state.wbsDataExists && (settings.wbsGrouping?.enableWbsGrouping?.value ?? true),
             copyButton: true,
             htmlExportButton: settings.generalSettings?.showExportButton?.value ?? true,
             exportButton: settings.generalSettings?.showExportButton?.value ?? true,
@@ -1120,26 +1171,66 @@ export class Header {
         let visibleButtons = {
             showAll: true,
             modeToggle: true,
-            baseline: true,
-            previousUpdate: true,
-            connectorLines: settings.connectorLines?.showConnectorToggle?.value ?? false,
-            colToggle: settings.columns?.showColumnToggleButton?.value ?? true,
-            wbsEnable: state.wbsDataExists && (settings.wbsGrouping?.showWbsToggle?.value ?? true),
-            wbsExpand: state.wbsDataExists && (settings.wbsGrouping?.enableWbsGrouping?.value ?? true),
-            wbsCollapse: state.wbsDataExists && (settings.wbsGrouping?.enableWbsGrouping?.value ?? true),
-            copyButton: desiredActionButtons.copyButton,
-            htmlExportButton: desiredActionButtons.htmlExportButton,
-            exportButton: desiredActionButtons.exportButton,
-            helpButton: desiredActionButtons.helpButton
+            lookAhead: desiredControls.lookAhead,
+            baseline: desiredControls.baseline,
+            previousUpdate: desiredControls.previousUpdate,
+            connectorLines: desiredControls.connectorLines,
+            colToggle: desiredControls.columns,
+            wbsEnable: desiredControls.wbsEnable,
+            wbsExpand: desiredControls.wbsExpand,
+            wbsCollapse: desiredControls.wbsCollapse,
+            copyButton: false,
+            htmlExportButton: false,
+            exportButton: false,
+            helpButton: false
         };
 
-        let actionOverflowVisible = false;
+        if (mode === 'medium') {
+            visibleButtons.wbsCollapse = false;
+            visibleButtons.wbsExpand = false;
+            visibleButtons.connectorLines = false;
+            visibleButtons.colToggle = false;
+        } else if (mode === 'narrow') {
+            visibleButtons.baseline = false;
+            visibleButtons.previousUpdate = false;
+            visibleButtons.connectorLines = false;
+            visibleButtons.colToggle = false;
+            visibleButtons.wbsEnable = false;
+            visibleButtons.wbsExpand = false;
+            visibleButtons.wbsCollapse = false;
+        } else if (mode === 'compact' || mode === 'very-narrow') {
+            visibleButtons.lookAhead = false;
+            visibleButtons.baseline = false;
+            visibleButtons.previousUpdate = false;
+            visibleButtons.connectorLines = false;
+            visibleButtons.colToggle = false;
+            visibleButtons.wbsEnable = false;
+            visibleButtons.wbsExpand = false;
+            visibleButtons.wbsCollapse = false;
+        } else if (viewportWidth < 1240) {
+            visibleButtons.wbsCollapse = false;
+            visibleButtons.wbsExpand = false;
+        }
 
-        const hasHiddenActionButton = () =>
-            (desiredActionButtons.copyButton && !visibleButtons.copyButton) ||
-            (desiredActionButtons.htmlExportButton && !visibleButtons.htmlExportButton) ||
-            (desiredActionButtons.exportButton && !visibleButtons.exportButton) ||
-            (desiredActionButtons.helpButton && !visibleButtons.helpButton);
+        const getHiddenControls = (): HeaderMenuAction[] => {
+            const controls: HeaderMenuAction[] = [];
+            if (desiredControls.lookAhead && !visibleButtons.lookAhead) controls.push("lookAhead");
+            if (desiredControls.floatThreshold && !this.shouldInlineFloatThreshold(viewportWidth, state)) controls.push("floatThreshold");
+            if (desiredControls.baseline && !visibleButtons.baseline) controls.push("baseline");
+            if (desiredControls.previousUpdate && !visibleButtons.previousUpdate) controls.push("previousUpdate");
+            if (desiredControls.connectorLines && !visibleButtons.connectorLines) controls.push("connectorLines");
+            if (desiredControls.columns && !visibleButtons.colToggle) controls.push("columns");
+            if (desiredControls.wbsEnable && !visibleButtons.wbsEnable) controls.push("wbsEnable");
+            if (desiredControls.wbsExpand && !visibleButtons.wbsExpand) controls.push("wbsExpand");
+            if (desiredControls.wbsCollapse && !visibleButtons.wbsCollapse) controls.push("wbsCollapse");
+            if (desiredControls.copyButton && !visibleButtons.copyButton) controls.push("copy");
+            if (desiredControls.htmlExportButton && !visibleButtons.htmlExportButton) controls.push("html");
+            if (desiredControls.exportButton && !visibleButtons.exportButton) controls.push("pdf");
+            if (desiredControls.helpButton && !visibleButtons.helpButton) controls.push("help");
+            return controls;
+        };
+
+        let actionOverflowVisible = getHiddenControls().length > 0;
 
         // Progressive hiding based on available width
         const calculateVisibleWidth = () => {
@@ -1147,6 +1238,7 @@ export class Header {
             let count = 0;
             if (visibleButtons.showAll) { width += showAllWidth; count++; }
             if (visibleButtons.modeToggle) { width += modeWidth; count++; }
+            if (visibleButtons.lookAhead) { width += lookAheadWidth; count++; }
             if (visibleButtons.baseline) { width += baselineWidth; count++; }
             if (visibleButtons.previousUpdate) { width += prevWidth; count++; }
             if (visibleButtons.connectorLines) { width += iconButtonSize; count++; }
@@ -1163,7 +1255,7 @@ export class Header {
         };
 
         const refreshActionOverflow = () => {
-            actionOverflowVisible = hasHiddenActionButton();
+            actionOverflowVisible = getHiddenControls().length > 0;
             return calculateVisibleWidth();
         };
 
@@ -1173,31 +1265,31 @@ export class Header {
         // Hide WBS collapse button first
         if (visibleWidth > availableWidth && visibleButtons.wbsCollapse) {
             visibleButtons.wbsCollapse = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
         // Hide WBS expand button
         if (visibleWidth > availableWidth && visibleButtons.wbsExpand) {
             visibleButtons.wbsExpand = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
         // Hide WBS enable button
         if (visibleWidth > availableWidth && visibleButtons.wbsEnable) {
             visibleButtons.wbsEnable = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
         // Hide column toggle
         if (visibleWidth > availableWidth && visibleButtons.colToggle) {
             visibleButtons.colToggle = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
         // Hide connector lines toggle
         if (visibleWidth > availableWidth && visibleButtons.connectorLines) {
             visibleButtons.connectorLines = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
         // Hide help button
@@ -1227,25 +1319,29 @@ export class Header {
         // Hide previous update
         if (visibleWidth > availableWidth && visibleButtons.previousUpdate) {
             visibleButtons.previousUpdate = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
         // Hide baseline
         if (visibleWidth > availableWidth && visibleButtons.baseline) {
             visibleButtons.baseline = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
-        if (visibleWidth > availableWidth && actionOverflowVisible) {
+        // Keep look-ahead available as long as the core mode buttons fit.
+        if (visibleWidth > availableWidth && visibleButtons.lookAhead && availableWidth < (showAllWidth + modeWidth + lookAheadWidth + gap * 2)) {
+            visibleButtons.lookAhead = false;
+            visibleWidth = refreshActionOverflow();
+        }
+
+        const hiddenActions = getHiddenControls();
+
+        // Keep the controls menu visible when it is carrying hidden controls.
+        // A single menu button is the fallback that prevents controls from silently disappearing.
+        if (visibleWidth > availableWidth && actionOverflowVisible && hiddenActions.length === 0) {
             actionOverflowVisible = false;
             visibleWidth = calculateVisibleWidth();
         }
-
-        const hiddenActions: HeaderOverflowAction[] = [];
-        if (desiredActionButtons.copyButton && !visibleButtons.copyButton) hiddenActions.push("copy");
-        if (desiredActionButtons.htmlExportButton && !visibleButtons.htmlExportButton) hiddenActions.push("html");
-        if (desiredActionButtons.exportButton && !visibleButtons.exportButton) hiddenActions.push("pdf");
-        if (desiredActionButtons.helpButton && !visibleButtons.helpButton) hiddenActions.push("help");
 
         // Now calculate positions for visible buttons
         let x = 10;
@@ -1265,6 +1361,13 @@ export class Header {
             visible: visibleButtons.modeToggle
         };
         if (visibleButtons.modeToggle) x += modeWidth + gap;
+
+        const lookAhead = {
+            x,
+            width: lookAheadWidth,
+            visible: visibleButtons.lookAhead
+        };
+        if (visibleButtons.lookAhead) x += lookAheadWidth + gap;
 
         const baseline = {
             x,
@@ -1357,6 +1460,7 @@ export class Header {
             mode,
             showAllCritical,
             modeToggle,
+            lookAhead,
             colToggle,
             baseline,
             previousUpdate,
@@ -1703,7 +1807,7 @@ export class Header {
         const currentMode = this.currentSettings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
         const isFloatBased = currentMode === 'floatBased';
 
-        if (!this.currentState.showNearCritical || !isFloatBased) {
+        if (!this.currentState.showNearCritical || !isFloatBased || !this.shouldInlineFloatThreshold(this.currentViewportWidth, this.currentState)) {
             this.hideControl("float-threshold-wrapper");
             return;
         }
@@ -2021,6 +2125,125 @@ export class Header {
                 .style("pointer-events", "none")
                 .text("!");
         }
+    }
+
+    private createLookAheadControl(): void {
+        const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
+        const { x: controlX, width: controlWidth, visible } = layout.lookAhead;
+
+        if (!visible) {
+            this.hideControl("look-ahead-control-wrapper");
+            return;
+        }
+
+        const controlHeight = UI_TOKENS.height.standard;
+        const controlY = UI_TOKENS.spacing.sm;
+        const activeDays = Math.max(0, Math.round(this.currentState.lookAheadWindowDays || 0));
+        const isActive = activeDays > 0;
+        const isAvailable = this.currentState.lookAheadAvailable;
+        const displayModeText = this.currentState.lookAheadDisplayMode === "highlight" ? "highlight" : "filter";
+        const title = isAvailable
+            ? `Look-ahead ${displayModeText}. Select a window from the data date.`
+            : "Look-ahead requires a Data Date.";
+        const borderColor = isActive ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
+        const backgroundColor = isActive ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
+        const labelColor = isActive ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
+        const isCompact = controlWidth < 76;
+        const selectWidth = isCompact ? Math.max(42, controlWidth - 10) : Math.max(46, controlWidth - 33);
+
+        const options = [
+            { value: 0, label: "Off" },
+            { value: 14, label: "2W" },
+            { value: 21, label: "3W" },
+            { value: 28, label: "4W" },
+            { value: 42, label: "6W" },
+            { value: 56, label: "8W" },
+            { value: 84, label: "12W" }
+        ];
+
+        if (activeDays > 0 && !options.some(option => option.value === activeDays)) {
+            options.push({ value: activeDays, label: `${activeDays}d` });
+            options.sort((a, b) => a.value - b.value);
+        }
+
+        const wrapper = this.upsertDiv("look-ahead-control-wrapper")
+            .attr("role", "group")
+            .attr("aria-label", "Look-ahead task filter")
+            .attr("title", title)
+            .style("position", "absolute")
+            .style("left", `${controlX}px`)
+            .style("top", `${controlY}px`)
+            .style("width", `${controlWidth}px`)
+            .style("height", `${controlHeight}px`)
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", isCompact ? "2px" : "4px")
+            .style("box-sizing", "border-box")
+            .style("padding", isCompact ? "0 4px" : "0 5px")
+            .style("background-color", backgroundColor)
+            .style("border", `1px solid ${borderColor}`)
+            .style("border-radius", `${UI_TOKENS.radius.medium}px`)
+            .style("opacity", isAvailable ? "1" : "0.5")
+            .style("box-shadow", isActive ? HEADER_DOCK_TOKENS.shadow : "none");
+
+        if (!isCompact) {
+            wrapper.append("span")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
+                .style("font-weight", UI_TOKENS.fontWeight.semibold)
+                .style("color", labelColor)
+                .style("white-space", "nowrap")
+                .style("line-height", "1")
+                .text("LA");
+        }
+
+        const selectEl = wrapper.append("select")
+            .attr("aria-label", "Look-ahead window")
+            .attr("title", title)
+            .property("disabled", !isAvailable)
+            .style("width", `${selectWidth}px`)
+            .style("height", "22px")
+            .style("min-width", "0")
+            .style("border", "none")
+            .style("outline", "none")
+            .style("border-radius", "4px")
+            .style("padding", isCompact ? "0 14px 0 2px" : "0 16px 0 3px")
+            .style("appearance", "none")
+            .style("-webkit-appearance", "none")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
+            .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("color", HEADER_DOCK_TOKENS.buttonText)
+            .style("background-color", isActive ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.inputBg)
+            .style("cursor", isAvailable ? "pointer" : "not-allowed")
+            .on("click", event => event.stopPropagation())
+            .on("change", (event) => {
+                event.stopPropagation();
+                const value = parseInt((event.target as HTMLSelectElement).value, 10);
+                this.callbacks.onLookAheadWindowChanged(Number.isFinite(value) ? value : 0);
+            });
+
+        wrapper.append("span")
+            .attr("aria-hidden", "true")
+            .style("position", "absolute")
+            .style("right", isCompact ? "7px" : "8px")
+            .style("top", "50%")
+            .style("transform", "translateY(-52%)")
+            .style("width", "0")
+            .style("height", "0")
+            .style("border-left", "4px solid transparent")
+            .style("border-right", "4px solid transparent")
+            .style("border-top", `5px solid ${isAvailable ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted}`)
+            .style("pointer-events", "none");
+
+        selectEl.selectAll("option")
+            .data(options)
+            .enter()
+            .append("option")
+            .attr("value", option => String(option.value))
+            .text(option => option.label);
+
+        selectEl.property("value", String(activeDays));
     }
 
     private createColumnDisplayToggleButton(): void {
@@ -2577,7 +2800,7 @@ export class Header {
         if (!visible || hiddenActions.length === 0) {
             this.hideControl("action-overflow-button-group");
             this.container.select<HTMLDivElement>("div.action-overflow-menu").style("display", "none");
-            this.actionOverflowMenuOpen = false;
+            this.controlsMenuOpen = false;
             return;
         }
 
@@ -2586,14 +2809,15 @@ export class Header {
         const buttonStroke = HEADER_DOCK_TOKENS.buttonStroke;
         const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
         const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
-        const title = `More actions: ${this.getOverflowActionItems(hiddenActions).map(item => item.label).join(", ")}`;
+        const activeHiddenCount = this.getActiveHiddenControlCount(hiddenActions);
+        const title = `Controls and actions: ${this.getHeaderMenuItems(hiddenActions).map(item => item.label).join(", ")}`;
 
         const btn = this.upsertButton("action-overflow-button-group")
             .attr("type", "button")
             .attr("aria-label", title)
             .attr("title", title)
-            .attr("aria-haspopup", "menu")
-            .attr("aria-expanded", String(this.actionOverflowMenuOpen))
+            .attr("aria-haspopup", "dialog")
+            .attr("aria-expanded", String(this.controlsMenuOpen))
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -2610,9 +2834,9 @@ export class Header {
             .style("z-index", "45")
             .on("click", (event) => {
                 event.stopPropagation();
-                this.actionOverflowMenuOpen = !this.actionOverflowMenuOpen;
+                this.controlsMenuOpen = !this.controlsMenuOpen;
                 this.renderActionOverflowMenu(buttonX, buttonSize, hiddenActions);
-                btn.attr("aria-expanded", String(this.actionOverflowMenuOpen));
+                btn.attr("aria-expanded", String(this.controlsMenuOpen));
             });
 
         const svg = btn.append("svg")
@@ -2635,15 +2859,52 @@ export class Header {
             .style("stroke", buttonStroke)
             .style("stroke-width", 1.5);
 
-        const dotY = buttonSize / 2;
-        [buttonSize / 2 - 6, buttonSize / 2, buttonSize / 2 + 6].forEach(cx => {
-            svg.append("circle")
+        const iconG = svg.append("g")
+            .attr("class", "action-overflow-icon")
+            .attr("transform", `translate(${buttonSize / 2}, ${buttonSize / 2})`);
+
+        [-5, 0, 5].forEach((y, index) => {
+            const knobX = index === 0 ? -3.5 : index === 1 ? 3.5 : -0.5;
+            iconG.append("line")
+                .attr("class", "action-overflow-line")
+                .attr("x1", -7)
+                .attr("x2", 7)
+                .attr("y1", y)
+                .attr("y2", y)
+                .attr("stroke", HEADER_DOCK_TOKENS.buttonMuted)
+                .attr("stroke-width", 1.4)
+                .attr("stroke-linecap", "round");
+
+            iconG.append("circle")
                 .attr("class", "action-overflow-dot")
-                .attr("cx", cx)
-                .attr("cy", dotY)
-                .attr("r", 1.8)
+                .attr("cx", knobX)
+                .attr("cy", y)
+                .attr("r", 2)
                 .style("fill", HEADER_DOCK_TOKENS.buttonMuted);
         });
+
+        if (activeHiddenCount > 0) {
+            svg.append("circle")
+                .attr("class", "action-overflow-badge")
+                .attr("cx", buttonSize - 7)
+                .attr("cy", 7)
+                .attr("r", 6)
+                .attr("fill", HEADER_DOCK_TOKENS.warning)
+                .attr("stroke", HEADER_DOCK_TOKENS.shell)
+                .attr("stroke-width", 1);
+
+            svg.append("text")
+                .attr("class", "action-overflow-badge-text")
+                .attr("x", buttonSize - 7)
+                .attr("y", 7.6)
+                .attr("text-anchor", "middle")
+                .attr("dominant-baseline", "central")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", "8px")
+                .style("font-weight", UI_TOKENS.fontWeight.bold)
+                .style("fill", UI_TOKENS.color.neutral.white)
+                .text(String(Math.min(activeHiddenCount, 9)));
+        }
 
         btn.on("mouseover", function () {
             select(this).select<SVGRectElement>(".action-overflow-button-bg")
@@ -2651,6 +2912,8 @@ export class Header {
                 .style("stroke", hoverStroke);
             select(this).selectAll<SVGCircleElement, unknown>(".action-overflow-dot")
                 .style("fill", HEADER_DOCK_TOKENS.buttonText);
+            select(this).selectAll<SVGLineElement, unknown>(".action-overflow-line")
+                .style("stroke", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", function () {
                 select(this).select<SVGRectElement>(".action-overflow-button-bg")
@@ -2658,88 +2921,383 @@ export class Header {
                     .style("stroke", buttonStroke);
                 select(this).selectAll<SVGCircleElement, unknown>(".action-overflow-dot")
                     .style("fill", HEADER_DOCK_TOKENS.buttonMuted);
+                select(this).selectAll<SVGLineElement, unknown>(".action-overflow-line")
+                    .style("stroke", HEADER_DOCK_TOKENS.buttonMuted);
             });
 
         this.renderActionOverflowMenu(buttonX, buttonSize, hiddenActions);
     }
 
-    private getOverflowActionItems(actions: HeaderOverflowAction[]): Array<{ id: HeaderOverflowAction; label: string; callback: () => void }> {
-        const allItems: Record<HeaderOverflowAction, { id: HeaderOverflowAction; label: string; callback: () => void }> = {
-            copy: { id: "copy", label: "Copy", callback: this.callbacks.onCopy },
-            html: { id: "html", label: "HTML", callback: this.callbacks.onExportHtml },
-            pdf: { id: "pdf", label: "PDF", callback: this.callbacks.onExport },
-            help: { id: "help", label: "Help", callback: this.callbacks.onHelp }
+    private getHeaderMenuItems(actions: HeaderMenuAction[]): HeaderMenuItem[] {
+        const state = this.currentState;
+        const allItems: Record<HeaderMenuAction, HeaderMenuItem> = {
+            lookAhead: {
+                id: "lookAhead",
+                section: "Analysis",
+                label: "Look-ahead",
+                status: state.lookAheadWindowDays > 0 ? `${state.lookAheadWindowDays}d ${state.lookAheadDisplayMode}` : "Off",
+                title: state.lookAheadAvailable ? "Choose the look-ahead window from the Data Date." : "Look-ahead requires a Data Date.",
+                disabled: !state.lookAheadAvailable,
+                kind: "select"
+            },
+            floatThreshold: {
+                id: "floatThreshold",
+                section: "Analysis",
+                label: "Near-critical threshold",
+                status: `${state.floatThreshold} days`,
+                title: "Tasks with Total Float less than or equal to this value are near-critical.",
+                kind: "number"
+            },
+            baseline: {
+                id: "baseline",
+                section: "Timeline Layers",
+                label: "Baseline",
+                status: state.showBaseline ? "On" : "Off",
+                title: state.baselineAvailable ? "Show or hide baseline comparison bars." : "Baseline Start and Finish are not available.",
+                disabled: !state.baselineAvailable,
+                callback: this.callbacks.onToggleBaseline
+            },
+            previousUpdate: {
+                id: "previousUpdate",
+                section: "Timeline Layers",
+                label: "Previous update",
+                status: state.showPreviousUpdate ? "On" : "Off",
+                title: state.previousUpdateAvailable ? "Show or hide previous update comparison bars." : "Previous Update Start and Finish are not available.",
+                disabled: !state.previousUpdateAvailable,
+                callback: this.callbacks.onTogglePreviousUpdate
+            },
+            connectorLines: {
+                id: "connectorLines",
+                section: "Timeline Layers",
+                label: "Connector lines",
+                status: state.showConnectorLines ? "On" : "Off",
+                callback: this.callbacks.onToggleConnectorLines
+            },
+            columns: {
+                id: "columns",
+                section: "Timeline Layers",
+                label: "Extra columns",
+                status: state.showExtraColumns ? "Shown" : "Hidden",
+                callback: this.callbacks.onToggleColumns
+            },
+            wbsEnable: {
+                id: "wbsEnable",
+                section: "WBS",
+                label: "WBS grouping",
+                status: state.wbsEnabled ? "On" : "Off",
+                disabled: !state.wbsDataExists,
+                callback: this.callbacks.onToggleWbsEnable
+            },
+            wbsExpand: {
+                id: "wbsExpand",
+                section: "WBS",
+                label: "Expand WBS",
+                status: state.wbsExpandToLevel && state.wbsExpandToLevel > 0 ? `To L${state.wbsExpandToLevel}` : "All",
+                disabled: !state.wbsDataExists || !state.wbsEnabled,
+                callback: this.callbacks.onToggleWbsExpand
+            },
+            wbsCollapse: {
+                id: "wbsCollapse",
+                section: "WBS",
+                label: "Collapse WBS",
+                status: state.wbsExpandToLevel && state.wbsExpandToLevel > 0 ? `To L${state.wbsExpandToLevel}` : "All",
+                disabled: !state.wbsDataExists || !state.wbsEnabled,
+                callback: this.callbacks.onToggleWbsCollapse
+            },
+            copy: { id: "copy", section: "Actions", label: "Copy data", callback: this.callbacks.onCopy },
+            html: { id: "html", section: "Actions", label: "Export HTML", callback: this.callbacks.onExportHtml },
+            pdf: { id: "pdf", section: "Actions", label: "Export PDF", callback: this.callbacks.onExport },
+            help: { id: "help", section: "Actions", label: "Help", callback: this.callbacks.onHelp }
         };
 
-        return actions.map(action => allItems[action]);
+        return actions.map(action => allItems[action]).filter(Boolean);
     }
 
-    private renderActionOverflowMenu(buttonX: number, buttonSize: number, hiddenActions: HeaderOverflowAction[]): void {
-        const menu = this.upsertDiv("action-overflow-menu")
-            .attr("role", "menu")
-            .attr("aria-label", "More toolbar actions");
+    private getActiveHiddenControlCount(actions: HeaderMenuAction[]): number {
+        return actions.reduce((count, action) => {
+            switch (action) {
+                case "lookAhead":
+                    return count + (this.currentState.lookAheadWindowDays > 0 ? 1 : 0);
+                case "floatThreshold":
+                    return count + 1;
+                case "baseline":
+                    return count + (this.currentState.showBaseline ? 1 : 0);
+                case "previousUpdate":
+                    return count + (this.currentState.showPreviousUpdate ? 1 : 0);
+                case "connectorLines":
+                    return count + (this.currentState.showConnectorLines ? 1 : 0);
+                case "columns":
+                    return count + (this.currentState.showExtraColumns ? 1 : 0);
+                case "wbsEnable":
+                    return count + (this.currentState.wbsEnabled ? 1 : 0);
+                default:
+                    return count;
+            }
+        }, 0);
+    }
 
-        if (!this.actionOverflowMenuOpen) {
+    private getLookAheadMenuOptions(activeDays: number): Array<{ value: number; label: string }> {
+        const options = [
+            { value: 0, label: "Off" },
+            { value: 14, label: "2W" },
+            { value: 21, label: "3W" },
+            { value: 28, label: "4W" },
+            { value: 42, label: "6W" },
+            { value: 56, label: "8W" },
+            { value: 84, label: "12W" }
+        ];
+
+        if (activeDays > 0 && !options.some(option => option.value === activeDays)) {
+            options.push({ value: activeDays, label: `${activeDays}d` });
+            options.sort((a, b) => a.value - b.value);
+        }
+
+        return options;
+    }
+
+    private renderActionOverflowMenu(buttonX: number, buttonSize: number, hiddenActions: HeaderMenuAction[]): void {
+        const menu = this.upsertDiv("action-overflow-menu")
+            .attr("role", "dialog")
+            .attr("aria-label", "Visual controls and actions")
+            .attr("aria-modal", "false")
+            .on("click", event => event.stopPropagation())
+            .on("keydown", (event: KeyboardEvent) => {
+                if (event.key === "Escape") {
+                    this.controlsMenuOpen = false;
+                    menu.style("display", "none");
+                    this.container.select<HTMLButtonElement>("button.action-overflow-button-group")
+                        .attr("aria-expanded", "false")
+                        .node()?.focus();
+                }
+            });
+
+        if (!this.controlsMenuOpen) {
             menu.style("display", "none");
             return;
         }
 
-        const menuWidth = 132;
+        const menuWidth = Math.min(286, Math.max(232, this.currentViewportWidth - 16));
         const menuLeft = Math.max(8, Math.min(buttonX, this.currentViewportWidth - menuWidth - 8));
-        const items = this.getOverflowActionItems(hiddenActions);
+        const items = this.getHeaderMenuItems(hiddenActions);
+        const sections: HeaderMenuSection[] = ["Analysis", "Timeline Layers", "WBS", "Actions"];
 
         menu
             .style("position", "absolute")
             .style("left", `${menuLeft}px`)
             .style("top", `${UI_TOKENS.spacing.sm + buttonSize + 4}px`)
             .style("width", `${menuWidth}px`)
-            .style("padding", "4px")
+            .style("max-height", "320px")
+            .style("overflow-y", "auto")
+            .style("padding", "8px")
             .style("box-sizing", "border-box")
             .style("display", "flex")
             .style("flex-direction", "column")
-            .style("gap", "2px")
+            .style("gap", "6px")
             .style("background-color", HEADER_DOCK_TOKENS.chipBg)
             .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
             .style("z-index", "70");
 
-        const itemButtons = menu.selectAll<HTMLButtonElement, { id: HeaderOverflowAction; label: string; callback: () => void }>("button.action-overflow-menu-item")
-            .data(items, item => item.id);
+        sections.forEach(section => {
+            const sectionItems = items.filter(item => item.section === section);
+            if (sectionItems.length === 0) {
+                return;
+            }
 
-        itemButtons.exit().remove();
+            const sectionEl = menu.append("div")
+                .attr("class", "action-overflow-menu-section")
+                .style("display", "flex")
+                .style("flex-direction", "column")
+                .style("gap", "3px");
 
-        itemButtons.enter()
-            .append("button")
+            sectionEl.append("div")
+                .attr("class", "action-overflow-menu-section-title")
+                .style("padding", "2px 6px 1px")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", "10px")
+                .style("font-weight", UI_TOKENS.fontWeight.bold)
+                .style("letter-spacing", "0.2px")
+                .style("text-transform", "uppercase")
+                .style("color", HEADER_DOCK_TOKENS.chipMuted)
+                .text(section);
+
+            sectionItems.forEach(item => this.renderHeaderMenuItem(sectionEl, menu, item));
+        });
+    }
+
+    private renderHeaderMenuItem(
+        sectionEl: Selection<HTMLDivElement, unknown, null, undefined>,
+        menu: Selection<HTMLDivElement, unknown, null, undefined>,
+        item: HeaderMenuItem
+    ): void {
+        if (item.kind === "select") {
+            this.renderLookAheadMenuItem(sectionEl, item);
+            return;
+        }
+
+        if (item.kind === "number") {
+            this.renderFloatThresholdMenuItem(sectionEl, item);
+            return;
+        }
+
+        const button = sectionEl.append("button")
             .attr("class", "action-overflow-menu-item")
-            .merge(itemButtons)
             .attr("type", "button")
-            .attr("role", "menuitem")
-            .style("height", "28px")
-            .style("padding", "0 10px")
+            .attr("title", item.title ?? item.label)
+            .property("disabled", !!item.disabled)
+            .style("min-height", "30px")
+            .style("padding", "0 8px")
             .style("border", "none")
             .style("border-radius", `${UI_TOKENS.radius.small}px`)
             .style("background", "transparent")
-            .style("color", HEADER_DOCK_TOKENS.buttonText)
+            .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "12px")
             .style("font-weight", "600")
             .style("text-align", "left")
-            .style("cursor", "pointer")
-            .text(item => item.label)
+            .style("cursor", item.disabled ? "not-allowed" : "pointer")
+            .style("display", "grid")
+            .style("grid-template-columns", "1fr auto")
+            .style("align-items", "center")
+            .style("gap", "10px")
             .on("mouseover", function () {
-                select(this).style("background-color", HEADER_DOCK_TOKENS.buttonHoverBg);
+                if (!item.disabled) {
+                    select(this).style("background-color", HEADER_DOCK_TOKENS.buttonHoverBg);
+                }
             })
             .on("mouseout", function () {
                 select(this).style("background-color", "transparent");
             })
-            .on("click", (event, item) => {
+            .on("click", (event) => {
                 event.stopPropagation();
-                this.actionOverflowMenuOpen = false;
+                if (item.disabled || !item.callback) {
+                    return;
+                }
+
+                this.controlsMenuOpen = false;
                 menu.style("display", "none");
                 this.container.select<HTMLButtonElement>("button.action-overflow-button-group")
                     .attr("aria-expanded", "false");
                 item.callback();
+            });
+
+        button.append("span")
+            .style("white-space", "nowrap")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
+            .text(item.label);
+
+        if (item.status) {
+            button.append("span")
+                .style("font-size", "11px")
+                .style("font-weight", UI_TOKENS.fontWeight.semibold)
+                .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.warningText)
+                .style("white-space", "nowrap")
+                .text(item.status);
+        }
+    }
+
+    private renderLookAheadMenuItem(
+        sectionEl: Selection<HTMLDivElement, unknown, null, undefined>,
+        item: HeaderMenuItem
+    ): void {
+        const activeDays = Math.max(0, Math.round(this.currentState.lookAheadWindowDays || 0));
+        const row = sectionEl.append("div")
+            .attr("class", "action-overflow-menu-item action-overflow-menu-field")
+            .attr("title", item.title ?? item.label)
+            .style("min-height", "32px")
+            .style("padding", "0 8px")
+            .style("border-radius", `${UI_TOKENS.radius.small}px`)
+            .style("display", "grid")
+            .style("grid-template-columns", "1fr 88px")
+            .style("align-items", "center")
+            .style("gap", "8px");
+
+        row.append("span")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "12px")
+            .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
+            .text(item.label);
+
+        const selectEl = row.append("select")
+            .attr("aria-label", "Look-ahead window")
+            .property("disabled", !!item.disabled)
+            .style("height", "24px")
+            .style("min-width", "0")
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
+            .style("border-radius", "4px")
+            .style("padding", "0 4px")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "12px")
+            .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("color", HEADER_DOCK_TOKENS.buttonText)
+            .style("background-color", HEADER_DOCK_TOKENS.inputBg)
+            .style("cursor", item.disabled ? "not-allowed" : "pointer")
+            .on("change", (event) => {
+                event.stopPropagation();
+                const value = parseInt((event.target as HTMLSelectElement).value, 10);
+                this.controlsMenuOpen = false;
+                this.callbacks.onLookAheadWindowChanged(Number.isFinite(value) ? value : 0);
+            });
+
+        selectEl.selectAll("option")
+            .data(this.getLookAheadMenuOptions(activeDays))
+            .enter()
+            .append("option")
+            .attr("value", option => String(option.value))
+            .text(option => option.label);
+
+        selectEl.property("value", String(activeDays));
+    }
+
+    private renderFloatThresholdMenuItem(
+        sectionEl: Selection<HTMLDivElement, unknown, null, undefined>,
+        item: HeaderMenuItem
+    ): void {
+        const row = sectionEl.append("div")
+            .attr("class", "action-overflow-menu-item action-overflow-menu-field")
+            .attr("title", item.title ?? item.label)
+            .style("min-height", "32px")
+            .style("padding", "0 8px")
+            .style("border-radius", `${UI_TOKENS.radius.small}px`)
+            .style("display", "grid")
+            .style("grid-template-columns", "1fr 64px")
+            .style("align-items", "center")
+            .style("gap", "8px");
+
+        row.append("span")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "12px")
+            .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("color", HEADER_DOCK_TOKENS.buttonText)
+            .text(item.label);
+
+        row.append("input")
+            .attr("type", "number")
+            .attr("min", "0")
+            .attr("step", "1")
+            .attr("aria-label", "Near-critical threshold in days")
+            .attr("value", this.currentState.floatThreshold)
+            .style("height", "24px")
+            .style("width", "58px")
+            .style("padding", "0 4px")
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
+            .style("border-radius", "4px")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "12px")
+            .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("text-align", "center")
+            .style("color", HEADER_DOCK_TOKENS.buttonText)
+            .style("background-color", HEADER_DOCK_TOKENS.inputBg)
+            .on("change", (event) => {
+                event.stopPropagation();
+                const value = parseFloat((event.target as HTMLInputElement).value);
+                if (Number.isFinite(value) && value >= 0) {
+                    this.controlsMenuOpen = false;
+                    this.callbacks.onFloatThresholdChanged(value);
+                }
             });
     }
 }

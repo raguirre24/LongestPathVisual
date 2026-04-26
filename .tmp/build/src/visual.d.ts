@@ -56,7 +56,6 @@ export declare class Visual implements IVisual {
     private readonly MODE_TRANSITION_DURATION;
     private readonly MAX_CANVAS_PIXEL_RATIO;
     private readonly POWER_BI_CANVAS_SHARPNESS_SCALE;
-    private static readonly MIN_DATE_WIDTH;
     private canvasLayer;
     private watermarkOverlay;
     private watermarkOverlayRaf;
@@ -143,6 +142,7 @@ export declare class Visual implements IVisual {
     private floatThresholdInput;
     private floatThreshold;
     private showNearCritical;
+    private lookAheadWindowDaysOverride;
     private viewportStartIndex;
     private viewportEndIndex;
     private visibleTaskCount;
@@ -342,6 +342,7 @@ export declare class Visual implements IVisual {
     private toggleBaselineDisplayInternal;
     private togglePreviousUpdateDisplayInternal;
     private toggleColumnDisplayInternal;
+    private setLookAheadWindowDays;
     /**
      * Toggles WBS grouping on/off for the viewer (persisted in formatting properties).
      */
@@ -548,14 +549,13 @@ export declare class Visual implements IVisual {
     private drawRoundedRectPath;
     private showTaskTooltip;
     private hideTooltip;
+    private getMinimumNameLaneWidth;
+    private getViewportWidthForColumnLayout;
+    private getConfiguredLabelColumnSpecs;
+    private getPackedLabelColumns;
     /**
-     * Calculates the total width of *conditional* extra columns (Baseline, Previous Update).
-     * This width is added to the user's base leftMargin to preserve Task Name width.
-     */
-    private getExtraColumnWidth;
-    /**
-     * Returns the effective left margin to use for rendering.
-     * effectiveLeftMargin = userBaseMargin + extraColumnWidths
+     * Returns the effective left pane width. The configured left margin is the
+     * preferred WBS/task-name lane; visible columns are added to that lane.
      */
     private getEffectiveLeftMargin;
     private updateHeaderElements;
@@ -648,6 +648,8 @@ export declare class Visual implements IVisual {
     private getLatestFinishDate;
     private drawFinishLine;
     private drawProjectEndLine;
+    private drawLookAheadWindow;
+    private drawLookAheadWindowCanvasBand;
     private drawDataDateLine;
     private drawBaselineAndPreviousEndLines;
     private drawComparisonFinishKey;
@@ -880,6 +882,15 @@ export declare class Visual implements IVisual {
     private getCornerRadii;
     private clampCornerRadii;
     private getRoundedRectPath;
+    private getLookAheadWindow;
+    private clampLookAheadWindowDays;
+    private getConfiguredLookAheadWindowDays;
+    private getEffectiveLookAheadWindowDays;
+    private getLookAheadDisplayMode;
+    private shouldFilterToLookAhead;
+    private getLookAheadFilterSignature;
+    private filterTasksToLookAhead;
+    private isTaskInLookAheadWindow;
     private getBeforeDataDateOverlay;
     private getTaskRenderStyle;
     private getConnectorArrowSize;

@@ -298,6 +298,88 @@
                 }
             }
         },
+        "lookAhead": {
+            "displayName": "Look-Ahead Window",
+            "properties": {
+                "enabled": {
+                    "displayName": "Enable Look-Ahead Window",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "displayMode": {
+                    "displayName": "Display Mode",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "filter",
+                                "displayName": "Filter Tasks"
+                            },
+                            {
+                                "value": "highlight",
+                                "displayName": "Highlight Only"
+                            }
+                        ]
+                    }
+                },
+                "windowDays": {
+                    "displayName": "Window (days)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "windowColor": {
+                    "displayName": "Window Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "windowTransparency": {
+                    "displayName": "Window Transparency (%)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "highlightTasks": {
+                    "displayName": "Highlight Tasks In Window",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "taskOutlineColor": {
+                    "displayName": "Task Outline Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "taskOutlineWidth": {
+                    "displayName": "Task Outline Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showEndLine": {
+                    "displayName": "Show Window End Line",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "showLabel": {
+                    "displayName": "Show End Label",
+                    "type": {
+                        "bool": true
+                    }
+                }
+            }
+        },
         "criticalPath": {
             "displayName": "Critical Path",
             "properties": {
@@ -612,6 +694,12 @@
                         "bool": true
                     }
                 },
+                "autoFitColumns": {
+                    "displayName": "Auto-fit Columns",
+                    "type": {
+                        "bool": true
+                    }
+                },
                 "showStartDate": {
                     "displayName": "Show Start Date",
                     "type": {
@@ -660,6 +748,12 @@
                         "numeric": true
                     }
                 },
+                "showBaselineDateColumns": {
+                    "displayName": "Show Baseline Columns When Bars Are Off",
+                    "type": {
+                        "bool": true
+                    }
+                },
                 "baselineStartDateWidth": {
                     "displayName": "Baseline Start Width (px)",
                     "type": {
@@ -670,6 +764,12 @@
                     "displayName": "Baseline Finish Width (px)",
                     "type": {
                         "numeric": true
+                    }
+                },
+                "showPreviousUpdateDateColumns": {
+                    "displayName": "Show Previous Columns When Bars Are Off",
+                    "type": {
+                        "bool": true
                     }
                 },
                 "previousUpdateStartDateWidth": {
@@ -1957,6 +2057,12 @@
                     }
                 },
                 "zoomRangeEnd": {
+                    "displayName": "",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "lookAheadWindowDays": {
                     "displayName": "",
                     "type": {
                         "numeric": true

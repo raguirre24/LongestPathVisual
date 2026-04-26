@@ -86,6 +86,7 @@ declare class ColumnsCard extends Card {
     displayName: string;
     showColumnToggleButton: formattingSettings.ToggleSwitch;
     enableColumnDisplay: formattingSettings.ToggleSwitch;
+    autoFitColumns: formattingSettings.ToggleSwitch;
     showStartDate: formattingSettings.ToggleSwitch;
     startDateWidth: formattingSettings.NumUpDown;
     showFinishDate: formattingSettings.ToggleSwitch;
@@ -94,8 +95,10 @@ declare class ColumnsCard extends Card {
     durationWidth: formattingSettings.NumUpDown;
     showTotalFloat: formattingSettings.ToggleSwitch;
     totalFloatWidth: formattingSettings.NumUpDown;
+    showBaselineDateColumns: formattingSettings.ToggleSwitch;
     baselineStartDateWidth: formattingSettings.NumUpDown;
     baselineFinishDateWidth: formattingSettings.NumUpDown;
+    showPreviousUpdateDateColumns: formattingSettings.ToggleSwitch;
     previousUpdateStartDateWidth: formattingSettings.NumUpDown;
     previousUpdateFinishDateWidth: formattingSettings.NumUpDown;
     slices: Slice[];
@@ -193,6 +196,21 @@ declare class DataDateColorOverrideCard extends Card {
     displayName: string;
     enableP6Style: formattingSettings.ToggleSwitch;
     beforeDataDateColor: formattingSettings.ColorPicker;
+    slices: Slice[];
+}
+declare class LookAheadCard extends Card {
+    name: string;
+    displayName: string;
+    enabled: formattingSettings.ToggleSwitch;
+    displayMode: formattingSettings.ItemDropdown;
+    windowDays: formattingSettings.NumUpDown;
+    windowColor: formattingSettings.ColorPicker;
+    windowTransparency: formattingSettings.NumUpDown;
+    highlightTasks: formattingSettings.ToggleSwitch;
+    taskOutlineColor: formattingSettings.ColorPicker;
+    taskOutlineWidth: formattingSettings.NumUpDown;
+    showEndLine: formattingSettings.ToggleSwitch;
+    showLabel: formattingSettings.ToggleSwitch;
     slices: Slice[];
 }
 declare class PathSelectionCard extends Card {
@@ -309,6 +327,7 @@ declare class PersistedStateCard extends Card {
     wbsManualToggledGroups: formattingSettings.TextInput;
     zoomRangeStart: formattingSettings.NumUpDown;
     zoomRangeEnd: formattingSettings.NumUpDown;
+    lookAheadWindowDays: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 export declare class VisualSettings extends Model {
@@ -325,6 +344,7 @@ export declare class VisualSettings extends Model {
     baselineFinishLine: BaselineFinishLineCard;
     previousUpdateFinishLine: PreviousUpdateFinishLineCard;
     dataDateLine: DataDateLineCard;
+    lookAhead: LookAheadCard;
     pathSelection: PathSelectionCard;
     wbsGrouping: WBSGroupingCard;
     wbsLevelStyles: WbsLevelStylesCard;
