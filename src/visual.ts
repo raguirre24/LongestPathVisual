@@ -326,7 +326,7 @@ export class Visual implements IVisual {
     private liveRegion: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
 
     private relationshipIndex: Map<string, Relationship[]> = new Map();
-    private hasUserProvidedFloat: boolean = false;
+    private hasRelationshipFreeFloat: boolean = false;
 
     private allDrivingChains: DrivingChain[] = [];
     private selectedPathIndex: number = 0;
@@ -963,6 +963,11 @@ export class Visual implements IVisual {
             rowCount: 0,
             possibleTruncation: false,
             duplicateTaskIds: [],
+            conflictingTaskRows: [],
+            missingPredecessorIds: [],
+            relationshipCount: 0,
+            relationshipFreeFloatMissingCount: 0,
+            hasRelationshipFreeFloat: false,
             circularPaths: [],
             invalidRawDateRangeTaskIds: [],
             invalidVisualDateRangeTaskIds: [],
@@ -1858,6 +1863,12 @@ export class Visual implements IVisual {
         if (this.dataQuality.duplicateTaskIds.length > 0) {
             reasons.push("duplicate task IDs found");
         }
+        if (this.dataQuality.conflictingTaskRows.length > 0) {
+            reasons.push("conflicting duplicate activity rows found");
+        }
+        if (this.dataQuality.missingPredecessorIds.length > 0) {
+            reasons.push("missing predecessor activities found");
+        }
 
         if (reasons.length === 0) {
             return "Longest Path unavailable: cyclic, truncated, or invalid schedule data.";
@@ -1869,6 +1880,47 @@ export class Visual implements IVisual {
     private getHeaderBannerWarningMessage(): string | null {
         if ((this.dataQuality?.invalidVisualDateRangeTaskIds?.length ?? 0) > 0) {
             return `Plotted date warning: ${this.dataQuality.invalidVisualDateRangeTaskIds.length} task(s) have invalid visual start/finish ranges.`;
+        }
+
+        if ((this.dataQuality?.missingPredecessorIds?.length ?? 0) > 0) {
+            return `Schedule logic warning: ${this.dataQuality.missingPredecessorIds.length} predecessor activity ID(s) are missing from the dataset.`;
+        }
+
+        if ((this.dataQuality?.conflictingTaskRows?.length ?? 0) > 0) {
+            return `Schedule data warning: ${this.dataQuality.conflictingTaskRows.length} activity ID(s) have conflicting duplicate rows.`;
+        }
+
+        return null;
+    }
+
+    private getDrivingLogicStatusMessage(): string | null {
+        if ((this.dataQuality?.relationshipCount ?? 0) === 0) {
+            return null;
+        }
+
+        if (this.hasRelationshipFreeFloat) {
+            return "Using P6 Relationship Free Float for driving path logic.";
+        }
+
+        return "Relationship Free Float not provided; driving logic is approximated from scheduled dates, relationship type, and lag.";
+    }
+
+    private getModeWarningMessage(): string | null {
+        const unsafeMessage = this.getUnsafeCpmWarningMessage();
+        if (unsafeMessage) {
+            return unsafeMessage;
+        }
+
+        if (!this.isLongestPathMode()) {
+            return null;
+        }
+
+        if ((this.dataQuality?.relationshipCount ?? 0) > 0 && !this.hasRelationshipFreeFloat) {
+            return "Relationship Free Float not provided; Longest Path driving logic is approximate.";
+        }
+
+        if (this.hasRelationshipFreeFloat && (this.dataQuality?.relationshipFreeFloatMissingCount ?? 0) > 0) {
+            return `${this.dataQuality.relationshipFreeFloatMissingCount} relationship(s) have blank Relationship Free Float and are ignored.`;
         }
 
         return null;
@@ -4357,7 +4409,7 @@ export class Visual implements IVisual {
                 this.relationshipIndex = processedData.relationshipIndex;
                 this.relationshipByPredecessor = processedData.relationshipByPredecessor;
                 this.dataDate = processedData.dataDate;
-                this.hasUserProvidedFloat = processedData.hasUserProvidedFloat;
+                this.hasRelationshipFreeFloat = processedData.hasRelationshipFreeFloat;
                 this.legendDataExists = processedData.legendDataExists;
                 this.legendCategories = processedData.legendCategories;
                 this.legendColorMap = processedData.legendColorMap;
@@ -5882,7 +5934,8 @@ export class Visual implements IVisual {
             wbsManualExpansionOverride: this.wbsManualExpansionOverride,
 
             currentMode: (this.settings?.criticalPath?.calculationMode?.value as any)?.value || 'floatBased',
-            modeWarningMessage: this.getUnsafeCpmWarningMessage(),
+            modeStatusMessage: this.getDrivingLogicStatusMessage(),
+            modeWarningMessage: this.getModeWarningMessage(),
             showPathInfoChip: this.shouldShowPathInfoChip(),
             floatThreshold: this.floatThreshold,
             showNearCritical: this.showNearCritical,
@@ -10258,9 +10311,9 @@ export class Visual implements IVisual {
      */
     private identifyDrivingRelationships(): void {
 
-        // Check if user has provided Relationship Free Float for ANY relationship
+        // P6 Relationship Free Float is authoritative when the dataset provides it.
         // Uses flag calculated in DataProcessor to avoid O(N) iteration here
-        const hasUserProvidedFloat = this.hasUserProvidedFloat;
+        const useRelationshipFreeFloat = this.hasRelationshipFreeFloat;
 
         for (const rel of this.relationships) {
             const pred = this.taskIdToTask.get(rel.predecessorId);
@@ -10273,22 +10326,16 @@ export class Visual implements IVisual {
                 continue;
             }
 
-            // STRICT FILTERING LOGIC
-            if (hasUserProvidedFloat) {
+            if (useRelationshipFreeFloat) {
                 if (rel.freeFloat !== null && rel.freeFloat !== undefined) {
                     rel.relationshipFloat = rel.freeFloat;
-                    // It is driving if float <= 0 (or tolerance). 
-                    // We set isDriving immediately here for strict mode to avoid downstream ambiguity
-                    // But to respect the 'minFloat' logic below for standard groups, we can just set the float
-                    // can let the group logic handle it?
-                    // The user said: "only calcualte the driving paths using the provided values... filter out any relationship where ... blank"
-                    // If it's blank (else block), we ignore it.
                 } else {
-                    // Blank value in strict mode -> Ignore this relationship for driving purposes
+                    // Blank P6 relationship float means this relationship cannot be used as driving.
                     rel.relationshipFloat = Infinity;
                 }
             } else {
-                // Legacy / Fallback Mode (No user provided float found in dataset)
+                // Fallback only: approximate from scheduled dates, relationship type, and lag.
+                // P6-scheduled datasets should provide Relationship Free Float whenever possible.
                 let relFloat: number;
 
                 if (!pred.startDate || !pred.finishDate ||
@@ -10345,7 +10392,11 @@ export class Visual implements IVisual {
             }
         }
 
-        this.debugLog(`Identified ${drivingCount} driving relationships`);
+        this.debugLog(
+            `Identified ${drivingCount} driving relationships. ${useRelationshipFreeFloat
+                ? "Using P6 Relationship Free Float."
+                : "Approximating from scheduled dates, relationship type, and lag."}`
+        );
     }
 
     private findProjectFinishTasks(): Task[] {
@@ -12689,12 +12740,12 @@ export class Visual implements IVisual {
             const showGroupName = availableWidth > 20;
 
             const textElement = g.select<SVGTextElement>('.wbs-group-name');
+            const displayName = self.getWbsDisplayName(group);
 
             if (!showGroupName) {
                 textElement.style('display', 'none');
             } else {
                 textElement.style('display', null);
-                const displayName = self.getWbsDisplayName(group);
 
                 textElement
                     .attr('x', textX)
@@ -12725,9 +12776,30 @@ export class Visual implements IVisual {
                 );
             }
 
+            g.attr('role', 'button')
+                .attr('tabindex', 0)
+                .attr('aria-expanded', String(group.isExpanded))
+                .attr('aria-label', `${group.isExpanded ? 'Collapse' : 'Expand'} WBS group ${displayName}. ${group.visibleTaskCount} visible task${group.visibleTaskCount === 1 ? '' : 's'}.`);
+
             g.on('click', function (event) {
+                event.stopPropagation();
                 self.hideTooltip();
                 self.toggleWbsGroupExpansion(group.id);
+            }).on('keydown', function (event: KeyboardEvent) {
+                if (event.key !== 'Enter' && event.key !== ' ') {
+                    return;
+                }
+
+                event.preventDefault();
+                event.stopPropagation();
+                self.hideTooltip();
+                self.toggleWbsGroupExpansion(group.id);
+            }).on('focus', function () {
+                d3.select(this).select<SVGRectElement>('.wbs-header-bg')
+                    .style('stroke-width', 2);
+            }).on('blur', function () {
+                d3.select(this).select<SVGRectElement>('.wbs-header-bg')
+                    .style('stroke-width', 1);
             });
         });
     }
@@ -15587,6 +15659,7 @@ export class Visual implements IVisual {
         const modeList = createList(modeSection);
         addListItem(modeList, 'Show All / Critical', 'Switch between the full schedule and a focused critical view. In Float mode, near-critical tasks can also stay highlighted when the threshold is enabled.');
         addListItem(modeList, 'Path Info', 'In Longest Path mode, the path chip can show the active driving path, total tasks, and duration. If multiple valid paths exist, you can step through them.');
+        addListItem(modeList, 'Relationship Free Float', 'When P6 Relationship Free Float is bound, it is used as the authoritative driving-path input. If it is not provided, driving logic is approximated from dates, relationship type, and lag.');
 
         // ========== Header Controls ==========
         const headerSection = createSection('🧭', 'Header Controls');
@@ -15686,6 +15759,7 @@ export class Visual implements IVisual {
         const warningList = createList(warningSection);
         addListItem(warningList, 'CPM Safety Warning', 'If the schedule relationships are not safe for CPM-style tracing, the LP / Float mode control shows a warning indicator and explains that Longest Path analysis is unavailable.');
         addListItem(warningList, 'Plotted Date Warning', 'The banner can also warn when some tasks have invalid visual start / finish ranges and cannot be plotted normally.');
+        addListItem(warningList, 'P6 Relationship Float', 'Warnings identify whether Longest Path is using P6 Relationship Free Float or approximating driving logic because relationship float is missing.');
         addListItem(warningList, 'What to Check', 'Review relationship data, start / finish dates, and float inputs if the schedule does not behave as expected.');
 
         // ========== Tooltips ==========

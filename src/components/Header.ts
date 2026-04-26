@@ -1,6 +1,5 @@
 
-import * as d3 from "d3";
-import { Selection } from "d3-selection";
+import { select, Selection } from "d3-selection";
 import { VisualSettings } from "../settings";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "../utils/Theme";
 import { BoundFieldState } from "../data/Interfaces";
@@ -38,6 +37,7 @@ export interface HeaderState {
     wbsExpandToLevel?: number;
     wbsManualExpansionOverride: boolean;
     currentMode: string;
+    modeStatusMessage?: string | null;
     modeWarningMessage?: string | null;
     showPathInfoChip?: boolean;
     floatThreshold: number;
@@ -46,12 +46,15 @@ export interface HeaderState {
     wbsEnabled: boolean;
 }
 
+type HeaderOverflowAction = "copy" | "html" | "pdf" | "help";
+
 export class Header {
     private container: Selection<HTMLDivElement, unknown, null, undefined>;
     private svg!: Selection<SVGSVGElement, unknown, null, undefined>;
     private callbacks: HeaderCallbacks;
     private exportButtonLoading: boolean = false;
     private copySuccessTimeout: number | null = null;
+    private actionOverflowMenuOpen: boolean = false;
 
     // Button Selections
     private toggleButtonGroup!: Selection<SVGGElement, unknown, null, undefined>;
@@ -102,7 +105,7 @@ export class Header {
             { key: "analysis", items: [layout.showAllCritical, layout.modeToggle] },
             { key: "layers", items: [layout.baseline, layout.previousUpdate, layout.connectorLines, layout.colToggle] },
             { key: "wbs", items: [layout.wbsEnable, layout.wbsExpandToggle, layout.wbsCollapseToggle] },
-            { key: "actions", items: [layout.copyButton, layout.htmlExportButton, layout.exportButton, layout.helpButton] }
+            { key: "actions", items: [layout.copyButton, layout.htmlExportButton, layout.exportButton, layout.helpButton, layout.actionOverflowButton] }
         ];
 
         const visibleGroups: GroupRect[] = groups.map(group => {
@@ -220,6 +223,7 @@ export class Header {
         this.createExportHtmlButton();
         this.createExportButton();
         this.createHelpButton();
+        this.createActionOverflowButton();
         this.createFloatThresholdControl();
     }
 
@@ -671,10 +675,10 @@ export class Header {
                     .attr("stroke", buttonStroke);
             })
             .on("mousedown", function () {
-                d3.select(this).style("transform", "scale(0.96)");
+                select(this).style("transform", "scale(0.96)");
             })
             .on("mouseup", function () {
-                d3.select(this).style("transform", "scale(1)");
+                select(this).style("transform", "scale(1)");
             });
     }
 
@@ -833,10 +837,10 @@ export class Header {
                         .attr("stroke-width", showBaseline ? 1.5 : 1);
                 })
                 .on("mousedown", function () {
-                    d3.select(this).style("transform", "scale(0.98)");
+                    select(this).style("transform", "scale(0.98)");
                 })
                 .on("mouseup", function () {
-                    d3.select(this).style("transform", "scale(1)");
+                    select(this).style("transform", "scale(1)");
                 });
         }
     }
@@ -996,10 +1000,10 @@ export class Header {
                         .attr("stroke-width", showPreviousUpdate ? 1.5 : 1);
                 })
                 .on("mousedown", function () {
-                    d3.select(this).style("transform", "scale(0.98)");
+                    select(this).style("transform", "scale(0.98)");
                 })
                 .on("mouseup", function () {
-                    d3.select(this).style("transform", "scale(1)");
+                    select(this).style("transform", "scale(1)");
                 });
         }
     }
@@ -1106,6 +1110,13 @@ export class Header {
         const numButtons = allButtonWidths.length;
         // const totalNeeded = allButtonWidths.reduce((a, b) => a + b, 0) + (numButtons - 1) * gap;
 
+        const desiredActionButtons = {
+            copyButton: true,
+            htmlExportButton: settings.generalSettings?.showExportButton?.value ?? true,
+            exportButton: settings.generalSettings?.showExportButton?.value ?? true,
+            helpButton: true
+        };
+
         let visibleButtons = {
             showAll: true,
             modeToggle: true,
@@ -1116,11 +1127,19 @@ export class Header {
             wbsEnable: state.wbsDataExists && (settings.wbsGrouping?.showWbsToggle?.value ?? true),
             wbsExpand: state.wbsDataExists && (settings.wbsGrouping?.enableWbsGrouping?.value ?? true),
             wbsCollapse: state.wbsDataExists && (settings.wbsGrouping?.enableWbsGrouping?.value ?? true),
-            copyButton: true,
-            htmlExportButton: settings.generalSettings?.showExportButton?.value ?? true,
-            exportButton: settings.generalSettings?.showExportButton?.value ?? true,
-            helpButton: true
+            copyButton: desiredActionButtons.copyButton,
+            htmlExportButton: desiredActionButtons.htmlExportButton,
+            exportButton: desiredActionButtons.exportButton,
+            helpButton: desiredActionButtons.helpButton
         };
+
+        let actionOverflowVisible = false;
+
+        const hasHiddenActionButton = () =>
+            (desiredActionButtons.copyButton && !visibleButtons.copyButton) ||
+            (desiredActionButtons.htmlExportButton && !visibleButtons.htmlExportButton) ||
+            (desiredActionButtons.exportButton && !visibleButtons.exportButton) ||
+            (desiredActionButtons.helpButton && !visibleButtons.helpButton);
 
         // Progressive hiding based on available width
         const calculateVisibleWidth = () => {
@@ -1139,7 +1158,13 @@ export class Header {
             if (visibleButtons.htmlExportButton) { width += smallIconSize; count++; }
             if (visibleButtons.exportButton) { width += smallIconSize; count++; }
             if (visibleButtons.helpButton) { width += smallIconSize; count++; }
+            if (actionOverflowVisible) { width += smallIconSize; count++; }
             return width + Math.max(0, count - 1) * gap;
+        };
+
+        const refreshActionOverflow = () => {
+            actionOverflowVisible = hasHiddenActionButton();
+            return calculateVisibleWidth();
         };
 
         // Progressively hide buttons if needed (in order of decreasing priority)
@@ -1178,25 +1203,25 @@ export class Header {
         // Hide help button
         if (visibleWidth > availableWidth && visibleButtons.helpButton) {
             visibleButtons.helpButton = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
         // Hide HTML export button
         if (visibleWidth > availableWidth && visibleButtons.htmlExportButton) {
             visibleButtons.htmlExportButton = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
         // Hide export button
         if (visibleWidth > availableWidth && visibleButtons.exportButton) {
             visibleButtons.exportButton = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
         // Hide copy button
         if (visibleWidth > availableWidth && visibleButtons.copyButton) {
             visibleButtons.copyButton = false;
-            visibleWidth = calculateVisibleWidth();
+            visibleWidth = refreshActionOverflow();
         }
 
         // Hide previous update
@@ -1210,6 +1235,17 @@ export class Header {
             visibleButtons.baseline = false;
             visibleWidth = calculateVisibleWidth();
         }
+
+        if (visibleWidth > availableWidth && actionOverflowVisible) {
+            actionOverflowVisible = false;
+            visibleWidth = calculateVisibleWidth();
+        }
+
+        const hiddenActions: HeaderOverflowAction[] = [];
+        if (desiredActionButtons.copyButton && !visibleButtons.copyButton) hiddenActions.push("copy");
+        if (desiredActionButtons.htmlExportButton && !visibleButtons.htmlExportButton) hiddenActions.push("html");
+        if (desiredActionButtons.exportButton && !visibleButtons.exportButton) hiddenActions.push("pdf");
+        if (desiredActionButtons.helpButton && !visibleButtons.helpButton) hiddenActions.push("help");
 
         // Now calculate positions for visible buttons
         let x = 10;
@@ -1307,7 +1343,15 @@ export class Header {
             size: smallIconSize,
             visible: visibleButtons.helpButton
         };
-        if (visibleButtons.helpButton) x += smallIconSize;
+        if (visibleButtons.helpButton) x += smallIconSize + (actionOverflowVisible && hiddenActions.length > 0 ? gap : 0);
+
+        const actionOverflowButton = {
+            x,
+            size: smallIconSize,
+            visible: actionOverflowVisible && hiddenActions.length > 0,
+            hiddenActions
+        };
+        if (actionOverflowButton.visible) x += smallIconSize;
 
         return {
             mode,
@@ -1324,6 +1368,7 @@ export class Header {
             htmlExportButton,
             exportButton,
             helpButton,
+            actionOverflowButton,
             gap,
             totalWidth: x
         };
@@ -1423,10 +1468,10 @@ export class Header {
                 iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", iconColor);
             })
             .on("mousedown", function () {
-                d3.select(this).style("transform", "scale(0.95)");
+                select(this).style("transform", "scale(0.95)");
             })
             .on("mouseup", function () {
-                d3.select(this).style("transform", "scale(1)");
+                select(this).style("transform", "scale(1)");
             });
     }
 
@@ -1740,12 +1785,12 @@ export class Header {
             .style("background-color", HEADER_DOCK_TOKENS.inputBg)
             .style("outline", "none")
             .on("focus", function () {
-                d3.select(this)
+                select(this)
                     .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputFocus}`)
                     .style("box-shadow", `0 0 0 2px ${HEADER_DOCK_TOKENS.primaryBg}`);
             })
             .on("blur", function () {
-                d3.select(this)
+                select(this)
                     .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
                     .style("box-shadow", "none");
             })
@@ -1789,6 +1834,7 @@ export class Header {
     private createModeToggleButton(): void {
         const currentMode = this.currentState.currentMode;
         const isFloatBased = currentMode === 'floatBased';
+        const modeStatusMessage = this.currentState.modeStatusMessage?.trim() || "";
         const modeWarningMessage = this.currentState.modeWarningMessage?.trim() || "";
         const hasModeWarning = modeWarningMessage.length > 0;
 
@@ -1808,9 +1854,8 @@ export class Header {
             ? HEADER_DOCK_TOKENS.warning
             : (isFloatBased ? HEADER_DOCK_TOKENS.warning : HEADER_DOCK_TOKENS.primary);
         const activeFill = isFloatBased ? HEADER_DOCK_TOKENS.warning : HEADER_DOCK_TOKENS.primary;
-        const modeTitle = hasModeWarning
-            ? `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}. ${modeWarningMessage}`
-            : `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}`;
+        const modeDetails = [modeStatusMessage, modeWarningMessage].filter(Boolean).join(" ");
+        const modeTitle = `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}${modeDetails ? `. ${modeDetails}` : ""}`;
 
         const btn = this.upsertButton("mode-toggle-group")
             .attr("type", "button")
@@ -2510,18 +2555,191 @@ export class Header {
             .text("?");
 
         btn.on("mouseover", function () {
-            d3.select(this).select<SVGRectElement>(".help-button-bg")
+            select(this).select<SVGRectElement>(".help-button-bg")
                 .style("fill", hoverFill)
                 .style("stroke", hoverStroke);
-            d3.select(this).select("text")
+            select(this).select("text")
                 .style("fill", HEADER_DOCK_TOKENS.buttonText);
         })
             .on("mouseout", function () {
-                d3.select(this).select<SVGRectElement>(".help-button-bg")
+                select(this).select<SVGRectElement>(".help-button-bg")
                     .style("fill", buttonFill)
                     .style("stroke", buttonStroke);
-                d3.select(this).select("text")
+                select(this).select("text")
                     .style("fill", HEADER_DOCK_TOKENS.buttonMuted);
+            });
+    }
+
+    private createActionOverflowButton(): void {
+        const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
+        const { x: buttonX, size: buttonSize, visible, hiddenActions } = layout.actionOverflowButton;
+
+        if (!visible || hiddenActions.length === 0) {
+            this.hideControl("action-overflow-button-group");
+            this.container.select<HTMLDivElement>("div.action-overflow-menu").style("display", "none");
+            this.actionOverflowMenuOpen = false;
+            return;
+        }
+
+        const buttonY = UI_TOKENS.spacing.sm;
+        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
+        const buttonStroke = HEADER_DOCK_TOKENS.buttonStroke;
+        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
+        const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const title = `More actions: ${this.getOverflowActionItems(hiddenActions).map(item => item.label).join(", ")}`;
+
+        const btn = this.upsertButton("action-overflow-button-group")
+            .attr("type", "button")
+            .attr("aria-label", title)
+            .attr("title", title)
+            .attr("aria-haspopup", "menu")
+            .attr("aria-expanded", String(this.actionOverflowMenuOpen))
+            .classed("header-toggle-button", true)
+            .style("position", "absolute")
+            .style("left", `${buttonX}px`)
+            .style("top", `${buttonY}px`)
+            .style("width", `${buttonSize}px`)
+            .style("height", `${buttonSize}px`)
+            .style("padding", "0")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "center")
+            .style("border", "none")
+            .style("background-color", "transparent")
+            .style("cursor", "pointer")
+            .style("z-index", "45")
+            .on("click", (event) => {
+                event.stopPropagation();
+                this.actionOverflowMenuOpen = !this.actionOverflowMenuOpen;
+                this.renderActionOverflowMenu(buttonX, buttonSize, hiddenActions);
+                btn.attr("aria-expanded", String(this.actionOverflowMenuOpen));
+            });
+
+        const svg = btn.append("svg")
+            .attr("width", buttonSize)
+            .attr("height", buttonSize)
+            .style("pointer-events", "none")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0");
+
+        svg.append("rect")
+            .attr("class", "action-overflow-button-bg")
+            .attr("x", 0.5)
+            .attr("y", 0.5)
+            .attr("width", buttonSize - 1)
+            .attr("height", buttonSize - 1)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
+            .style("fill", buttonFill)
+            .style("stroke", buttonStroke)
+            .style("stroke-width", 1.5);
+
+        const dotY = buttonSize / 2;
+        [buttonSize / 2 - 6, buttonSize / 2, buttonSize / 2 + 6].forEach(cx => {
+            svg.append("circle")
+                .attr("class", "action-overflow-dot")
+                .attr("cx", cx)
+                .attr("cy", dotY)
+                .attr("r", 1.8)
+                .style("fill", HEADER_DOCK_TOKENS.buttonMuted);
+        });
+
+        btn.on("mouseover", function () {
+            select(this).select<SVGRectElement>(".action-overflow-button-bg")
+                .style("fill", hoverFill)
+                .style("stroke", hoverStroke);
+            select(this).selectAll<SVGCircleElement, unknown>(".action-overflow-dot")
+                .style("fill", HEADER_DOCK_TOKENS.buttonText);
+        })
+            .on("mouseout", function () {
+                select(this).select<SVGRectElement>(".action-overflow-button-bg")
+                    .style("fill", buttonFill)
+                    .style("stroke", buttonStroke);
+                select(this).selectAll<SVGCircleElement, unknown>(".action-overflow-dot")
+                    .style("fill", HEADER_DOCK_TOKENS.buttonMuted);
+            });
+
+        this.renderActionOverflowMenu(buttonX, buttonSize, hiddenActions);
+    }
+
+    private getOverflowActionItems(actions: HeaderOverflowAction[]): Array<{ id: HeaderOverflowAction; label: string; callback: () => void }> {
+        const allItems: Record<HeaderOverflowAction, { id: HeaderOverflowAction; label: string; callback: () => void }> = {
+            copy: { id: "copy", label: "Copy", callback: this.callbacks.onCopy },
+            html: { id: "html", label: "HTML", callback: this.callbacks.onExportHtml },
+            pdf: { id: "pdf", label: "PDF", callback: this.callbacks.onExport },
+            help: { id: "help", label: "Help", callback: this.callbacks.onHelp }
+        };
+
+        return actions.map(action => allItems[action]);
+    }
+
+    private renderActionOverflowMenu(buttonX: number, buttonSize: number, hiddenActions: HeaderOverflowAction[]): void {
+        const menu = this.upsertDiv("action-overflow-menu")
+            .attr("role", "menu")
+            .attr("aria-label", "More toolbar actions");
+
+        if (!this.actionOverflowMenuOpen) {
+            menu.style("display", "none");
+            return;
+        }
+
+        const menuWidth = 132;
+        const menuLeft = Math.max(8, Math.min(buttonX, this.currentViewportWidth - menuWidth - 8));
+        const items = this.getOverflowActionItems(hiddenActions);
+
+        menu
+            .style("position", "absolute")
+            .style("left", `${menuLeft}px`)
+            .style("top", `${UI_TOKENS.spacing.sm + buttonSize + 4}px`)
+            .style("width", `${menuWidth}px`)
+            .style("padding", "4px")
+            .style("box-sizing", "border-box")
+            .style("display", "flex")
+            .style("flex-direction", "column")
+            .style("gap", "2px")
+            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
+            .style("border-radius", `${UI_TOKENS.radius.medium}px`)
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("z-index", "70");
+
+        const itemButtons = menu.selectAll<HTMLButtonElement, { id: HeaderOverflowAction; label: string; callback: () => void }>("button.action-overflow-menu-item")
+            .data(items, item => item.id);
+
+        itemButtons.exit().remove();
+
+        itemButtons.enter()
+            .append("button")
+            .attr("class", "action-overflow-menu-item")
+            .merge(itemButtons)
+            .attr("type", "button")
+            .attr("role", "menuitem")
+            .style("height", "28px")
+            .style("padding", "0 10px")
+            .style("border", "none")
+            .style("border-radius", `${UI_TOKENS.radius.small}px`)
+            .style("background", "transparent")
+            .style("color", HEADER_DOCK_TOKENS.buttonText)
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "12px")
+            .style("font-weight", "600")
+            .style("text-align", "left")
+            .style("cursor", "pointer")
+            .text(item => item.label)
+            .on("mouseover", function () {
+                select(this).style("background-color", HEADER_DOCK_TOKENS.buttonHoverBg);
+            })
+            .on("mouseout", function () {
+                select(this).style("background-color", "transparent");
+            })
+            .on("click", (event, item) => {
+                event.stopPropagation();
+                this.actionOverflowMenuOpen = false;
+                menu.style("display", "none");
+                this.container.select<HTMLButtonElement>("button.action-overflow-button-group")
+                    .attr("aria-expanded", "false");
+                item.callback();
             });
     }
 }

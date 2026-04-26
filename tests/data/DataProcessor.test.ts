@@ -331,6 +331,65 @@ describe('DataProcessor', () => {
 
             expect(result.relationships.length).toBe(1);
         });
+
+        it('preserves same predecessor/successor rows when type, lag, or relationship free float differs', () => {
+            const columns: ColumnDef[] = [
+                ...COLUMNS_WITH_PRED,
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 0, 0],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'SS', 0, 0],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 1, 0],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 0, 4],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.relationships).toHaveLength(4);
+            expect(result.relationshipIndex.get('T2')).toHaveLength(4);
+            expect(result.taskIdToTask.get('T2')!.predecessorIds).toEqual(['T1']);
+            expect(result.taskIdToTask.get('T1')!.successors.map(task => task.id)).toEqual(['T2']);
+            expect(result.hasRelationshipFreeFloat).toBe(true);
+        });
+
+        it('tracks blank Relationship Free Float as approximate fallback when no relationship float is provided', () => {
+            const columns: ColumnDef[] = [
+                ...COLUMNS_WITH_PRED,
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 0, null],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.hasRelationshipFreeFloat).toBe(false);
+            expect(result.dataQuality.hasRelationshipFreeFloat).toBe(false);
+            expect(result.dataQuality.relationshipFreeFloatMissingCount).toBe(1);
+            expect(result.dataQuality.warnings.some(warning => warning.includes('approximated'))).toBe(true);
+        });
+
+        it('keeps strict Relationship Free Float mode when relationship float is mixed blank and nonblank', () => {
+            const columns: ColumnDef[] = [
+                ...COLUMNS_WITH_PRED,
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 0, null],
+                ['T3', 'Task C', 2, new Date('2025-01-11'), new Date('2025-01-13'), 'T2', 'FS', 0, 0],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.hasRelationshipFreeFloat).toBe(true);
+            expect(result.dataQuality.hasRelationshipFreeFloat).toBe(true);
+            expect(result.dataQuality.relationshipFreeFloatMissingCount).toBe(1);
+            expect(result.dataQuality.warnings.some(warning => warning.includes('blank Relationship Free Float'))).toBe(true);
+        });
     });
 
     // -----------------------------------------------------------------------
@@ -354,6 +413,8 @@ describe('DataProcessor', () => {
             expect(syntheticTask).toBeDefined();
             expect(syntheticTask!.type).toBe('Synthetic');
             expect(syntheticTask!.name).toBe('EXTERNAL_PRED');
+            expect(result.dataQuality.missingPredecessorIds).toEqual(['EXTERNAL_PRED']);
+            expect(result.dataQuality.cpmSafe).toBe(false);
         });
     });
 
@@ -535,7 +596,49 @@ describe('DataProcessor', () => {
             const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
 
             expect(result.allTasksData[0].userProvidedTotalFloat).toBe(3);
-            expect(result.hasUserProvidedFloat).toBe(true);
+            expect(result.hasTaskTotalFloat).toBe(true);
+            expect(result.hasRelationshipFreeFloat).toBe(false);
+            expect(result.dataQuality.hasRelationshipFreeFloat).toBe(false);
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // P6-shaped duplicate row validation
+    // -----------------------------------------------------------------------
+    describe('P6 duplicate activity rows', () => {
+        it('does not flag repeated activity rows when only predecessor relationship rows differ', () => {
+            const columns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'Predecessor', queryName: 'Table[PredID]', roles: { predecessorId: true } },
+                { displayName: 'Rel Type', queryName: 'Table[RelType]', roles: { relationshipType: true } },
+                { displayName: 'Lag', queryName: 'Table[Lag]', roles: { relationshipLag: true } },
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
+                ['T3', 'Task C', 4, new Date('2025-01-01'), new Date('2025-01-05'), null, null, null, null],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 0, 0],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T3', 'SS', 1, 2],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.relationships).toHaveLength(2);
+            expect(result.dataQuality.conflictingTaskRows).toEqual([]);
+        });
+
+        it('flags conflicting duplicate activity rows for the same activity ID', () => {
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06')],
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-08')],
+            ];
+            const dv = buildDataView(STANDARD_COLUMNS, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.dataQuality.conflictingTaskRows).toHaveLength(1);
+            expect(result.dataQuality.conflictingTaskRows[0]).toContain('T1');
+            expect(result.dataQuality.conflictingTaskRows[0]).toContain('Finish Date');
+            expect(result.dataQuality.cpmSafe).toBe(false);
         });
     });
 

@@ -37,9 +37,30 @@ export interface ProcessedData {
     wbsLevelColumnNames: string[];
 
     // Calculation Flags
-    hasUserProvidedFloat: boolean;
+    hasTaskTotalFloat: boolean;
+    hasRelationshipFreeFloat: boolean;
     dataQuality: DataQualityInfo;
 }
+
+type DataQualityContext = {
+    missingPredecessorIds: string[];
+    conflictingTaskRows: string[];
+    relationshipCount: number;
+    relationshipFreeFloatMissingCount: number;
+    hasRelationshipFreeFloat: boolean;
+};
+
+type TaskRowBucket = {
+    rows: any[];
+    task: Task | null;
+    rowIndex: number;
+    relationships: Array<{
+        predId: string;
+        relType: string;
+        lag: number | null;
+        freeFloat: number | null;
+    }>;
+};
 
 export class DataProcessor {
     private debug: boolean = false;
@@ -168,7 +189,8 @@ export class DataProcessor {
             taskIdColumn: null,
             wbsLevelColumnIndices: [],
             wbsLevelColumnNames: [],
-            hasUserProvidedFloat: false,
+            hasTaskTotalFloat: false,
+            hasRelationshipFreeFloat: false,
             dataQuality: this.createEmptyDataQuality()
         };
 
@@ -211,22 +233,11 @@ export class DataProcessor {
         const relFreeFloatIdx = this.getColumnIndex(dataView, "relationshipFreeFloat");
         const dataDateIdx = this.getColumnIndex(dataView, "dataDate");
 
-        const taskDataMap = new Map<
-            string,
-            {
-                rows: any[];
-                task: Task | null;
-                rowIndex: number;
-                relationships: Array<{
-                    predId: string;
-                    relType: string;
-                    lag: number | null;
-                    freeFloat: number | null;
-                }>;
-            }
-        >();
+        const taskDataMap = new Map<string, TaskRowBucket>();
 
         const allPredecessorIds = new Set<string>();
+        let relationshipRowCount = 0;
+        let relationshipFreeFloatMissingCount = 0;
 
         // --- Pass 1: Group Rows by Task ID ---
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -263,6 +274,7 @@ export class DataProcessor {
             if (predIdIdx !== -1 && row[predIdIdx] != null) {
                 const predId = this.extractPredecessorId(row, dataView);
                 if (predId && predId !== taskId) {
+                    relationshipRowCount++;
 
                     allPredecessorIds.add(predId);
 
@@ -291,13 +303,17 @@ export class DataProcessor {
                         }
                     }
 
-                    // Optimization: Check if user provided ANY valid float
-                    if (relFreeFloat !== null && relFreeFloat !== undefined && result.hasUserProvidedFloat === false) {
-                        result.hasUserProvidedFloat = true;
+                    if (relFreeFloat !== null && relFreeFloat !== undefined) {
+                        result.hasRelationshipFreeFloat = true;
+                    } else {
+                        relationshipFreeFloatMissingCount++;
                     }
 
                     const existingRel = taskData.relationships.find(
-                        (r) => r.predId === predId
+                        (r) => r.predId === predId &&
+                            r.relType === relType &&
+                            r.lag === relLag &&
+                            r.freeFloat === relFreeFloat
                     );
                     if (!existingRel) {
                         taskData.relationships.push({
@@ -311,10 +327,12 @@ export class DataProcessor {
             }
         }
 
+        const missingPredecessorIds: string[] = [];
         let syntheticTaskCount = 0;
         for (const predId of allPredecessorIds) {
             if (!taskDataMap.has(predId)) {
                 syntheticTaskCount++;
+                missingPredecessorIds.push(predId);
             }
         }
 
@@ -334,8 +352,8 @@ export class DataProcessor {
 
             const task = taskData.task;
 
-            if (task.userProvidedTotalFloat !== undefined && !result.hasUserProvidedFloat) {
-                result.hasUserProvidedFloat = true;
+            if (task.userProvidedTotalFloat !== undefined && !result.hasTaskTotalFloat) {
+                result.hasTaskTotalFloat = true;
             }
 
             if (!result.predecessorIndex.has(taskId)) {
@@ -343,19 +361,22 @@ export class DataProcessor {
             }
 
             for (const rel of taskData.relationships) {
-                task.predecessorIds.push(rel.predId);
-                task.relationshipTypes[rel.predId] = rel.relType;
-                task.relationshipLags[rel.predId] = rel.lag;
+                const predecessorAlreadyLinked = task.predecessorIds.includes(rel.predId);
+                if (!predecessorAlreadyLinked) {
+                    task.predecessorIds.push(rel.predId);
+                    task.relationshipTypes[rel.predId] = rel.relType;
+                    task.relationshipLags[rel.predId] = rel.lag;
 
-                if (!result.predecessorIndex.has(rel.predId)) {
-                    result.predecessorIndex.set(rel.predId, new Set());
-                }
-                result.predecessorIndex.get(rel.predId)!.add(taskId);
+                    if (!result.predecessorIndex.has(rel.predId)) {
+                        result.predecessorIndex.set(rel.predId, new Set());
+                    }
+                    result.predecessorIndex.get(rel.predId)!.add(taskId);
 
-                if (!successorMap.has(rel.predId)) {
-                    successorMap.set(rel.predId, []);
+                    if (!successorMap.has(rel.predId)) {
+                        successorMap.set(rel.predId, []);
+                    }
+                    successorMap.get(rel.predId)!.push(task);
                 }
-                successorMap.get(rel.predId)!.push(task);
 
                 const relationship: Relationship = {
                     predecessorId: rel.predId,
@@ -438,7 +459,13 @@ export class DataProcessor {
         // --- Helper Pass Processing ---
         this.processLegendData(dataView, settings, highContrastMode, highContrastForeground, result);
         this.processWBSData(result, settings, wbsExpandedState, wbsManuallyToggledGroups, lastExpandCollapseAllState);
-        result.dataQuality = this.validateDataQuality(rows.length, result.allTasksData, result.taskIdToTask);
+        result.dataQuality = this.validateDataQuality(rows.length, result.allTasksData, result.taskIdToTask, {
+            missingPredecessorIds: missingPredecessorIds.sort((a, b) => a.localeCompare(b)),
+            conflictingTaskRows: this.detectConflictingTaskRows(taskDataMap, dataView),
+            relationshipCount: relationshipRowCount,
+            relationshipFreeFloatMissingCount,
+            hasRelationshipFreeFloat: result.hasRelationshipFreeFloat
+        });
 
         this.debugLog(`DataProcessor: Transformation complete. ${result.allTasksData.length} tasks.`);
 
@@ -1061,6 +1088,11 @@ export class DataProcessor {
             rowCount: 0,
             possibleTruncation: false,
             duplicateTaskIds: [],
+            conflictingTaskRows: [],
+            missingPredecessorIds: [],
+            relationshipCount: 0,
+            relationshipFreeFloatMissingCount: 0,
+            hasRelationshipFreeFloat: false,
             circularPaths: [],
             invalidRawDateRangeTaskIds: [],
             invalidVisualDateRangeTaskIds: [],
@@ -1093,7 +1125,80 @@ export class DataProcessor {
             endDate < startDate;
     }
 
-    private validateDataQuality(rowCount: number, allTasksData: Task[], taskIdToTask: Map<string, Task>): DataQualityInfo {
+    private detectConflictingTaskRows(taskDataMap: Map<string, TaskRowBucket>, dataView: DataView): string[] {
+        const rolesToCompare = [
+            "taskName",
+            "duration",
+            "taskTotalFloat",
+            "taskFreeFloat",
+            "startDate",
+            "finishDate",
+            "manualStartDate",
+            "manualFinishDate",
+            "baselineStartDate",
+            "baselineFinishDate",
+            "previousUpdateStartDate",
+            "previousUpdateFinishDate",
+            "dataDate",
+            "taskType",
+            "legend"
+        ];
+
+        const roleColumns = rolesToCompare
+            .map(role => ({
+                role,
+                column: this.getRoleColumnInfo(dataView, role)
+            }))
+            .filter((entry): entry is { role: string; column: { column: { displayName?: string }; index: number } } => entry.column !== null);
+
+        if (roleColumns.length === 0) {
+            return [];
+        }
+
+        const conflicts: string[] = [];
+
+        for (const [taskId, taskData] of taskDataMap) {
+            if (taskData.rows.length <= 1) {
+                continue;
+            }
+
+            const conflictingFields: string[] = [];
+            for (const { column } of roleColumns) {
+                const firstValue = this.normalizeQualityValue(taskData.rows[0][column.index]);
+                const hasConflict = taskData.rows.some(row => this.normalizeQualityValue(row[column.index]) !== firstValue);
+                if (hasConflict) {
+                    conflictingFields.push(column.column.displayName || `Column ${column.index + 1}`);
+                }
+            }
+
+            if (conflictingFields.length > 0) {
+                conflicts.push(`${taskId}: ${conflictingFields.slice(0, 4).join(", ")}${conflictingFields.length > 4 ? ` +${conflictingFields.length - 4} more` : ""}`);
+            }
+        }
+
+        return conflicts;
+    }
+
+    private normalizeQualityValue(value: unknown): string {
+        if (value === null || value === undefined) {
+            return "";
+        }
+
+        if (value instanceof Date) {
+            return Number.isNaN(value.getTime()) ? "" : `date:${value.getTime()}`;
+        }
+
+        if (typeof value === "number") {
+            if (Number.isNaN(value)) {
+                return "";
+            }
+            return Number.isFinite(value) ? value.toString() : "";
+        }
+
+        return String(value).trim();
+    }
+
+    private validateDataQuality(rowCount: number, allTasksData: Task[], taskIdToTask: Map<string, Task>, context: DataQualityContext): DataQualityInfo {
         const seenIds = new Map<string, number>();
         for (const task of allTasksData) {
             const count = seenIds.get(task.id as string) || 0;
@@ -1120,6 +1225,12 @@ export class DataProcessor {
         if (duplicates.length > 0) {
             warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
         }
+        if (context.conflictingTaskRows.length > 0) {
+            warnings.push(`Conflicting duplicate activity rows found: ${context.conflictingTaskRows.slice(0, 3).join('; ')}${context.conflictingTaskRows.length > 3 ? ` and ${context.conflictingTaskRows.length - 3} more` : ''}.`);
+        }
+        if (context.missingPredecessorIds.length > 0) {
+            warnings.push(`Missing predecessor activities found: ${context.missingPredecessorIds.slice(0, 5).join(', ')}${context.missingPredecessorIds.length > 5 ? ` and ${context.missingPredecessorIds.length - 5} more` : ''}. Synthetic placeholders were created.`);
+        }
         if (circularPaths.length > 0) {
             warnings.push(`Critical path disabled: circular dependencies detected (${circularPaths.length}).`);
         }
@@ -1129,8 +1240,15 @@ export class DataProcessor {
         if (invalidVisualDateRangeTaskIds.length > 0) {
             warnings.push(`Visual date warnings: invalid plotted start/finish ranges found (${invalidVisualDateRangeTaskIds.length}).`);
         }
+        if (context.relationshipCount > 0 && !context.hasRelationshipFreeFloat) {
+            warnings.push("Relationship Free Float is not provided; driving logic is approximated from scheduled dates, relationship type, and lag.");
+        } else if (context.hasRelationshipFreeFloat && context.relationshipFreeFloatMissingCount > 0) {
+            warnings.push(`${context.relationshipFreeFloatMissingCount} relationship(s) have blank Relationship Free Float and are ignored for driving-path selection.`);
+        }
 
         const cpmSafe = !possibleTruncation &&
+            context.conflictingTaskRows.length === 0 &&
+            context.missingPredecessorIds.length === 0 &&
             circularPaths.length === 0 &&
             invalidRawDateRangeTaskIds.length === 0;
 
@@ -1138,6 +1256,11 @@ export class DataProcessor {
             rowCount,
             possibleTruncation,
             duplicateTaskIds: duplicates,
+            conflictingTaskRows: context.conflictingTaskRows,
+            missingPredecessorIds: context.missingPredecessorIds,
+            relationshipCount: context.relationshipCount,
+            relationshipFreeFloatMissingCount: context.relationshipFreeFloatMissingCount,
+            hasRelationshipFreeFloat: context.hasRelationshipFreeFloat,
             circularPaths,
             invalidRawDateRangeTaskIds,
             invalidVisualDateRangeTaskIds,

@@ -5,7 +5,7 @@
  */
 
 import { Task, WBSGroup } from '../data/Interfaces';
-import * as d3 from 'd3';
+import { timeFormat } from 'd3-time-format';
 
 /** Set to true to enable debug logging for clipboard operations */
 const DEBUG = false;
@@ -55,7 +55,7 @@ export async function exportToClipboard(config: ClipboardExportConfig): Promise<
 
     try {
         // Format as DD-Mon-YY (e.g., "16-Jun-26") for consistent display
-        const dateFormatter = d3.timeFormat("%d-%b-%y");
+        const dateFormatter = timeFormat("%d-%b-%y");
 
         // WBS-only export mode: When WBS is enabled but no tasks are visible
         if (showWbs && areTasksVisible === false && visibleWbsGroups && visibleWbsGroups.length > 0) {
