@@ -26,7 +26,8 @@ export interface ProcessedData {
     taskIdColumn: string | null;
     wbsLevelColumnIndices: number[];
     wbsLevelColumnNames: string[];
-    hasUserProvidedFloat: boolean;
+    hasTaskTotalFloat: boolean;
+    hasRelationshipFreeFloat: boolean;
     dataQuality: DataQualityInfo;
 }
 export declare class DataProcessor {
@@ -51,6 +52,8 @@ export declare class DataProcessor {
     private getVisualStart;
     private getVisualFinish;
     private isEarlier;
+    private detectConflictingTaskRows;
+    private normalizeQualityValue;
     private validateDataQuality;
     private detectCircularDependencies;
     hasDataRole(dataView: DataView, roleName: string): boolean;

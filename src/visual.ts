@@ -90,6 +90,14 @@ type RelationshipRenderGeometry = {
     endY: number;
 };
 
+type WbsHeaderContextMenuAction = {
+    id: "expand-all" | `show-through-level-${number}` | "collapse-all";
+    label: string;
+    description: string;
+    targetLevel: number | null;
+    announcement: string;
+};
+
 export class Visual implements IVisual {
     private static nextInstanceOrdinal: number = 0;
     /**
@@ -313,6 +321,7 @@ export class Visual implements IVisual {
     private wbsManuallyToggledGroups: Set<string> = new Set();
     private wbsEnableOverride: boolean | null = null;
     private wbsGroupLayer: Selection<SVGGElement, unknown, null, undefined>;
+    private wbsHeaderContextMenu: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
     private lastExpandCollapseAllState: boolean | null = null;
 
     private tooltipDebugLogged: boolean = false;
@@ -1092,6 +1101,15 @@ export class Visual implements IVisual {
             .style("display", "flex")
             .style("flex-direction", "column");
 
+        this.visualWrapper
+            .on("click.wbsHeaderContextMenu", () => this.hideWbsHeaderContextMenu())
+            .on("contextmenu.wbsHeaderContextMenu", (event: MouseEvent) => {
+                if (this.wbsHeaderContextMenu?.style("display") !== "none") {
+                    event.preventDefault();
+                    this.hideWbsHeaderContextMenu();
+                }
+            });
+
         this.stickyHeaderContainer = this.visualWrapper.append("div")
             .attr("class", "sticky-header-container")
             .style("position", "sticky")
@@ -1866,10 +1884,6 @@ export class Visual implements IVisual {
         if (this.dataQuality.conflictingTaskRows.length > 0) {
             reasons.push("conflicting duplicate activity rows found");
         }
-        if (this.dataQuality.missingPredecessorIds.length > 0) {
-            reasons.push("missing predecessor activities found");
-        }
-
         if (reasons.length === 0) {
             return "Longest Path unavailable: cyclic, truncated, or invalid schedule data.";
         }
@@ -1880,10 +1894,6 @@ export class Visual implements IVisual {
     private getHeaderBannerWarningMessage(): string | null {
         if ((this.dataQuality?.invalidVisualDateRangeTaskIds?.length ?? 0) > 0) {
             return `Plotted date warning: ${this.dataQuality.invalidVisualDateRangeTaskIds.length} task(s) have invalid visual start/finish ranges.`;
-        }
-
-        if ((this.dataQuality?.missingPredecessorIds?.length ?? 0) > 0) {
-            return `Schedule logic warning: ${this.dataQuality.missingPredecessorIds.length} predecessor activity ID(s) are missing from the dataset.`;
         }
 
         if ((this.dataQuality?.conflictingTaskRows?.length ?? 0) > 0) {
@@ -1917,10 +1927,6 @@ export class Visual implements IVisual {
 
         if ((this.dataQuality?.relationshipCount ?? 0) > 0 && !this.hasRelationshipFreeFloat) {
             return "Relationship Free Float not provided; Longest Path driving logic is approximate.";
-        }
-
-        if (this.hasRelationshipFreeFloat && (this.dataQuality?.relationshipFreeFloatMissingCount ?? 0) > 0) {
-            return `${this.dataQuality.relationshipFreeFloatMissingCount} relationship(s) have blank Relationship Free Float and are ignored.`;
         }
 
         return null;
@@ -2124,6 +2130,9 @@ export class Visual implements IVisual {
 
         // Clean up help overlay if visible
         this.clearHelpOverlay();
+        this.hideWbsHeaderContextMenu();
+        this.wbsHeaderContextMenu?.remove();
+        this.wbsHeaderContextMenu = null;
 
         // Release large data structures to allow GC
         this.allTasksData = [];
@@ -2217,6 +2226,13 @@ export class Visual implements IVisual {
             this.debugLog("Visual update triggered by internal toggle");
         } catch (error) {
             console.error("Error in internal toggle method:", error);
+        }
+    }
+
+    private resetPathSelectionIndex(): void {
+        this.selectedPathIndex = 0;
+        if (this.settings?.pathSelection?.selectedPathIndex) {
+            this.settings.pathSelection.selectedPathIndex.value = 1;
         }
     }
 
@@ -2547,6 +2563,7 @@ export class Visual implements IVisual {
             const newMode = currentMode === 'longestPath' ? 'floatBased' : 'longestPath';
 
             this.debugLog(`Toggling criticality mode from ${currentMode} to ${newMode}`);
+            this.resetPathSelectionIndex();
 
             if (newMode === 'longestPath' && this.floatThreshold > 0) {
                 this.debugLog(`Resetting float threshold from ${this.floatThreshold} to 0`);
@@ -2575,6 +2592,10 @@ export class Visual implements IVisual {
             const properties: any[] = [{
                 objectName: "criticalPath",
                 properties: { calculationMode: newMode },
+                selector: null
+            }, {
+                objectName: "pathSelection",
+                properties: { selectedPathIndex: 1 },
                 selector: null
             }];
 
@@ -4077,6 +4098,7 @@ export class Visual implements IVisual {
         this.debugLog("--- Visual Update Start ---");
         this.renderStartTime = performance.now();
         this.hideTooltip();
+        this.hideWbsHeaderContextMenu();
 
         if (this.isUpdating) {
             this.debugLog("Update already in progress, skipping");
@@ -11129,7 +11151,7 @@ export class Visual implements IVisual {
 
         this.persistPathSelection();
 
-        this.identifyLongestPathFromP6();
+        this.recomputeLongestPathForCurrentInteraction();
 
         this.forceFullUpdate = true;
         if (this.lastUpdateOptions) {
@@ -11160,7 +11182,7 @@ export class Visual implements IVisual {
 
         this.persistPathSelection();
 
-        this.identifyLongestPathFromP6();
+        this.recomputeLongestPathForCurrentInteraction();
 
         this.forceFullUpdate = true;
         if (this.lastUpdateOptions) {
@@ -11217,6 +11239,31 @@ export class Visual implements IVisual {
         } catch (error) {
             console.error("Error persisting path selection:", error);
         }
+    }
+
+    private recomputeLongestPathForCurrentInteraction(): void {
+        if (!this.isLongestPathMode()) {
+            return;
+        }
+
+        if (!this.isCpmSafe()) {
+            this.clearCriticalPathState();
+            this.updatePathInfoLabel();
+            return;
+        }
+
+        if (this.selectedTaskId) {
+            const traceModeSetting = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
+            const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
+            if (effectiveTraceMode === "forward") {
+                this.calculateCPMFromTask(this.selectedTaskId);
+            } else {
+                this.calculateCPMToTask(this.selectedTaskId);
+            }
+            return;
+        }
+
+        this.identifyLongestPathFromP6();
     }
 
     private identifyNearCriticalTasks(): void {
@@ -11699,6 +11746,370 @@ export class Visual implements IVisual {
             this.preserveScrollOnUpdate = true;
             this.scrollPreservationUntil = Date.now() + 2000;
             this.debugLog("Global WBS anchor fallback: preserving current scrollTop");
+        }
+    }
+
+    private captureWbsAnchorForGroup(groupId: string): boolean {
+        if (!this.scrollableContainer?.node()) return false;
+        if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) return false;
+
+        const group = this.wbsGroupMap.get(groupId);
+        if (!group || group.yOrder === undefined) {
+            return false;
+        }
+
+        const container = this.scrollableContainer.node();
+        const scrollTop = container.scrollTop;
+        const groupAbsoluteY = group.yOrder * this.taskElementHeight;
+        const visualOffset = groupAbsoluteY - scrollTop;
+
+        this.wbsToggleScrollAnchor = { groupId, visualOffset };
+        this.preserveScrollOnUpdate = true;
+        this.scrollPreservationUntil = Date.now() + 2000;
+        this.debugLog(`WBS context menu anchor captured: group=${groupId}, yOrder=${group.yOrder}, offset=${visualOffset}`);
+        return true;
+    }
+
+    private getRootWbsGroupId(groupId: string): string {
+        let group = this.wbsGroupMap.get(groupId);
+        if (!group) return groupId;
+
+        const visited = new Set<string>();
+        while (group.parentId && !visited.has(group.id)) {
+            visited.add(group.id);
+            const parent = this.wbsGroupMap.get(group.parentId);
+            if (!parent) break;
+            group = parent;
+        }
+
+        return group.id;
+    }
+
+    private getWbsHeaderContextMenu(): Selection<HTMLDivElement, unknown, null, undefined> {
+        if (this.wbsHeaderContextMenu?.node()) {
+            return this.wbsHeaderContextMenu;
+        }
+
+        this.wbsHeaderContextMenu = this.visualWrapper.append("div")
+            .attr("class", "wbs-header-context-menu")
+            .attr("role", "menu")
+            .attr("aria-label", "WBS header actions")
+            .attr("aria-hidden", "true")
+            .style("position", "absolute")
+            .style("display", "none")
+            .style("flex-direction", "column")
+            .style("gap", "2px")
+            .style("width", "168px")
+            .style("padding", "4px")
+            .style("box-sizing", "border-box")
+            .style("background-color", HEADER_DOCK_TOKENS.menuBg)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.menuStroke}`)
+            .style("border-radius", `${UI_TOKENS.radius.medium}px`)
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("z-index", "1200")
+            .style("font-family", this.getFontFamily())
+            .style("pointer-events", "auto")
+            .on("click", (event: MouseEvent) => {
+                event.stopPropagation();
+            })
+            .on("contextmenu", (event: MouseEvent) => {
+                event.preventDefault();
+                event.stopPropagation();
+            })
+            .on("keydown", (event: KeyboardEvent) => {
+                if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.hideWbsHeaderContextMenu();
+                }
+            });
+
+        return this.wbsHeaderContextMenu;
+    }
+
+    private hideWbsHeaderContextMenu(): void {
+        if (!this.wbsHeaderContextMenu?.node()) {
+            return;
+        }
+
+        this.wbsHeaderContextMenu
+            .attr("aria-hidden", "true")
+            .style("display", "none");
+    }
+
+    private focusWbsHeaderContextMenuItem(offset: number): void {
+        if (!this.wbsHeaderContextMenu?.node()) {
+            return;
+        }
+
+        const items = this.wbsHeaderContextMenu
+            .selectAll<HTMLButtonElement, WbsHeaderContextMenuAction>("button.wbs-header-context-menu-item")
+            .nodes();
+
+        if (items.length === 0) {
+            return;
+        }
+
+        if (offset <= -items.length) {
+            items[0].focus();
+            return;
+        }
+
+        if (offset >= items.length) {
+            items[items.length - 1].focus();
+            return;
+        }
+
+        const currentIndex = Math.max(0, items.findIndex(item => item === document.activeElement));
+        const nextIndex = (currentIndex + offset + items.length) % items.length;
+        items[nextIndex].focus();
+    }
+
+    private showWbsHeaderContextMenu(event: MouseEvent | KeyboardEvent, group: WBSGroup, anchorElement?: Element): void {
+        if (!this.allowInteractions || !this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        this.hideTooltip();
+
+        const menu = this.getWbsHeaderContextMenu();
+        const availableLevels = (this.wbsAvailableLevels.length > 0
+            ? this.wbsAvailableLevels
+            : Array.from(new Set(this.wbsGroups.map(wbsGroup => wbsGroup.level))))
+            .filter(level => Number.isFinite(level) && level > 0)
+            .sort((a, b) => a - b);
+        const showThroughLevelActions: WbsHeaderContextMenuAction[] = availableLevels.map(level => ({
+            id: `show-through-level-${level}` as `show-through-level-${number}`,
+            label: `Show through Level ${level}`,
+            description: level === 1 ? "Show top WBS level only" : `Show WBS levels 1-${level}`,
+            targetLevel: Math.max(0, level - 1),
+            announcement: `Showing WBS through Level ${level}.`
+        }));
+        const actions: WbsHeaderContextMenuAction[] = [
+            {
+                id: "expand-all",
+                label: "Expand all",
+                description: "Open every WBS branch",
+                targetLevel: null,
+                announcement: "Expanded all WBS groups."
+            },
+            ...showThroughLevelActions,
+            {
+                id: "collapse-all",
+                label: "Collapse all",
+                description: "Show top WBS level only",
+                targetLevel: 0,
+                announcement: "Collapsed all WBS groups."
+            }
+        ];
+
+        const items = menu
+            .selectAll<HTMLButtonElement, WbsHeaderContextMenuAction>("button.wbs-header-context-menu-item")
+            .data(actions, action => action.id);
+
+        items.exit().remove();
+
+        const itemEnter = items.enter()
+            .append("button")
+            .attr("class", "wbs-header-context-menu-item")
+            .attr("type", "button")
+            .attr("role", "menuitem")
+            .style("height", "40px")
+            .style("padding", "4px 9px")
+            .style("border", "none")
+            .style("border-radius", `${UI_TOKENS.radius.small}px`)
+            .style("background", "transparent")
+            .style("color", HEADER_DOCK_TOKENS.buttonText)
+            .style("font-family", this.getFontFamily())
+            .style("text-align", "left")
+            .style("cursor", "pointer")
+            .style("display", "flex")
+            .style("flex-direction", "column")
+            .style("justify-content", "center")
+            .style("gap", "1px");
+
+        itemEnter.append("span").attr("class", "wbs-header-context-menu-label");
+        itemEnter.append("span").attr("class", "wbs-header-context-menu-description");
+
+        const mergedItems = itemEnter.merge(items);
+
+        mergedItems
+            .attr("tabindex", "-1")
+            .attr("aria-label", action => action.label)
+            .on("mouseover", function () {
+                d3.select(this).style("background-color", HEADER_DOCK_TOKENS.menuHover);
+            })
+            .on("mouseout", function () {
+                d3.select(this).style("background-color", "transparent");
+            })
+            .on("click", (clickEvent: MouseEvent, action) => {
+                clickEvent.preventDefault();
+                clickEvent.stopPropagation();
+                this.applyWbsGlobalExpandFromHeaderContextMenu(action.targetLevel, group.id, action.announcement);
+            })
+            .on("keydown", (keyboardEvent: KeyboardEvent, action) => {
+                switch (keyboardEvent.key) {
+                    case "Enter":
+                    case " ":
+                        keyboardEvent.preventDefault();
+                        keyboardEvent.stopPropagation();
+                        this.applyWbsGlobalExpandFromHeaderContextMenu(action.targetLevel, group.id, action.announcement);
+                        break;
+                    case "ArrowDown":
+                        keyboardEvent.preventDefault();
+                        keyboardEvent.stopPropagation();
+                        this.focusWbsHeaderContextMenuItem(1);
+                        break;
+                    case "ArrowUp":
+                        keyboardEvent.preventDefault();
+                        keyboardEvent.stopPropagation();
+                        this.focusWbsHeaderContextMenuItem(-1);
+                        break;
+                    case "Home":
+                        keyboardEvent.preventDefault();
+                        keyboardEvent.stopPropagation();
+                        this.focusWbsHeaderContextMenuItem(-Number.MAX_SAFE_INTEGER);
+                        break;
+                    case "End":
+                        keyboardEvent.preventDefault();
+                        keyboardEvent.stopPropagation();
+                        this.focusWbsHeaderContextMenuItem(Number.MAX_SAFE_INTEGER);
+                        break;
+                }
+            });
+
+        mergedItems.select<HTMLSpanElement>("span.wbs-header-context-menu-label")
+            .style("font-size", "12px")
+            .style("font-weight", "600")
+            .style("line-height", "15px")
+            .text(action => action.label);
+
+        mergedItems.select<HTMLSpanElement>("span.wbs-header-context-menu-description")
+            .style("font-size", "10px")
+            .style("font-weight", "500")
+            .style("line-height", "12px")
+            .style("color", HEADER_DOCK_TOKENS.chipMuted)
+            .text(action => action.description);
+
+        const wrapperNode = this.visualWrapper.node();
+        const wrapperRect = wrapperNode?.getBoundingClientRect();
+        if (!wrapperRect) {
+            return;
+        }
+
+        const anchorRect = anchorElement?.getBoundingClientRect();
+        const clientX = "clientX" in event && typeof event.clientX === "number" && event.clientX > 0
+            ? event.clientX
+            : (anchorRect ? anchorRect.left + Math.min(anchorRect.width - 8, 32) : wrapperRect.left + 12);
+        const clientY = "clientY" in event && typeof event.clientY === "number" && event.clientY > 0
+            ? event.clientY
+            : (anchorRect ? anchorRect.top + Math.max(12, anchorRect.height / 2) : wrapperRect.top + 12);
+        const menuWidth = 168;
+        const rawMenuHeight = 8 + (actions.length * 42);
+        const menuMargin = 6;
+        const menuHeight = Math.max(48, Math.min(rawMenuHeight, wrapperRect.height - (menuMargin * 2), 360));
+        const left = Math.max(
+            menuMargin,
+            Math.min(clientX - wrapperRect.left, wrapperRect.width - menuWidth - menuMargin)
+        );
+        const top = Math.max(
+            menuMargin,
+            Math.min(clientY - wrapperRect.top, wrapperRect.height - menuHeight - menuMargin)
+        );
+
+        menu
+            .attr("aria-hidden", "false")
+            .style("left", `${Math.round(left)}px`)
+            .style("top", `${Math.round(top)}px`)
+            .style("max-height", `${Math.round(menuHeight)}px`)
+            .style("overflow-y", rawMenuHeight > menuHeight ? "auto" : "visible")
+            .style("display", "flex");
+
+        window.setTimeout(() => {
+            menu.select<HTMLButtonElement>("button.wbs-header-context-menu-item").node()?.focus();
+        }, 0);
+    }
+
+    private applyWbsGlobalExpandFromHeaderContextMenu(
+        targetLevel: number | null,
+        sourceGroupId: string,
+        announcement: string
+    ): void {
+        try {
+            if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+                return;
+            }
+
+            this.hideTooltip();
+            this.hideWbsHeaderContextMenu();
+            this.lastWbsToggleTimestamp = Date.now();
+            this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
+
+            if (this.scrollThrottleTimeout) {
+                cancelAnimationFrame(this.scrollThrottleTimeout);
+                this.scrollThrottleTimeout = null;
+            }
+
+            if (this.wbsAvailableLevels.length === 0 && this.wbsGroups.length > 0) {
+                this.refreshWbsAvailableLevels();
+            }
+
+            this.wbsManualExpansionOverride = false;
+            this.wbsManuallyToggledGroups.clear();
+            this.wbsExpandedState.clear();
+
+            const maxLevel = this.getMaxWbsLevel();
+            const effectiveLevel = targetLevel === null
+                ? null
+                : Math.min(Math.max(targetLevel, 0), maxLevel);
+            const anchorGroupId = effectiveLevel === 0
+                ? this.getRootWbsGroupId(sourceGroupId)
+                : sourceGroupId;
+
+            if (!this.captureWbsAnchorForGroup(anchorGroupId)) {
+                this.captureWbsAnchorForGlobalToggle();
+            }
+
+            this.applyWbsExpandLevel(effectiveLevel);
+
+            this.taskLabelLayer?.selectAll("*").remove();
+            this.labelGridLayer?.selectAll("*").remove();
+            this.wbsGroupLayer?.selectAll("*").remove();
+
+            const persistedLevel = effectiveLevel === null ? -1 : effectiveLevel;
+            const expandedStatePayload = this.getWbsExpandedStatePayload();
+            const manualGroupsPayload = Array.from(this.wbsManuallyToggledGroups);
+
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "wbsGrouping",
+                    properties: { expandCollapseAll: this.wbsExpandedInternal },
+                    selector: null
+                }, {
+                    objectName: "persistedState",
+                    properties: {
+                        wbsExpandLevel: persistedLevel,
+                        wbsExpandedState: JSON.stringify(expandedStatePayload),
+                        wbsManualToggledGroups: JSON.stringify(manualGroupsPayload)
+                    },
+                    selector: null
+                }]
+            });
+
+            this.forceFullUpdate = true;
+            this.preserveScrollOnUpdate = true;
+
+            if (this.lastUpdateOptions) {
+                this.update(this.lastUpdateOptions);
+            } else {
+                this.requestUpdate();
+            }
+
+            this.announceToLiveRegion(announcement);
+        } catch (error) {
+            console.error("Error applying WBS header context menu action:", error);
         }
     }
 
@@ -12779,21 +13190,30 @@ export class Visual implements IVisual {
             g.attr('role', 'button')
                 .attr('tabindex', 0)
                 .attr('aria-expanded', String(group.isExpanded))
-                .attr('aria-label', `${group.isExpanded ? 'Collapse' : 'Expand'} WBS group ${displayName}. ${group.visibleTaskCount} visible task${group.visibleTaskCount === 1 ? '' : 's'}.`);
+                .attr('aria-label', `${group.isExpanded ? 'Collapse' : 'Expand'} WBS group ${displayName}. ${group.visibleTaskCount} visible task${group.visibleTaskCount === 1 ? '' : 's'}. Right click or press Shift F10 for WBS actions.`);
 
             g.on('click', function (event) {
                 event.stopPropagation();
                 self.hideTooltip();
+                self.hideWbsHeaderContextMenu();
                 self.toggleWbsGroupExpansion(group.id);
             }).on('keydown', function (event: KeyboardEvent) {
-                if (event.key !== 'Enter' && event.key !== ' ') {
+                const opensContextMenu = event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10');
+                if (!opensContextMenu && event.key !== 'Enter' && event.key !== ' ') {
                     return;
                 }
 
                 event.preventDefault();
                 event.stopPropagation();
                 self.hideTooltip();
-                self.toggleWbsGroupExpansion(group.id);
+                if (opensContextMenu) {
+                    self.showWbsHeaderContextMenu(event, group, this);
+                } else {
+                    self.hideWbsHeaderContextMenu();
+                    self.toggleWbsGroupExpansion(group.id);
+                }
+            }).on('contextmenu', function (event: MouseEvent) {
+                self.showWbsHeaderContextMenu(event, group, this);
             }).on('focus', function () {
                 d3.select(this).select<SVGRectElement>('.wbs-header-bg')
                     .style('stroke-width', 2);
@@ -13294,10 +13714,15 @@ export class Visual implements IVisual {
         const setMode = (mode: string) => {
             if (self.traceMode === mode) return;
             self.traceMode = mode;
+            self.resetPathSelectionIndex();
             self.host.persistProperties({
                 merge: [{
                     objectName: "persistedState",
                     properties: { traceMode: mode },
+                    selector: null
+                }, {
+                    objectName: "pathSelection",
+                    properties: { selectedPathIndex: 1 },
                     selector: null
                 }]
             });
@@ -13677,6 +14102,10 @@ export class Visual implements IVisual {
             return;
         }
 
+        if (taskChanged) {
+            this.resetPathSelectionIndex();
+        }
+
         this.selectedTaskId = taskId;
         this.selectedTaskName = taskName;
         const selectedLabelPrefix = this.getLocalizedString("ui.selectedLabel", "Selected");
@@ -13702,13 +14131,21 @@ export class Visual implements IVisual {
             ? `${selectedLabelPrefix}: ${taskName}`
             : this.getLocalizedString("ui.selectionCleared", "Selection cleared"));
 
-        this.host.persistProperties({
-            merge: [{
+        const mergeProperties: any[] = [{
                 objectName: "persistedState",
                 properties: { selectedTaskId: this.selectedTaskId || "" },
                 selector: null
-            }]
-        });
+            }];
+
+        if (taskChanged) {
+            mergeProperties.push({
+                objectName: "pathSelection",
+                properties: { selectedPathIndex: 1 },
+                selector: null
+            });
+        }
+
+        this.host.persistProperties({ merge: mergeProperties });
 
         this.forceCanvasRefresh();
 
@@ -13730,6 +14167,7 @@ export class Visual implements IVisual {
         // Manually clear selection to avoid triggering selectTask's filter clean-up
         this.selectedTaskId = null;
         this.selectedTaskName = null;
+        this.resetPathSelectionIndex();
 
         if (this.allowInteractions && this.selectionManager) {
             this.selectionManager.clear();
@@ -13741,6 +14179,10 @@ export class Visual implements IVisual {
             merge: [{
                 objectName: "persistedState",
                 properties: { selectedTaskId: "" },
+                selector: null
+            }, {
+                objectName: "pathSelection",
+                properties: { selectedPathIndex: 1 },
                 selector: null
             }]
         });
@@ -15697,6 +16139,7 @@ export class Visual implements IVisual {
         addListItem(wbsList, 'Enable / Disable', 'Use the WBS button in the header to switch between grouped and flat task views.');
         addListItem(wbsList, 'Expand / Collapse Level', 'Use the + and − WBS buttons to cycle through grouping depth, from collapsed to fully expanded and back again.');
         addListItem(wbsList, 'Manual Open / Close', 'Click a group chevron to expand or collapse a single branch without changing the whole view.');
+        addListItem(wbsList, 'Header Menu', 'Right-click a WBS group header to expand all, collapse all, or show the hierarchy through any available WBS level.');
 
         const wbsNote = wbsSection.append('p')
             .style('font-size', '13px')

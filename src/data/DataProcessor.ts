@@ -1228,9 +1228,6 @@ export class DataProcessor {
         if (context.conflictingTaskRows.length > 0) {
             warnings.push(`Conflicting duplicate activity rows found: ${context.conflictingTaskRows.slice(0, 3).join('; ')}${context.conflictingTaskRows.length > 3 ? ` and ${context.conflictingTaskRows.length - 3} more` : ''}.`);
         }
-        if (context.missingPredecessorIds.length > 0) {
-            warnings.push(`Missing predecessor activities found: ${context.missingPredecessorIds.slice(0, 5).join(', ')}${context.missingPredecessorIds.length > 5 ? ` and ${context.missingPredecessorIds.length - 5} more` : ''}. Synthetic placeholders were created.`);
-        }
         if (circularPaths.length > 0) {
             warnings.push(`Critical path disabled: circular dependencies detected (${circularPaths.length}).`);
         }
@@ -1242,13 +1239,10 @@ export class DataProcessor {
         }
         if (context.relationshipCount > 0 && !context.hasRelationshipFreeFloat) {
             warnings.push("Relationship Free Float is not provided; driving logic is approximated from scheduled dates, relationship type, and lag.");
-        } else if (context.hasRelationshipFreeFloat && context.relationshipFreeFloatMissingCount > 0) {
-            warnings.push(`${context.relationshipFreeFloatMissingCount} relationship(s) have blank Relationship Free Float and are ignored for driving-path selection.`);
         }
 
         const cpmSafe = !possibleTruncation &&
             context.conflictingTaskRows.length === 0 &&
-            context.missingPredecessorIds.length === 0 &&
             circularPaths.length === 0 &&
             invalidRawDateRangeTaskIds.length === 0;
 

@@ -89,6 +89,11 @@ export interface DataQualityInfo {
     rowCount: number;
     possibleTruncation: boolean;
     duplicateTaskIds: string[];
+    conflictingTaskRows: string[];
+    missingPredecessorIds: string[];
+    relationshipCount: number;
+    relationshipFreeFloatMissingCount: number;
+    hasRelationshipFreeFloat: boolean;
     circularPaths: string[];
     invalidRawDateRangeTaskIds: string[];
     invalidVisualDateRangeTaskIds: string[];

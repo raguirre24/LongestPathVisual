@@ -388,7 +388,7 @@ describe('DataProcessor', () => {
             expect(result.hasRelationshipFreeFloat).toBe(true);
             expect(result.dataQuality.hasRelationshipFreeFloat).toBe(true);
             expect(result.dataQuality.relationshipFreeFloatMissingCount).toBe(1);
-            expect(result.dataQuality.warnings.some(warning => warning.includes('blank Relationship Free Float'))).toBe(true);
+            expect(result.dataQuality.warnings.some(warning => warning.includes('blank Relationship Free Float'))).toBe(false);
         });
     });
 
@@ -414,7 +414,8 @@ describe('DataProcessor', () => {
             expect(syntheticTask!.type).toBe('Synthetic');
             expect(syntheticTask!.name).toBe('EXTERNAL_PRED');
             expect(result.dataQuality.missingPredecessorIds).toEqual(['EXTERNAL_PRED']);
-            expect(result.dataQuality.cpmSafe).toBe(false);
+            expect(result.dataQuality.cpmSafe).toBe(true);
+            expect(result.dataQuality.warnings.some(warning => warning.includes('Missing predecessor'))).toBe(false);
         });
     });
 

@@ -33,6 +33,7 @@ export interface HeaderState {
     wbsExpandToLevel?: number;
     wbsManualExpansionOverride: boolean;
     currentMode: string;
+    modeStatusMessage?: string | null;
     modeWarningMessage?: string | null;
     showPathInfoChip?: boolean;
     floatThreshold: number;
@@ -46,6 +47,7 @@ export declare class Header {
     private callbacks;
     private exportButtonLoading;
     private copySuccessTimeout;
+    private actionOverflowMenuOpen;
     private toggleButtonGroup;
     private baselineToggleButtonGroup;
     private previousUpdateToggleButtonGroup;
@@ -95,4 +97,7 @@ export declare class Header {
     private createExportButton;
     private createExportHtmlButton;
     private createHelpButton;
+    private createActionOverflowButton;
+    private getOverflowActionItems;
+    private renderActionOverflowMenu;
 }

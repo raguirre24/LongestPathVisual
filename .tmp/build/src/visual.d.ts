@@ -186,6 +186,7 @@ export declare class Visual implements IVisual {
     private wbsManuallyToggledGroups;
     private wbsEnableOverride;
     private wbsGroupLayer;
+    private wbsHeaderContextMenu;
     private lastExpandCollapseAllState;
     private tooltipDebugLogged;
     private landingPageContainer;
@@ -195,7 +196,7 @@ export declare class Visual implements IVisual {
     private helpOverlayReturnFocusTarget;
     private liveRegion;
     private relationshipIndex;
-    private hasUserProvidedFloat;
+    private hasRelationshipFreeFloat;
     private allDrivingChains;
     private selectedPathIndex;
     private drivingPathsTruncated;
@@ -325,6 +326,8 @@ export declare class Visual implements IVisual {
     private isCpmSafe;
     private getUnsafeCpmWarningMessage;
     private getHeaderBannerWarningMessage;
+    private getDrivingLogicStatusMessage;
+    private getModeWarningMessage;
     private updateDataQualityWarning;
     private ensureTaskSortCache;
     private determineUpdateType;
@@ -335,6 +338,7 @@ export declare class Visual implements IVisual {
     private getConnectorOpacity;
     private updateConnectorHoverStyles;
     private toggleTaskDisplayInternal;
+    private resetPathSelectionIndex;
     private toggleBaselineDisplayInternal;
     private togglePreviousUpdateDisplayInternal;
     private toggleColumnDisplayInternal;
@@ -709,6 +713,7 @@ export declare class Visual implements IVisual {
      * Persist the selected path index to settings
      */
     private persistPathSelection;
+    private recomputeLongestPathForCurrentInteraction;
     private identifyNearCriticalTasks;
     /**
      * Calculates CPM backward to a selected target task
@@ -752,6 +757,13 @@ export declare class Visual implements IVisual {
      * expand/collapse cycles keep the user roughly in place.
      */
     private captureWbsAnchorForGlobalToggle;
+    private captureWbsAnchorForGroup;
+    private getRootWbsGroupId;
+    private getWbsHeaderContextMenu;
+    private hideWbsHeaderContextMenu;
+    private focusWbsHeaderContextMenuItem;
+    private showWbsHeaderContextMenu;
+    private applyWbsGlobalExpandFromHeaderContextMenu;
     /**
      * WBS GROUPING: Toggle expansion state for a WBS group
      */
