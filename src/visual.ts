@@ -285,7 +285,6 @@ export class Visual implements IVisual {
         labelText: string;
         labelPriority?: number;
     }> = [];
-    private warningBanner: Selection<HTMLDivElement, unknown, null, undefined>;
     private isDropdownInteracting: boolean = false;
 
     private traceMode: string = "backward";
@@ -497,27 +496,11 @@ export class Visual implements IVisual {
         );
     }
 
-    private shouldShowHeaderWarningBanner(): boolean {
-        return this.getHeaderBannerWarningMessage() !== null;
-    }
-
-    private getWarningBannerTop(): number {
-        const warningTop = this.hasSecondRowHeaderContent()
-            ? this.SECOND_ROW_TOP + UI_TOKENS.height.compact + 8
-            : this.SECOND_ROW_TOP;
-
-        return this.snapRectCoord(warningTop);
-    }
-
     private getEstimatedHeaderControlsBottom(): number {
         let bottom = 10 + UI_TOKENS.height.compact;
 
         if (this.hasSecondRowHeaderContent()) {
             bottom = Math.max(bottom, this.SECOND_ROW_TOP + UI_TOKENS.height.compact);
-        }
-
-        if (this.shouldShowHeaderWarningBanner()) {
-            bottom = Math.max(bottom, this.getWarningBannerTop() + UI_TOKENS.height.compact);
         }
 
         return bottom;
@@ -1242,32 +1225,6 @@ export class Visual implements IVisual {
             .style("white-space", "nowrap")
             .style("transition", `all ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.smooth}`);
 
-        this.warningBanner = this.stickyHeaderContainer.append("div")
-            .attr("class", "data-quality-warning")
-            .style("position", "absolute")
-            .style("left", "10px")
-            .style("top", `${this.SECOND_ROW_TOP}px`)
-            .style("bottom", "auto")
-            .style("max-width", "calc(100% - 20px)")
-            .style("display", "none")
-            .style("align-items", "center")
-            .style("gap", "6px")
-            .style("padding", "4px 10px")
-            .style("background-color", HEADER_DOCK_TOKENS.warningBg)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.warning}`)
-            .style("border-radius", `${UI_TOKENS.radius.pill}px`)
-            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
-            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
-            .style("font-size", "11px")
-            .style("font-weight", "600")
-            .style("color", HEADER_DOCK_TOKENS.warningText)
-            .style("white-space", "nowrap")
-            .style("overflow", "hidden")
-            .style("text-overflow", "ellipsis")
-            .style("z-index", "24")
-            .attr("role", "status")
-            .attr("aria-live", "polite");
-
         this.scrollableContainer = this.visualWrapper.append("div")
             .attr("class", "criticalPathContainer")
             .style("flex", "1")
@@ -1887,18 +1844,6 @@ export class Visual implements IVisual {
         return `Longest Path disabled: ${reasons.join("; ")}.`;
     }
 
-    private getHeaderBannerWarningMessage(): string | null {
-        if ((this.dataQuality?.invalidVisualDateRangeTaskIds?.length ?? 0) > 0) {
-            return `Plotted date warning: ${this.dataQuality.invalidVisualDateRangeTaskIds.length} task(s) have invalid visual start/finish ranges.`;
-        }
-
-        if ((this.dataQuality?.conflictingTaskRows?.length ?? 0) > 0) {
-            return `Schedule data warning: ${this.dataQuality.conflictingTaskRows.length} activity ID(s) have conflicting duplicate rows.`;
-        }
-
-        return null;
-    }
-
     private getDrivingLogicStatusMessage(): string | null {
         if ((this.dataQuality?.relationshipCount ?? 0) === 0) {
             return null;
@@ -1926,31 +1871,6 @@ export class Visual implements IVisual {
         }
 
         return null;
-    }
-
-    private updateDataQualityWarning(): void {
-        if (!this.warningBanner) {
-            return;
-        }
-
-        const message = this.getHeaderBannerWarningMessage();
-
-        if (!message) {
-            this.warningBanner
-                .style("display", "none")
-                .text("");
-            return;
-        }
-
-        this.warningBanner
-            .style("display", "inline-flex")
-            .style("top", `${this.getWarningBannerTop()}px`)
-            .style("bottom", "auto")
-            .style("background-color", this.highContrastMode ? this.highContrastBackground : HEADER_DOCK_TOKENS.warningBg)
-            .style("border-color", this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.warning)
-            .style("color", this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.warningText)
-            .text(message)
-            .attr("title", message);
     }
 
     private ensureTaskSortCache(signature: string): void {
@@ -4504,7 +4424,6 @@ export class Visual implements IVisual {
 
             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
             this.applyHeaderHeight();
-            this.updateDataQualityWarning();
 
             if (this.wbsEnableOverride !== null && this.settings?.wbsGrouping?.enableWbsGrouping) {
                 this.settings.wbsGrouping.enableWbsGrouping.value = this.wbsEnableOverride;
@@ -5073,7 +4992,6 @@ export class Visual implements IVisual {
 
 
         this.applyHeaderHeight();
-        this.updateDataQualityWarning();
 
 
         if (requiresPathRecalc || requiresLookAheadFilterRefresh) {
@@ -15662,11 +15580,6 @@ export class Visual implements IVisual {
             ?.style("background-color", background)
             .style("color", foreground)
             .style("border", `1.5px solid ${foreground}`);
-
-        this.warningBanner
-            ?.style("background-color", background)
-            .style("color", foreground)
-            .style("border", `1px solid ${foreground}`);
 
         if (this.dropdownInput) {
             this.dropdownInput

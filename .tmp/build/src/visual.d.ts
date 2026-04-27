@@ -136,7 +136,6 @@ export declare class Visual implements IVisual {
     private secondRowComparisonSummaryWidth;
     private secondRowComparisonSummaryUsesRightLane;
     private pendingComparisonFinishSummaryEntries;
-    private warningBanner;
     private isDropdownInteracting;
     private traceMode;
     private floatThresholdInput;
@@ -266,8 +265,6 @@ export declare class Visual implements IVisual {
     private getSecondRowLayout;
     private getSecondRowControlTop;
     private hasSecondRowHeaderContent;
-    private shouldShowHeaderWarningBanner;
-    private getWarningBannerTop;
     private getEstimatedHeaderControlsBottom;
     private shouldReserveComparisonFinishSummaryLane;
     private isTraceModeToggleVisible;
@@ -325,10 +322,8 @@ export declare class Visual implements IVisual {
     private isLongestPathMode;
     private isCpmSafe;
     private getUnsafeCpmWarningMessage;
-    private getHeaderBannerWarningMessage;
     private getDrivingLogicStatusMessage;
     private getModeWarningMessage;
-    private updateDataQualityWarning;
     private ensureTaskSortCache;
     private determineUpdateType;
     destroy(): void;
