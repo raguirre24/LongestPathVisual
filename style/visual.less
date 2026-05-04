@@ -536,6 +536,30 @@ text {
     pointer-events: none;
 }
 
+.look-ahead-option-list {
+    scrollbar-width: thin;
+    scrollbar-color: #6F7A8C transparent;
+
+    &::-webkit-scrollbar {
+        width: 5px;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background-color: #6F7A8C;
+        border-radius: 999px;
+    }
+
+    &::-webkit-scrollbar-button {
+        width: 0;
+        height: 0;
+        display: none;
+    }
+}
+
 // ============================================================================
 // DROPDOWN & INPUT STYLES
 // ============================================================================

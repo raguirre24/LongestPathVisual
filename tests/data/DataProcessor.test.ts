@@ -297,6 +297,26 @@ describe('DataProcessor', () => {
             }
         });
 
+        it('normalises P6 relationship type prefixes', () => {
+            const types = [
+                ['PR_FS', 'FS'],
+                ['PR_SS', 'SS'],
+                ['PR_FF', 'FF'],
+                ['PR_SF', 'SF'],
+            ];
+
+            for (const [rawType, expectedType] of types) {
+                const rows = [
+                    ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null],
+                    ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', rawType, 0],
+                ];
+                const dv = buildDataView(COLUMNS_WITH_PRED, rows);
+                const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+                expect(result.relationships[0].type).toBe(expectedType);
+            }
+        });
+
         it('defaults invalid relationship type to FS', () => {
             const rows = [
                 ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null],
@@ -352,6 +372,24 @@ describe('DataProcessor', () => {
             expect(result.taskIdToTask.get('T2')!.predecessorIds).toEqual(['T1']);
             expect(result.taskIdToTask.get('T1')!.successors.map(task => task.id)).toEqual(['T2']);
             expect(result.hasRelationshipFreeFloat).toBe(true);
+        });
+
+        it('preserves same predecessor/successor rows when P6 relationship types differ', () => {
+            const columns: ColumnDef[] = [
+                ...COLUMNS_WITH_PRED,
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'PR_FF', 0, 0],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'PR_SS', 0, 0],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.relationships).toHaveLength(2);
+            expect(result.relationships.map(relationship => relationship.type)).toEqual(['FF', 'SS']);
+            expect(result.taskIdToTask.get('T2')!.predecessorIds).toEqual(['T1']);
         });
 
         it('tracks blank Relationship Free Float as approximate fallback when no relationship float is provided', () => {

@@ -60,7 +60,11 @@ export declare class Header {
     private currentLayout;
     private currentPalette;
     private readonly overflowMenuId;
+    private readonly lookAheadListboxId;
     private overflowDocumentPointerDownHandler;
+    private lookAheadDropdownOpen;
+    private lookAheadDropdownActiveIndex;
+    private lookAheadDocumentPointerDownHandler;
     private toggleButtonGroup;
     private baselineToggleButtonGroup;
     private previousUpdateToggleButtonGroup;
@@ -109,6 +113,12 @@ export declare class Header {
     private createWbsCollapseCycleToggleButton;
     private createFloatThresholdControl;
     private createModeToggleButton;
+    private attachLookAheadOutsideClickHandler;
+    private detachLookAheadOutsideClickHandler;
+    private closeLookAheadDropdown;
+    private openLookAheadDropdown;
+    private focusLookAheadOption;
+    private selectLookAheadWindow;
     private createLookAheadControl;
     private createColumnDisplayToggleButton;
     private createWbsEnableToggleButton;

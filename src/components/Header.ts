@@ -68,7 +68,7 @@ interface HeaderMenuItem {
     status?: string;
     title?: string;
     disabled?: boolean;
-    kind?: "button" | "select" | "number";
+    kind?: "button" | "options" | "number";
     callback?: () => void;
 }
 
@@ -76,6 +76,7 @@ export type HeaderPalette = Partial<typeof HEADER_DOCK_TOKENS> & { isHighContras
 
 const LOOK_AHEAD_SELECT_FONT_SIZE = `${UI_TOKENS.fontSize.sm}px`;
 const LOOK_AHEAD_OPTION_LINE_HEIGHT = "1.2";
+const LOOK_AHEAD_OPTION_ROW_HEIGHT = 22;
 
 export class Header {
     private static nextMenuOrdinal: number = 0;
@@ -88,7 +89,11 @@ export class Header {
     private currentLayout: HeaderButtonLayout | null = null;
     private currentPalette: HeaderPalette = {};
     private readonly overflowMenuId: string;
+    private readonly lookAheadListboxId: string;
     private overflowDocumentPointerDownHandler: ((event: PointerEvent) => void) | null = null;
+    private lookAheadDropdownOpen: boolean = false;
+    private lookAheadDropdownActiveIndex: number = 0;
+    private lookAheadDocumentPointerDownHandler: ((event: PointerEvent) => void) | null = null;
 
     // Button Selections
     private toggleButtonGroup!: Selection<SVGGElement, unknown, null, undefined>;
@@ -104,6 +109,7 @@ export class Header {
         this.container = container;
         this.callbacks = callbacks;
         this.overflowMenuId = `header-controls-menu-${Header.nextMenuOrdinal++}`;
+        this.lookAheadListboxId = `${this.overflowMenuId}-look-ahead-options`;
         this.initialize();
     }
 
@@ -251,6 +257,7 @@ export class Header {
 
     public destroy(): void {
         this.detachOverflowOutsideClickHandler();
+        this.detachLookAheadOutsideClickHandler();
 
         if (this.copySuccessTimeout !== null) {
             clearTimeout(this.copySuccessTimeout);
@@ -315,14 +322,14 @@ export class Header {
             .style("fill", foreground);
 
         this.container
-            .selectAll<HTMLDivElement, unknown>("div.look-ahead-control-wrapper, div.float-threshold-wrapper")
+            .selectAll<HTMLDivElement, unknown>("div.look-ahead-control-wrapper, div.look-ahead-option-list, div.float-threshold-wrapper")
             .style("background-color", background)
             .style("border", `1.5px solid ${border}`)
             .style("box-shadow", "none")
             .style("color", foreground);
 
         this.container
-            .selectAll<HTMLSelectElement | HTMLInputElement, unknown>("div.look-ahead-control-wrapper select, div.float-threshold-wrapper input, div.action-overflow-menu select, div.action-overflow-menu input")
+            .selectAll<HTMLElement, unknown>("div.look-ahead-control-wrapper button, div.float-threshold-wrapper input, div.action-overflow-menu button.look-ahead-option-button, div.action-overflow-menu input")
             .style("color", foreground)
             .style("background-color", inputBackground)
             .style("border", `1.5px solid ${border}`);
@@ -1888,11 +1895,87 @@ export class Header {
         }
     }
 
+    private attachLookAheadOutsideClickHandler(): void {
+        if (this.lookAheadDocumentPointerDownHandler) {
+            return;
+        }
+
+        this.lookAheadDocumentPointerDownHandler = (event: PointerEvent) => {
+            const target = event.target as Node | null;
+            const wrapperNode = this.container.select<HTMLDivElement>("div.look-ahead-control-wrapper").node();
+
+            if (!target || wrapperNode?.contains(target)) {
+                return;
+            }
+
+            this.closeLookAheadDropdown(false);
+        };
+
+        document.addEventListener("pointerdown", this.lookAheadDocumentPointerDownHandler, true);
+    }
+
+    private detachLookAheadOutsideClickHandler(): void {
+        if (!this.lookAheadDocumentPointerDownHandler) {
+            return;
+        }
+
+        document.removeEventListener("pointerdown", this.lookAheadDocumentPointerDownHandler, true);
+        this.lookAheadDocumentPointerDownHandler = null;
+    }
+
+    private closeLookAheadDropdown(returnFocus: boolean = false): void {
+        this.lookAheadDropdownOpen = false;
+        this.detachLookAheadOutsideClickHandler();
+
+        this.container.select<HTMLDivElement>("div.look-ahead-option-list")
+            .style("display", "none");
+
+        const button = this.container.select<HTMLButtonElement>("button.look-ahead-control-button")
+            .attr("aria-expanded", "false");
+
+        if (returnFocus) {
+            button.node()?.focus();
+        }
+    }
+
+    private openLookAheadDropdown(options: Array<{ value: number; label: string }>, activeDays: number): void {
+        this.closeControlsMenu(false);
+        this.lookAheadDropdownOpen = true;
+        const activeIndex = options.findIndex(option => option.value === activeDays);
+        this.lookAheadDropdownActiveIndex = activeIndex >= 0 ? activeIndex : 0;
+        this.attachLookAheadOutsideClickHandler();
+        this.createLookAheadControl();
+        window.setTimeout(() => this.focusLookAheadOption(this.lookAheadDropdownActiveIndex), 0);
+    }
+
+    private focusLookAheadOption(index: number): void {
+        const optionButtons = Array.from(
+            this.container
+                .select<HTMLDivElement>("div.look-ahead-option-list")
+                .node()
+                ?.querySelectorAll<HTMLButtonElement>("button.look-ahead-option-button") ?? []
+        );
+
+        if (optionButtons.length === 0) {
+            return;
+        }
+
+        const nextIndex = (index + optionButtons.length) % optionButtons.length;
+        this.lookAheadDropdownActiveIndex = nextIndex;
+        optionButtons[nextIndex]?.focus();
+    }
+
+    private selectLookAheadWindow(days: number): void {
+        this.closeLookAheadDropdown(true);
+        this.callbacks.onLookAheadWindowChanged(Number.isFinite(days) ? days : 0);
+    }
+
     private createLookAheadControl(): void {
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const { x: controlX, width: controlWidth, visible } = layout.lookAhead;
 
         if (!visible) {
+            this.closeLookAheadDropdown(false);
             this.hideControl("look-ahead-control-wrapper");
             return;
         }
@@ -1910,9 +1993,14 @@ export class Header {
         const backgroundColor = isActive ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
         const labelColor = isActive ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
         const isCompact = controlWidth < 76;
-        const selectWidth = isCompact ? Math.max(42, controlWidth - 10) : Math.max(46, controlWidth - 33);
+        const valueWidth = isCompact ? Math.max(42, controlWidth - 10) : Math.max(46, controlWidth - 33);
 
         const options = getLookAheadOptions(activeDays);
+        const selectedOption = options.find(option => option.value === activeDays) ?? options[0];
+
+        if (!isAvailable && this.lookAheadDropdownOpen) {
+            this.closeLookAheadDropdown(false);
+        }
 
         const wrapper = this.upsertDiv("look-ahead-control-wrapper")
             .attr("role", "group")
@@ -1932,7 +2020,8 @@ export class Header {
             .style("border", `1px solid ${borderColor}`)
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("opacity", isAvailable ? "1" : "0.5")
-            .style("box-shadow", isActive ? HEADER_DOCK_TOKENS.shadow : "none");
+            .style("box-shadow", isActive ? HEADER_DOCK_TOKENS.shadow : "none")
+            .style("z-index", this.lookAheadDropdownOpen ? "85" : "45");
 
         if (!isCompact) {
             wrapper.append("span")
@@ -1945,33 +2034,68 @@ export class Header {
                 .text("LA");
         }
 
-        const selectEl = wrapper.append("select")
+        const button = wrapper.append("button")
+            .attr("id", `${this.lookAheadListboxId}-button`)
+            .attr("class", "look-ahead-control-button")
+            .attr("type", "button")
             .attr("aria-label", "Look-ahead window")
+            .attr("aria-haspopup", "listbox")
+            .attr("aria-expanded", String(this.lookAheadDropdownOpen && isAvailable))
+            .attr("aria-controls", this.lookAheadListboxId)
             .attr("title", title)
             .property("disabled", !isAvailable)
-            .style("width", `${selectWidth}px`)
+            .style("width", `${valueWidth}px`)
             .style("height", "22px")
             .style("min-width", "0")
-            .style("border", "none")
+            .style("border", `1px solid ${isActive ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.inputStroke}`)
             .style("outline", "none")
             .style("border-radius", "4px")
-            .style("padding", isCompact ? "0 14px 0 2px" : "0 16px 0 3px")
-            .style("appearance", "none")
-            .style("-webkit-appearance", "none")
+            .style("padding", isCompact ? "0 13px 0 3px" : "0 15px 0 4px")
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("line-height", "1")
-            .style("text-align-last", "left")
+            .style("text-align", "left")
             .style("color", HEADER_DOCK_TOKENS.buttonText)
             .style("background-color", isActive ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.inputBg)
             .style("cursor", isAvailable ? "pointer" : "not-allowed")
-            .on("click", event => event.stopPropagation())
-            .on("change", (event) => {
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("justify-content", "flex-start")
+            .style("box-sizing", "border-box")
+            .on("click", (event) => {
                 event.stopPropagation();
-                const value = parseInt((event.target as HTMLSelectElement).value, 10);
-                this.callbacks.onLookAheadWindowChanged(Number.isFinite(value) ? value : 0);
+                if (!isAvailable) {
+                    return;
+                }
+
+                if (this.lookAheadDropdownOpen) {
+                    this.closeLookAheadDropdown(false);
+                } else {
+                    this.openLookAheadDropdown(options, activeDays);
+                }
+            })
+            .on("keydown", (event: KeyboardEvent) => {
+                if (!isAvailable) {
+                    return;
+                }
+
+                if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.openLookAheadDropdown(options, activeDays);
+                } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.closeLookAheadDropdown(false);
+                }
             });
+
+        button.append("span")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
+            .style("white-space", "nowrap")
+            .text(selectedOption?.label ?? "Off");
 
         wrapper.append("span")
             .attr("aria-hidden", "true")
@@ -1986,18 +2110,103 @@ export class Header {
             .style("border-top", `5px solid ${isAvailable ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted}`)
             .style("pointer-events", "none");
 
-        selectEl.selectAll("option")
-            .data(options)
-            .enter()
-            .append("option")
-            .attr("value", option => String(option.value))
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
-            .style("font-weight", UI_TOKENS.fontWeight.semibold)
-            .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
-            .text(option => option.label);
+        const list = wrapper.append("div")
+            .attr("id", this.lookAheadListboxId)
+            .attr("class", "look-ahead-option-list")
+            .attr("role", "listbox")
+            .attr("aria-label", "Look-ahead window options")
+            .attr("aria-labelledby", `${this.lookAheadListboxId}-button`)
+            .style("position", "absolute")
+            .style("right", isCompact ? "4px" : "5px")
+            .style("top", `${controlHeight + 3}px`)
+            .style("width", `${valueWidth}px`)
+            .style("max-height", `${Math.min(LOOK_AHEAD_OPTION_ROW_HEIGHT * options.length, 168)}px`)
+            .style("overflow-y", "auto")
+            .style("box-sizing", "border-box")
+            .style("padding", "2px")
+            .style("display", this.lookAheadDropdownOpen && isAvailable ? "flex" : "none")
+            .style("flex-direction", "column")
+            .style("gap", "1px")
+            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
+            .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
+            .style("border-radius", `${UI_TOKENS.radius.small}px`)
+            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("z-index", "90");
 
-        selectEl.property("value", String(activeDays));
+        options.forEach((option, index) => {
+            const selected = option.value === activeDays;
+            const optionId = `${this.lookAheadListboxId}-option-${option.value}`;
+            const selectedFill = selected ? HEADER_DOCK_TOKENS.primaryBg : "transparent";
+
+            list.append("button")
+                .attr("id", optionId)
+                .attr("class", "look-ahead-option-button")
+                .attr("type", "button")
+                .attr("role", "option")
+                .attr("aria-selected", String(selected))
+                .style("height", `${LOOK_AHEAD_OPTION_ROW_HEIGHT}px`)
+                .style("min-height", `${LOOK_AHEAD_OPTION_ROW_HEIGHT}px`)
+                .style("width", "100%")
+                .style("padding", "0 4px")
+                .style("border", `1px solid ${selected ? HEADER_DOCK_TOKENS.primary : "transparent"}`)
+                .style("border-radius", "3px")
+                .style("box-sizing", "border-box")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
+                .style("font-weight", UI_TOKENS.fontWeight.semibold)
+                .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
+                .style("text-align", "left")
+                .style("color", HEADER_DOCK_TOKENS.buttonText)
+                .style("background-color", selectedFill)
+                .style("cursor", "pointer")
+                .on("mouseover", function () {
+                    select(this).style("background-color", selected ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonHoverBg);
+                })
+                .on("mouseout", function () {
+                    select(this).style("background-color", selectedFill);
+                })
+                .on("focus", () => {
+                    this.lookAheadDropdownActiveIndex = index;
+                })
+                .on("click", (event) => {
+                    event.stopPropagation();
+                    this.selectLookAheadWindow(option.value);
+                })
+                .on("keydown", (event: KeyboardEvent) => {
+                    if (event.key === "Escape") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.closeLookAheadDropdown(true);
+                    } else if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.focusLookAheadOption(index + 1);
+                    } else if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.focusLookAheadOption(index - 1);
+                    } else if (event.key === "Home") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.focusLookAheadOption(0);
+                    } else if (event.key === "End") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.focusLookAheadOption(options.length - 1);
+                    } else if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.selectLookAheadWindow(option.value);
+                    }
+                })
+                .text(option.label);
+        });
+
+        if (this.lookAheadDropdownOpen && isAvailable) {
+            button.attr("aria-activedescendant", `${this.lookAheadListboxId}-option-${options[this.lookAheadDropdownActiveIndex]?.value ?? activeDays}`);
+        } else {
+            button.attr("aria-activedescendant", null);
+        }
     }
 
     private createColumnDisplayToggleButton(): void {
@@ -2614,7 +2823,7 @@ export class Header {
         }
 
         return Array.from(menuNode.querySelectorAll<HTMLElement>(
-            "button:not([disabled]), select:not([disabled]), input:not([disabled])"
+            "button:not([disabled]), input:not([disabled])"
         )).filter(item => item.getAttribute("aria-hidden") !== "true");
     }
 
@@ -2626,7 +2835,7 @@ export class Header {
         }
 
         const tagName = (event.target as HTMLElement | null)?.tagName?.toLowerCase();
-        if (tagName === "select" || tagName === "input" || tagName === "textarea") {
+        if (tagName === "input" || tagName === "textarea") {
             return;
         }
 
@@ -2791,7 +3000,7 @@ export class Header {
                 status: state.lookAheadWindowDays > 0 ? `${state.lookAheadWindowDays}d ${state.lookAheadDisplayMode}` : "Off",
                 title: state.lookAheadAvailable ? "Choose the look-ahead window from the Data Date." : "Look-ahead requires a Data Date.",
                 disabled: !state.lookAheadAvailable,
-                kind: "select"
+                kind: "options"
             },
             floatThreshold: {
                 id: "floatThreshold",
@@ -2955,7 +3164,7 @@ export class Header {
         sectionEl: Selection<HTMLDivElement, unknown, null, undefined>,
         item: HeaderMenuItem
     ): void {
-        if (item.kind === "select") {
+        if (item.kind === "options") {
             this.renderLookAheadMenuItem(sectionEl, item);
             return;
         }
@@ -3024,59 +3233,126 @@ export class Header {
         item: HeaderMenuItem
     ): void {
         const activeDays = Math.max(0, Math.round(this.currentState.lookAheadWindowDays || 0));
+        const options = getLookAheadOptions(activeDays);
         const row = sectionEl.append("div")
             .attr("class", "action-overflow-menu-item action-overflow-menu-field")
             .attr("title", item.title ?? item.label)
-            .style("min-height", "32px")
-            .style("padding", "0 8px")
+            .style("min-height", "58px")
+            .style("padding", "6px 8px")
             .style("border-radius", `${UI_TOKENS.radius.small}px`)
-            .style("display", "grid")
-            .style("grid-template-columns", "1fr 88px")
+            .style("display", "flex")
+            .style("flex-direction", "column")
+            .style("align-items", "stretch")
+            .style("gap", "6px");
+
+        const headerLine = row.append("div")
+            .style("display", "flex")
             .style("align-items", "center")
+            .style("justify-content", "space-between")
             .style("gap", "8px");
 
-        row.append("span")
+        headerLine.append("span")
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "12px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
             .text(item.label);
 
-        const selectEl = row.append("select")
+        headerLine.append("span")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "11px")
+            .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.warningText)
+            .style("white-space", "nowrap")
+            .text(item.status ?? "Off");
+
+        const optionGrid = row.append("div")
+            .attr("role", "group")
             .attr("aria-label", "Look-ahead window")
-            .property("disabled", !!item.disabled)
-            .style("height", "24px")
-            .style("min-width", "0")
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
-            .style("border-radius", "4px")
-            .style("padding", "0 4px")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
-            .style("font-weight", UI_TOKENS.fontWeight.semibold)
-            .style("line-height", "1")
-            .style("text-align-last", "left")
-            .style("color", HEADER_DOCK_TOKENS.buttonText)
-            .style("background-color", HEADER_DOCK_TOKENS.inputBg)
-            .style("cursor", item.disabled ? "not-allowed" : "pointer")
-            .on("change", (event) => {
-                event.stopPropagation();
-                const value = parseInt((event.target as HTMLSelectElement).value, 10);
-                this.closeControlsMenu(true);
-                this.callbacks.onLookAheadWindowChanged(Number.isFinite(value) ? value : 0);
-            });
+            .style("display", "grid")
+            .style("grid-template-columns", "repeat(4, minmax(0, 1fr))")
+            .style("gap", "4px");
 
-        selectEl.selectAll("option")
-            .data(getLookAheadOptions(activeDays))
-            .enter()
-            .append("option")
-            .attr("value", option => String(option.value))
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
-            .style("font-weight", UI_TOKENS.fontWeight.semibold)
-            .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
-            .text(option => option.label);
+        options.forEach(option => {
+            const selected = option.value === activeDays;
+            const selectedFill = selected ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.inputBg;
+            const nextValue = Number.isFinite(option.value) ? option.value : 0;
 
-        selectEl.property("value", String(activeDays));
+            optionGrid.append("button")
+                .attr("class", "look-ahead-option-button")
+                .attr("type", "button")
+                .attr("aria-pressed", String(selected))
+                .attr("title", `${item.label}: ${option.label}`)
+                .property("disabled", !!item.disabled)
+                .style("height", "24px")
+                .style("min-width", "0")
+                .style("padding", "0 3px")
+                .style("border", `1px solid ${selected ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.inputStroke}`)
+                .style("border-radius", "4px")
+                .style("box-sizing", "border-box")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
+                .style("font-weight", UI_TOKENS.fontWeight.semibold)
+                .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
+                .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
+                .style("background-color", item.disabled ? HEADER_DOCK_TOKENS.buttonBg : selectedFill)
+                .style("cursor", item.disabled ? "not-allowed" : "pointer")
+                .on("mouseover", function () {
+                    if (!item.disabled && !selected) {
+                        select(this).style("background-color", HEADER_DOCK_TOKENS.buttonHoverBg);
+                    }
+                })
+                .on("mouseout", function () {
+                    select(this).style("background-color", item.disabled ? HEADER_DOCK_TOKENS.buttonBg : selectedFill);
+                })
+                .on("click", (event) => {
+                    event.stopPropagation();
+                    if (item.disabled) {
+                        return;
+                    }
+
+                    this.closeControlsMenu(true);
+                    if (nextValue !== activeDays) {
+                        this.callbacks.onLookAheadWindowChanged(nextValue);
+                    }
+                })
+                .on("keydown", (event: KeyboardEvent) => {
+                    if (item.disabled) {
+                        return;
+                    }
+
+                    const buttons = Array.from(
+                        optionGrid.node()?.querySelectorAll<HTMLButtonElement>("button.look-ahead-option-button") ?? []
+                    );
+                    const currentIndex = buttons.indexOf(event.currentTarget as HTMLButtonElement);
+                    const focusButton = (index: number) => {
+                        if (buttons.length === 0) {
+                            return;
+                        }
+
+                        buttons[(index + buttons.length) % buttons.length]?.focus();
+                    };
+
+                    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        focusButton(currentIndex + 1);
+                    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        focusButton(currentIndex - 1);
+                    } else if (event.key === "Home") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        focusButton(0);
+                    } else if (event.key === "End") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        focusButton(buttons.length - 1);
+                    }
+                })
+                .text(option.label);
+        });
     }
 
     private renderFloatThresholdMenuItem(

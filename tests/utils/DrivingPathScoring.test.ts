@@ -41,7 +41,7 @@ function buildTask(internalId: string, startDay: number, finishDay: number): Tes
 function relationship(
     predecessorId: string,
     successorId: string,
-    type: "FS" | "SS" | "FF" | "SF",
+    type: string,
     lag?: number
 ): TestRelationship {
     return {
@@ -186,6 +186,26 @@ describe("DrivingPathScoring", () => {
             [
                 relationship("A", "B", "SS"),
                 relationship("B", "C", "FS")
+            ],
+            ["C"]
+        );
+
+        expect(result.expanded.paths).toHaveLength(1);
+        expect(result.expanded.paths[0].taskIds).toEqual(["A", "B", "C"]);
+        expect(result.expanded.paths[0].spanDays).toBe(14);
+    });
+
+    it("normalises P6 relationship type prefixes before elapsed event scoring", () => {
+        const tasks = [
+            buildTask("A", 0, 8),
+            buildTask("B", 2, 13),
+            buildTask("C", 13, 14)
+        ];
+        const result = computePaths(
+            tasks,
+            [
+                relationship("A", "B", "PR_SS"),
+                relationship("B", "C", "PR_FS")
             ],
             ["C"]
         );

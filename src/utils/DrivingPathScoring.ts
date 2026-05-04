@@ -1,3 +1,5 @@
+import { normalizeRelationshipType, type RelationshipType } from "./RelationshipLogic";
+
 const DAY_IN_MS = 86400000;
 
 export type ScheduleEventKind = "start" | "finish";
@@ -440,22 +442,9 @@ function getTaskEventTime(
     return Number.isFinite(time) ? time : null;
 }
 
-function normalizeRelationshipType(value: string | null | undefined): "FS" | "SS" | "FF" | "SF" {
-    switch ((value ?? "FS").toUpperCase()) {
-        case "SS":
-            return "SS";
-        case "FF":
-            return "FF";
-        case "SF":
-            return "SF";
-        default:
-            return "FS";
-    }
-}
-
 function createRelationshipEdgeId(
     relationship: ScheduleRelationshipLike,
-    relationshipType: "FS" | "SS" | "FF" | "SF"
+    relationshipType: RelationshipType
 ): string {
     return `${relationship.predecessorId}|${relationship.successorId}|${relationshipType}|${relationship.lag ?? ""}`;
 }

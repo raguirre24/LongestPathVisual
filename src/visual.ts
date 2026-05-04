@@ -36,6 +36,7 @@ import {
     getTiedLatestFinishTaskIds,
     selectBestSinkNodeIds
 } from "./utils/DrivingPathScoring";
+import { markMinimumFloatDrivingRelationships } from "./utils/RelationshipLogic";
 import {
     getExportFloatText,
     getExportTaskType,
@@ -10519,24 +10520,10 @@ export class Visual implements IVisual {
         }
 
         // Use the pre-built relationshipIndex (successorId -> Relationship[]) instead of
-        // rebuilding a successor map from scratch on every call — O(1) lookup vs O(R) rebuild
+        // rebuilding a successor map from scratch on every call.
         let drivingCount = 0;
-        for (const [successorId, rels] of this.relationshipIndex) {
-            let minFloat = Infinity;
-            for (const rel of rels) {
-                const relFloat = rel.relationshipFloat ?? Infinity;
-                if (relFloat < minFloat) {
-                    minFloat = relFloat;
-                }
-            }
-
-            for (const rel of rels) {
-                const relFloat = rel.relationshipFloat ?? Infinity;
-                if (Math.abs(relFloat - minFloat) <= this.floatTolerance) {
-                    rel.isDriving = true;
-                    drivingCount++;
-                }
-            }
+        for (const [, rels] of this.relationshipIndex) {
+            drivingCount += markMinimumFloatDrivingRelationships(rels, this.floatTolerance);
         }
 
         this.debugLog(

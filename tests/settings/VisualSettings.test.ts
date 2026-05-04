@@ -60,11 +60,21 @@ describe("VisualSettings", () => {
 
     it("keeps look-ahead selector and option text compact", () => {
         const headerSource = readFileSync("src/components/Header.ts", "utf8");
+        const styleSource = readFileSync("style/visual.less", "utf8");
 
         expect(headerSource).toContain("const LOOK_AHEAD_SELECT_FONT_SIZE = `${UI_TOKENS.fontSize.sm}px`;");
-        expect(headerSource.match(/\.style\("font-size", LOOK_AHEAD_SELECT_FONT_SIZE\)/g)?.length).toBeGreaterThanOrEqual(4);
-        expect(headerSource.match(/\.style\("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT\)/g)?.length).toBe(2);
-        expect(headerSource.match(/\.style\("text-align-last", "left"\)/g)?.length).toBeGreaterThanOrEqual(2);
+        expect(headerSource).toContain("const LOOK_AHEAD_OPTION_ROW_HEIGHT = 22;");
+        expect(headerSource).toContain('"look-ahead-control-button"');
+        expect(headerSource).toContain('"look-ahead-option-list"');
+        expect(headerSource).toContain('.attr("role", "listbox")');
+        expect(headerSource).toContain('.attr("role", "option")');
+        expect(headerSource.match(/look-ahead-option-button/g)?.length).toBeGreaterThanOrEqual(3);
+        expect(headerSource).toContain('"repeat(4, minmax(0, 1fr))"');
+        expect(headerSource).not.toContain('append("select")');
+        expect(headerSource).not.toContain('text-align-last');
+        expect(styleSource).toContain(".look-ahead-option-list");
+        expect(styleSource).toContain("&::-webkit-scrollbar");
+        expect(styleSource).toContain("width: 5px;");
     });
 
     it("keeps crowded header controls available through the responsive controls menu", () => {
@@ -114,7 +124,7 @@ describe("VisualSettings", () => {
     });
 
     it("keeps task and WBS wrapped label rows anchored consistently", () => {
-        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const visualSource = readFileSync("src/visual.ts", "utf8").replace(/\r\n/g, "\n");
 
         expect(visualSource).toContain('anchorMode: "centerBlock" | "firstLineAtCenter" = "firstLineAtCenter"');
         expect(visualSource).toContain("const wbsRowBandHeight = taskHeight + taskPadding;");

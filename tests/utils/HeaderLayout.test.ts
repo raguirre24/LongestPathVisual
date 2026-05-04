@@ -53,6 +53,13 @@ describe("HeaderLayout", () => {
         expect(layout.actionOverflowButton.hiddenActions).not.toContain("lookAhead");
     });
 
+    it("keeps inline look-ahead sized like a compact header control", () => {
+        expect(layoutAt(850, { lookAheadActive: true }).lookAhead.width).toBe(88);
+        expect(layoutAt(650, { lookAheadActive: true }).lookAhead.width).toBe(82);
+        expect(layoutAt(500, { lookAheadActive: true }).lookAhead.width).toBe(74);
+        expect(layoutAt(480, { lookAheadActive: true }).lookAhead.width).toBe(66);
+    });
+
     it("moves timeline, WBS, and action controls into the menu before core controls", () => {
         const layout = layoutAt(650);
 

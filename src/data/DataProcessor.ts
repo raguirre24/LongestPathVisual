@@ -1,6 +1,7 @@
 
 import { Task, WBSGroup, Relationship, BoundFieldState, DataQualityInfo } from "./Interfaces";
 import { VisualSettings } from "../settings";
+import { normalizeRelationshipType } from "../utils/RelationshipLogic";
 import { normalizeLegendCategory } from "../utils/VisualState";
 import powerbi from "powerbi-visuals-api";
 import DataView = powerbi.DataView;
@@ -278,14 +279,11 @@ export class DataProcessor {
 
                     allPredecessorIds.add(predId);
 
-                    const relTypeRaw =
+                    const relType = normalizeRelationshipType(
                         relTypeIdx !== -1 && row[relTypeIdx] != null
-                            ? String(row[relTypeIdx]).trim().toUpperCase()
-                            : "FS";
-                    const validRelTypes = ["FS", "SS", "FF", "SF"];
-                    const relType = validRelTypes.includes(relTypeRaw)
-                        ? relTypeRaw
-                        : "FS";
+                            ? String(row[relTypeIdx])
+                            : null
+                    );
 
                     let relLag: number | null = null;
                     if (relLagIdx !== -1 && row[relLagIdx] != null) {
