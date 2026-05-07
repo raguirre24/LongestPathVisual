@@ -24,8 +24,8 @@ import { jsPDF } from "jspdf";
 
 import { VisualSettings } from "./settings";
 import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
-import { DataProcessor, ProcessedData } from "./data/DataProcessor";
-import { Header, HeaderCallbacks, HeaderPalette, HeaderState } from "./components/Header";
+import { DataProcessor } from "./data/DataProcessor";
+import { Header, HeaderPalette, HeaderState } from "./components/Header";
 import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState, DataQualityInfo } from "./data/Interfaces";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "./utils/Theme";
 import {
@@ -36,7 +36,7 @@ import {
     getTiedLatestFinishTaskIds,
     selectBestSinkNodeIds
 } from "./utils/DrivingPathScoring";
-import { markMinimumFloatDrivingRelationships } from "./utils/RelationshipLogic";
+import { getRelationshipIdentityKey, markMinimumFloatDrivingRelationships } from "./utils/RelationshipLogic";
 import {
     getExportFloatText,
     getExportTaskType,
@@ -144,7 +144,6 @@ export class Visual implements IVisual {
     private downloadService: IDownloadService | null = null;
     private isExporting: boolean = false;
     private forceSvgRenderingForExport: boolean = false;
-    private exportButtonGroup: Selection<SVGGElement, unknown, null, undefined> | null = null;
     private allowInteractions: boolean = true;
     private highContrastMode: boolean = false;
     private highContrastForeground: string = "#000000";
@@ -185,15 +184,11 @@ export class Visual implements IVisual {
     private loadingText: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingRowsText: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingProgressText: Selection<HTMLDivElement, unknown, null, undefined>;
-    private isLoadingVisible: boolean = false;
     private loadingStartTime: number | null = null;
 
     private allTasksData: Task[] = [];
     private relationships: Relationship[] = [];
     private taskIdToTask: Map<string, Task> = new Map();
-    private taskIdQueryName: string | null = null;
-    private taskIdTable: string | null = null;
-    private taskIdColumn: string | null = null;
     private lastUpdateOptions: VisualUpdateOptions | null = null;
     private dataQuality: DataQualityInfo;
 
@@ -236,7 +231,6 @@ export class Visual implements IVisual {
     private defaultMaxTasks = 500;
     private labelPaddingLeft = 10;
     private dateBackgroundPadding = { horizontal: 6, vertical: 3 };
-    private taskLabelLineHeight = "1.1em";
     private minTaskWidthPixels = 1;
     private monthYearFormatter: Intl.DateTimeFormat;
     private lineDateFormatter: Intl.DateTimeFormat;
@@ -253,7 +247,6 @@ export class Visual implements IVisual {
     private hoveredTaskId: string | null = null;
     private lastDataSignature: string | null = null;
     private cachedSortedTasksSignature: string | null = null;
-    private cachedTasksSortedByStartDate: Task[] = [];
     private cachedPlottableTasksSorted: Task[] = [];
     private dropdownNeedsRefresh: boolean = true;
     private dropdownContainer: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -323,13 +316,11 @@ export class Visual implements IVisual {
     private legendFieldName: string = "";
     private legendContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private selectedLegendCategories: Set<string> = new Set();
-    private legendSelectionIds: Map<string, powerbi.visuals.ISelectionId> = new Map();
     private legendScrollPosition: number = 0;
     private lastLegendRenderSignature: string | null = null;
 
     private wbsDataExists: boolean = false;
     private wbsDataExistsInMetadata: boolean = false;
-    private wbsLevelColumnIndices: number[] = [];
     private wbsLevelColumnNames: string[] = [];
     private lastWbsBindingSignature: string = "";
     private rememberedWbsGroupingEnabled: boolean | null = null;
@@ -346,7 +337,6 @@ export class Visual implements IVisual {
     private wbsHeaderContextMenu: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
     private lastExpandCollapseAllState: boolean | null = null;
 
-    private tooltipDebugLogged: boolean = false;
     private landingPageContainer: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
 
     // Help overlay state
@@ -361,9 +351,7 @@ export class Visual implements IVisual {
 
     private allDrivingChains: DrivingChain[] = [];
     private selectedPathIndex: number = 0;
-    private drivingPathsTruncated: boolean = false;
     private drivingPathsTruncationMessage: string | null = null;
-    private drivingPathExpansionCount: number = 0;
 
     private readonly VIEWPORT_CHANGE_THRESHOLD = 0.01;
     private forceFullUpdate: boolean = false;
@@ -378,7 +366,6 @@ export class Visual implements IVisual {
     private isViewportTransitioning: boolean = false;
     private viewportResizeCooldownUntil: number = 0;
     private isMarginDragging: boolean = false;
-    private dragStartChartWidth: number = 0;
     private scrollHandlerBackup: (() => void) | null = null;
 
     private updateDebounceTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -696,10 +683,6 @@ export class Visual implements IVisual {
             .attr("y", -50)
             .attr("width", Math.max(0, layout.remainingWidth))
             .attr("height", chartHeight + 100);
-    }
-
-    private getTaskNameLaneClipRef(): string {
-        return this.getScopedUrlRef("clip-task-name-lane");
     }
 
     private fitSvgTextToWidth(
@@ -1793,9 +1776,7 @@ export class Visual implements IVisual {
     private clearCriticalPathState(): void {
         this.allDrivingChains = [];
         this.selectedPathIndex = 0;
-        this.drivingPathsTruncated = false;
         this.drivingPathsTruncationMessage = null;
-        this.drivingPathExpansionCount = 0;
         for (const task of this.allTasksData) {
             task.isCritical = false;
             task.isCriticalByFloat = false;
@@ -1831,12 +1812,6 @@ export class Visual implements IVisual {
         }
         if (this.dataQuality.invalidRawDateRangeTaskIds.length > 0) {
             reasons.push("invalid start/finish date ranges found");
-        }
-        if (this.dataQuality.duplicateTaskIds.length > 0) {
-            reasons.push("duplicate task IDs found");
-        }
-        if (this.dataQuality.conflictingTaskRows.length > 0) {
-            reasons.push("conflicting duplicate activity rows found");
         }
         if (reasons.length === 0) {
             return "Longest Path unavailable: cyclic, truncated, or invalid schedule data.";
@@ -1890,7 +1865,6 @@ export class Visual implements IVisual {
                 return aStart - bStart;
             });
 
-        this.cachedTasksSortedByStartDate = sortedByStartDate;
         this.cachedPlottableTasksSorted = sortedByStartDate.filter(task => this.hasValidPlotDates(task));
         this.cachedSortedTasksSignature = signature;
     }
@@ -3392,11 +3366,6 @@ export class Visual implements IVisual {
 
             this.redrawVisibleTasks();
 
-            const viewportWidth = this.lastUpdateOptions?.viewport?.width
-                || (this.target instanceof HTMLElement ? this.target.clientWidth : undefined)
-                || 800;
-
-
             this.debugLog("Connector lines toggled and persisted");
         } catch (error) {
             console.error("Error in connector toggle method:", error);
@@ -3797,39 +3766,6 @@ export class Visual implements IVisual {
     }
 
     /**
-     * Handle cases where export is not allowed
-     */
-    private handleExportNotAllowed(status: PrivilegeStatus): void {
-        let message: string;
-        let userMessage: string;
-
-        switch (status) {
-            case PrivilegeStatus.DisabledByAdmin:
-                message = 'Export is disabled by your administrator.';
-                userMessage = 'PDF Export is disabled by your Power BI administrator.\n\n' +
-                    'To enable this feature, your admin needs to allow "Export data" in the tenant settings.';
-                break;
-            case PrivilegeStatus.NotDeclared:
-                message = 'Export capability not configured.';
-                userMessage = 'PDF Export is not properly configured. Please reload the visual.';
-                break;
-            case PrivilegeStatus.NotSupported:
-                message = 'Export is not supported in this environment.';
-                userMessage = 'PDF Export is not supported in this environment.\n\n' +
-                    'Try using Power BI Service (app.powerbi.com) instead of Desktop development mode.';
-                break;
-            default:
-                message = 'Export is currently unavailable.';
-                userMessage = 'PDF Export is currently unavailable. Please try again later.';
-        }
-
-        console.warn('Export not allowed:', message);
-        this.showToast(userMessage.replace(/\n/g, ' '), 5000);
-        this.isExporting = false;
-        this.updateExportButtonState(false);
-    }
-
-    /**
      * Generates PDF content by compositing all visual layers onto a single canvas
      * @returns Base64 encoded PDF content
      */
@@ -3967,13 +3903,11 @@ export class Visual implements IVisual {
             this.loadingOverlay.style("display", "flex");
             this.mainSvg?.style("visibility", "hidden");
             this.canvasLayer?.style("visibility", "hidden");
-            this.isLoadingVisible = true;
         } else {
             this.loadingStartTime = null;
             this.loadingOverlay.style("display", "none");
             this.mainSvg?.style("visibility", "visible");
             this.canvasLayer?.style("visibility", "visible");
-            this.isLoadingVisible = false;
         }
     }
 
@@ -4181,7 +4115,6 @@ export class Visual implements IVisual {
 
             this.setLoadingOverlayVisible(false);
 
-            this.wbsLevelColumnIndices = [];
             this.wbsLevelColumnNames = [];
             this.wbsDataExistsInMetadata = this.dataProcessor.hasDataRole(dataView, 'wbsLevels');
             const wbsBindingSignature = this.getWbsBindingSignature(dataView);
@@ -4198,7 +4131,6 @@ export class Visual implements IVisual {
 
             if (this.wbsDataExistsInMetadata) {
                 const layout = this.dataProcessor.getRoleColumnLayout(dataView, 'wbsLevels');
-                this.wbsLevelColumnIndices = layout.indices;
                 this.wbsLevelColumnNames = layout.names;
             }
 
@@ -4344,9 +4276,6 @@ export class Visual implements IVisual {
                 this.isInitialLoad = false;
             }
 
-            const criticalColor = this.settings.criticalPath.criticalPathColor.value.value;
-            const connectorColor = this.settings.connectorLines.connectorColor.value.value;
-
             this.margin.left = this.settings.layoutSettings.leftMargin.value;
             this.margin.right = this.settings.layoutSettings.rightMargin.value;
 
@@ -4398,10 +4327,6 @@ export class Visual implements IVisual {
                 this.wbsGroupMap = processedData.wbsGroupMap;
                 this.wbsRootGroups = processedData.wbsRootGroups;
                 this.wbsAvailableLevels = processedData.wbsAvailableLevels;
-                this.taskIdQueryName = processedData.taskIdQueryName;
-                this.taskIdTable = processedData.taskIdTable;
-                this.taskIdColumn = processedData.taskIdColumn;
-                this.wbsLevelColumnIndices = processedData.wbsLevelColumnIndices;
                 this.wbsLevelColumnNames = processedData.wbsLevelColumnNames;
                 this.dataQuality = processedData.dataQuality;
 
@@ -4591,7 +4516,7 @@ export class Visual implements IVisual {
                 this.displayMessage(lookAheadFilterActive
                     ? "No tasks fall within the current look-ahead window."
                     : "No tasks to display after filtering/limiting.");
-                this.renderLegend(viewportWidth, viewportHeight);
+                this.renderLegend(viewportWidth);
                 return;
             }
 
@@ -4600,7 +4525,7 @@ export class Visual implements IVisual {
 
             if (tasksToPlot.length === 0) {
                 this.displayMessage("Selected tasks lack valid Start/Finish dates required for plotting.");
-                this.renderLegend(viewportWidth, viewportHeight);
+                this.renderLegend(viewportWidth);
                 return;
             }
 
@@ -4670,7 +4595,7 @@ export class Visual implements IVisual {
                 } else {
                     this.displayMessage("No tasks to display after filtering.");
                 }
-                this.renderLegend(viewportWidth, viewportHeight);
+                this.renderLegend(viewportWidth);
                 return;
             }
 
@@ -4735,7 +4660,7 @@ export class Visual implements IVisual {
 
             this.drawVisualElements(visibleTasks, this.xScale, this.yScale, chartWidth, calculatedChartHeight, this.getEffectiveLeftMargin());
 
-            this.renderLegend(viewportWidth, viewportHeight);
+            this.renderLegend(viewportWidth);
 
             this.updateHeaderElements(viewportWidth);
 
@@ -5099,7 +5024,6 @@ export class Visual implements IVisual {
         wrapper.selectAll(".margin-resizer").remove();
 
         const resizerWidth = 8;
-        const lineColor = UI_TOKENS.color.neutral.grey60;
 
         this.marginResizer = wrapper.append("div")
             .attr("class", "margin-resizer")
@@ -5233,10 +5157,6 @@ export class Visual implements IVisual {
             self.isMarginDragging = true;
             startX = clientX;
             startMargin = self.margin.left;
-            // Capture chart width at drag start for scaleX ratio during drag
-            const effMargin = self.getEffectiveLeftMargin();
-            const vpW = self.lastViewport?.width || 0;
-            self.dragStartChartWidth = Math.max(10, vpW - effMargin - self.margin.right);
             previousCursor = document.body.style.cursor;
             previousUserSelect = document.body.style.userSelect;
             document.body.style.cursor = "col-resize";
@@ -5381,7 +5301,7 @@ export class Visual implements IVisual {
 
         // Horizontal grid lines + alternating row backgrounds
         if (showHorzGridLines) {
-            this.drawHorizontalGridLines(renderableTasks, this.yScale, chartWidth, effectiveMargin, chartHeight);
+            this.drawHorizontalGridLines(this.yScale, chartWidth, effectiveMargin);
         }
 
         this.drawLookAheadWindow(chartWidth, this.xScale, chartHeight, this.gridLayer, this.headerGridLayer);
@@ -5390,10 +5310,10 @@ export class Visual implements IVisual {
         this.drawgridLines(this.xScale, chartHeight, this.gridLayer, this.headerGridLayer);
 
         // Column headers
-        this.drawColumnHeaders(this.headerHeight, effectiveMargin);
+        this.drawColumnHeaders(effectiveMargin);
 
         // WBS group headers (suppress text collisions to prevent jitter during drag)
-        this.drawWbsGroupHeaders(this.xScale, this.yScale, chartWidth, taskHeight, effectiveMargin, this.viewportStartIndex, this.viewportEndIndex);
+        this.drawWbsGroupHeaders(this.xScale, this.yScale, taskHeight, effectiveMargin, this.viewportStartIndex, this.viewportEndIndex);
 
         // Task bars + milestones
         this.drawTasks(
@@ -5418,15 +5338,11 @@ export class Visual implements IVisual {
         }
 
         // Task labels (live wrapping)
-        const labelAvailableWidth = Math.max(10, effectiveMargin - this.labelPaddingLeft - 5);
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-        const selectionHighlightColor = this.getSelectionColor();
-        const lineHeight = this.taskLabelLineHeight;
 
         this.drawTaskLabelsLayer(
             renderableTasks, this.yScale, taskHeight, effectiveMargin,
-            labelAvailableWidth, taskNameFontSize, labelColor,
-            selectionHighlightColor, selectionHighlightColor, "bold", lineHeight
+            taskNameFontSize, labelColor
         );
 
         // Data date line
@@ -5438,7 +5354,7 @@ export class Visual implements IVisual {
             this.xScale, tasksForProjectEnd, chartHeight, this.gridLayer, this.headerGridLayer
         );
         this.drawProjectEndLine(
-            chartWidth, this.xScale, renderableTasks, tasksForProjectEnd, chartHeight,
+            chartWidth, this.xScale, tasksForProjectEnd, chartHeight,
             this.gridLayer, this.headerGridLayer
         );
         this.reflowHeaderLineLabels(this.headerGridLayer, chartWidth);
@@ -5800,28 +5716,6 @@ export class Visual implements IVisual {
         }
 
         return null;
-    }
-
-    private drawRoundedRectPath(
-        ctx: CanvasRenderingContext2D,
-        x: number,
-        y: number,
-        width: number,
-        height: number,
-        radius: number
-    ): void {
-        const clampedRadius = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
-        ctx.beginPath();
-        ctx.moveTo(x + clampedRadius, y);
-        ctx.lineTo(x + width - clampedRadius, y);
-        ctx.quadraticCurveTo(x + width, y, x + width, y + clampedRadius);
-        ctx.lineTo(x + width, y + height - clampedRadius);
-        ctx.quadraticCurveTo(x + width, y + height, x + width - clampedRadius, y + height);
-        ctx.lineTo(x + clampedRadius, y + height);
-        ctx.quadraticCurveTo(x, y + height, x, y + height - clampedRadius);
-        ctx.lineTo(x, y + clampedRadius);
-        ctx.quadraticCurveTo(x, y, x + clampedRadius, y);
-        ctx.closePath();
     }
 
     private showTaskTooltip(task: Task, event: MouseEvent): void {
@@ -6234,12 +6128,6 @@ export class Visual implements IVisual {
         const currentLeftMargin = this.getEffectiveLeftMargin();
         const chartWidth = xScale.range()[1];
         const chartHeight = yScale.range()[1];
-        const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
-        const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-        const selectionHighlightColor = this.getSelectionColor();
-        const selectionLabelColor = selectionHighlightColor;
-        const selectionLabelWeight = "bold";
-        const lineHeight = this.taskLabelLineHeight;
 
         if (showHorzGridLines) {
             this.clearHorizontalGridLineStrokes();
@@ -6484,12 +6372,7 @@ export class Visual implements IVisual {
 
         this.taskLabelLayer?.attr("clip-path", `url(#${leftClipId})`);
         this.updateTaskNameLaneClipRect(currentLeftMargin, chartHeight);
-        const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
-        const selectionHighlightColor = this.getSelectionColor();
-        const selectionLabelColor = selectionHighlightColor;
-        const selectionLabelWeight = "bold";
-        const lineHeight = this.taskLabelLineHeight;
         const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
         const renderableTasks = tasksToShow.filter(t => t.yOrder !== undefined);
         if (!wbsGroupingEnabled) {
@@ -6512,7 +6395,7 @@ export class Visual implements IVisual {
         }
 
         if (showHorzGridLines) {
-            this.drawHorizontalGridLines(renderableTasks, yScale, chartWidth, currentLeftMargin, chartHeight);
+            this.drawHorizontalGridLines(yScale, chartWidth, currentLeftMargin);
         }
 
         this.drawLookAheadWindow(chartWidth, xScale, chartHeight, this.gridLayer, this.headerGridLayer, !this.useCanvasRendering);
@@ -6523,14 +6406,14 @@ export class Visual implements IVisual {
         }
 
         // --- 2. Draw Column Headers ---
-        this.drawColumnHeaders(this.headerHeight, currentLeftMargin);
+        this.drawColumnHeaders(currentLeftMargin);
 
         // --- 3. Draw WBS Group Headers (bars + text) ---
         // They need to be drawn before tasks to be behind them? Or mixed?
         // Actually WBS group headers are in `wbsGroupLayer` which is usually above regular tasks or interleaved.
         // In this visual, they seem to be treated as rows.
 
-        this.drawWbsGroupHeaders(xScale, yScale, chartWidth, taskHeight, currentLeftMargin, this.viewportStartIndex, this.viewportEndIndex);
+        this.drawWbsGroupHeaders(xScale, yScale, taskHeight, currentLeftMargin, this.viewportStartIndex, this.viewportEndIndex);
 
         // --- 4. Draw Tasks ---
         if (this.useCanvasRendering) {
@@ -6557,13 +6440,8 @@ export class Visual implements IVisual {
                     yScale,
                     taskHeight,
                     currentLeftMargin,
-                    labelAvailableWidth,
                     taskNameFontSize,
-                    labelColor,
-                    selectionHighlightColor,
-                    selectionLabelColor,
-                    selectionLabelWeight,
-                    lineHeight
+                    labelColor
                 );
                 this.createAccessibleCanvasFallback(renderableTasks, yScale);
             } else {
@@ -6592,13 +6470,8 @@ export class Visual implements IVisual {
                 yScale,
                 taskHeight,
                 currentLeftMargin,
-                labelAvailableWidth,
                 taskNameFontSize,
-                labelColor,
-                selectionHighlightColor,
-                selectionLabelColor,
-                selectionLabelWeight,
-                lineHeight
+                labelColor
             );
         }
 
@@ -6620,7 +6493,7 @@ export class Visual implements IVisual {
             this.gridLayer,
             this.headerGridLayer
         );
-        this.drawProjectEndLine(chartWidth, xScale, renderableTasks, tasksForProjectEnd, chartHeight,
+        this.drawProjectEndLine(chartWidth, xScale, tasksForProjectEnd, chartHeight,
             this.gridLayer, this.headerGridLayer);
         this.reflowHeaderLineLabels(this.headerGridLayer, chartWidth);
 
@@ -6694,7 +6567,7 @@ export class Visual implements IVisual {
             .style("bottom", `${Math.round(bottomOffset)}px`);
     }
 
-    private drawHorizontalGridLines(tasks: Task[], yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number, chartHeight: number): void {
+    private drawHorizontalGridLines(yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number): void {
         if (!this.rowGridLayer?.node() || !yScale) { console.warn("Skipping horizontal grid lines: Missing layer or Y scale."); return; }
 
         const settings = this.settings.gridLines;
@@ -6822,7 +6695,6 @@ export class Visual implements IVisual {
         const labelColorSetting = settings.timelineLabelColor.value.value;
         const labelColor = this.resolveColor(labelColorSetting || lineColor, "foreground");
         const headerBandMetrics = this.getHeaderBandMetrics();
-        const headerPalette = this.getHeaderBandPalette();
         const baseFontSize = this.settings.textAndLabels.fontSize.value;
         const labelFontSizeSetting = settings.timelineLabelFontSize.value;
         const labelFontSize = labelFontSizeSetting > 0 ? labelFontSizeSetting : Math.max(8, baseFontSize * 0.8);
@@ -7082,10 +6954,7 @@ export class Visual implements IVisual {
         }
 
         const showTooltips = this.settings.generalSettings.showTooltips.value;
-        const currentLeftMargin = this.settings.layoutSettings.leftMargin.value;
-        const labelAvailableWidth = Math.max(10, currentLeftMargin - this.labelPaddingLeft - 5);
         const generalFontSize = this.settings.textAndLabels.fontSize.value;
-        const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
         const milestoneSizeSetting = this.settings.taskBars.milestoneSize.value;
         const showFinishDates = this.settings.textAndLabels.showFinishDates.value;
 
@@ -7105,7 +6974,6 @@ export class Visual implements IVisual {
                 d.type === 'TT_Mile' ||
                 d.type === 'TT_FinMile';
         };
-        const lineHeight = this.taskLabelLineHeight;
         const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
         const dateBgPaddingV = this.dateBackgroundPadding.vertical;
         const nearCriticalColor = this.resolveColor(this.settings.criticalPath.nearCriticalColor.value.value, "foreground");
@@ -7136,23 +7004,6 @@ export class Visual implements IVisual {
                     return `M 0,-${size / 2} L ${size / 2},0 L 0,${size / 2} L -${size / 2},0 Z`;
             }
         };
-
-        const getTaskBarWidth = (d: Task): number => {
-            const start = this.getVisualStart(d);
-            const finish = this.getVisualFinish(d);
-            if (!(start instanceof Date) || !(finish instanceof Date)) {
-                return this.minTaskWidthPixels;
-            }
-            const startPos = xScale(start);
-            const finishPos = xScale(finish);
-            if (isNaN(startPos) || isNaN(finishPos) || finishPos < startPos) {
-                return this.minTaskWidthPixels;
-            }
-            return Math.max(this.minTaskWidthPixels, finishPos - startPos);
-        };
-
-        const selectionHighlightColor = this.getSelectionColor();
-        const selectionLabelColor = selectionHighlightColor;
 
         const getTaskFillColor = (d: Task, fallbackColor: string): string =>
             this.getSemanticTaskFillColor(d, fallbackColor, criticalColor, nearCriticalColor);
@@ -7471,13 +7322,12 @@ export class Visual implements IVisual {
             allTaskGroups.selectAll(".date-label-group").remove();
 
             const dateTextFontSize = Math.max(7, generalFontSize * (reduceLabelDensity ? 0.75 : 0.85));
-            const dateTextFontSizePx = this.pointsToCssPx(dateTextFontSize);
             const dateTextGroups = allTaskGroups
                 .filter((d: Task) => shouldShowFinishLabel(d))
                 .append("g")
                 .attr("class", "date-label-group");
 
-            const dateTextSelection = dateTextGroups.append("text")
+            dateTextGroups.append("text")
                 .attr("class", "finish-date")
                 .attr("y", this.snapTextCoord(taskHeight / 2))
                 .attr("text-anchor", "start")
@@ -7702,14 +7552,8 @@ export class Visual implements IVisual {
         yScale: ScaleBand<string>,
         taskHeight: number,
         currentLeftMargin: number,
-        labelAvailableWidth: number,
         taskNameFontSize: number,
-        labelColor: string,
-        selectionHighlightColor: string,
-        selectionLabelColor: string,
-        selectionLabelWeight: string,
-
-        lineHeight: string
+        labelColor: string
     ): void {
         if (!this.taskLabelLayer || !yScale) return;
 
@@ -7723,6 +7567,8 @@ export class Visual implements IVisual {
         const wbsIndentPerLevel = wbsGroupingEnabled ? (this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20) : 0;
         const taskNameFontSizePx = this.pointsToCssPx(taskNameFontSize);
         const taskRowBandHeight = taskHeight + (this.settings?.layoutSettings?.taskPadding?.value ?? 0);
+        const selectionLabelColor = this.getSelectionColor();
+        const selectionLabelWeight = "bold";
         const renderableTasks = tasks.filter(t => {
             if (t.yOrder === undefined) return false;
             const domainKey = t.yOrder.toString();
@@ -8103,7 +7949,7 @@ export class Visual implements IVisual {
         }
     }
 
-    private drawColumnHeaders(headerHeight: number, currentLeftMargin: number): void {
+    private drawColumnHeaders(currentLeftMargin: number): void {
         const headerSvg = this.headerSvg;
         if (!headerSvg) return;
 
@@ -8151,7 +7997,6 @@ export class Visual implements IVisual {
         headerClipEnter.append("rect");
 
         const fontSize = this.settings.textAndLabels.taskNameFontSize.value;
-        const headerFontSizePx = this.pointsToCssPx(fontSize + 0.5);
         const yPos = bandMetrics.columnY;
         const lineY1 = bandMetrics.dividerTop;
         const lineY2 = bandMetrics.dividerBottom;
@@ -8400,7 +8245,6 @@ export class Visual implements IVisual {
                 baselineBatch.push({ x, y, w, h, r });
             }
 
-            const isMilestone = task.type === 'TT_Mile' || task.type === 'TT_FinMile';
             if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
                 const mDate = this.getVisualMilestoneDate(task);
                 if (mDate) {
@@ -8744,42 +8588,6 @@ export class Visual implements IVisual {
             ctx.restore();
         }
 
-        ctx.restore();
-    }
-
-    /**
-     * Draws a low-opacity copyright watermark in the bottom-right corner
-     * of the canvas. Called at the end of every canvas render pass.
-     * Do not remove — required by licensing terms.
-     */
-    private drawCanvasWatermark(): void {
-        const ctx = this.canvasContext;
-        const canvas = this.canvasElement;
-        if (!ctx || !canvas) return;
-
-        const text = "© Ricardo Aguirre · CPM Gantt";
-        const cssWidth = canvas.clientWidth || canvas.width;
-        const cssHeight = canvas.clientHeight || canvas.height;
-        if (cssWidth <= 0 || cssHeight <= 0) return;
-
-        const scaleX = canvas.width / cssWidth;
-        const scaleY = canvas.height / cssHeight;
-        const scrollNode = this.scrollableContainer?.node();
-        const viewportBottom = scrollNode
-            ? Math.min(cssHeight, scrollNode.scrollTop + scrollNode.clientHeight)
-            : cssHeight;
-
-        ctx.save();
-        // Reset any transforms so coordinates are in CSS pixels relative
-        // to the canvas backing store, then apply the actual canvas scale.
-        ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-        ctx.globalAlpha = 0.35;
-        ctx.font = "10px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-        ctx.fillStyle = "#888888";
-        ctx.textAlign = "right";
-        ctx.textBaseline = "bottom";
-
-        ctx.fillText(text, cssWidth - 8, viewportBottom - 6);
         ctx.restore();
     }
 
@@ -9510,7 +9318,7 @@ export class Visual implements IVisual {
             .filter((entry): entry is { relationship: Relationship; geometry: RelationshipRenderGeometry } => entry.geometry !== null);
 
         this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship; geometry: RelationshipRenderGeometry }>(".relationship-arrow")
-            .data(relationshipGeometries, d => `${d.relationship.predecessorId}-${d.relationship.successorId}`)
+            .data(relationshipGeometries, d => getRelationshipIdentityKey(d.relationship))
             .join(
                 enter => enter.append("path"),
                 update => update,
@@ -9540,7 +9348,7 @@ export class Visual implements IVisual {
             .attr("d", d => d.geometry.pathData);
 
         this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship; geometry: RelationshipRenderGeometry }>(".connection-dot-start")
-            .data(relationshipGeometries, d => `${d.relationship.predecessorId}-${d.relationship.successorId}`)
+            .data(relationshipGeometries, d => getRelationshipIdentityKey(d.relationship))
             .join(
                 enter => enter.append("circle").attr("class", "connection-dot-start"),
                 update => update,
@@ -9554,7 +9362,7 @@ export class Visual implements IVisual {
             .style("pointer-events", "none");
 
         this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship; geometry: RelationshipRenderGeometry }>(".connection-dot-end")
-            .data(relationshipGeometries, d => `${d.relationship.predecessorId}-${d.relationship.successorId}`)
+            .data(relationshipGeometries, d => getRelationshipIdentityKey(d.relationship))
             .join(
                 enter => enter.append("circle").attr("class", "connection-dot-end"),
                 update => update,
@@ -9716,7 +9524,6 @@ export class Visual implements IVisual {
     private drawProjectEndLine(
         chartWidth: number,
         xScale: ScaleTime<number, number>,
-        visibleTasks: Task[],
         allTasks: Task[],
         chartHeight: number,
         mainGridLayer: Selection<SVGGElement, unknown, null, undefined>,
@@ -10701,11 +10508,7 @@ export class Visual implements IVisual {
         truncated: boolean;
         truncatedByPathLimit: boolean;
         truncatedByExpansionLimit: boolean;
-        expansionCount: number;
     }): void {
-        this.drivingPathsTruncated = result.truncated;
-        this.drivingPathExpansionCount = result.expansionCount;
-
         if (!result.truncated) {
             this.drivingPathsTruncationMessage = null;
             return;
@@ -10756,9 +10559,7 @@ export class Visual implements IVisual {
         sinkTaskIds: string[],
         explicitSourceTaskIds?: string[]
     ): DrivingChain[] {
-        this.drivingPathsTruncated = false;
         this.drivingPathsTruncationMessage = null;
-        this.drivingPathExpansionCount = 0;
 
         if (scopeTaskIds.size === 0) {
             return [];
@@ -10787,7 +10588,7 @@ export class Visual implements IVisual {
                 });
 
             for (const relationship of outgoing) {
-                const key = `${relationship.predecessorId}|${relationship.successorId}|${relationship.type || "FS"}|${relationship.lag ?? ""}`;
+                const key = getRelationshipIdentityKey(relationship);
                 if (!seenRelationships.has(key)) {
                     seenRelationships.add(key);
                     scopedRelationships.push(relationship);
@@ -11710,20 +11511,6 @@ export class Visual implements IVisual {
             payload[groupId] = expanded;
         }
         return payload;
-    }
-
-    private getWbsExpandLevelLabel(level: number | null | undefined): string {
-        if (level === 0) {
-            return "Collapse all WBS levels";
-        }
-        if (level === null) {
-            const max = this.getMaxWbsLevel();
-            return max > 0 ? `Expand all (to Level ${max})` : "Expand all WBS levels";
-        }
-        if (level === undefined) {
-            return this.wbsExpandedInternal ? "Expand all WBS levels" : "Collapse all WBS levels";
-        }
-        return `Expand to Level ${level}`;
     }
 
     private getCurrentWbsExpandLevel(): number {
@@ -12725,7 +12512,6 @@ export class Visual implements IVisual {
     private drawWbsGroupHeaders(
         xScale: ScaleTime<number, number>,
         yScale: ScaleBand<string>,
-        chartWidth: number,
         taskHeight: number,
         currentLeftMargin: number,
         viewportStartIndex?: number,
@@ -13942,13 +13728,6 @@ export class Visual implements IVisual {
         this.renderTaskDropdown(currentSearch.trim());
     }
 
-    /**
-     * Filters the dropdown items based on input text
-     */
-    private filterTaskDropdown(searchText: string = ""): void {
-        this.renderTaskDropdown(searchText);
-    }
-
     private refreshDropdownCache(): void {
         if (!this.dropdownNeedsRefresh && this.dropdownTaskCache.length > 0) return;
 
@@ -14604,7 +14383,7 @@ export class Visual implements IVisual {
     /**
      * Render the legend UI in sticky footer with horizontal scrolling
      */
-    private renderLegend(viewportWidth: number, viewportHeight: number): void {
+    private renderLegend(viewportWidth: number): void {
         if (!this.legendContainer) return;
 
         const renderCategories = this.getRenderableLegendCategories();
@@ -15928,65 +15707,6 @@ export class Visual implements IVisual {
     // Help Overlay Functionality
     // ============================================================================
 
-
-    /**
-     * Creates the Help button in the header area
-     */
-    private createHelpButton(buttonSize: number = 24): void {
-        if (!this.headerSvg) return;
-
-        const viewportWidth = this.lastUpdateOptions?.viewport?.width || 800;
-        const xPos = viewportWidth - buttonSize - 10; // Right aligned
-
-        const helpBtnGroup = this.headerSvg.append('g')
-            .attr('class', 'help-btn-group')
-            .attr('transform', `translate(${xPos}, 10)`)
-            .style('cursor', 'pointer')
-            .on('click', () => this.showHelpOverlay());
-
-        helpBtnGroup.append('rect')
-            .attr('class', 'help-btn-bg')
-            .attr('width', buttonSize)
-            .attr('height', buttonSize)
-            .attr('rx', UI_TOKENS.radius.medium)
-            .attr('ry', UI_TOKENS.radius.medium)
-            .style('fill', UI_TOKENS.color.neutral.white)
-            .style('stroke', UI_TOKENS.color.neutral.grey60)
-            .style('stroke-width', 1.5)
-            .style('filter', `drop-shadow(${UI_TOKENS.shadow[2]})`)
-            .style('transition', `all ${UI_TOKENS.motion.duration.normal}ms`);
-
-        // Icon group - Question mark icon
-        const iconG = helpBtnGroup.append('g')
-            .attr('class', 'help-icon')
-            .attr('transform', `translate(${buttonSize / 2}, ${buttonSize / 2})`);
-
-        // Question mark circle
-        iconG.append('circle')
-            .attr('r', 7)
-            .attr('fill', 'none')
-            .attr('stroke', UI_TOKENS.color.primary.default)
-            .attr('stroke-width', 1.5);
-
-        // Question mark
-        iconG.append('text')
-            .attr('text-anchor', 'middle')
-            .attr('dominant-baseline', 'central')
-            .attr('y', 0)
-            .attr('font-size', '11px')
-            .attr('font-weight', '600')
-            .attr('fill', UI_TOKENS.color.primary.default)
-            .text('?');
-
-        // Tooltip
-        helpBtnGroup.append('title')
-            .text('Show help and user guide');
-
-        // Event handlers
-        const self = this;
-
-    }
-
     /**
      * Shows the help overlay with user guide content
      */
@@ -16330,7 +16050,8 @@ export class Visual implements IVisual {
         addListItem(headerList, 'Controls and Actions Menu', 'Opens grouped controls for Analysis, Timeline Layers, WBS, and Actions when the header is crowded. A badge indicates hidden controls that are active.');
         addListItem(headerList, 'Timeline Layers', 'Show or hide baseline bars, previous update bars, connector lines, and extra table columns. Baseline and previous update bars also show their matching date columns when columns are enabled.');
         addListItem(headerList, 'WBS Controls', 'Enable WBS grouping and cycle expand/collapse depth from the header or the controls menu.');
-        addListItem(headerList, 'Copy / HTML / PDF / Help', 'Copy visible rows, copy an HTML export, export a PDF, or open this guide. These actions are available from the controls menu when they do not fit inline.');
+        addListItem(headerList, 'Copy To Excel', 'Copies visible rows from its own header button so it remains available outside the Controls and actions menu.');
+        addListItem(headerList, 'HTML / PDF / Help', 'Copy an HTML export, export a PDF, or open this guide. These actions are available from the controls menu when they do not fit inline.');
 
         // ========== Look-Ahead ==========
         const lookAheadSection = createSection('🔎', 'Look-Ahead Review');
@@ -16424,10 +16145,10 @@ export class Visual implements IVisual {
         // ========== Export & Copy ==========
         const exportSection = createSection('📋', 'Export & Copy');
         const exportList = createList(exportSection);
-        addListItem(exportList, 'Copy Button', 'Copies the visible rows to the clipboard as plain text and HTML so you can paste into Excel or another document.');
+        addListItem(exportList, 'Copy To Excel Button', 'Copies the visible rows to the clipboard as plain text and HTML so you can paste into Excel or another document. This button stays outside the Controls and actions menu.');
         addListItem(exportList, 'HTML Button', 'Copies an HTML version of the current visual to the clipboard, including the chart image and visible table.');
         addListItem(exportList, 'PDF Button', 'Exports the current rendered view as a PDF.');
-        addListItem(exportList, 'Controls Menu', 'If copy/export/help buttons do not fit inline, open the Controls and actions menu and use the Actions section.');
+        addListItem(exportList, 'Controls Menu', 'If HTML export, PDF export, or help do not fit inline, open the Controls and actions menu and use the Actions section.');
 
         const exportNote = exportSection.append('p')
             .style('font-size', '13px')
@@ -16443,7 +16164,7 @@ export class Visual implements IVisual {
         addListItem(warningList, 'Blank Relationship Float', 'If Relationship Free Float is missing or blank, Longest Path can still run using the approximate fallback, but the results should be reviewed.');
         addListItem(warningList, 'Missing Predecessor Activities', 'Predecessor IDs that are not present as task rows are tolerated so the visual does not break longest-path logic. They are represented as missing predecessor references in data quality feedback.');
         addListItem(warningList, 'Circular Logic', 'Detected circular dependencies disable Longest Path analysis because a valid driving chain cannot be calculated safely.');
-        addListItem(warningList, 'Duplicate Activity Rows', 'Conflicting duplicate activity rows are flagged when the same activity ID has inconsistent schedule fields.');
+        addListItem(warningList, 'Duplicate Activity Rows', 'Duplicate activity rows are tolerated; Longest Path uses one canonical row per Task ID while retaining inconsistent schedule fields as diagnostics.');
         addListItem(warningList, 'Row Limit', 'If the dataset appears to hit the 30,000-row custom visual limit, relationship or WBS results may be incomplete.');
         addListItem(warningList, 'Invalid Plotted Dates', 'Rows with invalid visual start/finish ranges are excluded from plotting and reported through data-quality feedback.');
 
@@ -16785,7 +16506,6 @@ export class Visual implements IVisual {
         const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
         const tasks = this.getExportTableTasks();
         const visibleWbsGroups = this.getVisibleExportWbsGroups();
-        const visibleTaskIds = new Set(tasks.map(task => task.internalId));
         const areTasksVisible = tasks.some(task => task.yOrder !== undefined);
 
         if (showWbs && !areTasksVisible && visibleWbsGroups.length > 0) {

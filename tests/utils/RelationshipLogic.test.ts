@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    getRelationshipIdentityKey,
     markMinimumFloatDrivingRelationships,
     normalizeRelationshipType,
     type RelationshipDrivingLike
@@ -14,6 +15,21 @@ describe("RelationshipLogic", () => {
         expect(normalizeRelationshipType("PR_SF")).toBe("SF");
         expect(normalizeRelationshipType("invalid")).toBe("FS");
         expect(normalizeRelationshipType(null)).toBe("FS");
+    });
+
+    it("keeps duplicate predecessor-successor visual keys distinct by type, lag, and float", () => {
+        const relationships = [
+            { predecessorId: "P|1", successorId: "S-1", type: "PR_FS", lag: 0, freeFloat: 0 },
+            { predecessorId: "P|1", successorId: "S-1", type: "PR_FF", lag: 0, freeFloat: 0 },
+            { predecessorId: "P|1", successorId: "S-1", type: "PR_FS", lag: 1, freeFloat: 0 },
+            { predecessorId: "P|1", successorId: "S-1", type: "PR_FS", lag: 0, freeFloat: 4 }
+        ];
+
+        const keys = relationships.map(getRelationshipIdentityKey);
+
+        expect(new Set(keys).size).toBe(relationships.length);
+        expect(keys[0]).toContain("FS|0|0");
+        expect(keys[1]).toContain("FF|0|0");
     });
 
     it("marks minimum finite relationship float as driving, including non-zero minima", () => {

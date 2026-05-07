@@ -215,6 +215,57 @@ describe("DrivingPathScoring", () => {
         expect(result.expanded.paths[0].spanDays).toBe(14);
     });
 
+    it("maps milestone endpoints correctly for all P6 relationship types", () => {
+        const tasks = [
+            buildTask("M0", 0, 0),
+            buildTask("A", 0, 3),
+            buildTask("M3", 3, 3),
+            buildTask("M5", 5, 5)
+        ];
+        const relationships = [
+            relationship("M0", "A", "PR_FS"),
+            relationship("M0", "A", "PR_SS"),
+            relationship("A", "M3", "PR_FF"),
+            relationship("M0", "M5", "PR_SF")
+        ];
+        const tasksById = new Map(tasks.map(task => [task.internalId, task]));
+        const graph = buildDrivingEventGraph(tasksById, tasks.map(task => task.internalId), relationships);
+        const relationshipEdges = Array.from(graph.outgoing.values())
+            .flat()
+            .filter(edge => edge.kind === "relationship");
+        const edgeByRawType = new Map(relationshipEdges.map(edge => [edge.relationship?.type, edge]));
+
+        expect(edgeByRawType.get("PR_FS")).toMatchObject({
+            fromNodeId: getTaskEventNodeId("M0", "finish"),
+            toNodeId: getTaskEventNodeId("A", "start")
+        });
+        expect(edgeByRawType.get("PR_SS")).toMatchObject({
+            fromNodeId: getTaskEventNodeId("M0", "start"),
+            toNodeId: getTaskEventNodeId("A", "start")
+        });
+        expect(edgeByRawType.get("PR_FF")).toMatchObject({
+            fromNodeId: getTaskEventNodeId("A", "finish"),
+            toNodeId: getTaskEventNodeId("M3", "finish")
+        });
+        expect(edgeByRawType.get("PR_SF")).toMatchObject({
+            fromNodeId: getTaskEventNodeId("M0", "start"),
+            toNodeId: getTaskEventNodeId("M5", "finish")
+        });
+
+        const result = computePaths(
+            tasks.slice(0, 3),
+            [
+                relationship("M0", "A", "PR_SS"),
+                relationship("A", "M3", "PR_FF")
+            ],
+            ["M3"]
+        );
+
+        expect(result.expanded.paths).toHaveLength(1);
+        expect(result.expanded.paths[0].taskIds).toEqual(["M0", "A", "M3"]);
+        expect(result.expanded.paths[0].spanDays).toBe(3);
+    });
+
     it("supports tied latest-finish terminal sinks", () => {
         const tasks = [
             buildTask("A", 0, 5),

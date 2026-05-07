@@ -44,6 +44,13 @@ describe("VisualState helpers", () => {
     it("classifies milestones by task type instead of duration", () => {
         expect(getExportTaskType({ type: "TT_Mile" } as any)).toBe("Milestone");
         expect(getExportTaskType({ type: "TT_Task" } as any)).toBe("Activity");
+        expect(getExportTaskType({ type: "TT_Task", duration: 0 } as any)).toBe("Activity");
+    });
+
+    it("falls back to duration only when task type is missing", () => {
+        expect(getExportTaskType({ duration: 0 } as any)).toBe("Milestone");
+        expect(getExportTaskType({ type: "", duration: 0 } as any)).toBe("Milestone");
+        expect(getExportTaskType({ type: "   ", duration: 5 } as any)).toBe("Activity");
     });
 
     it("suppresses non-finite float values in exports", () => {

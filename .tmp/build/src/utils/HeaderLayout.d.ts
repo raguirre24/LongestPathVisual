@@ -1,5 +1,5 @@
 export type HeaderLayoutMode = "wide" | "medium" | "narrow" | "compact" | "very-narrow";
-export type HeaderMenuAction = "lookAhead" | "floatThreshold" | "baseline" | "previousUpdate" | "connectorLines" | "columns" | "wbsEnable" | "wbsExpand" | "wbsCollapse" | "copy" | "html" | "pdf" | "help";
+export type HeaderMenuAction = "lookAhead" | "floatThreshold" | "baseline" | "previousUpdate" | "connectorLines" | "columns" | "wbsEnable" | "wbsExpand" | "wbsCollapse" | "html" | "pdf" | "help";
 export interface HeaderDesiredControls {
     lookAhead: boolean;
     floatThreshold: boolean;

@@ -6,9 +6,7 @@
 
 import { Task, WBSGroup } from '../data/Interfaces';
 import { timeFormat } from 'd3-time-format';
-
-/** Set to true to enable debug logging for clipboard operations */
-const DEBUG = false;
+import { getExportTaskType } from './VisualState';
 
 /**
  * Configuration for clipboard export
@@ -47,9 +45,6 @@ const WBS_COLORS = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // G
 /**
  * Exports task data to clipboard in both TSV (for plain text) and HTML (for rich paste) formats
  */
-/**
- * Exports task data to clipboard in both TSV (for plain text) and HTML (for rich paste) formats
- */
 export async function exportToClipboard(config: ClipboardExportConfig): Promise<void> {
     const { tasks, showWbs, showBaseline, showPreviousUpdate, wbsGroupDates, visibleWbsGroups, areTasksVisible, onSuccess, onError } = config;
 
@@ -59,8 +54,6 @@ export async function exportToClipboard(config: ClipboardExportConfig): Promise<
 
         // WBS-only export mode: When WBS is enabled but no tasks are visible
         if (showWbs && areTasksVisible === false && visibleWbsGroups && visibleWbsGroups.length > 0) {
-            if (DEBUG) console.log("[ClipboardExporter] WBS-only mode: Exporting visible WBS groups without tasks");
-
             const { tsvContent, htmlContent } = generateWbsOnlyContent(visibleWbsGroups, dateFormatter);
             await copyToClipboard(tsvContent, htmlContent, visibleWbsGroups.length, onSuccess, onError);
             return;
@@ -111,7 +104,7 @@ function generateTsvContent(
 
     // Build rows
     const rows = tasks.map((task, index) => {
-        const taskType = (task.duration === 0) ? "Milestone" : "Activity";
+        const taskType = getExportTaskType(task);
         const row = [
             (index + 1).toString(),
             task.id?.toString() || "",
@@ -196,17 +189,10 @@ function generateHtmlContent(
 
     let previousLevels: string[] = [];
 
-    // Calculate column indices for data injection
-    // Base indices: Index(0), ID(1), Name(2), Type(3)
+    // Calculate column indices for data injection.
     let colIndex = 4;
-    // Skip optional columns
     if (showBaseline) colIndex += 2;
     if (showPreviousUpdate) colIndex += 2;
-    // Start Date is at colIndex, Finish Date is at colIndex + 1
-    // The group name spans from column 2 (Name) up to start date column
-    // Columns to cover: Name, Type, + optionals
-    // Count = (startDateIndex) - 2
-    const nameColSpan = colIndex - 2;
 
     // Remaining columns after finish date: Duration, Float, Critical
     // Total cols = headers.length
@@ -297,7 +283,7 @@ function generateHtmlContent(
         }
 
         // Render task row
-        const taskType = (task.duration === 0) ? "Milestone" : "Activity";
+        const taskType = getExportTaskType(task);
         const indent = showWbs ? currentLevels.length * 15 : 0;
 
         html += `<tr>`;
@@ -450,8 +436,6 @@ async function copyToClipboard(
     // 1. Try Modern Async Clipboard API (for rich HTML + Text)
     if (navigator.clipboard && navigator.clipboard.write) {
         try {
-            if (DEBUG) console.log("[ClipboardExporter] Using modern Async Clipboard API");
-
             // ClipboardItem requires Blob
             const textBlob = new Blob([tsvContent], { type: 'text/plain' });
             const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
@@ -469,8 +453,6 @@ async function copyToClipboard(
             console.warn("[ClipboardExporter] Async copy failed (permission denied or unsupported type). Falling back to legacy.", err);
             // Fall through to legacy method
         }
-    } else {
-        if (DEBUG) console.log("[ClipboardExporter] Async Clipboard API not available. Using legacy fallback.");
     }
 
     // 2. Legacy Fallback: execCommand('copy')
@@ -492,7 +474,6 @@ async function copyToClipboard(
         document.removeEventListener('copy', handler);
 
         if (successful) {
-            if (DEBUG) console.log("[ClipboardExporter] Legacy copy via event listener successful");
             onSuccess?.(taskCount);
             return;
         } else {
@@ -517,7 +498,6 @@ async function copyToClipboard(
 
         const successful = document.execCommand('copy');
         if (successful) {
-            if (DEBUG) console.log("[ClipboardExporter] Legacy Text copy successful");
             onSuccess?.(taskCount);
         } else {
             console.error("[ClipboardExporter] All clipbord copy methods failed.");

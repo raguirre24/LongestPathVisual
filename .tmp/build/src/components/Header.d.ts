@@ -66,8 +66,6 @@ export declare class Header {
     private lookAheadDropdownActiveIndex;
     private lookAheadDocumentPointerDownHandler;
     private toggleButtonGroup;
-    private baselineToggleButtonGroup;
-    private previousUpdateToggleButtonGroup;
     private currentSettings;
     private currentState;
     private currentViewportWidth;
@@ -89,7 +87,6 @@ export declare class Header {
      */
     showCopySuccess(): void;
     private lightenColor;
-    private tintGlyph;
     private drawConnectorDependencyGlyph;
     private drawWbsHierarchyGlyph;
     private drawColumnVisibilityGlyph;

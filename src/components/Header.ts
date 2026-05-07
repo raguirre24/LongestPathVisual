@@ -97,8 +97,6 @@ export class Header {
 
     // Button Selections
     private toggleButtonGroup!: Selection<SVGGElement, unknown, null, undefined>;
-    private baselineToggleButtonGroup!: Selection<HTMLButtonElement, unknown, null, undefined>;
-    private previousUpdateToggleButtonGroup!: Selection<HTMLButtonElement, unknown, null, undefined>;
 
     // Temporary storage for render cycle
     private currentSettings!: VisualSettings;
@@ -146,7 +144,8 @@ export class Header {
             { key: "analysis", items: [layout.showAllCritical, layout.modeToggle, layout.lookAhead] },
             { key: "layers", items: [layout.baseline, layout.previousUpdate, layout.connectorLines, layout.colToggle] },
             { key: "wbs", items: [layout.wbsEnable, layout.wbsExpandToggle, layout.wbsCollapseToggle] },
-            { key: "actions", items: [layout.copyButton, layout.htmlExportButton, layout.exportButton, layout.helpButton, layout.actionOverflowButton] }
+            { key: "copy", items: [layout.copyButton] },
+            { key: "actions", items: [layout.htmlExportButton, layout.exportButton, layout.helpButton, layout.actionOverflowButton] }
         ];
 
         const visibleGroups: GroupRect[] = groups.map(group => {
@@ -461,11 +460,6 @@ export class Header {
         const newB = Math.round(b + (255 - b) * factor);
 
         return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
-    }
-
-    private tintGlyph(iconG: Selection<SVGGElement, unknown, null, undefined>, color: string): void {
-        iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", color);
-        iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", color);
     }
 
     private drawConnectorDependencyGlyph(
@@ -2400,8 +2394,8 @@ export class Header {
 
         const btn = this.upsertButton("copy-data-button-group")
             .attr("type", "button")
-            .attr("aria-label", "Copy data to clipboard")
-            .attr("title", "Copy data to clipboard")
+            .attr("aria-label", "Copy visible data for Excel")
+            .attr("title", "Copy visible data for Excel")
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -3066,7 +3060,6 @@ export class Header {
                 disabled: !state.wbsDataExists || !state.wbsEnabled,
                 callback: this.callbacks.onToggleWbsCollapse
             },
-            copy: { id: "copy", section: "Actions", label: "Copy data", callback: this.callbacks.onCopy },
             html: { id: "html", section: "Actions", label: "Copy HTML", title: "Copy formatted HTML export to the clipboard.", callback: this.callbacks.onExportHtml },
             pdf: { id: "pdf", section: "Actions", label: "Export PDF", callback: this.callbacks.onExport },
             help: { id: "help", section: "Actions", label: "Help", callback: this.callbacks.onHelp }

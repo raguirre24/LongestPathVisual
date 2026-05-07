@@ -66,8 +66,6 @@ type TaskRowBucket = {
 export class DataProcessor {
     private debug: boolean = false;
 
-    // Temporary state during processing
-    private lastUpdateOptions: { dataViews: DataView[] } | undefined;
     private host: IVisualHost;
     private tooltipDebugLogged: boolean = false;
 
@@ -158,15 +156,13 @@ export class DataProcessor {
         dataView: DataView,
         settings: VisualSettings,
         wbsExpandedState: Map<string, boolean>,
-        wbsManuallyToggledGroups: Set<string>,
+        _wbsManuallyToggledGroups: Set<string>,
         lastExpandCollapseAllState: boolean | null,
         highContrastMode: boolean,
         highContrastForeground: string
     ): ProcessedData {
         this.debugLog("DataProcessor: Transforming data...");
         // const startTime = performance.now(); // performance not available in strict mode sometimes, safe to skip or use Date
-
-        this.lastUpdateOptions = { dataViews: [dataView] }; // Mock for helpers that rely on it
 
         const result: ProcessedData = {
             allTasksData: [],
@@ -456,7 +452,7 @@ export class DataProcessor {
 
         // --- Helper Pass Processing ---
         this.processLegendData(dataView, settings, highContrastMode, highContrastForeground, result);
-        this.processWBSData(result, settings, wbsExpandedState, wbsManuallyToggledGroups, lastExpandCollapseAllState);
+        this.processWBSData(result, settings, wbsExpandedState, lastExpandCollapseAllState);
         result.dataQuality = this.validateDataQuality(rows.length, result.allTasksData, result.taskIdToTask, {
             missingPredecessorIds: missingPredecessorIds.sort((a, b) => a.localeCompare(b)),
             conflictingTaskRows: this.detectConflictingTaskRows(taskDataMap, dataView),
@@ -792,7 +788,6 @@ export class DataProcessor {
         data: ProcessedData,
         settings: VisualSettings,
         wbsExpandedState: Map<string, boolean>,
-        wbsManuallyToggledGroups: Set<string>,
         lastExpandCollapseAllState: boolean | null
     ): void {
         data.wbsDataExists = false;
@@ -814,7 +809,6 @@ export class DataProcessor {
         }
 
         data.wbsDataExists = true;
-        const defaultExpanded = settings?.wbsGrouping?.defaultExpanded?.value ?? true;
         const expandCollapseAll = settings?.wbsGrouping?.expandCollapseAll?.value ?? true;
 
         const expandCollapseAllChanged = lastExpandCollapseAllState !== null &&
@@ -1223,9 +1217,6 @@ export class DataProcessor {
         if (duplicates.length > 0) {
             warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
         }
-        if (context.conflictingTaskRows.length > 0) {
-            warnings.push(`Conflicting duplicate activity rows found: ${context.conflictingTaskRows.slice(0, 3).join('; ')}${context.conflictingTaskRows.length > 3 ? ` and ${context.conflictingTaskRows.length - 3} more` : ''}.`);
-        }
         if (circularPaths.length > 0) {
             warnings.push(`Critical path disabled: circular dependencies detected (${circularPaths.length}).`);
         }
@@ -1240,7 +1231,6 @@ export class DataProcessor {
         }
 
         const cpmSafe = !possibleTruncation &&
-            context.conflictingTaskRows.length === 0 &&
             circularPaths.length === 0 &&
             invalidRawDateRangeTaskIds.length === 0;
 

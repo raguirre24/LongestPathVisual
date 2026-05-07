@@ -12,7 +12,6 @@ export type HeaderMenuAction =
     | "wbsEnable"
     | "wbsExpand"
     | "wbsCollapse"
-    | "copy"
     | "html"
     | "pdf"
     | "help";
@@ -196,7 +195,7 @@ export function computeHeaderButtonLayout(input: HeaderLayoutInput): HeaderButto
         wbsEnable: desiredControls.wbsEnable,
         wbsExpand: desiredControls.wbsExpand,
         wbsCollapse: desiredControls.wbsCollapse,
-        copyButton: false,
+        copyButton: desiredControls.copyButton,
         htmlExportButton: false,
         exportButton: false,
         helpButton: false
@@ -244,7 +243,6 @@ export function computeHeaderButtonLayout(input: HeaderLayoutInput): HeaderButto
         if (desiredControls.wbsEnable && !visibleButtons.wbsEnable) controls.push("wbsEnable");
         if (desiredControls.wbsExpand && !visibleButtons.wbsExpand) controls.push("wbsExpand");
         if (desiredControls.wbsCollapse && !visibleButtons.wbsCollapse) controls.push("wbsCollapse");
-        if (desiredControls.copyButton && !visibleButtons.copyButton) controls.push("copy");
         if (desiredControls.htmlExportButton && !visibleButtons.htmlExportButton) controls.push("html");
         if (desiredControls.exportButton && !visibleButtons.exportButton) controls.push("pdf");
         if (desiredControls.helpButton && !visibleButtons.helpButton) controls.push("help");
@@ -311,10 +309,6 @@ export function computeHeaderButtonLayout(input: HeaderLayoutInput): HeaderButto
     }
     if (visibleWidth > availableWidth && visibleButtons.exportButton) {
         visibleButtons.exportButton = false;
-        visibleWidth = refreshActionOverflow();
-    }
-    if (visibleWidth > availableWidth && visibleButtons.copyButton) {
-        visibleButtons.copyButton = false;
         visibleWidth = refreshActionOverflow();
     }
     if (visibleWidth > availableWidth && visibleButtons.previousUpdate) {

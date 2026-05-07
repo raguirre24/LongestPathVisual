@@ -5,6 +5,15 @@ export interface RelationshipDrivingLike {
     isDriving?: boolean;
 }
 
+export interface RelationshipIdentityLike {
+    predecessorId: string;
+    successorId: string;
+    type?: string | null;
+    lag?: number | null;
+    freeFloat?: number | null;
+    relationshipFloat?: number | null;
+}
+
 export function normalizeRelationshipType(value: string | null | undefined): RelationshipType {
     const rawValue = (value ?? "FS").trim().toUpperCase();
     const normalizedValue = rawValue.startsWith("PR_")
@@ -21,6 +30,16 @@ export function normalizeRelationshipType(value: string | null | undefined): Rel
         default:
             return "FS";
     }
+}
+
+export function getRelationshipIdentityKey(relationship: RelationshipIdentityLike): string {
+    return [
+        encodeRelationshipKeyPart(relationship.predecessorId),
+        encodeRelationshipKeyPart(relationship.successorId),
+        normalizeRelationshipType(relationship.type),
+        getRelationshipNumberKey(relationship.lag),
+        getRelationshipNumberKey(relationship.freeFloat ?? relationship.relationshipFloat)
+    ].join("|");
 }
 
 export function markMinimumFloatDrivingRelationships<TRel extends RelationshipDrivingLike>(
@@ -52,4 +71,12 @@ export function markMinimumFloatDrivingRelationships<TRel extends RelationshipDr
     }
 
     return drivingCount;
+}
+
+function encodeRelationshipKeyPart(value: string): string {
+    return encodeURIComponent(value);
+}
+
+function getRelationshipNumberKey(value: number | null | undefined): string {
+    return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
 }

@@ -52,8 +52,13 @@ export function sanitizeExportTextField(value: unknown): string {
         .trim();
 }
 
-export function getExportTaskType(task: Pick<Task, "type">): string {
-    return MILESTONE_TASK_TYPES.has(task.type) ? "Milestone" : "Activity";
+export function getExportTaskType(task: Partial<Pick<Task, "type" | "duration">>): string {
+    const taskType = typeof task.type === "string" ? task.type.trim() : "";
+    if (taskType.length > 0) {
+        return MILESTONE_TASK_TYPES.has(taskType) ? "Milestone" : "Activity";
+    }
+
+    return task.duration === 0 ? "Milestone" : "Activity";
 }
 
 export function getExportFloatText(task: Pick<Task, "userProvidedTotalFloat">, fallback: string = ""): string {

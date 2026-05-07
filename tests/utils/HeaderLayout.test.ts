@@ -60,26 +60,34 @@ describe("HeaderLayout", () => {
         expect(layoutAt(480, { lookAheadActive: true }).lookAhead.width).toBe(66);
     });
 
-    it("moves timeline, WBS, and action controls into the menu before core controls", () => {
+    it("keeps copy-to-Excel inline and out of the controls menu", () => {
+        const layout = layoutAt(320);
+
+        expect(layout.copyButton.visible).toBe(true);
+        expect(layout.actionOverflowButton.hiddenActions).not.toContain("copy");
+    });
+
+    it("moves timeline, WBS, and non-copy action controls into the menu before core controls", () => {
         const layout = layoutAt(650);
 
         expect(layout.showAllCritical.visible).toBe(true);
         expect(layout.modeToggle.visible).toBe(true);
+        expect(layout.copyButton.visible).toBe(true);
         expect(layout.actionOverflowButton.hiddenActions).toEqual(expect.arrayContaining([
             "connectorLines",
             "columns",
             "wbsExpand",
             "wbsCollapse",
-            "copy",
             "html",
             "pdf",
             "help"
         ]));
+        expect(layout.actionOverflowButton.hiddenActions).not.toContain("copy");
     });
 
     it("counts active hidden controls for the overflow badge", () => {
         const count = getActiveHiddenHeaderControlCount(
-            ["lookAhead", "floatThreshold", "baseline", "previousUpdate", "connectorLines", "columns", "wbsEnable", "copy"],
+            ["lookAhead", "floatThreshold", "baseline", "previousUpdate", "connectorLines", "columns", "wbsEnable"],
             {
                 lookAheadWindowDays: 84,
                 showBaseline: true,

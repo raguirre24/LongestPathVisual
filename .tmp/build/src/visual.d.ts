@@ -24,7 +24,6 @@ export declare class Visual implements IVisual {
     private downloadService;
     private isExporting;
     private forceSvgRenderingForExport;
-    private exportButtonGroup;
     private allowInteractions;
     private highContrastMode;
     private highContrastForeground;
@@ -63,14 +62,10 @@ export declare class Visual implements IVisual {
     private loadingText;
     private loadingRowsText;
     private loadingProgressText;
-    private isLoadingVisible;
     private loadingStartTime;
     private allTasksData;
     private relationships;
     private taskIdToTask;
-    private taskIdQueryName;
-    private taskIdTable;
-    private taskIdColumn;
     private lastUpdateOptions;
     private dataQuality;
     private showConnectorLinesInternal;
@@ -103,7 +98,6 @@ export declare class Visual implements IVisual {
     private defaultMaxTasks;
     private labelPaddingLeft;
     private dateBackgroundPadding;
-    private taskLabelLineHeight;
     private minTaskWidthPixels;
     private monthYearFormatter;
     private lineDateFormatter;
@@ -118,7 +112,6 @@ export declare class Visual implements IVisual {
     private hoveredTaskId;
     private lastDataSignature;
     private cachedSortedTasksSignature;
-    private cachedTasksSortedByStartDate;
     private cachedPlottableTasksSorted;
     private dropdownNeedsRefresh;
     private dropdownContainer;
@@ -166,12 +159,10 @@ export declare class Visual implements IVisual {
     private legendFieldName;
     private legendContainer;
     private selectedLegendCategories;
-    private legendSelectionIds;
     private legendScrollPosition;
     private lastLegendRenderSignature;
     private wbsDataExists;
     private wbsDataExistsInMetadata;
-    private wbsLevelColumnIndices;
     private wbsLevelColumnNames;
     private lastWbsBindingSignature;
     private rememberedWbsGroupingEnabled;
@@ -187,7 +178,6 @@ export declare class Visual implements IVisual {
     private wbsGroupLayer;
     private wbsHeaderContextMenu;
     private lastExpandCollapseAllState;
-    private tooltipDebugLogged;
     private landingPageContainer;
     private helpOverlayContainer;
     private isHelpOverlayVisible;
@@ -198,9 +188,7 @@ export declare class Visual implements IVisual {
     private hasRelationshipFreeFloat;
     private allDrivingChains;
     private selectedPathIndex;
-    private drivingPathsTruncated;
     private drivingPathsTruncationMessage;
-    private drivingPathExpansionCount;
     private readonly VIEWPORT_CHANGE_THRESHOLD;
     private forceFullUpdate;
     private preserveScrollOnUpdate;
@@ -213,7 +201,6 @@ export declare class Visual implements IVisual {
     private isViewportTransitioning;
     private viewportResizeCooldownUntil;
     private isMarginDragging;
-    private dragStartChartWidth;
     private scrollHandlerBackup;
     private updateDebounceTimeout;
     private pendingUpdate;
@@ -277,7 +264,6 @@ export declare class Visual implements IVisual {
     private pointsToCssPx;
     private fontPxFromPtSetting;
     private updateTaskNameLaneClipRect;
-    private getTaskNameLaneClipRef;
     private fitSvgTextToWidth;
     private getWrappedSvgTextLines;
     private renderWrappedSvgText;
@@ -477,10 +463,6 @@ export declare class Visual implements IVisual {
      */
     private fallbackDownload;
     /**
-     * Handle cases where export is not allowed
-     */
-    private handleExportNotAllowed;
-    /**
      * Generates PDF content by compositing all visual layers onto a single canvas
      * @returns Base64 encoded PDF content
      */
@@ -541,7 +523,6 @@ export declare class Visual implements IVisual {
     private setupVirtualScroll;
     private getCanvasMouseCoordinates;
     private getTaskAtCanvasPoint;
-    private drawRoundedRectPath;
     private showTaskTooltip;
     private hideTooltip;
     private getMinimumNameLaneWidth;
@@ -596,12 +577,6 @@ export declare class Visual implements IVisual {
      */
     private drawLabelColumnSeparators;
     private drawTasksCanvas;
-    /**
-     * Draws a low-opacity copyright watermark in the bottom-right corner
-     * of the canvas. Called at the end of every canvas render pass.
-     * Do not remove — required by licensing terms.
-     */
-    private drawCanvasWatermark;
     /**
      * Helper to add a rounded rect to the current path
      * (Inlined for batching performance)
@@ -745,7 +720,6 @@ export declare class Visual implements IVisual {
     private refreshWbsAvailableLevels;
     private getMaxWbsLevel;
     private getWbsExpandedStatePayload;
-    private getWbsExpandLevelLabel;
     private getCurrentWbsExpandLevel;
     private getNextWbsExpandLevel;
     private getPreviousWbsExpandLevel;
@@ -823,10 +797,6 @@ export declare class Visual implements IVisual {
      * Populates the task dropdown with tasks from the dataset
      */
     private populateTaskDropdown;
-    /**
-     * Filters the dropdown items based on input text
-     */
-    private filterTaskDropdown;
     private refreshDropdownCache;
     private renderTaskDropdown;
     private openDropdown;
@@ -933,10 +903,6 @@ export declare class Visual implements IVisual {
     private getRoleDisplayName;
     private getMissingRequiredRoles;
     private displayLandingPage;
-    /**
-     * Creates the Help button in the header area
-     */
-    private createHelpButton;
     /**
      * Shows the help overlay with user guide content
      */

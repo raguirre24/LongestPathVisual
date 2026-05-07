@@ -37,6 +37,7 @@ This repository contains Power BI project files, semantic models, reports and/or
 - Do not add production dependencies without explaining why they are needed.
 - Keep `visualClassName` in `pbiviz.json` aligned with the visual class implementation.
 - Keep `capabilities.json` roles, mappings, objects and privileges aligned with TypeScript code.
+- For this visual's architecture and feature map, read `VISUAL_ARCHITECTURE.md` before non-trivial changes.
 - Test with `npm test`, `npm run build` or `pbiviz package` when relevant and available.
 
 ## Security

@@ -5,7 +5,7 @@
  * DataProcessor.processData() to validate the transformation logic.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { DataProcessor, ProcessedData } from '../../src/data/DataProcessor';
+import { DataProcessor } from '../../src/data/DataProcessor';
 import powerbi from 'powerbi-visuals-api';
 import DataView = powerbi.DataView;
 
@@ -25,7 +25,7 @@ function createMockHost(): powerbi.extensibility.visual.IVisualHost {
             createSelectionId: () => ({} as any),
         } as any),
         colorPalette: {
-            getColor: (value: string) => ({ value: '#cccccc' }),
+            getColor: (_value: string) => ({ value: '#cccccc' }),
         } as any,
         // Stubs for unused host methods
         createSelectionManager: () => ({} as any),
@@ -677,7 +677,39 @@ describe('DataProcessor', () => {
             expect(result.dataQuality.conflictingTaskRows).toHaveLength(1);
             expect(result.dataQuality.conflictingTaskRows[0]).toContain('T1');
             expect(result.dataQuality.conflictingTaskRows[0]).toContain('Finish Date');
-            expect(result.dataQuality.cpmSafe).toBe(false);
+            expect(result.dataQuality.cpmSafe).toBe(true);
+            expect(result.dataQuality.warnings.some(warning => warning.includes('Duplicate activity rows'))).toBe(false);
+        });
+
+        it('keeps Longest Path safe when aggregation-like duplicate rows conflict', () => {
+            const columns: ColumnDef[] = [
+                { displayName: 'Task ID', queryName: 'Table[TaskID]', roles: { taskId: true } },
+                { displayName: 'Task Name', queryName: 'Table[TaskName]', roles: { taskName: true } },
+                { displayName: 'Duration', queryName: 'Table[Duration]', roles: { duration: true } },
+                { displayName: 'Task Total Float', queryName: 'Table[TotalFloat]', roles: { taskTotalFloat: true } },
+                { displayName: 'Start Date', queryName: 'Table[StartDate]', roles: { startDate: true } },
+                { displayName: 'Finish Date', queryName: 'Table[FinishDate]', roles: { finishDate: true } },
+                { displayName: 'Predecessor', queryName: 'Table[PredID]', roles: { predecessorId: true } },
+                { displayName: 'Rel Type', queryName: 'Table[RelType]', roles: { relationshipType: true } },
+                { displayName: 'Lag', queryName: 'Table[Lag]', roles: { relationshipLag: true } },
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, 10, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
+                ['T2', 'Task B', 3, 6, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 0, 0],
+                ['T2', 'Task B', 6, 12, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'SS', 0, 2],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.relationships).toHaveLength(2);
+            expect(result.taskIdToTask.get('T2')!.duration).toBe(3);
+            expect(result.taskIdToTask.get('T2')!.userProvidedTotalFloat).toBe(6);
+            expect(result.dataQuality.conflictingTaskRows).toHaveLength(1);
+            expect(result.dataQuality.conflictingTaskRows[0]).toContain('Duration');
+            expect(result.dataQuality.conflictingTaskRows[0]).toContain('Task Total Float');
+            expect(result.dataQuality.cpmSafe).toBe(true);
+            expect(result.dataQuality.warnings.some(warning => warning.includes('Duplicate activity rows'))).toBe(false);
         });
     });
 
