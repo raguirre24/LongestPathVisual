@@ -45,6 +45,12 @@ import {
     sanitizeExportTextField,
     serializeLegendSelection
 } from "./utils/VisualState";
+import {
+    calculateFinishVarianceProgressPoint,
+    getProgressLineReferenceLabel,
+    isValidProgressDate
+} from "./utils/ProgressLine";
+import type { ProgressLineReference } from "./utils/ProgressLine";
 import { buildDataSignature } from "./utils/DataSignature";
 import {
     buildLabelColumnLayout,
@@ -104,6 +110,21 @@ type LookAheadWindow = {
 };
 
 type LookAheadDisplayMode = "filter" | "highlight";
+
+type ProgressLineRowKind = "task" | "wbs";
+
+type ProgressLinePoint = {
+    id: string;
+    label: string;
+    rowKind: ProgressLineRowKind;
+    yOrder: number;
+    x: number;
+    y: number;
+    progressDate: Date;
+    finishDate: Date;
+    referenceFinishDate: Date;
+    varianceDays: number;
+};
 
 type RelationshipRenderGeometry = {
     pathData: string;
@@ -1089,6 +1110,8 @@ export class Visual implements IVisual {
             onToggleCriticalPath: () => this.toggleTaskDisplayInternal(),
             onToggleBaseline: () => this.toggleBaselineDisplayInternal(),
             onTogglePreviousUpdate: () => this.togglePreviousUpdateDisplayInternal(),
+            onToggleProgressLine: () => this.toggleProgressLineDisplay(),
+            onProgressLineReferenceChanged: (reference) => this.setProgressLineReference(reference),
             onToggleConnectorLines: () => this.toggleConnectorLinesDisplay(),
             onToggleWbsExpand: () => this.toggleWbsExpandCollapseDisplay(),
             onToggleWbsCollapse: () => this.toggleWbsCollapseCycleDisplay(),
@@ -2286,9 +2309,104 @@ export class Visual implements IVisual {
         }
     }
 
+    private getFallbackProgressLineReference(reference: ProgressLineReference): ProgressLineReference {
+        return reference === "baselineFinish" ? "previousUpdateFinish" : "baselineFinish";
+    }
 
+    private setProgressLineReferenceSettingValue(reference: ProgressLineReference): void {
+        if (!this.settings?.progressLine?.referenceFinish) {
+            return;
+        }
 
+        this.settings.progressLine.referenceFinish.value = {
+            value: reference,
+            displayName: getProgressLineReferenceLabel(reference)
+        };
+    }
 
+    private refreshAfterProgressLineHeaderChange(): void {
+        this.forceCanvasRefresh();
+        this.captureScrollPosition();
+        this.forceFullUpdate = true;
+        this.preserveScrollOnUpdate = true;
+        this.scrollPreservationUntil = Date.now() + 1500;
+
+        if (this.scrollThrottleTimeout) {
+            cancelAnimationFrame(this.scrollThrottleTimeout);
+            this.scrollThrottleTimeout = null;
+        }
+
+        if (this.lastUpdateOptions) {
+            this.update(this.lastUpdateOptions);
+        } else {
+            this.requestUpdate();
+        }
+    }
+
+    private toggleProgressLineDisplay(): void {
+        const nextVisible = !(this.settings?.progressLine?.show?.value ?? false);
+        this.setProgressLineVisible(nextVisible);
+    }
+
+    private setProgressLineVisible(visible: boolean): void {
+        if (!this.settings?.progressLine?.show) {
+            return;
+        }
+
+        let reference = this.getProgressLineReferenceSetting();
+        const properties: { show: boolean; referenceFinish?: ProgressLineReference } = { show: visible };
+
+        if (visible && !this.hasProgressLineReferenceData(reference)) {
+            const fallbackReference = this.getFallbackProgressLineReference(reference);
+            if (!this.hasProgressLineReferenceData(fallbackReference)) {
+                this.debugLog("Progress line toggle blocked: no valid baseline or previous update reference finish data");
+                return;
+            }
+
+            reference = fallbackReference;
+            properties.referenceFinish = reference;
+            this.setProgressLineReferenceSettingValue(reference);
+        }
+
+        this.settings.progressLine.show.value = visible;
+
+        this.host.persistProperties({
+            merge: [{
+                objectName: "progressLine",
+                properties,
+                selector: null
+            }]
+        });
+
+        this.refreshAfterProgressLineHeaderChange();
+    }
+
+    private setProgressLineReference(reference: ProgressLineReference): void {
+        if (reference !== "baselineFinish" && reference !== "previousUpdateFinish") {
+            return;
+        }
+
+        if (!this.hasProgressLineReferenceData(reference)) {
+            this.debugLog(`Progress line reference change blocked: ${reference} data is not available`);
+            return;
+        }
+
+        if (this.getProgressLineReferenceSetting() === reference) {
+            return;
+        }
+
+        this.setProgressLineReferenceSettingValue(reference);
+
+        this.host.persistProperties({
+            merge: [{
+                objectName: "progressLine",
+                properties: { referenceFinish: reference },
+                selector: null
+            }]
+        });
+
+        this.refreshAfterProgressLineHeaderChange();
+    }
 
     /**
      * Toggles WBS grouping on/off for the viewer (persisted in formatting properties).
@@ -5345,6 +5463,8 @@ export class Visual implements IVisual {
             taskNameFontSize, labelColor
         );
 
+        this.drawProgressLine(renderableTasks, this.xScale, this.yScale, chartWidth, chartHeight, true);
+
         // Data date line
         this.drawDataDateLine(chartWidth, this.xScale, chartHeight, this.gridLayer, this.headerGridLayer);
 
@@ -5474,6 +5594,8 @@ export class Visual implements IVisual {
 
         const includeBaselineInScale = this.showBaselineInternal;
         const includePreviousUpdateInScale = this.showPreviousUpdateInternal;
+        const progressLineReference = this.getEffectiveProgressLineReference();
+        const includeProgressLineInScale = this.isProgressLineRenderable(progressLineReference);
 
         if (wbsGroupingEnabled && this.wbsGroups.length > 0) {
             for (const group of this.wbsGroups) {
@@ -5500,6 +5622,14 @@ export class Visual implements IVisual {
                     if (group.summaryBaselineFinishDate && !isNaN(group.summaryBaselineFinishDate.getTime())) {
                         allTimestamps.push(group.summaryBaselineFinishDate.getTime());
                     }
+                }
+
+                if (includeProgressLineInScale && progressLineReference) {
+                    this.addProgressLineTimestamp(
+                        allTimestamps,
+                        group.summaryFinishDate,
+                        this.getWbsProgressLineReferenceFinish(group, progressLineReference)
+                    );
                 }
             }
         }
@@ -5533,6 +5663,14 @@ export class Visual implements IVisual {
                     allTimestamps.push(task.previousUpdateFinishDate.getTime());
                 }
             }
+
+            if (includeProgressLineInScale && progressLineReference) {
+                this.addProgressLineTimestamp(
+                    allTimestamps,
+                    task.finishDate,
+                    this.getTaskProgressLineReferenceFinish(task, progressLineReference)
+                );
+            }
         });
 
         if (wbsGroupingEnabled && tasksToShow.length === 0) {
@@ -5559,6 +5697,13 @@ export class Visual implements IVisual {
                         if (group.summaryBaselineFinishDate && !isNaN(group.summaryBaselineFinishDate.getTime())) {
                             allTimestamps.push(group.summaryBaselineFinishDate.getTime());
                         }
+                    }
+                    if (includeProgressLineInScale && progressLineReference) {
+                        this.addProgressLineTimestamp(
+                            allTimestamps,
+                            group.summaryFinishDate,
+                            this.getWbsProgressLineReferenceFinish(group, progressLineReference)
+                        );
                     }
                 }
             }
@@ -5930,6 +6075,9 @@ export class Visual implements IVisual {
     private updateHeaderElements(viewportWidth: number): void {
         const baselineAvailable = this.boundFields.baselineAvailable;
         const previousUpdateAvailable = this.boundFields.previousUpdateAvailable;
+        const progressLineReference = this.getProgressLineReferenceSetting();
+        const progressLineBaselineAvailable = this.hasProgressLineReferenceData("baselineFinish");
+        const progressLinePreviousUpdateAvailable = this.hasProgressLineReferenceData("previousUpdateFinish");
 
         const state: HeaderState = {
             showAllTasks: this.showAllTasksInternal,
@@ -5937,6 +6085,11 @@ export class Visual implements IVisual {
             baselineAvailable: baselineAvailable,
             showPreviousUpdate: this.showPreviousUpdateInternal,
             previousUpdateAvailable: previousUpdateAvailable,
+            progressLineVisible: !!this.settings?.progressLine?.show?.value,
+            progressLineAvailable: progressLineBaselineAvailable || progressLinePreviousUpdateAvailable,
+            progressLineReference,
+            progressLineBaselineAvailable,
+            progressLinePreviousUpdateAvailable,
             boundFields: this.boundFields,
             showConnectorLines: this.showConnectorLinesInternal,
             wbsExpanded: this.wbsExpandedInternal,
@@ -6474,6 +6627,8 @@ export class Visual implements IVisual {
                 labelColor
             );
         }
+
+        this.drawProgressLine(renderableTasks, xScale, yScale, chartWidth, chartHeight);
 
         // --- 5. Data Date Line ---
         this.drawDataDateLine(
@@ -7852,7 +8007,7 @@ export class Visual implements IVisual {
         const edgePadding = this.HEADER_LINE_LABEL_EDGE_PADDING;
         const gap = this.HEADER_LINE_LABEL_GAP;
         const labelGroups = Array.from(headerLayer.selectAll<SVGGElement, unknown>(
-            ".data-date-label-group, .look-ahead-window-label-group, .previous-update-end-label-group, .baseline-end-label-group, .project-end-label-group"
+            ".data-date-label-group, .look-ahead-window-label-group, .progress-line-label-group, .previous-update-end-label-group, .baseline-end-label-group, .project-end-label-group"
         ).nodes());
 
         if (labelGroups.length === 0) {
@@ -9383,6 +9538,364 @@ export class Visual implements IVisual {
             case "dotted": return "1,2";
             default: return "none";
         }
+    }
+
+    private getProgressLineReferenceSetting(): ProgressLineReference {
+        const rawValue = this.settings?.progressLine?.referenceFinish?.value?.value;
+        return rawValue === "previousUpdateFinish" ? "previousUpdateFinish" : "baselineFinish";
+    }
+
+    private getTaskProgressLineReferenceFinish(task: Task, reference: ProgressLineReference): Date | null | undefined {
+        return reference === "previousUpdateFinish"
+            ? task.previousUpdateFinishDate
+            : task.baselineFinishDate;
+    }
+
+    private getWbsProgressLineReferenceFinish(group: WBSGroup, reference: ProgressLineReference): Date | null | undefined {
+        return reference === "previousUpdateFinish"
+            ? group.summaryPreviousUpdateFinishDate
+            : group.summaryBaselineFinishDate;
+    }
+
+    private hasProgressLineReferenceData(reference: ProgressLineReference): boolean {
+        if (!isValidProgressDate(this.dataDate)) {
+            return false;
+        }
+
+        for (const task of this.allTasksData) {
+            if (isValidProgressDate(task.finishDate) &&
+                isValidProgressDate(this.getTaskProgressLineReferenceFinish(task, reference))) {
+                return true;
+            }
+        }
+
+        for (const group of this.wbsGroups) {
+            if (isValidProgressDate(group.summaryFinishDate) &&
+                isValidProgressDate(this.getWbsProgressLineReferenceFinish(group, reference))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private getEffectiveProgressLineReference(): ProgressLineReference | null {
+        const selectedReference = this.getProgressLineReferenceSetting();
+        return this.hasProgressLineReferenceData(selectedReference) ? selectedReference : null;
+    }
+
+    private isProgressLineRenderable(reference: ProgressLineReference | null = this.getEffectiveProgressLineReference()): boolean {
+        return !!(
+            this.settings?.progressLine?.show?.value &&
+            reference &&
+            isValidProgressDate(this.dataDate) &&
+            this.hasProgressLineReferenceData(reference)
+        );
+    }
+
+    private addProgressLineTimestamp(
+        timestamps: number[],
+        finishDate: Date | null | undefined,
+        referenceFinishDate: Date | null | undefined
+    ): void {
+        const progressPoint = calculateFinishVarianceProgressPoint(this.dataDate, finishDate, referenceFinishDate);
+        if (progressPoint && isValidProgressDate(progressPoint.progressDate)) {
+            timestamps.push(progressPoint.progressDate.getTime());
+        }
+    }
+
+    private getProgressLinePoints(
+        tasksToShow: Task[],
+        xScale: ScaleTime<number, number>,
+        yScale: ScaleBand<string>,
+        reference: ProgressLineReference,
+        lineWidth: number
+    ): ProgressLinePoint[] {
+        const rowItems: Array<{
+            id: string;
+            label: string;
+            rowKind: ProgressLineRowKind;
+            yOrder: number;
+            finishDate: Date | null | undefined;
+            referenceFinishDate: Date | null | undefined;
+        }> = [];
+
+        const taskHeight = this.settings.taskBars.taskHeight.value;
+        const includeWbsGroups = this.settings?.progressLine?.includeWbsGroups?.value ?? true;
+        const wbsGroupingEnabled = this.wbsDataExists && this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+        if (wbsGroupingEnabled && includeWbsGroups) {
+            for (const group of this.wbsGroups) {
+                if (group.yOrder === undefined) {
+                    continue;
+                }
+                if (group.yOrder < this.viewportStartIndex || group.yOrder > this.viewportEndIndex) {
+                    continue;
+                }
+                rowItems.push({
+                    id: `wbs:${group.id}`,
+                    label: this.getWbsDisplayName(group),
+                    rowKind: "wbs",
+                    yOrder: group.yOrder,
+                    finishDate: group.summaryFinishDate,
+                    referenceFinishDate: this.getWbsProgressLineReferenceFinish(group, reference)
+                });
+            }
+        }
+
+        for (const task of tasksToShow) {
+            if (task.yOrder === undefined) {
+                continue;
+            }
+            rowItems.push({
+                id: `task:${task.internalId}`,
+                label: task.name || String(task.id),
+                rowKind: "task",
+                yOrder: task.yOrder,
+                finishDate: task.finishDate,
+                referenceFinishDate: this.getTaskProgressLineReferenceFinish(task, reference)
+            });
+        }
+
+        return rowItems
+            .sort((a, b) => a.yOrder - b.yOrder)
+            .map(item => {
+                const progressPoint = calculateFinishVarianceProgressPoint(
+                    this.dataDate,
+                    item.finishDate,
+                    item.referenceFinishDate
+                );
+                const bandStart = yScale(item.yOrder.toString());
+                if (!progressPoint ||
+                    bandStart === undefined ||
+                    !isValidProgressDate(item.finishDate) ||
+                    !isValidProgressDate(item.referenceFinishDate)) {
+                    return null;
+                }
+
+                return {
+                    id: item.id,
+                    label: item.label,
+                    rowKind: item.rowKind,
+                    yOrder: item.yOrder,
+                    x: this.snapLineCoord(xScale(progressPoint.progressDate), lineWidth),
+                    y: this.snapLineCoord(bandStart + taskHeight / 2, lineWidth),
+                    progressDate: progressPoint.progressDate,
+                    finishDate: item.finishDate,
+                    referenceFinishDate: item.referenceFinishDate,
+                    varianceDays: progressPoint.varianceDays
+                };
+            })
+            .filter((point): point is ProgressLinePoint => point !== null);
+    }
+
+    private drawProgressLine(
+        tasksToShow: Task[],
+        xScale: ScaleTime<number, number>,
+        yScale: ScaleBand<string>,
+        chartWidth: number,
+        chartHeight: number,
+        forceSvg: boolean = false
+    ): void {
+        this.taskLayer?.selectAll(".progress-line-group").remove();
+        this.headerGridLayer?.selectAll(".progress-line-label-group").remove();
+
+        const reference = this.getEffectiveProgressLineReference();
+        if (!this.isProgressLineRenderable(reference) || !reference) {
+            return;
+        }
+
+        const settings = this.settings.progressLine;
+        const lineWidth = Math.max(0.5, settings.lineWidth?.value ?? 2);
+        const points = this.getProgressLinePoints(tasksToShow, xScale, yScale, reference, lineWidth);
+        if (points.length === 0) {
+            return;
+        }
+
+        const lineColor = this.resolveColor(settings.lineColor?.value?.value ?? "#D13438", "foreground");
+        const lineStyle = (settings.lineStyle?.value?.value as string | undefined) ?? "solid";
+        const markerSize = Math.max(2, settings.markerSize?.value ?? 4);
+        const showMarkers = settings.showMarkers?.value ?? true;
+
+        if (this.useCanvasRendering && !forceSvg) {
+            this.drawProgressLineCanvas(points, lineColor, lineWidth, lineStyle, markerSize, showMarkers, chartWidth, chartHeight);
+        } else {
+            this.drawProgressLineSvg(points, lineColor, lineWidth, lineStyle, markerSize, showMarkers);
+        }
+
+        this.drawProgressLineHeaderLabel(reference, points.length, lineColor, xScale, chartWidth);
+    }
+
+    private drawProgressLineSvg(
+        points: ProgressLinePoint[],
+        lineColor: string,
+        lineWidth: number,
+        lineStyle: string,
+        markerSize: number,
+        showMarkers: boolean
+    ): void {
+        if (!this.taskLayer?.node()) {
+            return;
+        }
+
+        const progressLineGroup = this.taskLayer.append("g")
+            .attr("class", "progress-line-group")
+            .attr("clip-path", this.getScopedUrlRef("chart-area-clip"))
+            .attr("aria-hidden", "true")
+            .style("pointer-events", "none");
+
+        if (points.length > 1) {
+            const lineGenerator = d3.line<ProgressLinePoint>()
+                .x(point => point.x)
+                .y(point => point.y);
+
+            progressLineGroup.append("path")
+                .attr("class", "progress-line-path")
+                .attr("d", lineGenerator(points))
+                .style("fill", "none")
+                .style("stroke", lineColor)
+                .style("stroke-width", lineWidth)
+                .style("stroke-linejoin", "round")
+                .style("stroke-linecap", "round")
+                .style("stroke-dasharray", this.getLineDashArray(lineStyle));
+        }
+
+        if (showMarkers) {
+            progressLineGroup.selectAll<SVGCircleElement, ProgressLinePoint>(".progress-line-marker")
+                .data(points, point => point.id)
+                .join("circle")
+                .attr("class", point => `progress-line-marker progress-line-marker-${point.rowKind}`)
+                .attr("cx", point => point.x)
+                .attr("cy", point => point.y)
+                .attr("r", markerSize)
+                .style("fill", this.highContrastMode ? this.highContrastBackground : "#FFFFFF")
+                .style("stroke", lineColor)
+                .style("stroke-width", Math.max(1, lineWidth * 0.75));
+        }
+    }
+
+    private drawProgressLineCanvas(
+        points: ProgressLinePoint[],
+        lineColor: string,
+        lineWidth: number,
+        lineStyle: string,
+        markerSize: number,
+        showMarkers: boolean,
+        chartWidth: number,
+        chartHeight: number
+    ): void {
+        if (!this.canvasContext) {
+            return;
+        }
+
+        const ctx = this.canvasContext;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, Math.max(0, chartWidth), Math.max(0, chartHeight));
+        ctx.clip();
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = lineWidth;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        switch (lineStyle) {
+            case "dashed":
+                ctx.setLineDash([5, 3]);
+                break;
+            case "dotted":
+                ctx.setLineDash([1, 3]);
+                break;
+            default:
+                ctx.setLineDash([]);
+                break;
+        }
+
+        if (points.length > 1) {
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let index = 1; index < points.length; index++) {
+                ctx.lineTo(points[index].x, points[index].y);
+            }
+            ctx.stroke();
+        }
+
+        if (showMarkers) {
+            ctx.setLineDash([]);
+            ctx.fillStyle = this.highContrastMode ? this.highContrastBackground : "#FFFFFF";
+            ctx.strokeStyle = lineColor;
+            ctx.lineWidth = Math.max(1, lineWidth * 0.75);
+            for (const point of points) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, markerSize, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            }
+        }
+
+        ctx.restore();
+    }
+
+    private drawProgressLineHeaderLabel(
+        reference: ProgressLineReference,
+        pointCount: number,
+        lineColor: string,
+        xScale: ScaleTime<number, number>,
+        chartWidth: number
+    ): void {
+        if (!this.headerGridLayer?.node() || !this.settings?.progressLine?.showLabel?.value || !isValidProgressDate(this.dataDate)) {
+            return;
+        }
+
+        const rawDataDateX = xScale(this.dataDate);
+        if (!Number.isFinite(rawDataDateX)) {
+            return;
+        }
+
+        const labelX = this.snapTextCoord(Math.max(0, Math.min(chartWidth, rawDataDateX)) + 5);
+        const labelY = this.getHeaderBandMetrics().topLabelY;
+        const labelText = `Progress: ${getProgressLineReferenceLabel(reference)} variance (${pointCount} rows)`;
+        const labelGroup = this.headerGridLayer.append("g")
+            .attr("class", "progress-line-label-group")
+            .attr("data-label-priority", "12")
+            .style("pointer-events", "none");
+
+        const textElement = labelGroup.append("text")
+            .attr("class", "progress-line-label")
+            .attr("x", labelX)
+            .attr("y", this.snapTextCoord(labelY))
+            .attr("text-anchor", "start")
+            .attr("dominant-baseline", "central")
+            .style("font-family", this.getFontFamily())
+            .style("fill", lineColor)
+            .style("font-size", this.fontPxFromPtSetting(Math.max(8, this.settings.textAndLabels.fontSize.value * 0.85)))
+            .style("font-weight", "600");
+
+        this.fitSvgTextToWidth(
+            textElement as Selection<SVGTextElement, unknown, null, undefined>,
+            labelText,
+            Math.max(80, chartWidth - labelX - this.HEADER_LINE_LABEL_EDGE_PADDING)
+        );
+
+        const bbox = (textElement.node() as SVGTextElement)?.getBBox();
+        if (!bbox) {
+            return;
+        }
+
+        const chipHeight = Math.max(
+            this.HEADER_LINE_LABEL_MIN_HEIGHT,
+            this.snapRectCoord(bbox.height + this.HEADER_LINE_LABEL_PADDING_Y * 2)
+        );
+
+        labelGroup.insert("rect", ".progress-line-label")
+            .attr("x", this.snapRectCoord(bbox.x - this.HEADER_LINE_LABEL_PADDING_X))
+            .attr("y", this.snapRectCoord(labelY - chipHeight / 2))
+            .attr("width", Math.max(1, this.snapRectCoord(bbox.width + this.HEADER_LINE_LABEL_PADDING_X * 2)))
+            .attr("height", chipHeight)
+            .attr("rx", 4)
+            .attr("ry", 4)
+            .style("fill", this.highContrastMode ? this.highContrastBackground : "#FFFFFF")
+            .style("fill-opacity", this.highContrastMode ? 1 : 0.86)
+            .style("stroke", lineColor)
+            .style("stroke-width", "1");
     }
 
     /**
@@ -16048,7 +16561,7 @@ export class Visual implements IVisual {
         addListItem(headerList, 'LA Selector', 'Lets report users turn look-ahead off or choose a 2W, 3W, 4W, 6W, 8W, or 12W review window from the Data Date.');
         addListItem(headerList, 'Near-Critical Threshold', 'In Float mode, sets the Total Float threshold used to identify near-critical tasks. On tighter headers this moves into the controls menu.');
         addListItem(headerList, 'Controls and Actions Menu', 'Opens grouped controls for Analysis, Timeline Layers, WBS, and Actions when the header is crowded. A badge indicates hidden controls that are active.');
-        addListItem(headerList, 'Timeline Layers', 'Show or hide baseline bars, previous update bars, connector lines, and extra table columns. Baseline and previous update bars also show their matching date columns when columns are enabled.');
+        addListItem(headerList, 'Timeline Layers', 'Show or hide baseline bars, previous update bars, progress line, connector lines, and extra table columns. Baseline and previous update bars also show their matching date columns when columns are enabled.');
         addListItem(headerList, 'WBS Controls', 'Enable WBS grouping and cycle expand/collapse depth from the header or the controls menu.');
         addListItem(headerList, 'Copy To Excel', 'Copies visible rows from its own header button so it remains available outside the Controls and actions menu.');
         addListItem(headerList, 'HTML / PDF / Help', 'Copy an HTML export, export a PDF, or open this guide. These actions are available from the controls menu when they do not fit inline.');
@@ -16107,6 +16620,7 @@ export class Visual implements IVisual {
         addListItem(timelineList, 'Milestones', 'Milestones appear as diamonds at a single scheduled date.');
         addListItem(timelineList, 'Baseline / Previous Bars', 'When enabled, lighter comparison bars appear beneath the current task bar so you can compare baseline, previous update, and current dates.');
         addListItem(timelineList, 'Finish & Reference Lines', 'Project Finish, Baseline Finish, Previous Finish, and Data Date can each draw a vertical line and label.');
+        addListItem(timelineList, 'Progress Line', 'When enabled, draws a finish-variance line from the Data Date. Rows finishing later than the selected reference finish bend left of the Data Date, and rows finishing earlier bend right. Visible WBS summary rows can contribute their own summary points.');
         addListItem(timelineList, 'Data Date Override', 'When the before-data-date override is enabled in settings, the earlier portion of a task bar uses the override color while the remaining portion keeps the task state color.');
         addListItem(timelineList, 'Look-Ahead Window', 'Shows the review band, optional end line, and optional end label when look-ahead is active.');
         addListItem(timelineList, 'Header Label Reflow', 'Date-line labels are reflowed to reduce overlap when project finish, data date, comparison finish, and look-ahead labels are close together.');

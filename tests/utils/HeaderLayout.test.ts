@@ -13,6 +13,7 @@ const allDesiredControls: HeaderDesiredControls = {
     floatThreshold: true,
     baseline: true,
     previousUpdate: true,
+    progressLine: true,
     connectorLines: true,
     columns: true,
     wbsEnable: true,
@@ -74,6 +75,7 @@ describe("HeaderLayout", () => {
         expect(layout.modeToggle.visible).toBe(true);
         expect(layout.copyButton.visible).toBe(true);
         expect(layout.actionOverflowButton.hiddenActions).toEqual(expect.arrayContaining([
+            "progressLine",
             "connectorLines",
             "columns",
             "wbsExpand",
@@ -87,18 +89,19 @@ describe("HeaderLayout", () => {
 
     it("counts active hidden controls for the overflow badge", () => {
         const count = getActiveHiddenHeaderControlCount(
-            ["lookAhead", "floatThreshold", "baseline", "previousUpdate", "connectorLines", "columns", "wbsEnable"],
+            ["lookAhead", "floatThreshold", "baseline", "previousUpdate", "progressLine", "connectorLines", "columns", "wbsEnable"],
             {
                 lookAheadWindowDays: 84,
                 showBaseline: true,
                 showPreviousUpdate: false,
+                showProgressLine: true,
                 showConnectorLines: true,
                 showExtraColumns: true,
                 wbsEnabled: false
             }
         );
 
-        expect(count).toBe(5);
+        expect(count).toBe(6);
     });
 
     it("keeps custom look-ahead options available without duplicating the standard list", () => {

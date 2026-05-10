@@ -2,10 +2,13 @@ import { Selection } from "d3-selection";
 import { VisualSettings } from "../settings";
 import { HEADER_DOCK_TOKENS } from "../utils/Theme";
 import { BoundFieldState } from "../data/Interfaces";
+import type { ProgressLineReference } from "../utils/ProgressLine";
 export interface HeaderCallbacks {
     onToggleCriticalPath: () => void;
     onToggleBaseline: () => void;
     onTogglePreviousUpdate: () => void;
+    onToggleProgressLine: () => void;
+    onProgressLineReferenceChanged: (reference: ProgressLineReference) => void;
     onToggleConnectorLines: () => void;
     onToggleWbsExpand: () => void;
     onToggleWbsCollapse: () => void;
@@ -27,6 +30,11 @@ export interface HeaderState {
     baselineAvailable: boolean;
     showPreviousUpdate: boolean;
     previousUpdateAvailable: boolean;
+    progressLineVisible: boolean;
+    progressLineAvailable: boolean;
+    progressLineReference: ProgressLineReference;
+    progressLineBaselineAvailable: boolean;
+    progressLinePreviousUpdateAvailable: boolean;
     boundFields: BoundFieldState;
     showConnectorLines: boolean;
     wbsExpanded: boolean;
@@ -131,10 +139,12 @@ export declare class Header {
     private getOverflowFocusableItems;
     private handleOverflowMenuKeydown;
     private createActionOverflowButton;
+    private getProgressLineReferenceShortLabel;
     private getHeaderMenuItems;
     private getActiveHiddenControlCount;
     private renderActionOverflowMenu;
     private renderHeaderMenuItem;
+    private renderProgressLineMenuItem;
     private renderLookAheadMenuItem;
     private renderFloatThresholdMenuItem;
 }

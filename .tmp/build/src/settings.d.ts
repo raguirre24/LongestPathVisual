@@ -198,6 +198,20 @@ declare class DataDateColorOverrideCard extends Card {
     beforeDataDateColor: formattingSettings.ColorPicker;
     slices: Slice[];
 }
+declare class ProgressLineCard extends Card {
+    name: string;
+    displayName: string;
+    show: formattingSettings.ToggleSwitch;
+    referenceFinish: formattingSettings.ItemDropdown;
+    lineColor: formattingSettings.ColorPicker;
+    lineWidth: formattingSettings.NumUpDown;
+    lineStyle: formattingSettings.ItemDropdown;
+    showMarkers: formattingSettings.ToggleSwitch;
+    markerSize: formattingSettings.NumUpDown;
+    includeWbsGroups: formattingSettings.ToggleSwitch;
+    showLabel: formattingSettings.ToggleSwitch;
+    slices: Slice[];
+}
 declare class LookAheadCard extends Card {
     name: string;
     displayName: string;
@@ -345,6 +359,7 @@ export declare class VisualSettings extends Model {
     previousUpdateFinishLine: PreviousUpdateFinishLineCard;
     dataDateLine: DataDateLineCard;
     lookAhead: LookAheadCard;
+    progressLine: ProgressLineCard;
     pathSelection: PathSelectionCard;
     wbsGrouping: WBSGroupingCard;
     wbsLevelStyles: WbsLevelStylesCard;

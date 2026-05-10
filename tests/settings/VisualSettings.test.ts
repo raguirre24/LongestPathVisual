@@ -36,6 +36,64 @@ describe("VisualSettings", () => {
         ]);
     });
 
+    it("exposes the finish-variance progress line format card", () => {
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+        const properties = capabilities.objects.progressLine.properties;
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const headerSource = readFileSync("src/components/Header.ts", "utf8");
+
+        expect(settingsSource).toContain('name: string = "progressLine"');
+        expect(settingsSource).toContain('displayName: "Show Progress Line"');
+        expect(settingsSource).toContain('value: false');
+        expect(settingsSource).toContain("progressLine = new ProgressLineCard()");
+        expect(settingsSource).toContain("this.progressLine");
+
+        expect(Object.keys(properties)).toEqual([
+            "show",
+            "referenceFinish",
+            "lineColor",
+            "lineWidth",
+            "lineStyle",
+            "showMarkers",
+            "markerSize",
+            "includeWbsGroups",
+            "showLabel"
+        ]);
+        expect(properties.referenceFinish.type.enumeration.map((item: { value: string }) => item.value)).toEqual([
+            "baselineFinish",
+            "previousUpdateFinish"
+        ]);
+
+        expect(visualSource).toContain("calculateFinishVarianceProgressPoint");
+        expect(visualSource).toContain("getWbsProgressLineReferenceFinish");
+        expect(visualSource).toContain("summaryBaselineFinishDate");
+        expect(visualSource).toContain("summaryPreviousUpdateFinishDate");
+        expect(visualSource).toContain("drawProgressLine(renderableTasks");
+        expect(visualSource).toContain("onToggleProgressLine: () => this.toggleProgressLineDisplay()");
+        expect(visualSource).toContain("onProgressLineReferenceChanged: (reference) => this.setProgressLineReference(reference)");
+        expect(visualSource).toContain('properties: { referenceFinish: reference }');
+        expect(headerSource).toContain("renderProgressLineMenuItem");
+        expect(headerSource).toContain("onProgressLineReferenceChanged");
+        expect(headerSource).toContain("progressLineBaselineAvailable");
+        expect(visualSource).toContain("progressLineAvailable: progressLineBaselineAvailable || progressLinePreviousUpdateAvailable");
+        expect(visualSource).toContain("if (visible && !this.hasProgressLineReferenceData(reference))");
+    });
+
+    it("keeps the progress-line header menu open while changing progress-line options", () => {
+        const headerSource = readFileSync("src/components/Header.ts", "utf8");
+        const progressMenuStart = headerSource.indexOf("private renderProgressLineMenuItem");
+        const progressMenuEnd = headerSource.indexOf("private renderLookAheadMenuItem");
+        const progressMenuSource = headerSource.slice(progressMenuStart, progressMenuEnd);
+
+        expect(progressMenuStart).toBeGreaterThan(-1);
+        expect(progressMenuEnd).toBeGreaterThan(progressMenuStart);
+        expect(progressMenuSource).toContain("this.callbacks.onToggleProgressLine()");
+        expect(progressMenuSource).toContain("this.callbacks.onProgressLineReferenceChanged(reference.value)");
+        expect(progressMenuSource).toContain('property("disabled", disabled)');
+        expect(progressMenuSource).not.toContain("this.closeControlsMenu");
+    });
+
     it("applies the look-ahead task filter before max task limiting", () => {
         const visualSource = readFileSync("src/visual.ts", "utf8");
         const filterIndex = visualSource.indexOf("tasksToConsider = this.filterTasksToLookAhead(tasksToConsider)");

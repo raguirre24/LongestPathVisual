@@ -324,6 +324,12 @@ export declare class Visual implements IVisual {
     private togglePreviousUpdateDisplayInternal;
     private toggleColumnDisplayInternal;
     private setLookAheadWindowDays;
+    private getFallbackProgressLineReference;
+    private setProgressLineReferenceSettingValue;
+    private refreshAfterProgressLineHeaderChange;
+    private toggleProgressLineDisplay;
+    private setProgressLineVisible;
+    private setProgressLineReference;
     /**
      * Toggles WBS grouping on/off for the viewer (persisted in formatting properties).
      */
@@ -609,6 +615,18 @@ export declare class Visual implements IVisual {
     private getRelationshipRenderGeometry;
     private drawArrows;
     private getLineDashArray;
+    private getProgressLineReferenceSetting;
+    private getTaskProgressLineReferenceFinish;
+    private getWbsProgressLineReferenceFinish;
+    private hasProgressLineReferenceData;
+    private getEffectiveProgressLineReference;
+    private isProgressLineRenderable;
+    private addProgressLineTimestamp;
+    private getProgressLinePoints;
+    private drawProgressLine;
+    private drawProgressLineSvg;
+    private drawProgressLineCanvas;
+    private drawProgressLineHeaderLabel;
     /**
      * Gets the appropriate task set for finish line calculations.
      * Prefers `allFilteredTasks` which respects all filters (LP, Search, Legend).

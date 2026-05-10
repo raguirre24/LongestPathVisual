@@ -3,6 +3,8 @@ import { select, Selection } from "d3-selection";
 import { VisualSettings } from "../settings";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "../utils/Theme";
 import { BoundFieldState } from "../data/Interfaces";
+import { getProgressLineReferenceLabel } from "../utils/ProgressLine";
+import type { ProgressLineReference } from "../utils/ProgressLine";
 import {
     computeHeaderButtonLayout,
     getActiveHiddenHeaderControlCount,
@@ -17,6 +19,8 @@ export interface HeaderCallbacks {
     onToggleCriticalPath: () => void;
     onToggleBaseline: () => void;
     onTogglePreviousUpdate: () => void;
+    onToggleProgressLine: () => void;
+    onProgressLineReferenceChanged: (reference: ProgressLineReference) => void;
     onToggleConnectorLines: () => void;
     onToggleWbsExpand: () => void;
     onToggleWbsCollapse: () => void;
@@ -39,6 +43,11 @@ export interface HeaderState {
     baselineAvailable: boolean;
     showPreviousUpdate: boolean;
     previousUpdateAvailable: boolean;
+    progressLineVisible: boolean;
+    progressLineAvailable: boolean;
+    progressLineReference: ProgressLineReference;
+    progressLineBaselineAvailable: boolean;
+    progressLinePreviousUpdateAvailable: boolean;
     boundFields: BoundFieldState;
     showConnectorLines: boolean;
     wbsExpanded: boolean;
@@ -68,7 +77,7 @@ interface HeaderMenuItem {
     status?: string;
     title?: string;
     disabled?: boolean;
-    kind?: "button" | "options" | "number";
+    kind?: "button" | "options" | "number" | "progressLine";
     callback?: () => void;
 }
 
@@ -1222,6 +1231,7 @@ export class Header {
             floatThreshold: state.currentMode === "floatBased" && state.showNearCritical,
             baseline: true,
             previousUpdate: true,
+            progressLine: true,
             connectorLines: settings.connectorLines?.showConnectorToggle?.value ?? false,
             columns: settings.columns?.showColumnToggleButton?.value ?? true,
             wbsEnable: state.wbsDataExists && (settings.wbsGrouping?.showWbsToggle?.value ?? true),
@@ -2984,6 +2994,10 @@ export class Header {
         this.renderActionOverflowMenu(buttonX, buttonSize, hiddenActions);
     }
 
+    private getProgressLineReferenceShortLabel(reference: ProgressLineReference): string {
+        return reference === "previousUpdateFinish" ? "Previous" : "Baseline";
+    }
+
     private getHeaderMenuItems(actions: HeaderMenuAction[]): HeaderMenuItem[] {
         const state = this.currentState;
         const allItems: Record<HeaderMenuAction, HeaderMenuItem> = {
@@ -3021,6 +3035,17 @@ export class Header {
                 title: state.previousUpdateAvailable ? "Show or hide previous update comparison bars." : "Previous Update Start and Finish are not available.",
                 disabled: !state.previousUpdateAvailable,
                 callback: this.callbacks.onTogglePreviousUpdate
+            },
+            progressLine: {
+                id: "progressLine",
+                section: "Timeline Layers",
+                label: "Progress line",
+                status: state.progressLineVisible ? this.getProgressLineReferenceShortLabel(state.progressLineReference) : "Off",
+                title: state.progressLineAvailable
+                    ? "Show the finish-variance progress line and choose its reference finish."
+                    : "Progress line requires a Data Date, Current Finish, and either Baseline Finish or Previous Update Finish.",
+                disabled: !state.progressLineAvailable,
+                kind: "progressLine"
             },
             connectorLines: {
                 id: "connectorLines",
@@ -3073,6 +3098,7 @@ export class Header {
             lookAheadWindowDays: this.currentState.lookAheadWindowDays,
             showBaseline: this.currentState.showBaseline,
             showPreviousUpdate: this.currentState.showPreviousUpdate,
+            showProgressLine: this.currentState.progressLineVisible,
             showConnectorLines: this.currentState.showConnectorLines,
             showExtraColumns: this.currentState.showExtraColumns,
             wbsEnabled: this.currentState.wbsEnabled
@@ -3167,6 +3193,11 @@ export class Header {
             return;
         }
 
+        if (item.kind === "progressLine") {
+            this.renderProgressLineMenuItem(sectionEl, item);
+            return;
+        }
+
         const button = sectionEl.append("button")
             .attr("class", "action-overflow-menu-item")
             .attr("type", "button")
@@ -3219,6 +3250,187 @@ export class Header {
                 .style("white-space", "nowrap")
                 .text(item.status);
         }
+    }
+
+    private renderProgressLineMenuItem(
+        sectionEl: Selection<HTMLDivElement, unknown, null, undefined>,
+        item: HeaderMenuItem
+    ): void {
+        const state = this.currentState;
+        const activeReference = state.progressLineReference;
+        const references: Array<{ value: ProgressLineReference; label: string; available: boolean }> = [
+            { value: "baselineFinish", label: "Baseline", available: state.progressLineBaselineAvailable },
+            { value: "previousUpdateFinish", label: "Previous", available: state.progressLinePreviousUpdateAvailable }
+        ];
+
+        const row = sectionEl.append("div")
+            .attr("class", "action-overflow-menu-item action-overflow-menu-field progress-line-menu-item")
+            .attr("title", item.title ?? item.label)
+            .style("min-height", "76px")
+            .style("padding", "6px 8px")
+            .style("border-radius", `${UI_TOKENS.radius.small}px`)
+            .style("display", "flex")
+            .style("flex-direction", "column")
+            .style("align-items", "stretch")
+            .style("gap", "7px");
+
+        const headerLine = row.append("div")
+            .style("display", "grid")
+            .style("grid-template-columns", "1fr auto")
+            .style("align-items", "center")
+            .style("gap", "8px");
+
+        const labelStack = headerLine.append("div")
+            .style("display", "flex")
+            .style("flex-direction", "column")
+            .style("min-width", "0");
+
+        labelStack.append("span")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "12px")
+            .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
+            .style("white-space", "nowrap")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
+            .text(item.label);
+
+        labelStack.append("span")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "10.5px")
+            .style("font-weight", UI_TOKENS.fontWeight.normal)
+            .style("color", HEADER_DOCK_TOKENS.chipMuted)
+            .style("white-space", "nowrap")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
+            .text(state.progressLineVisible
+                ? `Against ${this.getProgressLineReferenceShortLabel(activeReference)}`
+                : "Finish variance");
+
+        const toggleSelected = state.progressLineVisible;
+        const toggleFill = toggleSelected ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.inputBg;
+        const toggleStroke = toggleSelected ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.inputStroke;
+
+        headerLine.append("button")
+            .attr("class", "progress-line-toggle-button")
+            .attr("type", "button")
+            .attr("aria-pressed", String(toggleSelected))
+            .attr("aria-label", `${toggleSelected ? "Hide" : "Show"} progress line`)
+            .attr("title", item.title ?? item.label)
+            .property("disabled", !!item.disabled)
+            .style("height", "24px")
+            .style("min-width", "44px")
+            .style("padding", "0 8px")
+            .style("border", `1px solid ${toggleStroke}`)
+            .style("border-radius", "4px")
+            .style("box-sizing", "border-box")
+            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-size", "11px")
+            .style("font-weight", UI_TOKENS.fontWeight.semibold)
+            .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
+            .style("background-color", item.disabled ? HEADER_DOCK_TOKENS.buttonBg : toggleFill)
+            .style("cursor", item.disabled ? "not-allowed" : "pointer")
+            .on("mouseover", function () {
+                if (!item.disabled && !toggleSelected) {
+                    select(this).style("background-color", HEADER_DOCK_TOKENS.buttonHoverBg);
+                }
+            })
+            .on("mouseout", function () {
+                select(this).style("background-color", item.disabled ? HEADER_DOCK_TOKENS.buttonBg : toggleFill);
+            })
+            .on("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (item.disabled) {
+                    return;
+                }
+
+                this.callbacks.onToggleProgressLine();
+            })
+            .text(toggleSelected ? "On" : "Off");
+
+        const optionGrid = row.append("div")
+            .attr("role", "radiogroup")
+            .attr("aria-label", "Progress line reference finish")
+            .style("display", "grid")
+            .style("grid-template-columns", "repeat(2, minmax(0, 1fr))")
+            .style("gap", "4px");
+
+        references.forEach(reference => {
+            const selected = reference.value === activeReference;
+            const disabled = !reference.available;
+            const selectedFill = selected ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.inputBg;
+            const selectedStroke = selected ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.inputStroke;
+            const title = reference.available
+                ? `Use ${getProgressLineReferenceLabel(reference.value)} as the progress line reference`
+                : `${getProgressLineReferenceLabel(reference.value)} does not have enough data`;
+
+            optionGrid.append("button")
+                .attr("class", "progress-line-reference-button")
+                .attr("type", "button")
+                .attr("role", "radio")
+                .attr("aria-checked", String(selected))
+                .attr("title", title)
+                .property("disabled", disabled)
+                .style("height", "24px")
+                .style("min-width", "0")
+                .style("padding", "0 4px")
+                .style("border", `1px solid ${selectedStroke}`)
+                .style("border-radius", "4px")
+                .style("box-sizing", "border-box")
+                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
+                .style("font-weight", UI_TOKENS.fontWeight.semibold)
+                .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
+                .style("color", disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
+                .style("background-color", disabled ? HEADER_DOCK_TOKENS.buttonBg : selectedFill)
+                .style("cursor", disabled ? "not-allowed" : "pointer")
+                .on("mouseover", function () {
+                    if (!disabled && !selected) {
+                        select(this).style("background-color", HEADER_DOCK_TOKENS.buttonHoverBg);
+                    }
+                })
+                .on("mouseout", function () {
+                    select(this).style("background-color", disabled ? HEADER_DOCK_TOKENS.buttonBg : selectedFill);
+                })
+                .on("click", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (disabled || selected) {
+                        return;
+                    }
+
+                    this.callbacks.onProgressLineReferenceChanged(reference.value);
+                })
+                .on("keydown", (event: KeyboardEvent) => {
+                    if (disabled) {
+                        return;
+                    }
+
+                    const buttons = Array.from(
+                        optionGrid.node()?.querySelectorAll<HTMLButtonElement>("button.progress-line-reference-button:not(:disabled)") ?? []
+                    );
+                    const currentIndex = buttons.indexOf(event.currentTarget as HTMLButtonElement);
+                    const focusButton = (index: number) => {
+                        if (buttons.length === 0) {
+                            return;
+                        }
+
+                        buttons[(index + buttons.length) % buttons.length]?.focus();
+                    };
+
+                    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        focusButton(currentIndex + 1);
+                    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        focusButton(currentIndex - 1);
+                    }
+                })
+                .text(reference.label);
+        });
     }
 
     private renderLookAheadMenuItem(

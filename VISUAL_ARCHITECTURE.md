@@ -22,6 +22,8 @@ The visual supports:
 - Show All versus critical/near-critical filtering.
 - WBS grouping, expand/collapse, WBS-only copy, and grouped summaries.
 - Baseline and previous-update comparison bars and finish markers.
+- Finish-variance progress line using Data Date plus Finish versus Baseline
+  Finish or Previous Update Finish, including visible WBS summary rows.
 - Look-ahead filtering/highlighting and data-date visual cues.
 - Legend colouring and legend filtering.
 - Header controls, responsive overflow menu, task search, path navigation, help,

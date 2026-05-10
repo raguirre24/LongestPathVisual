@@ -3974,7 +3974,7 @@ module.exports = typeof documentAll == 'undefined' && documentAll !== undefined 
 "use strict";
 
 var DESCRIPTORS = __webpack_require__(3724);
-var IE8_DOM_DEFINE = __webpack_require__(5917);
+var IE8_DOM_DEFINE = __webpack_require__(8298);
 var V8_PROTOTYPE_DEFINE_BUG = __webpack_require__(8686);
 var anObject = __webpack_require__(8551);
 var toPropertyKey = __webpack_require__(6969);
@@ -4538,26 +4538,6 @@ var store = __webpack_require__(7629);
 module.exports = function (key, value) {
   return store[key] || (store[key] = value || {});
 };
-
-
-/***/ }),
-
-/***/ 5917:
-/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
-
-"use strict";
-
-var DESCRIPTORS = __webpack_require__(3724);
-var fails = __webpack_require__(9039);
-var createElement = __webpack_require__(4055);
-
-// Thanks to IE8 for its funny defineProperty
-module.exports = !DESCRIPTORS && !fails(function () {
-  // eslint-disable-next-line es/no-object-defineproperty -- required for testing
-  return Object.defineProperty(createElement('div'), 'a', {
-    get: function () { return 7; }
-  }).a !== 7;
-});
 
 
 /***/ }),
@@ -11902,7 +11882,7 @@ var createPropertyDescriptor = __webpack_require__(6980);
 var toIndexedObject = __webpack_require__(5397);
 var toPropertyKey = __webpack_require__(6969);
 var hasOwn = __webpack_require__(9297);
-var IE8_DOM_DEFINE = __webpack_require__(5917);
+var IE8_DOM_DEFINE = __webpack_require__(8298);
 
 // eslint-disable-next-line es/no-object-getownpropertydescriptor -- safe
 var $getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
@@ -12401,6 +12381,26 @@ Queue.prototype = {
 };
 
 module.exports = Queue;
+
+
+/***/ }),
+
+/***/ 8298:
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+"use strict";
+
+var DESCRIPTORS = __webpack_require__(3724);
+var fails = __webpack_require__(9039);
+var createElement = __webpack_require__(4055);
+
+// Thanks to IE8 for its funny defineProperty
+module.exports = !DESCRIPTORS && !fails(function () {
+  // eslint-disable-next-line es/no-object-defineproperty -- required for testing
+  return Object.defineProperty(createElement('div'), 'a', {
+    get: function () { return 7; }
+  }).a !== 7;
+});
 
 
 /***/ }),

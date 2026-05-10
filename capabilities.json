@@ -298,6 +298,91 @@
                 }
             }
         },
+        "progressLine": {
+            "displayName": "Progress Line",
+            "properties": {
+                "show": {
+                    "displayName": "Show Progress Line",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "referenceFinish": {
+                    "displayName": "Reference Finish",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "baselineFinish",
+                                "displayName": "Baseline Finish"
+                            },
+                            {
+                                "value": "previousUpdateFinish",
+                                "displayName": "Previous Update Finish"
+                            }
+                        ]
+                    }
+                },
+                "lineColor": {
+                    "displayName": "Line Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "lineWidth": {
+                    "displayName": "Line Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "lineStyle": {
+                    "displayName": "Line Style",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "solid",
+                                "displayName": "Solid"
+                            },
+                            {
+                                "value": "dashed",
+                                "displayName": "Dashed"
+                            },
+                            {
+                                "value": "dotted",
+                                "displayName": "Dotted"
+                            }
+                        ]
+                    }
+                },
+                "showMarkers": {
+                    "displayName": "Show Row Markers",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "markerSize": {
+                    "displayName": "Marker Size (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "includeWbsGroups": {
+                    "displayName": "Include WBS Summary Rows",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "showLabel": {
+                    "displayName": "Show Header Label",
+                    "type": {
+                        "bool": true
+                    }
+                }
+            }
+        },
         "lookAhead": {
             "displayName": "Look-Ahead Window",
             "properties": {

@@ -7,6 +7,7 @@ export type HeaderMenuAction =
     | "floatThreshold"
     | "baseline"
     | "previousUpdate"
+    | "progressLine"
     | "connectorLines"
     | "columns"
     | "wbsEnable"
@@ -21,6 +22,7 @@ export interface HeaderDesiredControls {
     floatThreshold: boolean;
     baseline: boolean;
     previousUpdate: boolean;
+    progressLine: boolean;
     connectorLines: boolean;
     columns: boolean;
     wbsEnable: boolean;
@@ -36,6 +38,7 @@ export interface HeaderActiveControlState {
     lookAheadWindowDays: number;
     showBaseline: boolean;
     showPreviousUpdate: boolean;
+    showProgressLine: boolean;
     showConnectorLines: boolean;
     showExtraColumns: boolean;
     wbsEnabled: boolean;
@@ -238,6 +241,7 @@ export function computeHeaderButtonLayout(input: HeaderLayoutInput): HeaderButto
         if (desiredControls.floatThreshold && !shouldInlineHeaderFloatThreshold(viewportWidth, input.currentMode, input.showNearCritical)) controls.push("floatThreshold");
         if (desiredControls.baseline && !visibleButtons.baseline) controls.push("baseline");
         if (desiredControls.previousUpdate && !visibleButtons.previousUpdate) controls.push("previousUpdate");
+        if (desiredControls.progressLine) controls.push("progressLine");
         if (desiredControls.connectorLines && !visibleButtons.connectorLines) controls.push("connectorLines");
         if (desiredControls.columns && !visibleButtons.colToggle) controls.push("columns");
         if (desiredControls.wbsEnable && !visibleButtons.wbsEnable) controls.push("wbsEnable");
@@ -498,6 +502,8 @@ export function getActiveHiddenHeaderControlCount(
                 return count + (state.showBaseline ? 1 : 0);
             case "previousUpdate":
                 return count + (state.showPreviousUpdate ? 1 : 0);
+            case "progressLine":
+                return count + (state.showProgressLine ? 1 : 0);
             case "connectorLines":
                 return count + (state.showConnectorLines ? 1 : 0);
             case "columns":

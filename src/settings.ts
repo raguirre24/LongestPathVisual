@@ -29,6 +29,11 @@ const lookAheadDisplayModeItems: powerbi.IEnumMember[] = [
     { value: "highlight", displayName: "Highlight Only" }
 ];
 
+const progressLineReferenceItems: powerbi.IEnumMember[] = [
+    { value: "baselineFinish", displayName: "Baseline Finish" },
+    { value: "previousUpdateFinish", displayName: "Previous Update Finish" }
+];
+
 const fontFamilyItems: powerbi.IEnumMember[] = [
     { value: "Segoe UI", displayName: "Segoe UI" },
     { value: "Arial", displayName: "Arial" },
@@ -893,6 +898,93 @@ class DataDateColorOverrideCard extends Card {
 }
 
 // ============================================================================
+// 12.75. PROGRESS LINE
+// ============================================================================
+class ProgressLineCard extends Card {
+    name: string = "progressLine";
+    displayName: string = "Progress Line";
+
+    show = new ToggleSwitch({
+        name: "show",
+        displayName: "Show Progress Line",
+        description: "Draw a finish-variance progress line from the Data Date using Current Finish against the selected reference finish",
+        value: false
+    });
+
+    referenceFinish = new ItemDropdown({
+        name: "referenceFinish",
+        displayName: "Reference Finish",
+        description: "Choose whether finish variance is measured against Baseline Finish or Previous Update Finish",
+        items: progressLineReferenceItems,
+        value: progressLineReferenceItems.find(item => item.value === "baselineFinish")
+    });
+
+    lineColor = new ColorPicker({
+        name: "lineColor",
+        displayName: "Line Color",
+        value: { value: "#D13438" }
+    });
+
+    lineWidth = new NumUpDown({
+        name: "lineWidth",
+        displayName: "Line Width (px)",
+        value: 2,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0.5 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 8 }
+        }
+    });
+
+    lineStyle = new ItemDropdown({
+        name: "lineStyle",
+        displayName: "Line Style",
+        items: lineStyleItems,
+        value: lineStyleItems.find(item => item.value === "solid")
+    });
+
+    showMarkers = new ToggleSwitch({
+        name: "showMarkers",
+        displayName: "Show Row Markers",
+        value: true
+    });
+
+    markerSize = new NumUpDown({
+        name: "markerSize",
+        displayName: "Marker Size (px)",
+        value: 4,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 2 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 12 }
+        }
+    });
+
+    includeWbsGroups = new ToggleSwitch({
+        name: "includeWbsGroups",
+        displayName: "Include WBS Summary Rows",
+        description: "Draw progress-line points for visible WBS summary rows when WBS grouping is enabled",
+        value: true
+    });
+
+    showLabel = new ToggleSwitch({
+        name: "showLabel",
+        displayName: "Show Header Label",
+        value: true
+    });
+
+    slices: Slice[] = [
+        this.show,
+        this.referenceFinish,
+        this.lineColor,
+        this.lineWidth,
+        this.lineStyle,
+        this.showMarkers,
+        this.markerSize,
+        this.includeWbsGroups,
+        this.showLabel
+    ];
+}
+
+// ============================================================================
 // 13. LOOK-AHEAD WINDOW
 // ============================================================================
 class LookAheadCard extends Card {
@@ -1251,6 +1343,7 @@ export class VisualSettings extends Model {
     previousUpdateFinishLine = new PreviousUpdateFinishLineCard();
     dataDateLine = new DataDateLineCard();
     lookAhead = new LookAheadCard();
+    progressLine = new ProgressLineCard();
     pathSelection = new PathSelectionCard();
     wbsGrouping = new WBSGroupingCard();
     wbsLevelStyles = new WbsLevelStylesCard();
@@ -1276,6 +1369,7 @@ export class VisualSettings extends Model {
         this.previousUpdateFinishLine,
         this.dataDateLine,
         this.dataDateColorOverride,
+        this.progressLine,
         this.lookAhead,
         this.pathSelection,
         this.wbsGrouping,
