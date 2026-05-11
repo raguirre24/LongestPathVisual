@@ -61,6 +61,33 @@ describe("HeaderLayout", () => {
         expect(layoutAt(480, { lookAheadActive: true }).lookAhead.width).toBe(66);
     });
 
+    it("gives the top-row controls enough clearance from dock containers", () => {
+        const layout = layoutAt(1240, { lookAheadActive: true });
+        const visibleControls = [
+            layout.showAllCritical,
+            layout.modeToggle,
+            layout.lookAhead,
+            layout.baseline,
+            layout.previousUpdate,
+            layout.connectorLines,
+            layout.colToggle,
+            layout.wbsEnable,
+            layout.copyButton,
+            layout.actionOverflowButton
+        ].filter(control => control.visible);
+
+        expect(layout.showAllCritical.x).toBeGreaterThanOrEqual(16);
+        expect(layout.gap).toBeGreaterThanOrEqual(16);
+
+        for (let index = 1; index < visibleControls.length; index++) {
+            const previous = visibleControls[index - 1];
+            const current = visibleControls[index];
+            const previousRight = previous.x + (previous.width ?? previous.size ?? 0);
+
+            expect(current.x - previousRight).toBeGreaterThanOrEqual(layout.gap);
+        }
+    });
+
     it("keeps copy-to-Excel inline and out of the controls menu", () => {
         const layout = layoutAt(320);
 

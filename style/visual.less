@@ -270,7 +270,7 @@ text {
     user-select: none;
     padding: 4px 10px;
     border-radius: 6px;
-    border: 1px solid #e8e8e8;
+    border: 1px solid var(--lpv-header-legend-border-color, #4D5A6E);
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     opacity: 0.55;
     background-color: transparent;
@@ -278,7 +278,7 @@ text {
 
 .legend-item.is-selected {
     opacity: 1;
-    border-color: #ddd;
+    border-color: var(--lpv-header-legend-border-color, #4D5A6E);
 }
 
 .legend-item:hover {
@@ -575,7 +575,7 @@ text {
 .task-selection-input {
     width: 250px;
     padding: 5px 8px;
-    border: 1px solid #ccc;
+    border: 1px solid var(--lpv-header-legend-border-color, #4D5A6E);
     border-radius: 4px;
     font-family: 'Segoe UI', sans-serif;
     font-size: 9px;
@@ -590,10 +590,10 @@ text {
     overflow-y: auto;
     width: 100%;
     background: white;
-    border: 1px solid #ccc;
+    border: 1px solid var(--lpv-header-legend-border-color, #4D5A6E);
     border-top: none;
     border-radius: 0 0 4px 4px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    box-shadow: none;
     display: none;
     z-index: 30;
     pointer-events: auto;
@@ -606,7 +606,7 @@ text {
     right: 15px;
     padding: 5px 10px;
     background-color: rgba(255, 255, 255, 0.8);
-    border: 1px solid #ccc;
+    border: 1px solid var(--lpv-header-legend-border-color, #4D5A6E);
     border-radius: 4px;
     font-family: 'Segoe UI', sans-serif;
     font-size: 9px;

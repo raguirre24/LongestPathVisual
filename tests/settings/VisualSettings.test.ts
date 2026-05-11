@@ -18,6 +18,219 @@ describe("VisualSettings", () => {
         expect(settingsSource).toContain('lookAheadWindowDays = new NumUpDown');
     });
 
+    it("exposes header and legend colour settings", () => {
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const headerSource = readFileSync("src/components/Header.ts", "utf8");
+
+        expect(capabilities.objects.generalSettings.properties.headerLegendBackgroundColor.type.fill.solid.color).toBe(true);
+        expect(capabilities.objects.generalSettings.properties.headerLegendControlBackgroundColor.type.fill.solid.color).toBe(true);
+        expect(capabilities.objects.generalSettings.properties.headerLegendTextColor.type.fill.solid.color).toBe(true);
+        expect(capabilities.objects.generalSettings.properties.headerLegendBorderColor.type.fill.solid.color).toBe(true);
+        expect(settingsSource).toContain('name: "headerLegendBackgroundColor"');
+        expect(settingsSource).toContain('name: "headerLegendControlBackgroundColor"');
+        expect(settingsSource).toContain('name: "headerLegendTextColor"');
+        expect(settingsSource).toContain('name: "headerLegendBorderColor"');
+        expect(settingsSource).toContain('displayName: "Header and Legend Background Color"');
+        expect(settingsSource).toContain('displayName: "Header and Legend Control Background Color"');
+        expect(settingsSource).toContain('displayName: "Header and Legend Text Color"');
+        expect(settingsSource).toContain('displayName: "Header and Legend Border Color"');
+        expect(visualSource).toContain("getHeaderLegendBackgroundColor");
+        expect(visualSource).toContain("getHeaderLegendControlBackgroundColor");
+        expect(visualSource).toContain("getHeaderLegendTextColor");
+        expect(visualSource).toContain("getHeaderLegendBorderColor");
+        expect(visualSource).toContain("headerLegendBackgroundColor?.value?.value");
+        expect(visualSource).toContain("headerLegendControlBackgroundColor?.value?.value");
+        expect(visualSource).toContain("headerLegendTextColor?.value?.value");
+        expect(visualSource).toContain("headerLegendBorderColor?.value?.value");
+        expect(headerSource).toContain("usesCustomColours");
+        expect(headerSource).toContain("getHeaderControlBackground");
+        expect(headerSource).toContain("getHeaderControlTextColor");
+        expect(headerSource).toContain("getHeaderInputBackground");
+        expect(headerSource).toContain("getHeaderBorderColor");
+        expect(headerSource).toContain("getHeaderInputBorderColor");
+        expect(headerSource).toContain("getHeaderMenuBorderColor");
+        expect(headerSource).toContain("getHeaderMenuBackground");
+        expect(headerSource).toContain("getHeaderControlHoverBackground");
+    });
+
+    it("keeps timeline label colour under General header and legend colours", () => {
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const headerSource = readFileSync("src/components/Header.ts", "utf8");
+        const gridLinesStart = settingsSource.indexOf("class GridLinesCard extends Card");
+        const gridLinesEnd = settingsSource.indexOf("class ProjectFinishLineCard extends Card");
+        const gridLinesSource = settingsSource.slice(gridLinesStart, gridLinesEnd);
+        const gridSlicesStart = gridLinesSource.indexOf("slices: Slice[] = [");
+        const gridSlicesEnd = gridLinesSource.indexOf("];", gridSlicesStart);
+        const gridSlicesSource = gridLinesSource.slice(gridSlicesStart, gridSlicesEnd);
+        const drawGridLinesStart = visualSource.indexOf("private drawgridLines(");
+        const drawGridLinesEnd = visualSource.indexOf("// Calculate the visible time range", drawGridLinesStart);
+        const drawGridLinesSource = visualSource.slice(drawGridLinesStart, drawGridLinesEnd);
+        const modeToggleStart = headerSource.indexOf("private createModeToggleButton()");
+        const modeToggleEnd = headerSource.indexOf("private attachLookAheadOutsideClickHandler()", modeToggleStart);
+        const modeToggleSource = headerSource.slice(modeToggleStart, modeToggleEnd);
+        const lookAheadStart = headerSource.indexOf("private createLookAheadControl()");
+        const lookAheadEnd = headerSource.indexOf("private createColumnDisplayToggleButton()", lookAheadStart);
+        const lookAheadSource = headerSource.slice(lookAheadStart, lookAheadEnd);
+
+        expect(capabilities.objects.gridLines.properties.timelineLabelColor.type.fill.solid.color).toBe(true);
+        expect(gridLinesSource).toContain('name: "timelineLabelColor"');
+        expect(gridSlicesSource).not.toContain("this.timelineLabelColor");
+        expect(drawGridLinesSource).toContain("const labelColor = this.getHeaderLegendTextColor();");
+        expect(drawGridLinesSource).not.toContain("settings.timelineLabelColor.value.value");
+        expect(modeToggleSource).toContain("this.getHeaderControlBackground()");
+        expect(modeToggleSource).toContain("this.getHeaderControlTextColor()");
+        expect(modeToggleSource).toContain("const inactiveTextColor = this.getHeaderControlTextColor();");
+        expect(modeToggleSource).not.toContain("HEADER_DOCK_TOKENS.buttonBg");
+        expect(modeToggleSource).not.toContain("HEADER_DOCK_TOKENS.buttonText");
+        expect(modeToggleSource).not.toContain("HEADER_DOCK_TOKENS.buttonMuted");
+        expect(lookAheadSource).toContain("this.getHeaderInputBackground()");
+        expect(lookAheadSource).toContain("this.getHeaderControlHoverBackground()");
+        expect(lookAheadSource).not.toContain("HEADER_DOCK_TOKENS.inputBg");
+        expect(lookAheadSource).not.toContain("HEADER_DOCK_TOKENS.buttonHoverBg");
+    });
+
+    it("keeps active header and legend controls on General control backgrounds", () => {
+        const headerSource = readFileSync("src/components/Header.ts", "utf8");
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const showCriticalSource = slice(headerSource, "private createOrUpdateToggleButton()", "private createOrUpdateBaselineToggleButton()");
+        expect(showCriticalSource).toContain("const activeColor = this.getHeaderDangerColor();");
+        expect(showCriticalSource).toContain("const buttonFill = this.getHeaderControlBackground();");
+        expect(showCriticalSource).not.toContain("HEADER_DOCK_TOKENS.dangerBg");
+
+        const baselineSource = slice(headerSource, "private createOrUpdateBaselineToggleButton()", "private createOrUpdatePreviousUpdateToggleButton()");
+        const previousUpdateSource = slice(headerSource, "private createOrUpdatePreviousUpdateToggleButton()", "private getExtendedLayoutMode");
+        expect(baselineSource).toContain("const inactiveColor = this.getHeaderControlTextColor();");
+        expect(previousUpdateSource).toContain("const inactiveColor = this.getHeaderControlTextColor();");
+        expect(baselineSource).not.toContain("UI_TOKENS.color.neutral.grey60");
+        expect(previousUpdateSource).not.toContain("UI_TOKENS.color.neutral.grey60");
+
+        const modeSource = slice(headerSource, "private createModeToggleButton()", "private attachLookAheadOutsideClickHandler()");
+        expect(modeSource).toContain("const bgColor = this.getHeaderControlBackground();");
+        expect(modeSource).toContain('.style("fill", "transparent")');
+        expect(modeSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+        expect(modeSource).not.toContain("HEADER_DOCK_TOKENS.warningBg");
+
+        const lookAheadSource = slice(headerSource, "private createLookAheadControl()", "private createColumnDisplayToggleButton()");
+        expect(lookAheadSource).toContain("const activeColor = this.getHeaderPrimaryColor();");
+        expect(lookAheadSource).toContain("const backgroundColor = this.getHeaderControlBackground();");
+        expect(lookAheadSource).toContain("const selectedFill = inputBackground;");
+        expect(lookAheadSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+
+        const columnsSource = slice(headerSource, "private createColumnDisplayToggleButton()", "private createWbsEnableToggleButton()");
+        const wbsEnableSource = slice(headerSource, "private createWbsEnableToggleButton()", "private createCopyButton()");
+        const exportSource = slice(headerSource, "private createExportButton()", "private createExportHtmlButton()");
+        expect(columnsSource).toContain("const activeTextColor = this.getHeaderPrimaryColor();");
+        expect(wbsEnableSource).toContain("const activeTextColor = this.getHeaderPrimaryColor();");
+        expect(exportSource).toContain("const buttonFill = this.getHeaderControlBackground();");
+        expect(columnsSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+        expect(wbsEnableSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+        expect(exportSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+
+        const progressMenuSource = slice(headerSource, "private renderProgressLineMenuItem", "private renderLookAheadMenuItem");
+        const lookAheadMenuSource = slice(headerSource, "private renderLookAheadMenuItem", "private renderFloatThresholdMenuItem");
+        expect(progressMenuSource).toContain("const toggleFill = inputBackground;");
+        expect(progressMenuSource).toContain("const selectedFill = inputBackground;");
+        expect(lookAheadMenuSource).toContain("const selectedFill = inputBackground;");
+        expect(progressMenuSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+        expect(lookAheadMenuSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+
+        const traceModeSource = slice(visualSource, "private createTraceModeToggle()", "private populateTaskDropdown()");
+        const taskDropdownSource = slice(visualSource, "private renderTaskDropdown(searchText: string)", "private openDropdown()");
+        const legendSource = slice(visualSource, "private renderLegend(viewportWidth: number)", "private hexToRgb");
+        expect(traceModeSource).toContain("const activeColor = this.getHeaderLegendActiveColor();");
+        expect(traceModeSource).toContain('.style("background-color", "transparent")');
+        expect(traceModeSource).toContain("const borderColor = this.getHeaderLegendBorderColor();");
+        expect(traceModeSource).toContain('.style("border", `1px solid ${isActive ? activeColor : borderColor}`)');
+        expect(traceModeSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+        expect(taskDropdownSource).toContain("const activeColor = this.getHeaderLegendActiveColor();");
+        expect(taskDropdownSource).toContain("const defaultBg = menuBackground;");
+        expect(taskDropdownSource).not.toContain("HEADER_DOCK_TOKENS.menuActive");
+        expect(legendSource).toContain('const selectedBackground = this.highContrastMode ? "transparent" : controlBackground;');
+        expect(legendSource).toContain('const unselectedBackground = this.highContrastMode ? "transparent" : controlBackground;');
+    });
+
+    it("routes header and legend chrome borders through the General border colour", () => {
+        const headerSource = readFileSync("src/components/Header.ts", "utf8");
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const styleSource = readFileSync("style/visual.less", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const resolvedPaletteSource = slice(visualSource, "private getResolvedHeaderPalette()", "private updateHeaderElements");
+        expect(resolvedPaletteSource).toContain("const borderColor = this.getHeaderLegendBorderColor();");
+        expect(resolvedPaletteSource).toContain("commandStroke: borderColor");
+        expect(resolvedPaletteSource).toContain("contextStroke: borderColor");
+        expect(resolvedPaletteSource).toContain("groupStroke: borderColor");
+        expect(resolvedPaletteSource).toContain("buttonStroke: borderColor");
+        expect(resolvedPaletteSource).toContain("buttonHoverStroke: borderColor");
+        expect(resolvedPaletteSource).toContain("chipStroke: borderColor");
+        expect(resolvedPaletteSource).toContain("inputStroke: borderColor");
+        expect(resolvedPaletteSource).toContain("inputFocus: borderColor");
+        expect(resolvedPaletteSource).toContain("menuStroke: borderColor");
+        expect(headerSource).toContain("private getHeaderBorderColor()");
+        expect(headerSource).toContain("private getHeaderInputBorderColor()");
+        expect(headerSource).toContain("private getHeaderMenuBorderColor()");
+        expect(headerSource).not.toMatch(/HEADER_DOCK_TOKENS\.(commandStroke|contextStroke|groupStroke|buttonStroke|buttonHoverStroke|chipStroke|inputStroke|inputFocus|menuStroke)/);
+
+        const taskDropdownChromeSource = slice(visualSource, "private createpathSelectionDropdown(): void", "private createTraceModeToggle(): void");
+        const taskDropdownRowsSource = slice(visualSource, "private renderTaskDropdown(searchText: string)", "private openDropdown()");
+        const wbsMenuSource = slice(visualSource, "private getWbsHeaderContextMenu()", "private hideWbsHeaderContextMenu()");
+        const legendSource = slice(visualSource, "private renderLegend(viewportWidth: number)", "private hexToRgb");
+        expect(taskDropdownChromeSource).toContain("const headerLegendBorder = this.getHeaderLegendBorderColor();");
+        expect(taskDropdownChromeSource).toContain('.style("border", `1px solid ${headerLegendBorder}`)');
+        expect(taskDropdownRowsSource).toContain("const borderColor = this.getHeaderLegendBorderColor();");
+        expect(taskDropdownRowsSource).toContain('.style("border-bottom", `1px solid ${borderColor}`)');
+        expect(wbsMenuSource).toContain("this.getHeaderLegendBorderColor()");
+        expect(legendSource).toContain("const borderColor = this.getHeaderLegendBorderColor();");
+        expect(legendSource).toContain("const buttonBorder = this.highContrastMode ? this.getForegroundColor() : borderColor;");
+        expect(styleSource).toContain("var(--lpv-header-legend-border-color, #4D5A6E)");
+    });
+
+    it("keeps path, task dropdown, and float threshold controls free of drop shadows", () => {
+        const headerSource = readFileSync("src/components/Header.ts", "utf8");
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const styleSource = readFileSync("style/visual.less", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const constructorChromeSource = slice(visualSource, 'this.selectedTaskLabel = this.stickyHeaderContainer.append("div")', 'this.scrollableContainer = this.visualWrapper.append("div")');
+        const taskDropdownSource = slice(visualSource, "private createpathSelectionDropdown(): void", "private createTraceModeToggle(): void");
+        const floatThresholdSource = slice(headerSource, "private createFloatThresholdControl(): void", "private createModeToggleButton(): void");
+        const taskSelectionListStyle = slice(styleSource, ".task-selection-list {", ".selected-task-label {");
+
+        expect(constructorChromeSource).toContain('.style("box-shadow", "none")');
+        expect(constructorChromeSource).not.toContain("HEADER_DOCK_TOKENS.shadow");
+        expect(taskDropdownSource).toContain('.style("box-shadow", "none")');
+        expect(taskDropdownSource).not.toContain("HEADER_DOCK_TOKENS.shadow");
+        expect(taskDropdownSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+        expect(floatThresholdSource).toContain('.style("box-shadow", "none")');
+        expect(floatThresholdSource).not.toContain("this.getHeaderShadow()");
+        expect(floatThresholdSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+        expect(taskSelectionListStyle).toContain("box-shadow: none;");
+    });
+
     it("keeps look-ahead capabilities aligned with the settings card", () => {
         const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
         const properties = capabilities.objects.lookAhead.properties;
@@ -162,6 +375,24 @@ describe("VisualSettings", () => {
         expect(visualSource).toContain("Shift + F10");
     });
 
+    it("orders the WBS header context menu from collapse through levels to expand", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const start = visualSource.indexOf("const actions: WbsHeaderContextMenuAction[] = [");
+        const end = visualSource.indexOf("const items = menu", start);
+        expect(start).toBeGreaterThan(-1);
+        expect(end).toBeGreaterThan(start);
+
+        const actionsSource = visualSource.slice(start, end);
+        const collapseIndex = actionsSource.indexOf('id: "collapse-all"');
+        const levelsIndex = actionsSource.indexOf("...showThroughLevelActions");
+        const expandIndex = actionsSource.indexOf('id: "expand-all"');
+
+        expect(collapseIndex).toBeGreaterThan(-1);
+        expect(levelsIndex).toBeGreaterThan(collapseIndex);
+        expect(expandIndex).toBeGreaterThan(levelsIndex);
+        expect(visualSource).toContain("to collapse all, show the hierarchy through any available WBS level, or expand all.");
+    });
+
     it("keeps left-pane column defaults aligned with the names-first layout", () => {
         const settingsSource = readFileSync("src/settings.ts", "utf8");
         const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
@@ -187,6 +418,59 @@ describe("VisualSettings", () => {
         expect(visualSource).toContain('anchorMode: "centerBlock" | "firstLineAtCenter" = "firstLineAtCenter"');
         expect(visualSource).toContain("const wbsRowBandHeight = taskHeight + taskPadding;");
         expect(visualSource).toContain("availableWidth,\n                    wbsRowBandHeight,\n                    groupNameFontSizePx");
+    });
+
+    it("uses one WBS text colour setting while keeping legacy level text properties", () => {
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        expect(capabilities.objects.wbsGrouping.properties.groupNameColor.type.fill.solid.color).toBe(true);
+        expect(settingsSource).toContain('groupNameColor = new ColorPicker({ name: "groupNameColor", displayName: "WBS Text Color"');
+
+        const wbsLevelStylesSource = slice(settingsSource, "class WbsLevelStylesCard extends Card", "class LegendCard extends Card");
+        const wbsLevelStyleSlices = slice(wbsLevelStylesSource, "slices: Slice[] = [", "];");
+        for (let level = 1; level <= 10; level++) {
+            expect(capabilities.objects.wbsLevelStyles.properties[`level${level}Text`].type.fill.solid.color).toBe(true);
+            expect(wbsLevelStylesSource).toContain(`level${level}Text = new ColorPicker`);
+            expect(wbsLevelStyleSlices).toContain(`level${level}Background`);
+            expect(wbsLevelStyleSlices).not.toContain(`level${level}Text`);
+        }
+
+        const formattingModelSource = slice(visualSource, "if (this.settings?.wbsLevelStyles) {", "// Hide formatting pane cards");
+        expect(formattingModelSource).toContain("backgroundSlice");
+        expect(formattingModelSource).not.toContain("textSlice");
+        expect(formattingModelSource).not.toContain("Text`");
+
+        const wbsTextColorSource = slice(visualSource, "private getWbsTextColor(", "private getWbsLevelStyle(");
+        expect(wbsTextColorSource).toContain("groupNameColor?.value?.value");
+
+        const wbsLevelStyleSource = slice(visualSource, "private getWbsLevelStyle(", "private getLocalizedString(");
+        expect(wbsLevelStyleSource).toContain("level${safeLevel}Background");
+        expect(wbsLevelStyleSource).not.toContain("Text");
+        expect(wbsLevelStyleSource).not.toContain("textValue");
+
+        const drawWbsSource = slice(visualSource, "private drawWbsGroupHeaders(", "private refreshDateFormatters()");
+        expect(drawWbsSource).toContain('const wbsTextColor = this.resolveColor(this.getWbsTextColor("#333333"), "foreground");');
+        expect(drawWbsSource).toContain("const groupNameColor = wbsTextColor;");
+        expect(drawWbsSource).toContain("const badgeTextColor = wbsTextColor;");
+        expect(drawWbsSource).toContain("fill: string = summaryTextColor");
+        expect(drawWbsSource).not.toContain("mutedTextColor");
+
+        const visibleWbsExportSource = slice(visualSource, "private generateVisibleWbsOnlyExportTableHtml(", "private generateVisibleWbsOnlyExportTableText(");
+        expect(visibleWbsExportSource).toContain('this.getWbsTextColor("#333333")');
+        expect(visibleWbsExportSource).not.toContain("levelStyle.text");
+
+        const hierarchicalWbsExportSource = slice(visualSource, "private generateWbsHierarchicalHtml(", "private async copyVisibleDataToClipboard()");
+        expect(hierarchicalWbsExportSource).toContain('const defaultGroupNameColor = this.getWbsTextColor("#333333");');
+        expect(hierarchicalWbsExportSource).not.toContain("levelStyle.text");
     });
 
     it("shows comparison date columns when bars are on or when the keep-visible toggle is enabled", () => {

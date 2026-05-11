@@ -56,6 +56,7 @@ export interface HeaderState {
 }
 export type HeaderPalette = Partial<typeof HEADER_DOCK_TOKENS> & {
     isHighContrast?: boolean;
+    usesCustomColours?: boolean;
 };
 export declare class Header {
     private static nextMenuOrdinal;
@@ -87,6 +88,31 @@ export declare class Header {
     destroy(): void;
     private getCurrentLayout;
     private getPaletteToken;
+    private getHeaderShellBackground;
+    private getHeaderControlBackground;
+    private getHeaderControlHoverBackground;
+    private getHeaderControlTextColor;
+    private getHeaderMutedTextColor;
+    private getHeaderChipBackground;
+    private getHeaderChipTextColor;
+    private getHeaderChipMutedTextColor;
+    private getHeaderInputBackground;
+    private getHeaderBorderColor;
+    private getHeaderHoverBorderColor;
+    private getHeaderCommandBorderColor;
+    private getHeaderGroupBorderColor;
+    private getHeaderChipBorderColor;
+    private getHeaderInputBorderColor;
+    private getHeaderInputFocusBorderColor;
+    private getHeaderMenuBorderColor;
+    private getHeaderMenuBackground;
+    private getHeaderMenuHoverBackground;
+    private getHeaderGroupBackground;
+    private getHeaderPrimaryColor;
+    private getHeaderSuccessColor;
+    private getHeaderWarningColor;
+    private getHeaderDangerColor;
+    private getHeaderShadow;
     private applyHeaderPaletteOverrides;
     private renderButtons;
     /**
@@ -142,6 +168,7 @@ export declare class Header {
     private getProgressLineReferenceShortLabel;
     private getHeaderMenuItems;
     private getActiveHiddenControlCount;
+    private getHeaderMenuItemActiveColor;
     private renderActionOverflowMenu;
     private renderHeaderMenuItem;
     private renderProgressLineMenuItem;

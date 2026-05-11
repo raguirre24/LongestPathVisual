@@ -1103,7 +1103,7 @@ export class Visual implements IVisual {
             .style("min-height", `${this.headerHeight}px`)
             .style("flex-shrink", "0")
             .style("z-index", "100")
-            .style("background-color", HEADER_DOCK_TOKENS.shell)
+            .style("background-color", this.getHeaderLegendBackgroundColor())
             .style("overflow", "visible");
 
         this.header = new Header(this.stickyHeaderContainer, {
@@ -1162,7 +1162,7 @@ export class Visual implements IVisual {
             .attr("placeholder", searchPlaceholder)
             .style("width", "250px")
             .style("padding", "5px 8px")
-            .style("border", "1px solid #ccc")
+            .style("border", `1px solid ${this.getHeaderLegendBorderColor()}`)
             .style("border-radius", "4px")
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "9px")
@@ -1177,10 +1177,10 @@ export class Visual implements IVisual {
             .style("overflow-y", "auto")
             .style("width", "100%")
             .style("background", "white")
-            .style("border", "1px solid #ccc")
+            .style("border", `1px solid ${this.getHeaderLegendBorderColor()}`)
             .style("border-top", "none")
             .style("border-radius", "0 0 4px 4px")
-            .style("box-shadow", "0 2px 5px rgba(0,0,0,0.1)")
+            .style("box-shadow", "none")
             .style("display", "none")
             .style("z-index", "30")
             .style("pointer-events", "auto")
@@ -1196,13 +1196,13 @@ export class Visual implements IVisual {
             .style("height", `${UI_TOKENS.height.compact}px`)
             .style("padding", "0 10px")
             .style("align-items", "center")
-            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
+            .style("background-color", this.getHeaderLegendControlBackgroundColor())
+            .style("border", `1px solid ${this.getHeaderLegendBorderColor()}`)
             .style("border-radius", `${UI_TOKENS.radius.pill}px`)
-            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("box-shadow", "none")
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", this.fontPxFromPtSetting(8.5))
-            .style("color", HEADER_DOCK_TOKENS.chipText)
+            .style("color", this.getHeaderLegendTextColor())
             .style("font-weight", "600")
             .style("white-space", "nowrap")
             .style("overflow", "hidden")
@@ -1220,13 +1220,13 @@ export class Visual implements IVisual {
             .style("display", "none")
             .style("align-items", "center")
             .style("gap", "4px")
-            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.primary}`)
+            .style("background-color", this.getHeaderLegendControlBackgroundColor())
+            .style("border", `1px solid ${this.getHeaderLegendBorderColor()}`)
             .style("border-radius", "12px")
-            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("box-shadow", "none")
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
             .style("font-size", "11px")
-            .style("color", HEADER_DOCK_TOKENS.chipText)
+            .style("color", this.getHeaderLegendTextColor())
             .style("font-weight", "600")
             .style("letter-spacing", "0.1px")
             .style("white-space", "nowrap")
@@ -1356,8 +1356,8 @@ export class Visual implements IVisual {
             .style("min-height", `${this.getLegendEffectiveFooterHeight()}px`)
             .style("flex-shrink", "0")
             .style("z-index", "100")
-            .style("background-color", HEADER_DOCK_TOKENS.shell)
-            .style("border-top", `1px solid ${HEADER_DOCK_TOKENS.groupStroke}`)
+            .style("background-color", this.getHeaderLegendBackgroundColor())
+            .style("border-top", `1px solid ${this.getHeaderLegendBorderColor()}`)
             .style("box-shadow", "0 -6px 18px rgba(15, 23, 34, 0.18)")
             .style("display", "none")
             .style("overflow", "hidden");
@@ -5036,6 +5036,7 @@ export class Visual implements IVisual {
 
 
         this.applyHeaderHeight();
+        this.applyHighContrastStyling();
 
 
         if (requiresPathRecalc || requiresLookAheadFilterRefresh) {
@@ -5053,6 +5054,7 @@ export class Visual implements IVisual {
         this.clearAccessibleCanvasFallback();
 
         this.updateHeaderElements(options.viewport.width);
+        this.renderLegend(options.viewport.width);
 
         this.createpathSelectionDropdown();
 
@@ -6023,7 +6025,41 @@ export class Visual implements IVisual {
 
     private getResolvedHeaderPalette(): HeaderPalette {
         if (!this.highContrastMode) {
-            return {};
+            const controlBackground = this.getHeaderLegendControlBackgroundColor();
+            const textColor = this.getHeaderLegendTextColor();
+            const borderColor = this.getHeaderLegendBorderColor();
+            const usesCustomColours = !this.isDefaultHeaderLegendControlBackgroundColor()
+                || !this.isDefaultHeaderLegendTextColor()
+                || !this.isDefaultHeaderLegendBorderColor();
+
+            return {
+                usesCustomColours,
+                shell: this.getHeaderLegendBackgroundColor(),
+                commandStroke: borderColor,
+                contextBg: controlBackground,
+                contextStroke: borderColor,
+                groupBg: controlBackground,
+                groupStroke: borderColor,
+                buttonBg: controlBackground,
+                buttonHoverBg: controlBackground,
+                buttonStroke: borderColor,
+                buttonHoverStroke: borderColor,
+                buttonText: textColor,
+                buttonMuted: textColor,
+                buttonSubtle: textColor,
+                chipBg: controlBackground,
+                chipStroke: borderColor,
+                chipText: textColor,
+                chipMuted: textColor,
+                inputBg: controlBackground,
+                inputStroke: borderColor,
+                inputFocus: borderColor,
+                inputPlaceholder: textColor,
+                menuBg: controlBackground,
+                menuStroke: borderColor,
+                menuHover: controlBackground,
+                rowDivider: borderColor
+            };
         }
 
         const foreground = this.highContrastForeground;
@@ -6073,6 +6109,22 @@ export class Visual implements IVisual {
     }
 
     private updateHeaderElements(viewportWidth: number): void {
+        const headerLegendBackground = this.getHeaderLegendBackgroundColor();
+        const headerLegendControlBackground = this.getHeaderLegendControlBackgroundColor();
+        const headerLegendText = this.getHeaderLegendTextColor();
+        const headerLegendBorder = this.getHeaderLegendBorderColor();
+
+        this.visualWrapper?.style("--lpv-header-legend-border-color", headerLegendBorder);
+        this.stickyHeaderContainer?.style("background-color", headerLegendBackground);
+        this.selectedTaskLabel
+            ?.style("background-color", headerLegendControlBackground)
+            .style("color", headerLegendText)
+            .style("border", `1px solid ${headerLegendBorder}`);
+        this.pathInfoLabel
+            ?.style("background-color", headerLegendControlBackground)
+            .style("color", headerLegendText)
+            .style("border", `1px solid ${headerLegendBorder}`);
+
         const baselineAvailable = this.boundFields.baselineAvailable;
         const previousUpdateAvailable = this.boundFields.previousUpdateAvailable;
         const progressLineReference = this.getProgressLineReferenceSetting();
@@ -6847,8 +6899,7 @@ export class Visual implements IVisual {
         const lineWidth = Math.max(1, Math.round(settings.verticalLineWidth.value));
         const lineStyle = settings.verticalLineStyle.value.value as string;
         const showMonthLabels = settings.showTimelineLabels.value;
-        const labelColorSetting = settings.timelineLabelColor.value.value;
-        const labelColor = this.resolveColor(labelColorSetting || lineColor, "foreground");
+        const labelColor = this.getHeaderLegendTextColor();
         const headerBandMetrics = this.getHeaderBandMetrics();
         const baseFontSize = this.settings.textAndLabels.fontSize.value;
         const labelFontSizeSetting = settings.timelineLabelFontSize.value;
@@ -7963,12 +8014,12 @@ export class Visual implements IVisual {
         }
 
         return {
-            fill: HEADER_DOCK_TOKENS.shell,
-            stroke: HEADER_DOCK_TOKENS.commandStroke,
-            label: HEADER_DOCK_TOKENS.buttonText,
-            secondaryLabel: HEADER_DOCK_TOKENS.chipMuted,
-            divider: HEADER_DOCK_TOKENS.groupStroke,
-            majorDivider: HEADER_DOCK_TOKENS.buttonStroke
+            fill: this.getHeaderLegendBackgroundColor(),
+            stroke: this.getHeaderLegendBorderColor(),
+            label: this.getHeaderLegendTextColor(),
+            secondaryLabel: this.getHeaderLegendTextColor(),
+            divider: this.getHeaderLegendBorderColor(),
+            majorDivider: this.getHeaderLegendBorderColor()
         };
     }
 
@@ -11333,6 +11384,11 @@ export class Visual implements IVisual {
         const chipGap = isTight ? 3 : 4;
         const infoGap = isTight ? 3 : 4;
         const infoPaddingX = isTight ? 1 : 2;
+        const controlBackground = this.getHeaderLegendControlBackgroundColor();
+        const textColor = this.getHeaderLegendTextColor();
+        const mutedTextColor = this.getHeaderLegendMutedTextColor();
+        const borderColor = this.getHeaderLegendBorderColor();
+        const hoverBackground = this.getHeaderLegendMenuHoverColor();
 
         this.pathInfoLabel
             .style("padding", `0 ${chipPaddingX}px`)
@@ -11341,9 +11397,9 @@ export class Visual implements IVisual {
             .style("min-width", "0")
             .style("overflow", "hidden")
             .style("box-sizing", "border-box")
-            .style("background-color", this.highContrastMode ? this.highContrastBackground : HEADER_DOCK_TOKENS.chipBg)
-            .style("border", `1px solid ${this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.primary}`)
-            .style("color", this.highContrastMode ? this.highContrastForeground : HEADER_DOCK_TOKENS.chipText)
+            .style("background-color", this.highContrastMode ? this.highContrastBackground : controlBackground)
+            .style("border", `1px solid ${this.highContrastMode ? this.highContrastForeground : borderColor}`)
+            .style("color", this.highContrastMode ? this.highContrastForeground : textColor)
             .attr(
                 "title",
                 this.drivingPathsTruncationMessage
@@ -11385,7 +11441,7 @@ export class Visual implements IVisual {
 
         prevSvg.append("path")
             .attr("d", "M 8 2 L 4 6 L 8 10")
-            .attr("stroke", HEADER_DOCK_TOKENS.chipMuted)
+            .attr("stroke", mutedTextColor)
             .attr("stroke-width", "2")
             .attr("stroke-linecap", "round")
             .attr("stroke-linejoin", "round")
@@ -11400,17 +11456,17 @@ export class Visual implements IVisual {
                 .attr("aria-label", buttonTitle)
                 .on("mouseover", function () {
                     d3.select(this)
-                        .style("background-color", HEADER_DOCK_TOKENS.menuHover)
+                        .style("background-color", hoverBackground)
                         .style("transform", "scale(1.1)");
                     d3.select(this).select("path")
-                        .attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+                        .attr("stroke", textColor);
                 })
                 .on("mouseout", function () {
                     d3.select(this)
                         .style("background-color", "transparent")
                         .style("transform", "scale(1)");
                     d3.select(this).select("path")
-                        .attr("stroke", HEADER_DOCK_TOKENS.chipMuted);
+                        .attr("stroke", mutedTextColor);
                 })
                 .on("mousedown", function () {
                     d3.select(this).style("transform", "scale(0.95)");
@@ -11447,7 +11503,7 @@ export class Visual implements IVisual {
         infoContainer.append("span")
             .style("font-weight", "700")
             .style("letter-spacing", "0")
-            .style("color", HEADER_DOCK_TOKENS.chipText)
+            .style("color", textColor)
             .text(isTight ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`)
             .attr("aria-label", `Currently viewing path ${pathNumber} of ${totalPaths}`);
 
@@ -11460,7 +11516,7 @@ export class Visual implements IVisual {
 
             infoContainer.append("span")
                 .style("font-weight", "500")
-                .style("color", HEADER_DOCK_TOKENS.chipText)
+                .style("color", textColor)
                 .attr("aria-label", `${taskCount} tasks in this path`)
                 .text(`${taskCount} tasks`);
 
@@ -11473,7 +11529,7 @@ export class Visual implements IVisual {
 
                 infoContainer.append("span")
                     .style("font-weight", "500")
-                    .style("color", HEADER_DOCK_TOKENS.chipText)
+                    .style("color", textColor)
                     .attr("aria-label", `Total duration ${duration} days`)
                     .text(`${duration}d`);
             }
@@ -11503,7 +11559,7 @@ export class Visual implements IVisual {
 
         nextSvg.append("path")
             .attr("d", "M 4 2 L 8 6 L 4 10")
-            .attr("stroke", HEADER_DOCK_TOKENS.chipMuted)
+            .attr("stroke", mutedTextColor)
             .attr("stroke-width", "2")
             .attr("stroke-linecap", "round")
             .attr("stroke-linejoin", "round")
@@ -11516,17 +11572,17 @@ export class Visual implements IVisual {
                 .attr("aria-label", nextButtonTitle)
                 .on("mouseover", function () {
                     d3.select(this)
-                        .style("background-color", HEADER_DOCK_TOKENS.menuHover)
+                        .style("background-color", hoverBackground)
                         .style("transform", "scale(1.1)");
                     d3.select(this).select("path")
-                        .attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+                        .attr("stroke", textColor);
                 })
                 .on("mouseout", function () {
                     d3.select(this)
                         .style("background-color", "transparent")
                         .style("transform", "scale(1)");
                     d3.select(this).select("path")
-                        .attr("stroke", HEADER_DOCK_TOKENS.chipMuted);
+                        .attr("stroke", mutedTextColor);
                 })
                 .on("mousedown", function () {
                     d3.select(this).style("transform", "scale(0.95)");
@@ -12214,8 +12270,8 @@ export class Visual implements IVisual {
             .style("width", "168px")
             .style("padding", "4px")
             .style("box-sizing", "border-box")
-            .style("background-color", HEADER_DOCK_TOKENS.menuBg)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.menuStroke}`)
+            .style("background-color", this.getHeaderLegendMenuBackgroundColor())
+            .style("border", `1px solid ${this.getHeaderLegendBorderColor()}`)
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
             .style("z-index", "1200")
@@ -12287,6 +12343,14 @@ export class Visual implements IVisual {
         this.hideTooltip();
 
         const menu = this.getWbsHeaderContextMenu();
+        const textColor = this.getHeaderLegendTextColor();
+        const mutedTextColor = this.getHeaderLegendMutedTextColor();
+        const borderColor = this.getHeaderLegendBorderColor();
+        const hoverBackground = this.getHeaderLegendMenuHoverColor();
+        menu
+            .style("background-color", this.getHeaderLegendMenuBackgroundColor())
+            .style("color", textColor)
+            .style("border", `1px solid ${borderColor}`);
         const availableLevels = (this.wbsAvailableLevels.length > 0
             ? this.wbsAvailableLevels
             : Array.from(new Set(this.wbsGroups.map(wbsGroup => wbsGroup.level))))
@@ -12301,19 +12365,19 @@ export class Visual implements IVisual {
         }));
         const actions: WbsHeaderContextMenuAction[] = [
             {
-                id: "expand-all",
-                label: "Expand all",
-                description: "Open every WBS branch",
-                targetLevel: null,
-                announcement: "Expanded all WBS groups."
-            },
-            ...showThroughLevelActions,
-            {
                 id: "collapse-all",
                 label: "Collapse all",
                 description: "Show top WBS level only",
                 targetLevel: 0,
                 announcement: "Collapsed all WBS groups."
+            },
+            ...showThroughLevelActions,
+            {
+                id: "expand-all",
+                label: "Expand all",
+                description: "Open every WBS branch",
+                targetLevel: null,
+                announcement: "Expanded all WBS groups."
             }
         ];
 
@@ -12330,10 +12394,10 @@ export class Visual implements IVisual {
             .attr("role", "menuitem")
             .style("height", "40px")
             .style("padding", "4px 9px")
-            .style("border", "none")
+            .style("border", `1px solid ${borderColor}`)
             .style("border-radius", `${UI_TOKENS.radius.small}px`)
             .style("background", "transparent")
-            .style("color", HEADER_DOCK_TOKENS.buttonText)
+            .style("color", textColor)
             .style("font-family", this.getFontFamily())
             .style("text-align", "left")
             .style("cursor", "pointer")
@@ -12348,10 +12412,12 @@ export class Visual implements IVisual {
         const mergedItems = itemEnter.merge(items);
 
         mergedItems
+            .style("color", textColor)
+            .style("border", `1px solid ${borderColor}`)
             .attr("tabindex", "-1")
             .attr("aria-label", action => action.label)
             .on("mouseover", function () {
-                d3.select(this).style("background-color", HEADER_DOCK_TOKENS.menuHover);
+                d3.select(this).style("background-color", hoverBackground);
             })
             .on("mouseout", function () {
                 d3.select(this).style("background-color", "transparent");
@@ -12402,7 +12468,7 @@ export class Visual implements IVisual {
             .style("font-size", "10px")
             .style("font-weight", "500")
             .style("line-height", "12px")
-            .style("color", HEADER_DOCK_TOKENS.chipMuted)
+            .style("color", mutedTextColor)
             .text(action => action.description);
 
         const wrapperNode = this.visualWrapper.node();
@@ -13053,7 +13119,7 @@ export class Visual implements IVisual {
         const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
         const groupNameFontSizePt = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
         const groupNameFontSizePx = this.pointsToCssPx(groupNameFontSizePt);
-        const defaultGroupNameColor = this.settings.wbsGrouping.groupNameColor?.value?.value ?? "#333333";
+        const wbsTextColor = this.resolveColor(this.getWbsTextColor("#333333"), "foreground");
         const criticalPathColor = this.resolveColor(this.settings.criticalPath.criticalPathColor.value.value, "foreground");
         const mode = this.settings?.criticalPath?.calculationMode?.value?.value || 'floatBased';
         const showNearCriticalSummary = this.showNearCritical && this.floatThreshold > 0 && mode === 'floatBased';
@@ -13125,8 +13191,7 @@ export class Visual implements IVisual {
         const buttonFillColor = self.resolveColor("#FFFFFF", "background");
         const buttonStrokeColor = self.resolveColor("#CDD4DE", "foreground");
         const badgeFillColor = self.resolveColor("#FFFFFF", "background");
-        const badgeTextColor = self.resolveColor("#4F5967", "foreground");
-        const mutedTextColor = self.resolveColor("#8A919D", "foreground");
+        const badgeTextColor = wbsTextColor;
         const defaultGroupBg = self.resolveColor(defaultGroupHeaderColor, "background");
 
         groupsUpdate.each(function (group) {
@@ -13136,16 +13201,14 @@ export class Visual implements IVisual {
             const bandCenter = Math.round(bandStart + taskHeight / 2);
 
             const rawIndent = Math.max(0, (group.level - 1) * indentPerLevel);
-            const levelStyle = self.getWbsLevelStyle(group.level, defaultGroupHeaderColor, defaultGroupNameColor);
+            const levelStyle = self.getWbsLevelStyle(group.level, defaultGroupHeaderColor);
             const accentColor = self.resolveColor(levelStyle.background, "foreground");
-            const groupNameColor = self.resolveColor(levelStyle.text, "foreground");
+            const groupNameColor = wbsTextColor;
             const summaryFillColor = self.blendColors(groupSummaryColor, accentColor, 0.82);
             const summaryStrokeColor = self.toRgba(self.getSoftOutlineColor(summaryFillColor), group.isExpanded ? 0.45 : 0.85);
             const summaryCapColor = self.getSoftOutlineColor(summaryFillColor);
             const bgOpacity = (group.visibleTaskCount === 0) ? 0.68 : 1;
-            const columnTextColor = (group.visibleTaskCount === 0)
-                ? mutedTextColor
-                : self.resolveColor("#4F5967", "foreground");
+            const summaryTextColor = groupNameColor;
 
             const bgInsetTop = 1;
             const bgHeight = Math.max(1, taskHeight + taskPadding - 2 - bgInsetTop);
@@ -13350,14 +13413,14 @@ export class Visual implements IVisual {
             g.selectAll('.wbs-summary-date, .wbs-summary-value').remove();
 
             const dateFontSize = Math.max(7, Math.round(groupNameFontSizePx * 0.88 * 100) / 100);
-            const textColor = (group.visibleTaskCount === 0) ? mutedTextColor : groupNameColor;
+            const textColor = groupNameColor;
             const textOpacity = (group.visibleTaskCount === 0) ? 0.7 : 1.0;
 
             const drawColumnValue = (
                 className: string,
                 value: string,
                 column: typeof labelLayout.items[number],
-                fill: string = columnTextColor
+                fill: string = summaryTextColor
             ) => {
                 if (!value) return;
                 g.append('text').attr('class', `wbs-summary-value ${className}`)
@@ -13378,7 +13441,7 @@ export class Visual implements IVisual {
 
             const drawColumnDate = (dateVal: Date | undefined | null, column: typeof labelLayout.items[number]) => {
                 if (!dateVal) return;
-                drawColumnValue('wbs-summary-date', self.formatColumnDate(dateVal), column, columnTextColor);
+                drawColumnValue('wbs-summary-date', self.formatColumnDate(dateVal), column);
             };
 
             const getSummaryDuration = (): string => {
@@ -13412,7 +13475,7 @@ export class Visual implements IVisual {
                         drawColumnDate(group.summaryFinishDate, column);
                         break;
                     case "duration":
-                        drawColumnValue('wbs-summary-duration', getSummaryDuration(), column, columnTextColor);
+                        drawColumnValue('wbs-summary-duration', getSummaryDuration(), column);
                         break;
                     case "totalFloat": {
                         const floatValue = typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat)
@@ -13422,7 +13485,7 @@ export class Visual implements IVisual {
                             'wbs-summary-float',
                             floatValue,
                             column,
-                            self.getFloatDisplayColor(group.summaryTotalFloat, columnTextColor)
+                            self.getFloatDisplayColor(group.summaryTotalFloat, summaryTextColor)
                         );
                         break;
                     }
@@ -13502,7 +13565,7 @@ export class Visual implements IVisual {
             toggleGroup.select<SVGPathElement>('.wbs-expand-chevron')
                 .attr('d', group.isExpanded ? 'M5 7 L9 11 L13 7' : 'M7 5 L11 9 L7 13')
                 .style('fill', 'none')
-                .style('stroke', group.visibleTaskCount === 0 ? mutedTextColor : groupNameColor)
+                .style('stroke', groupNameColor)
                 .style('stroke-width', 1.8)
                 .style('stroke-linecap', 'round')
                 .style('stroke-linejoin', 'round');
@@ -13845,6 +13908,10 @@ export class Visual implements IVisual {
         const dropdownWidth = secondRowLayout.dropdown.width;
         const secondRowControlTop = this.getSecondRowControlTop(UI_TOKENS.height.compact);
         const searchPlaceholder = this.getLocalizedString("ui.searchPlaceholder", "Search for a task...");
+        const headerLegendControlBackground = this.getHeaderLegendControlBackgroundColor();
+        const headerLegendText = this.getHeaderLegendTextColor();
+        const headerLegendBorder = this.getHeaderLegendBorderColor();
+        const headerLegendMenuBackground = this.getHeaderLegendMenuBackgroundColor();
 
         this.dropdownContainer.style("display", enableTaskSelection ? "block" : "none");
         if (!enableTaskSelection) {
@@ -13882,30 +13949,30 @@ export class Visual implements IVisual {
             .style("width", `${dropdownWidth}px`)
             .style("height", `${UI_TOKENS.height.compact}px`)
             .style("padding", `0 ${UI_TOKENS.spacing.lg}px`)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
+            .style("border", `1px solid ${headerLegendBorder}`)
             .style("border-radius", `${UI_TOKENS.radius.pill}px`)
             .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
             .style("font-size", this.fontPxFromPtSetting(8.5))
             .style("font-weight", "500")
-            .style("color", HEADER_DOCK_TOKENS.chipText)
-            .style("background", HEADER_DOCK_TOKENS.inputBg)
+            .style("color", headerLegendText)
+            .style("background", headerLegendControlBackground)
             .style("box-sizing", "border-box")
             .style("outline", "none")
-            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("box-shadow", "none")
             .style("transition", `all ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.smooth}`);
 
         this.dropdownInput
             .on("focus", function () {
                 d3.select(this)
-                    .style("border-color", HEADER_DOCK_TOKENS.inputFocus)
+                    .style("border-color", headerLegendBorder)
                     .style("border-width", "1px")
-                    .style("box-shadow", `0 0 0 2px ${HEADER_DOCK_TOKENS.primaryBg}`);
+                    .style("box-shadow", "none");
             })
             .on("blur", function () {
                 d3.select(this)
-                    .style("border-color", HEADER_DOCK_TOKENS.inputStroke)
+                    .style("border-color", headerLegendBorder)
                     .style("border-width", "1px")
-                    .style("box-shadow", HEADER_DOCK_TOKENS.shadow);
+                    .style("box-shadow", "none");
             });
 
         let listSelection = this.dropdownContainer.select<HTMLDivElement>("div.task-selection-list");
@@ -13926,10 +13993,10 @@ export class Visual implements IVisual {
             .style("max-height", "400px")
             .style("margin-top", "6px")
             .style("overflow-y", "auto")
-            .style("background", HEADER_DOCK_TOKENS.menuBg)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.menuStroke}`)
+            .style("background", headerLegendMenuBackground)
+            .style("border", `1px solid ${headerLegendBorder}`)
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
-            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("box-shadow", "none")
             .style("display", "none")
             .style("z-index", "1000")
             .style("box-sizing", "border-box");
@@ -14075,6 +14142,12 @@ export class Visual implements IVisual {
         const configuredMode = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
         const currentMode = this.normalizeTraceMode(this.traceMode || configuredMode);
         const secondRowControlTop = this.getSecondRowControlTop(UI_TOKENS.height.compact);
+        const controlBackground = this.getHeaderLegendControlBackgroundColor();
+        const textColor = this.getHeaderLegendTextColor();
+        const mutedTextColor = this.getHeaderLegendMutedTextColor();
+        const borderColor = this.getHeaderLegendBorderColor();
+        const activeColor = this.getHeaderLegendActiveColor();
+        const hoverBackground = this.getHeaderLegendMenuHoverColor();
         this.traceMode = currentMode;
 
         let container = this.stickyHeaderContainer.select<HTMLDivElement>(".trace-mode-toggle");
@@ -14097,8 +14170,8 @@ export class Visual implements IVisual {
             .style("height", `${UI_TOKENS.height.compact}px`) // 24px
             .style("padding", "0 2px")
             .style("gap", "2px")
-            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
+            .style("background-color", controlBackground)
+            .style("border", `1px solid ${borderColor}`)
             .style("border-radius", `${UI_TOKENS.radius.pill}px`)
             .style("box-sizing", "border-box")
             .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
@@ -14161,8 +14234,10 @@ export class Visual implements IVisual {
                 .style("width", `${buttonWidth}px`)
                 .style("height", `${buttonHeight}px`)
                 .style("border-radius", `${UI_TOKENS.radius.pill}px`)
-                .style("background-color", isActive ? HEADER_DOCK_TOKENS.primaryBg : "transparent")
-                .style("color", isActive ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.chipMuted)
+                .style("background-color", "transparent")
+                .style("border", `1px solid ${isActive ? activeColor : borderColor}`)
+                .style("box-sizing", "border-box")
+                .style("color", isActive ? activeColor : mutedTextColor)
                 .style("cursor", "pointer")
                 .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
                 .style("font-family", this.getFontFamily())
@@ -14178,7 +14253,7 @@ export class Visual implements IVisual {
             svg.append("path")
                 .attr("d", option.path)
                 .attr("fill", "none")
-                .attr("stroke", isActive ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.chipMuted)
+                .attr("stroke", isActive ? activeColor : mutedTextColor)
                 .attr("stroke-width", "2")
                 .attr("stroke-linecap", "round")
                 .attr("stroke-linejoin", "round");
@@ -14196,19 +14271,19 @@ export class Visual implements IVisual {
                 .on("mouseover", function () {
                     if (option.value !== self.traceMode) {
                         d3.select(this)
-                            .style("background-color", HEADER_DOCK_TOKENS.menuHover)
-                            .style("color", HEADER_DOCK_TOKENS.buttonText);
+                            .style("background-color", hoverBackground)
+                            .style("color", textColor);
                         d3.select(this).select("path")
-                            .attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+                            .attr("stroke", textColor);
                     }
                 })
                 .on("mouseout", function () {
                     if (option.value !== self.traceMode) {
                         d3.select(this)
                             .style("background-color", "transparent")
-                            .style("color", HEADER_DOCK_TOKENS.chipMuted);
+                            .style("color", mutedTextColor);
                         d3.select(this).select("path")
-                            .attr("stroke", HEADER_DOCK_TOKENS.chipMuted);
+                            .attr("stroke", mutedTextColor);
                     }
                 })
                 .on("click", function (event) {
@@ -14260,6 +14335,12 @@ export class Visual implements IVisual {
         const noResultsText = this.getLocalizedString("ui.noTasksMatching", "No tasks matching");
         const noTasksText = this.getLocalizedString("ui.noTasksAvailable", "No tasks available");
         const moreResultsText = this.getLocalizedString("ui.moreResults", "Type to refine results");
+        const menuBackground = this.getHeaderLegendMenuBackgroundColor();
+        const hoverBackground = this.getHeaderLegendMenuHoverColor();
+        const textColor = this.getHeaderLegendTextColor();
+        const mutedTextColor = this.getHeaderLegendMutedTextColor();
+        const borderColor = this.getHeaderLegendBorderColor();
+        const activeColor = this.getHeaderLegendActiveColor();
 
         if (this.dropdownTaskCache.length === 0) {
             console.warn("No tasks available to populate dropdown");
@@ -14270,7 +14351,7 @@ export class Visual implements IVisual {
                 .attr("role", "presentation")
                 .text(noTasksText)
                 .style("padding", "8px 10px")
-                .style("color", "#999")
+                .style("color", mutedTextColor)
                 .style("font-style", "italic")
                 .style("font-size", "11px")
                 .style("font-family", "Segoe UI, sans-serif");
@@ -14343,7 +14424,12 @@ export class Visual implements IVisual {
             const isActive = thisFocusIndex === this.dropdownActiveIndex;
             const isSelected = item.type === "task" && item.task?.internalId === this.selectedTaskId;
 
-            const defaultBg = isSelected ? HEADER_DOCK_TOKENS.menuActive : HEADER_DOCK_TOKENS.menuBg;
+            const defaultBg = menuBackground;
+            const defaultColor = item.type === "clear"
+                ? mutedTextColor
+                : (item.type === "empty" || item.type === "overflow"
+                    ? mutedTextColor
+                    : (isSelected ? activeColor : textColor));
             const row = this.dropdownList.append("div")
                 .attr("class", `dropdown-item ${item.type}`)
                 .attr("id", item.id)
@@ -14351,22 +14437,20 @@ export class Visual implements IVisual {
                 .attr("aria-selected", isFocusable ? (isSelected ? "true" : "false") : null)
                 .attr("data-selected", isSelected ? "true" : "false")
                 .attr("data-default-bg", defaultBg)
+                .attr("data-default-color", defaultColor)
                 .style("padding", isFocusable ? "6px 10px" : "8px 10px")
                 .style("cursor", isFocusable ? "pointer" : "default")
-                .style("color", item.type === "clear"
-                    ? HEADER_DOCK_TOKENS.chipMuted
-                    : (item.type === "empty" || item.type === "overflow"
-                        ? HEADER_DOCK_TOKENS.buttonSubtle
-                        : HEADER_DOCK_TOKENS.chipText))
+                .style("color", defaultColor)
                 .style("font-style", item.type === "clear" || item.type === "empty" || item.type === "overflow" ? "italic" : "normal")
-                .style("border-bottom", `1px solid ${HEADER_DOCK_TOKENS.menuStroke}`)
+                .style("border-bottom", `1px solid ${borderColor}`)
+                .style("border-left", `3px solid ${isSelected || isActive ? activeColor : "transparent"}`)
                 .style("white-space", "normal")
                 .style("word-wrap", "break-word")
                 .style("overflow-wrap", "break-word")
                 .style("line-height", "1.4")
                 .style("font-size", item.type === "task" ? "11px" : "10px")
                 .style("font-family", "Segoe UI, sans-serif")
-                .style("background-color", isActive ? HEADER_DOCK_TOKENS.menuHover : defaultBg)
+                .style("background-color", isActive ? hoverBackground : defaultBg)
                 .style("font-weight", isSelected ? "600" : "normal")
                 .text(item.label);
 
@@ -14378,7 +14462,8 @@ export class Visual implements IVisual {
 
             if (isFocusable) {
                 row.on("mouseover", function () {
-                    (this as HTMLDivElement).style.backgroundColor = HEADER_DOCK_TOKENS.menuHover;
+                    (this as HTMLDivElement).style.backgroundColor = hoverBackground;
+                    (this as HTMLDivElement).style.borderLeftColor = activeColor;
                 })
                     .on("mouseout", function () {
                         self.updateDropdownActiveState();
@@ -14454,6 +14539,10 @@ export class Visual implements IVisual {
 
         const activeItem = this.dropdownFocusableItems[this.dropdownActiveIndex];
         const activeId = activeItem ? activeItem.id : "";
+        const menuBackground = this.getHeaderLegendMenuBackgroundColor();
+        const hoverBackground = this.getHeaderLegendMenuHoverColor();
+        const activeColor = this.getHeaderLegendActiveColor();
+        const textColor = this.getHeaderLegendTextColor();
 
         this.dropdownInput.attr("aria-activedescendant", activeId || null);
 
@@ -14461,10 +14550,13 @@ export class Visual implements IVisual {
             .each(function () {
                 const node = this as HTMLDivElement;
                 const isActive = node.id === activeId;
-                const defaultBg = node.getAttribute("data-default-bg") || HEADER_DOCK_TOKENS.menuBg;
+                const defaultBg = node.getAttribute("data-default-bg") || menuBackground;
+                const defaultColor = node.getAttribute("data-default-color") || textColor;
                 const isSelected = node.getAttribute("data-selected") === "true";
                 node.setAttribute("aria-selected", isSelected ? "true" : "false");
-                node.style.backgroundColor = isActive ? HEADER_DOCK_TOKENS.menuHover : defaultBg;
+                node.style.backgroundColor = isActive ? hoverBackground : defaultBg;
+                node.style.borderLeftColor = isSelected || isActive ? activeColor : "transparent";
+                node.style.color = isSelected ? activeColor : defaultColor;
             });
 
         if (activeId) {
@@ -14658,15 +14750,10 @@ export class Visual implements IVisual {
                 const backgroundLabel = levelName
                     ? `Level ${level} (${levelName}) Background`
                     : `Level ${level} Background`;
-                const textLabel = levelName
-                    ? `Level ${level} (${levelName}) Text`
-                    : `Level ${level} Text`;
 
                 const backgroundSlice = wbsLevelStyles[`level${level}Background`];
-                const textSlice = wbsLevelStyles[`level${level}Text`];
 
                 if (backgroundSlice) backgroundSlice.displayName = backgroundLabel;
-                if (textSlice) textSlice.displayName = textLabel;
             }
         }
 
@@ -14888,6 +14975,10 @@ export class Visual implements IVisual {
             background: this.getBackgroundColor(),
             foreground: this.getForegroundColor(),
             fontFamily: this.getFontFamily(),
+            headerLegendBackground: this.getHeaderLegendBackgroundColor(),
+            headerLegendControlBackground: this.getHeaderLegendControlBackgroundColor(),
+            headerLegendText: this.getHeaderLegendTextColor(),
+            headerLegendBorder: this.getHeaderLegendBorderColor(),
             categories: categorySignature,
             selected: selectedSignature
         });
@@ -14928,20 +15019,21 @@ export class Visual implements IVisual {
         const compactSummaryWidth = isNarrow
             ? Math.max(180, Math.min(260, Math.round(viewportWidth * 0.3)))
             : Math.max(260, Math.min(440, Math.round(viewportWidth * 0.28)));
-        const shellBackground = this.highContrastMode
-            ? this.getBackgroundColor()
-            : HEADER_DOCK_TOKENS.shell;
-        const shellBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.groupStroke;
-        const shellText = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.chipText;
-        const shellMuted = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.chipMuted;
-        const railBackground = this.highContrastMode ? this.getBackgroundColor() : HEADER_DOCK_TOKENS.shell;
-        const railBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.contextStroke;
-        const buttonBackground = this.highContrastMode ? this.getBackgroundColor() : HEADER_DOCK_TOKENS.buttonBg;
-        const buttonBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonStroke;
-        const buttonHoverBackground = this.highContrastMode ? this.getBackgroundColor() : HEADER_DOCK_TOKENS.buttonHoverBg;
-        const buttonHoverBorder = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonHoverStroke;
-        const buttonTextColor = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonText;
-        const buttonDisabledColor = this.highContrastMode ? this.getForegroundColor() : HEADER_DOCK_TOKENS.buttonMuted;
+        const shellBackground = this.getHeaderLegendBackgroundColor();
+        const controlBackground = this.getHeaderLegendControlBackgroundColor();
+        const textColor = this.getHeaderLegendTextColor();
+        const borderColor = this.getHeaderLegendBorderColor();
+        const shellBorder = this.highContrastMode ? this.getForegroundColor() : borderColor;
+        const shellText = textColor;
+        const shellMuted = textColor;
+        const railBackground = controlBackground;
+        const railBorder = this.highContrastMode ? this.getForegroundColor() : borderColor;
+        const buttonBackground = controlBackground;
+        const buttonBorder = this.highContrastMode ? this.getForegroundColor() : borderColor;
+        const buttonHoverBackground = controlBackground;
+        const buttonHoverBorder = this.highContrastMode ? this.getForegroundColor() : borderColor;
+        const buttonTextColor = textColor;
+        const buttonDisabledColor = textColor;
         const renderedCategorySet = this.getRenderableLegendCategorySet();
         const selectedRenderedCount = Array.from(this.selectedLegendCategories)
             .filter(category => renderedCategorySet.has(category))
@@ -15028,16 +15120,16 @@ export class Visual implements IVisual {
 
         createStatusChip(
             `${selectedCount} / ${totalCount} visible`,
-            this.highContrastMode ? "transparent" : HEADER_DOCK_TOKENS.chipBg,
-            this.highContrastMode ? shellText : HEADER_DOCK_TOKENS.chipStroke,
+            this.highContrastMode ? "transparent" : controlBackground,
+            this.highContrastMode ? shellText : borderColor,
             shellText
         );
 
         if (isFiltered) {
             createStatusChip(
                 `${hiddenCount} hidden`,
-                this.highContrastMode ? "transparent" : HEADER_DOCK_TOKENS.warningBg,
-                this.highContrastMode ? shellText : HEADER_DOCK_TOKENS.warning,
+                this.highContrastMode ? "transparent" : controlBackground,
+                this.highContrastMode ? shellText : borderColor,
                 this.highContrastMode ? shellText : HEADER_DOCK_TOKENS.warningText
             );
         }
@@ -15154,10 +15246,10 @@ export class Visual implements IVisual {
             const normalizedCategory = normalizeLegendCategory(category);
             const color = this.legendColorMap.get(category) || "#999";
             const isSelected = this.selectedLegendCategories.size === 0 || (!!normalizedCategory && this.selectedLegendCategories.has(normalizedCategory));
-            const selectedBackground = this.highContrastMode ? "transparent" : this.toRgba(color, 0.18);
+            const selectedBackground = this.highContrastMode ? "transparent" : controlBackground;
             const selectedBorder = this.highContrastMode ? shellText : this.toRgba(color, 0.42);
-            const unselectedBackground = this.highContrastMode ? "transparent" : "rgba(255,255,255,0.03)";
-            const unselectedBorder = this.highContrastMode ? shellText : HEADER_DOCK_TOKENS.groupStroke;
+            const unselectedBackground = this.highContrastMode ? "transparent" : controlBackground;
+            const unselectedBorder = this.highContrastMode ? shellText : borderColor;
             const labelColor = isSelected ? shellText : shellMuted;
 
             const item = scrollableContent.append("div")
@@ -15752,19 +15844,22 @@ export class Visual implements IVisual {
         return typeof value === "string" && value.trim().length > 0;
     }
 
-    private getWbsLevelStyle(level: number, fallbackBackground: string, fallbackText: string): { background: string; text: string } {
+    private getWbsTextColor(fallbackText: string = "#333333"): string {
+        const value = this.settings?.wbsGrouping?.groupNameColor?.value?.value;
+        return this.isNonEmptyColor(value) ? value : fallbackText;
+    }
+
+    private getWbsLevelStyle(level: number, fallbackBackground: string): { background: string } {
         const levelStyles = this.settings?.wbsLevelStyles as any;
         if (!levelStyles) {
-            return { background: fallbackBackground, text: fallbackText };
+            return { background: fallbackBackground };
         }
 
         const safeLevel = Math.max(1, level);
         const backgroundValue = levelStyles[`level${safeLevel}Background`]?.value?.value;
-        const textValue = levelStyles[`level${safeLevel}Text`]?.value?.value;
 
         return {
-            background: this.isNonEmptyColor(backgroundValue) ? backgroundValue : fallbackBackground,
-            text: this.isNonEmptyColor(textValue) ? textValue : fallbackText
+            background: this.isNonEmptyColor(backgroundValue) ? backgroundValue : fallbackBackground
         };
     }
 
@@ -15814,6 +15909,86 @@ export class Visual implements IVisual {
     }
 
     /**
+     * Gets the shared header and legend container background from settings.
+     */
+    private getHeaderLegendBackgroundColor(): string {
+        const settingColor = this.settings?.generalSettings?.headerLegendBackgroundColor?.value?.value;
+        return this.resolveColor(settingColor || HEADER_DOCK_TOKENS.shell, "background");
+    }
+
+    /**
+     * Gets the shared header and legend control background from settings.
+     */
+    private getHeaderLegendControlBackgroundColor(): string {
+        const settingColor = this.settings?.generalSettings?.headerLegendControlBackgroundColor?.value?.value;
+        return this.resolveColor(settingColor || HEADER_DOCK_TOKENS.buttonBg, "background");
+    }
+
+    /**
+     * Gets the shared header and legend text color from settings.
+     */
+    private getHeaderLegendTextColor(): string {
+        const settingColor = this.settings?.generalSettings?.headerLegendTextColor?.value?.value;
+        return this.resolveColor(settingColor || HEADER_DOCK_TOKENS.buttonText, "foreground");
+    }
+
+    /**
+     * Gets the shared default border colour for header and legend chrome.
+     */
+    private getHeaderLegendBorderColor(): string {
+        const settingColor = this.settings?.generalSettings?.headerLegendBorderColor?.value?.value;
+        return this.resolveColor(settingColor || HEADER_DOCK_TOKENS.buttonStroke, "foreground");
+    }
+
+    private getHeaderLegendActiveColor(): string {
+        return this.resolveColor(HEADER_DOCK_TOKENS.primary, "selected");
+    }
+
+    private getHeaderLegendMutedTextColor(): string {
+        return this.getHeaderLegendTextColor();
+    }
+
+    private getHeaderLegendInputBackgroundColor(): string {
+        return this.getHeaderLegendControlBackgroundColor();
+    }
+
+    private getHeaderLegendMenuBackgroundColor(): string {
+        return this.getHeaderLegendControlBackgroundColor();
+    }
+
+    private getHeaderLegendMenuHoverColor(): string {
+        return this.getHeaderLegendControlBackgroundColor();
+    }
+
+    private isDefaultHeaderLegendControlBackgroundColor(): boolean {
+        return this.isDefaultColorSetting(
+            this.settings?.generalSettings?.headerLegendControlBackgroundColor?.value?.value,
+            HEADER_DOCK_TOKENS.buttonBg
+        );
+    }
+
+    private isDefaultHeaderLegendTextColor(): boolean {
+        return this.isDefaultColorSetting(
+            this.settings?.generalSettings?.headerLegendTextColor?.value?.value,
+            HEADER_DOCK_TOKENS.buttonText
+        );
+    }
+
+    private isDefaultHeaderLegendBorderColor(): boolean {
+        return this.isDefaultColorSetting(
+            this.settings?.generalSettings?.headerLegendBorderColor?.value?.value,
+            HEADER_DOCK_TOKENS.buttonStroke
+        );
+    }
+
+    private isDefaultColorSetting(value: string | undefined, defaultValue: string): boolean {
+        if (!value) {
+            return true;
+        }
+        return value.trim().toLowerCase() === defaultValue.toLowerCase();
+    }
+
+    /**
      * Gets the font family from settings or returns the default system font stack.
      */
     private getFontFamily(): string {
@@ -15830,8 +16005,31 @@ export class Visual implements IVisual {
         if (!this.highContrastMode) {
             // Use background color from settings
             const bgColor = this.getVisualBackgroundColor();
-            this.stickyHeaderContainer?.style("background-color", HEADER_DOCK_TOKENS.shell);
-            this.legendContainer?.style("background-color", HEADER_DOCK_TOKENS.shell);
+            const headerLegendBgColor = this.getHeaderLegendBackgroundColor();
+            const headerLegendControlBgColor = this.getHeaderLegendControlBackgroundColor();
+            const headerLegendTextColor = this.getHeaderLegendTextColor();
+            const headerLegendBorderColor = this.getHeaderLegendBorderColor();
+            this.visualWrapper?.style("--lpv-header-legend-border-color", headerLegendBorderColor);
+            this.stickyHeaderContainer?.style("background-color", headerLegendBgColor);
+            this.legendContainer
+                ?.style("background-color", headerLegendBgColor)
+                .style("border-top", `1px solid ${headerLegendBorderColor}`);
+            this.selectedTaskLabel
+                ?.style("background-color", headerLegendControlBgColor)
+                .style("color", headerLegendTextColor)
+                .style("border", `1px solid ${headerLegendBorderColor}`);
+            this.pathInfoLabel
+                ?.style("background-color", headerLegendControlBgColor)
+                .style("color", headerLegendTextColor)
+                .style("border", `1px solid ${headerLegendBorderColor}`);
+            this.dropdownInput
+                ?.style("background", headerLegendControlBgColor)
+                .style("color", headerLegendTextColor)
+                .style("border", `1px solid ${headerLegendBorderColor}`);
+            this.dropdownList
+                ?.style("background", headerLegendControlBgColor)
+                .style("color", headerLegendTextColor)
+                .style("border", `1px solid ${headerLegendBorderColor}`);
             if (this.scrollableContainer) {
                 this.scrollableContainer.style("background-color", bgColor);
             }
@@ -15847,6 +16045,7 @@ export class Visual implements IVisual {
         const foreground = this.highContrastForeground;
         const background = this.highContrastBackground;
 
+        this.visualWrapper?.style("--lpv-header-legend-border-color", foreground);
         this.stickyHeaderContainer?.style("background-color", background);
         this.legendContainer?.style("background-color", background);
 
@@ -16602,7 +16801,7 @@ export class Visual implements IVisual {
         addListItem(wbsList, 'Enable / Disable', 'Use the WBS button in the header to switch between grouped and flat task views.');
         addListItem(wbsList, 'Expand / Collapse Level', 'Use the + and − WBS buttons to cycle through grouping depth, from collapsed to fully expanded and back again.');
         addListItem(wbsList, 'Manual Open / Close', 'Click a group chevron to expand or collapse a single branch without changing the whole view.');
-        addListItem(wbsList, 'Header Context Menu', 'Right-click a WBS group header, or use Shift+F10 from a focused WBS header, to expand all, collapse all, or show the hierarchy through any available WBS level.');
+        addListItem(wbsList, 'Header Context Menu', 'Right-click a WBS group header, or use Shift+F10 from a focused WBS header, to collapse all, show the hierarchy through any available WBS level, or expand all.');
         addListItem(wbsList, 'Collapse To Level', 'Choose a WBS level from the context menu to show levels 1 through the selected level and collapse deeper branches.');
         addListItem(wbsList, 'Scroll Anchoring', 'When a global WBS expand/collapse action is applied, the visual attempts to keep the visible WBS area anchored so the viewport does not jump unexpectedly.');
 
@@ -16942,11 +17141,10 @@ export class Visual implements IVisual {
             const indent = Math.max(0, (group.level - 1) * (this.settings?.wbsGrouping?.indentPerLevel?.value || 20));
             const levelStyle = this.getWbsLevelStyle(
                 group.level,
-                this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F0F0F0",
-                this.settings?.wbsGrouping?.groupNameColor?.value?.value || "#333333"
+                this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F0F0F0"
             );
             const bgColor = this.resolveColor(this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F7F8FA", "background");
-            const textColor = this.resolveColor(levelStyle.text, "foreground");
+            const textColor = this.resolveColor(this.getWbsTextColor("#333333"), "foreground");
             const accentColor = this.resolveColor(levelStyle.background, "foreground");
 
             html += `<tr style="background-color: ${bgColor}; color: ${textColor}; font-weight: bold;">`;
@@ -17149,7 +17347,7 @@ ${tableHtml}
         tasks: Task[]
     ): string {
         const defaultGroupHeaderColor = this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F0F0F0";
-        const defaultGroupNameColor = this.settings?.wbsGrouping?.groupNameColor?.value?.value || "#333333";
+        const defaultGroupNameColor = this.getWbsTextColor("#333333");
         const indentPerLevel = this.settings?.wbsGrouping?.indentPerLevel?.value || 20;
 
         // Calculate total columns for spanning (no WBS level columns in hierarchical mode)
@@ -17209,9 +17407,9 @@ ${tableHtml}
                     .join("|");
                 const group = this.wbsGroupMap.get(pathId);
                 const groupLevel = group?.level ?? (levelIndex + 1);
-                const levelStyle = this.getWbsLevelStyle(groupLevel, defaultGroupHeaderColor, defaultGroupNameColor);
+                const levelStyle = this.getWbsLevelStyle(groupLevel, defaultGroupHeaderColor);
                 const bgColor = this.resolveColor(defaultGroupHeaderColor, "background");
-                const textColor = this.resolveColor(levelStyle.text, "foreground");
+                const textColor = this.resolveColor(defaultGroupNameColor, "foreground");
                 const accentColor = this.resolveColor(levelStyle.background, "foreground");
                 const indentPx = Math.max(0, levelIndex * indentPerLevel);
                 const groupName = this.sanitizeExportCell(group ? this.getWbsDisplayName(group) : (currentLevels[levelIndex] || ""));

@@ -81,7 +81,10 @@ interface HeaderMenuItem {
     callback?: () => void;
 }
 
-export type HeaderPalette = Partial<typeof HEADER_DOCK_TOKENS> & { isHighContrast?: boolean };
+export type HeaderPalette = Partial<typeof HEADER_DOCK_TOKENS> & {
+    isHighContrast?: boolean;
+    usesCustomColours?: boolean;
+};
 
 const LOOK_AHEAD_SELECT_FONT_SIZE = `${UI_TOKENS.fontSize.sm}px`;
 const LOOK_AHEAD_OPTION_LINE_HEIGHT = "1.2";
@@ -140,7 +143,8 @@ export class Header {
         const controlY = UI_TOKENS.spacing.sm;
         const controlHeight = UI_TOKENS.height.standard;
         const shellPaddingY = 4;
-        const groupPaddingY = 2;
+        const groupPaddingY = 3;
+        const groupPaddingX = 6;
         const rowY = Math.max(0, controlY - shellPaddingY);
         const rowHeight = controlHeight + shellPaddingY * 2;
         const groupY = Math.max(0, controlY - groupPaddingY);
@@ -163,10 +167,10 @@ export class Header {
                 return null;
             }
 
-            const left = Math.max(12, Math.min(...visibleItems.map(item => item.x)) - 6);
+            const left = Math.max(rowX + 4, Math.min(...visibleItems.map(item => item.x)) - groupPaddingX);
             const right = Math.min(
-                this.currentViewportWidth - 12,
-                Math.max(...visibleItems.map(item => item.x + (item.width ?? item.size ?? UI_TOKENS.height.standard))) + 6
+                this.currentViewportWidth - (rowX + 4),
+                Math.max(...visibleItems.map(item => item.x + (item.width ?? item.size ?? UI_TOKENS.height.standard))) + groupPaddingX
             );
 
             return {
@@ -191,7 +195,7 @@ export class Header {
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
             .attr("fill", this.getPaletteToken("shell"))
-            .attr("stroke", this.getPaletteToken("commandStroke"))
+            .attr("stroke", this.getHeaderCommandBorderColor())
             .attr("stroke-width", 1)
             .attr("stroke-opacity", 0.85);
 
@@ -209,7 +213,7 @@ export class Header {
             .attr("rx", UI_TOKENS.radius.medium)
             .attr("ry", UI_TOKENS.radius.medium)
             .attr("fill", this.getPaletteToken("shell"))
-            .attr("stroke", this.getPaletteToken("groupStroke"))
+            .attr("stroke", this.getHeaderGroupBorderColor())
             .attr("stroke-width", 1)
             .attr("stroke-opacity", 0.7);
     }
@@ -285,21 +289,122 @@ export class Header {
         return this.currentPalette[key] ?? HEADER_DOCK_TOKENS[key];
     }
 
+    private getHeaderShellBackground(): string {
+        return this.getPaletteToken("shell");
+    }
+
+    private getHeaderControlBackground(): string {
+        return this.getPaletteToken("buttonBg");
+    }
+
+    private getHeaderControlHoverBackground(): string {
+        return this.getPaletteToken("buttonHoverBg");
+    }
+
+    private getHeaderControlTextColor(): string {
+        return this.getPaletteToken("buttonText");
+    }
+
+    private getHeaderMutedTextColor(): string {
+        return this.getPaletteToken("buttonMuted");
+    }
+
+    private getHeaderChipBackground(): string {
+        return this.getPaletteToken("chipBg");
+    }
+
+    private getHeaderChipTextColor(): string {
+        return this.getPaletteToken("chipText");
+    }
+
+    private getHeaderChipMutedTextColor(): string {
+        return this.getPaletteToken("chipMuted");
+    }
+
+    private getHeaderInputBackground(): string {
+        return this.getPaletteToken("inputBg");
+    }
+
+    private getHeaderBorderColor(): string {
+        return this.getPaletteToken("buttonStroke");
+    }
+
+    private getHeaderHoverBorderColor(): string {
+        return this.getPaletteToken("buttonHoverStroke");
+    }
+
+    private getHeaderCommandBorderColor(): string {
+        return this.getPaletteToken("commandStroke");
+    }
+
+    private getHeaderGroupBorderColor(): string {
+        return this.getPaletteToken("groupStroke");
+    }
+
+    private getHeaderChipBorderColor(): string {
+        return this.getPaletteToken("chipStroke");
+    }
+
+    private getHeaderInputBorderColor(): string {
+        return this.getPaletteToken("inputStroke");
+    }
+
+    private getHeaderInputFocusBorderColor(): string {
+        return this.getPaletteToken("inputFocus");
+    }
+
+    private getHeaderMenuBorderColor(): string {
+        return this.getPaletteToken("menuStroke");
+    }
+
+    private getHeaderMenuBackground(): string {
+        return this.getPaletteToken("menuBg");
+    }
+
+    private getHeaderMenuHoverBackground(): string {
+        return this.getPaletteToken("menuHover");
+    }
+
+    private getHeaderGroupBackground(): string {
+        return this.getPaletteToken("groupBg");
+    }
+
+    private getHeaderPrimaryColor(): string {
+        return this.getPaletteToken("primary");
+    }
+
+    private getHeaderSuccessColor(): string {
+        return this.getPaletteToken("success");
+    }
+
+    private getHeaderWarningColor(): string {
+        return this.getPaletteToken("warning");
+    }
+
+    private getHeaderDangerColor(): string {
+        return this.getPaletteToken("danger");
+    }
+
+    private getHeaderShadow(): string {
+        return this.getPaletteToken("shadow");
+    }
+
     private applyHeaderPaletteOverrides(): void {
         if (!this.currentPalette.isHighContrast) {
             return;
         }
 
-        const foreground = this.getPaletteToken("buttonText");
-        const background = this.getPaletteToken("shell");
-        const border = this.getPaletteToken("buttonStroke");
-        const inputBackground = this.getPaletteToken("inputBg");
+        const foreground = this.getHeaderControlTextColor();
+        const shellBackground = this.getHeaderShellBackground();
+        const controlBackground = this.getHeaderControlBackground();
+        const border = this.getHeaderBorderColor();
+        const inputBackground = this.getHeaderInputBackground();
 
         this.toggleButtonGroup
             .selectAll<SVGRectElement, unknown>(".header-command-shell, .header-command-group")
-            .attr("fill", background)
+            .attr("fill", shellBackground)
             .attr("stroke", border)
-            .attr("stroke-width", 1.5);
+            .attr("stroke-width", this.currentPalette.isHighContrast ? 1.5 : 1);
 
         this.container
             .selectAll<HTMLButtonElement, unknown>("button.header-toggle-button")
@@ -307,11 +412,25 @@ export class Header {
             .style("color", foreground);
 
         this.container
-            .selectAll<SVGRectElement, unknown>("button.header-toggle-button svg rect")
-            .attr("fill", background)
+            .selectAll<SVGRectElement, unknown>("button.header-toggle-button svg > rect:first-child")
+            .attr("fill", controlBackground)
             .attr("stroke", border)
-            .style("fill", background)
+            .style("fill", controlBackground)
             .style("stroke", border);
+
+        this.container
+            .selectAll<SVGRectElement, unknown>("button.header-toggle-button svg > rect:not(:first-child)")
+            .style("fill", foreground);
+
+        this.container
+            .selectAll<SVGElement, unknown>("button.header-toggle-button svg .glyph-fill")
+            .attr("fill", foreground)
+            .style("fill", foreground);
+
+        this.container
+            .selectAll<SVGElement, unknown>("button.header-toggle-button svg .glyph-stroke")
+            .attr("stroke", foreground)
+            .style("stroke", foreground);
 
         this.container
             .selectAll<SVGPathElement | SVGLineElement, unknown>("button.header-toggle-button svg path, button.header-toggle-button svg line")
@@ -321,9 +440,9 @@ export class Header {
         this.container
             .selectAll<SVGCircleElement, unknown>("button.header-toggle-button svg circle")
             .attr("stroke", foreground)
-            .attr("fill", background)
+            .attr("fill", foreground)
             .style("stroke", foreground)
-            .style("fill", background);
+            .style("fill", foreground);
 
         this.container
             .selectAll<SVGTextElement, unknown>("button.header-toggle-button svg text")
@@ -331,22 +450,22 @@ export class Header {
 
         this.container
             .selectAll<HTMLDivElement, unknown>("div.look-ahead-control-wrapper, div.look-ahead-option-list, div.float-threshold-wrapper")
-            .style("background-color", background)
-            .style("border", `1.5px solid ${border}`)
-            .style("box-shadow", "none")
+            .style("background-color", controlBackground)
+            .style("border", `${this.currentPalette.isHighContrast ? "1.5px" : "1px"} solid ${border}`)
+            .style("box-shadow", this.currentPalette.isHighContrast ? "none" : this.getHeaderShadow())
             .style("color", foreground);
 
         this.container
             .selectAll<HTMLElement, unknown>("div.look-ahead-control-wrapper button, div.float-threshold-wrapper input, div.action-overflow-menu button.look-ahead-option-button, div.action-overflow-menu input")
             .style("color", foreground)
             .style("background-color", inputBackground)
-            .style("border", `1.5px solid ${border}`);
+            .style("border", `${this.currentPalette.isHighContrast ? "1.5px" : "1px"} solid ${border}`);
 
         this.container
             .selectAll<HTMLDivElement, unknown>("div.action-overflow-menu")
-            .style("background-color", background)
-            .style("border", `1.5px solid ${border}`)
-            .style("box-shadow", "none")
+            .style("background-color", controlBackground)
+            .style("border", `${this.currentPalette.isHighContrast ? "1.5px" : "1px"} solid ${border}`)
+            .style("box-shadow", this.currentPalette.isHighContrast ? "none" : this.getHeaderShadow())
             .style("color", foreground);
 
         this.container
@@ -383,8 +502,8 @@ export class Header {
         const bgRect = btn.select<SVGRectElement>('.copy-button-bg');
         if (!btn.empty()) {
             bgRect
-                .attr('fill', HEADER_DOCK_TOKENS.successBg)
-                .attr('stroke', HEADER_DOCK_TOKENS.success)
+                .attr('fill', this.getHeaderControlBackground())
+                .attr('stroke', this.getHeaderSuccessColor())
                 .attr('stroke-width', 1.5);
 
             if (this.copySuccessTimeout !== null) {
@@ -395,8 +514,8 @@ export class Header {
                 const liveRect = this.container.select<HTMLButtonElement>('button.copy-data-button-group')
                     .select<SVGRectElement>('.copy-button-bg');
                 liveRect
-                    .attr('fill', HEADER_DOCK_TOKENS.buttonBg)
-                    .attr('stroke', HEADER_DOCK_TOKENS.buttonStroke)
+                    .attr('fill', this.getHeaderControlBackground())
+                    .attr('stroke', this.getHeaderBorderColor())
                     .attr('stroke-width', 1);
                 this.copySuccessTimeout = null;
             }, 2000);
@@ -412,11 +531,11 @@ export class Header {
             .style("top", "50%")
             .style("left", "50%")
             .style("transform", "translate(-50%, -50%)")
-            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
+            .style("background-color", this.getHeaderChipBackground())
             .style("padding", "16px 24px")
             .style("border-radius", "8px")
-            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
+            .style("box-shadow", this.getHeaderShadow())
+            .style("border", `1px solid ${this.getHeaderChipBorderColor()}`)
             .style("z-index", "10000")
             .style("display", "flex")
             .style("align-items", "center")
@@ -440,7 +559,7 @@ export class Header {
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "14px")
             .style("font-weight", "600")
-            .style("color", HEADER_DOCK_TOKENS.chipText)
+            .style("color", this.getHeaderChipTextColor())
             .text("Data copied to clipboard");
 
         // Animate in
@@ -670,8 +789,8 @@ export class Header {
                 .style('cursor', 'wait')
                 .style('background-color', 'transparent');
             bgRect
-                .attr('fill', HEADER_DOCK_TOKENS.primaryBg)
-                .attr('stroke', HEADER_DOCK_TOKENS.primary);
+                .attr('fill', this.getHeaderControlBackground())
+                .attr('stroke', this.getHeaderPrimaryColor());
         } else {
             iconPaths.style('display', 'block');
             spinner.style('display', 'none');
@@ -681,8 +800,8 @@ export class Header {
                 .style('cursor', 'pointer')
                 .style('background-color', 'transparent');
             bgRect
-                .attr('fill', HEADER_DOCK_TOKENS.buttonBg)
-                .attr('stroke', HEADER_DOCK_TOKENS.buttonStroke);
+                .attr('fill', this.getHeaderControlBackground())
+                .attr('stroke', this.getHeaderBorderColor());
         }
     }
 
@@ -724,11 +843,12 @@ export class Header {
             });
 
         const isActive = isShowingCritical;
-        const buttonFill = isActive ? HEADER_DOCK_TOKENS.dangerBg : HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = isActive ? HEADER_DOCK_TOKENS.danger : HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = isActive ? this.lightenColor(HEADER_DOCK_TOKENS.dangerBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = isActive ? HEADER_DOCK_TOKENS.danger : HEADER_DOCK_TOKENS.buttonHoverStroke;
-        const iconColor = isActive ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
+        const activeColor = this.getHeaderDangerColor();
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = isActive ? activeColor : this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = isActive ? activeColor : this.getHeaderHoverBorderColor();
+        const iconColor = isActive ? activeColor : this.getHeaderControlTextColor();
 
         // SVG Icon
         const svg = btn.append("svg")
@@ -808,7 +928,7 @@ export class Header {
                 .attr("cx", 5.4)
                 .attr("cy", -5.3)
                 .attr("r", 1.8)
-                .attr("fill", HEADER_DOCK_TOKENS.danger);
+                .attr("fill", activeColor);
         }
 
         btn.append("title")
@@ -844,11 +964,12 @@ export class Header {
         const showBaseline = this.currentState.showBaseline;
 
         const baselineColor = this.currentSettings.comparisonBars.baselineColor.value.value;
-        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = showBaseline ? baselineColor : HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = showBaseline ? baselineColor : HEADER_DOCK_TOKENS.buttonHoverStroke;
-        const labelFill = showBaseline ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
+        const inactiveColor = this.getHeaderControlTextColor();
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = showBaseline ? baselineColor : this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = showBaseline ? baselineColor : this.getHeaderHoverBorderColor();
+        const labelFill = showBaseline ? baselineColor : inactiveColor;
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
@@ -922,7 +1043,7 @@ export class Header {
             .attr("x2", 8)
             .attr("y1", 6)
             .attr("y2", 6)
-            .attr("stroke", showBaseline ? baselineColor : UI_TOKENS.color.neutral.grey60)
+            .attr("stroke", showBaseline ? baselineColor : inactiveColor)
             .attr("stroke-width", 2)
             .attr("stroke-linecap", "round");
 
@@ -933,7 +1054,7 @@ export class Header {
             .attr("height", 4)
             .attr("rx", 1.8)
             .attr("ry", 1.8)
-            .attr("fill", showBaseline ? baselineColor : UI_TOKENS.color.neutral.grey60)
+            .attr("fill", showBaseline ? baselineColor : inactiveColor)
             .style("opacity", showBaseline ? "1" : "0.7");
 
         iconG.append("text")
@@ -944,7 +1065,7 @@ export class Header {
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "7px")
             .style("font-weight", "800")
-            .style("fill", showBaseline ? HEADER_DOCK_TOKENS.buttonText : UI_TOKENS.color.neutral.grey60)
+            .style("fill", showBaseline ? baselineColor : inactiveColor)
             .text("BL");
 
         if (!iconOnly) {
@@ -1006,11 +1127,12 @@ export class Header {
         const showPreviousUpdate = this.currentState.showPreviousUpdate;
 
         const previousUpdateColor = this.currentSettings.comparisonBars.previousUpdateColor.value.value;
-        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = showPreviousUpdate ? previousUpdateColor : HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = showPreviousUpdate ? previousUpdateColor : HEADER_DOCK_TOKENS.buttonHoverStroke;
-        const labelFill = showPreviousUpdate ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
+        const inactiveColor = this.getHeaderControlTextColor();
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = showPreviousUpdate ? previousUpdateColor : this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = showPreviousUpdate ? previousUpdateColor : this.getHeaderHoverBorderColor();
+        const labelFill = showPreviousUpdate ? previousUpdateColor : inactiveColor;
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
@@ -1082,7 +1204,7 @@ export class Header {
         iconG.append("path")
             .attr("d", "M-8,5.5 H6 M3,2.8 L6,5.5 L3,8.2")
             .attr("fill", "none")
-            .attr("stroke", showPreviousUpdate ? previousUpdateColor : UI_TOKENS.color.neutral.grey60)
+            .attr("stroke", showPreviousUpdate ? previousUpdateColor : inactiveColor)
             .attr("stroke-width", 1.8)
             .attr("stroke-linecap", "round")
             .attr("stroke-linejoin", "round");
@@ -1094,7 +1216,7 @@ export class Header {
             .attr("height", 4)
             .attr("rx", 1.8)
             .attr("ry", 1.8)
-            .attr("fill", showPreviousUpdate ? previousUpdateColor : UI_TOKENS.color.neutral.grey60)
+            .attr("fill", showPreviousUpdate ? previousUpdateColor : inactiveColor)
             .style("opacity", showPreviousUpdate ? "1" : "0.7");
 
         iconG.append("text")
@@ -1105,7 +1227,7 @@ export class Header {
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "7px")
             .style("font-weight", "800")
-            .style("fill", showPreviousUpdate ? HEADER_DOCK_TOKENS.buttonText : UI_TOKENS.color.neutral.grey60)
+            .style("fill", showPreviousUpdate ? previousUpdateColor : inactiveColor)
             .text("PV");
 
         if (!iconOnly) {
@@ -1270,10 +1392,12 @@ export class Header {
 
         const buttonY = UI_TOKENS.spacing.sm;
         const showConnectorLines = this.currentState.showConnectorLines;
-        const buttonFill = showConnectorLines ? HEADER_DOCK_TOKENS.successBg : HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = showConnectorLines ? HEADER_DOCK_TOKENS.success : HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = showConnectorLines ? this.lightenColor(HEADER_DOCK_TOKENS.successBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = showConnectorLines ? HEADER_DOCK_TOKENS.success : HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const activeTextColor = this.getHeaderSuccessColor();
+        const inactiveTextColor = this.getHeaderControlTextColor();
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = showConnectorLines ? activeTextColor : this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = showConnectorLines ? activeTextColor : this.getHeaderHoverBorderColor();
 
         const btn = this.upsertButton("connector-toggle-group")
             .attr("type", "button")
@@ -1320,7 +1444,7 @@ export class Header {
             .attr("stroke", buttonStroke)
             .attr("stroke-width", showConnectorLines ? 1.5 : 1);
 
-        const iconColor = showConnectorLines ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
+        const iconColor = showConnectorLines ? activeTextColor : inactiveTextColor;
         const iconG = svg.append("g")
             .attr("transform", `translate(${buttonSize / 2}, ${buttonSize / 2})`);
 
@@ -1335,8 +1459,8 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", HEADER_DOCK_TOKENS.buttonText);
-            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", iconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", iconColor);
         })
             .on("mouseout", function () {
                 bgRect.attr("fill", buttonFill)
@@ -1374,11 +1498,14 @@ export class Header {
         const wbsExpanded = this.currentState.wbsExpanded;
 
         const buttonY = UI_TOKENS.spacing.sm;
-        const buttonFill = wbsExpanded ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = wbsExpanded ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = wbsExpanded ? this.lightenColor(HEADER_DOCK_TOKENS.primaryBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = wbsExpanded ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonHoverStroke;
-        const iconColor = wbsExpanded ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
+        const activeTextColor = this.getHeaderPrimaryColor();
+        const inactiveTextColor = this.getHeaderControlTextColor();
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = wbsExpanded ? activeTextColor : this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = wbsExpanded ? activeTextColor : this.getHeaderHoverBorderColor();
+        const iconColor = wbsExpanded ? activeTextColor : inactiveTextColor;
+        const hoverIconColor = wbsExpanded ? activeTextColor : inactiveTextColor;
 
         const btn = this.upsertButton("wbs-expand-toggle-group")
             .attr("type", "button")
@@ -1451,9 +1578,9 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", HEADER_DOCK_TOKENS.buttonText);
-            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
-            textEl.style("fill", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", hoverIconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", hoverIconColor);
+            textEl.style("fill", hoverIconColor);
         }).on("mouseout", function () {
             bgRect.attr("fill", buttonFill)
                 .attr("stroke", buttonStroke)
@@ -1485,11 +1612,14 @@ export class Header {
         const isCollapsed = currentLevel === 0 || !this.currentState.wbsExpanded; // Logic approx
 
         const buttonY = UI_TOKENS.spacing.sm;
-        const buttonFill = isCollapsed ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = isCollapsed ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = isCollapsed ? this.lightenColor(HEADER_DOCK_TOKENS.primaryBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = isCollapsed ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonHoverStroke;
-        const iconColor = isCollapsed ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
+        const activeTextColor = this.getHeaderPrimaryColor();
+        const inactiveTextColor = this.getHeaderControlTextColor();
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = isCollapsed ? activeTextColor : this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = isCollapsed ? activeTextColor : this.getHeaderHoverBorderColor();
+        const iconColor = isCollapsed ? activeTextColor : inactiveTextColor;
+        const hoverIconColor = isCollapsed ? activeTextColor : inactiveTextColor;
 
         const btn = this.upsertButton("wbs-collapse-toggle-group")
             .attr("type", "button")
@@ -1562,9 +1692,9 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", HEADER_DOCK_TOKENS.buttonText);
-            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
-            textEl.style("fill", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", hoverIconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", hoverIconColor);
+            textEl.style("fill", hoverIconColor);
         }).on("mouseout", function () {
             bgRect.attr("fill", buttonFill)
                 .attr("stroke", buttonStroke)
@@ -1595,6 +1725,11 @@ export class Header {
         const showDaysText = !isVeryCompact && !isCompressed;
         const showHelpIcon = layoutMode === 'wide' && maxWidth >= 170;
         const iconSize = isVeryCompact ? 10 : 12;
+        const controlBackground = this.getHeaderChipBackground();
+        const inputBackground = this.getHeaderInputBackground();
+        const textColor = this.getHeaderChipTextColor();
+        const mutedTextColor = this.getHeaderChipMutedTextColor();
+        const self = this;
 
         const controlContainer = this.upsertDiv("float-threshold-wrapper")
             .attr("role", "group")
@@ -1609,10 +1744,10 @@ export class Header {
             .style("height", "24px")
             .style("padding", isVeryCompact ? "0 6px" : "0 8px")
             .style("max-width", `${maxWidth}px`)
-            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.warning}`)
+            .style("background-color", controlBackground)
+            .style("border", `1px solid ${this.getHeaderBorderColor()}`)
             .style("border-radius", "12px")
-            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("box-shadow", "none")
             .style("transition", `all ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.smooth}`);
 
         const labelContainer = controlContainer.append("div")
@@ -1635,7 +1770,7 @@ export class Header {
         labelContainer.append("span")
             .style("font-size", "11px")
             .style("letter-spacing", "0.1px")
-            .style("color", HEADER_DOCK_TOKENS.chipText)
+            .style("color", textColor)
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-weight", UI_TOKENS.fontWeight.medium)
             .style("white-space", "nowrap")
@@ -1651,23 +1786,23 @@ export class Header {
             .style("width", `${inputWidth}px`)
             .style("height", "18px")
             .style("padding", "0 4px")
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
+            .style("border", `1px solid ${this.getHeaderInputBorderColor()}`)
             .style("border-radius", "4px")
             .style("font-size", "11px")
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("text-align", "center")
-            .style("color", HEADER_DOCK_TOKENS.chipText)
-            .style("background-color", HEADER_DOCK_TOKENS.inputBg)
+            .style("color", textColor)
+            .style("background-color", inputBackground)
             .style("outline", "none")
             .on("focus", function () {
                 select(this)
-                    .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputFocus}`)
-                    .style("box-shadow", `0 0 0 2px ${HEADER_DOCK_TOKENS.primaryBg}`);
+                    .style("border", `1px solid ${self.getHeaderInputFocusBorderColor()}`)
+                    .style("box-shadow", "none");
             })
             .on("blur", function () {
                 select(this)
-                    .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
+                    .style("border", `1px solid ${self.getHeaderInputBorderColor()}`)
                     .style("box-shadow", "none");
             })
             .on("change", (event) => {
@@ -1680,7 +1815,7 @@ export class Header {
         if (showDaysText) {
             controlContainer.append("span")
                 .style("font-size", "11px")
-                .style("color", HEADER_DOCK_TOKENS.chipMuted)
+                .style("color", mutedTextColor)
                 .style("font-family", "Segoe UI, sans-serif")
                 .text("days");
         }
@@ -1699,7 +1834,7 @@ export class Header {
                 .attr("width", helpIconSize)
                 .attr("height", helpIconSize)
                 .attr("viewBox", "0 0 16 16")
-                .style("fill", HEADER_DOCK_TOKENS.chipMuted);
+                .style("fill", mutedTextColor);
 
             helpSvg.append("path")
                 .attr("d", "M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm.93 11v1H6.93v-1h2zm-2.97-2.65c0-1.4.67-1.85 1.54-2.28.6-.3.83-.53.83-.97 0-.48-.44-.87-1.42-.87-.82 0-1.28.32-1.57.57l-.87-1.05c.5-.5 1.34-1.02 2.76-1.02 1.93 0 2.9 1.15 2.9 2.22 0 1.25-.66 1.7-1.48 2.12-.66.33-.87.6-.87 1.15v.13h-1.81z");
@@ -1725,11 +1860,12 @@ export class Header {
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
 
-        const bgColor = HEADER_DOCK_TOKENS.buttonBg;
+        const bgColor = this.getHeaderControlBackground();
         const borderColor = hasModeWarning
-            ? HEADER_DOCK_TOKENS.warning
-            : (isFloatBased ? HEADER_DOCK_TOKENS.warning : HEADER_DOCK_TOKENS.primary);
-        const activeFill = isFloatBased ? HEADER_DOCK_TOKENS.warning : HEADER_DOCK_TOKENS.primary;
+            ? this.getHeaderWarningColor()
+            : (isFloatBased ? this.getHeaderWarningColor() : this.getHeaderPrimaryColor());
+        const activeColor = isFloatBased ? this.getHeaderWarningColor() : this.getHeaderPrimaryColor();
+        const inactiveTextColor = this.getHeaderControlTextColor();
         const modeDetails = [modeStatusMessage, modeWarningMessage].filter(Boolean).join(" ");
         const modeTitle = `Switch calculation mode. Currently: ${isFloatBased ? 'Float-Based' : 'Longest Path'}${modeDetails ? `. ${modeDetails}` : ""}`;
 
@@ -1777,8 +1913,9 @@ export class Header {
                 .attr("width", 24)
                 .attr("height", 20)
                 .attr("rx", 6)
-                .attr("fill", activeFill)
-                .attr("stroke", "none");
+                .attr("fill", bgColor)
+                .attr("stroke", activeColor)
+                .attr("stroke-width", 1.5);
 
             // Text code (LP or FL)
             iconG.append("text")
@@ -1788,7 +1925,7 @@ export class Header {
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", "10px")
                 .style("font-weight", "bold")
-                .style("fill", UI_TOKENS.color.neutral.white)
+                .style("fill", activeColor)
                 .text(isFloatBased ? "FL" : "LP");
 
             // Hover effects
@@ -1827,7 +1964,7 @@ export class Header {
                 .attr("height", pillHeight)
                 .attr("rx", UI_TOKENS.radius.large)
                 .attr("ry", UI_TOKENS.radius.large)
-                .style("fill", HEADER_DOCK_TOKENS.groupBg)
+                .style("fill", this.getHeaderGroupBackground())
                 .style("opacity", 0.8);
 
             pillG.append("rect")
@@ -1837,7 +1974,9 @@ export class Header {
                 .attr("height", pillHeight)
                 .attr("rx", UI_TOKENS.radius.large)
                 .attr("ry", UI_TOKENS.radius.large)
-                .style("fill", activeFill)
+                .style("fill", "transparent")
+                .style("stroke", activeColor)
+                .style("stroke-width", 1.5)
                 .style("transition", `all ${UI_TOKENS.motion.duration.slow}ms ${UI_TOKENS.motion.easing.smooth}`);
 
             pillG.append("text")
@@ -1848,7 +1987,7 @@ export class Header {
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
                 .style("font-weight", isFloatBased ? UI_TOKENS.fontWeight.medium : UI_TOKENS.fontWeight.bold)
-                .style("fill", isFloatBased ? HEADER_DOCK_TOKENS.buttonMuted : HEADER_DOCK_TOKENS.buttonText)
+                .style("fill", isFloatBased ? inactiveTextColor : activeColor)
                 .style("pointer-events", "none")
                 .text("LP");
 
@@ -1860,7 +1999,7 @@ export class Header {
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
                 .style("font-weight", isFloatBased ? UI_TOKENS.fontWeight.bold : UI_TOKENS.fontWeight.medium)
-                .style("fill", isFloatBased ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted)
+                .style("fill", isFloatBased ? activeColor : inactiveTextColor)
                 .style("pointer-events", "none")
                 .text("Float");
 
@@ -1883,7 +2022,7 @@ export class Header {
             badge.append("circle")
                 .attr("r", badgeRadius)
                 .attr("fill", HEADER_DOCK_TOKENS.warning)
-                .attr("stroke", HEADER_DOCK_TOKENS.shell)
+                .attr("stroke", this.getHeaderBorderColor())
                 .attr("stroke-width", 1.2);
 
             badge.append("text")
@@ -1893,7 +2032,7 @@ export class Header {
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", buttonWidth < 80 ? "8px" : "9px")
                 .style("font-weight", "800")
-                .style("fill", UI_TOKENS.color.neutral.white)
+                .style("fill", activeColor)
                 .style("pointer-events", "none")
                 .text("!");
         }
@@ -1993,9 +2132,14 @@ export class Header {
         const title = isAvailable
             ? `Look-ahead ${displayModeText}. Select a window from the data date.`
             : "Look-ahead requires a Data Date.";
-        const borderColor = isActive ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
-        const backgroundColor = isActive ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
-        const labelColor = isActive ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
+        const activeColor = this.getHeaderPrimaryColor();
+        const textColor = this.getHeaderControlTextColor();
+        const borderColor = isActive ? activeColor : this.getHeaderBorderColor();
+        const backgroundColor = this.getHeaderControlBackground();
+        const mutedTextColor = this.getHeaderControlTextColor();
+        const inputBackground = this.getHeaderInputBackground();
+        const hoverBackground = this.getHeaderControlHoverBackground();
+        const labelColor = isAvailable ? (isActive ? activeColor : textColor) : mutedTextColor;
         const isCompact = controlWidth < 76;
         const valueWidth = isCompact ? Math.max(42, controlWidth - 10) : Math.max(46, controlWidth - 33);
 
@@ -2024,7 +2168,7 @@ export class Header {
             .style("border", `1px solid ${borderColor}`)
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("opacity", isAvailable ? "1" : "0.5")
-            .style("box-shadow", isActive ? HEADER_DOCK_TOKENS.shadow : "none")
+            .style("box-shadow", isActive ? this.getHeaderShadow() : "none")
             .style("z-index", this.lookAheadDropdownOpen ? "85" : "45");
 
         if (!isCompact) {
@@ -2051,7 +2195,7 @@ export class Header {
             .style("width", `${valueWidth}px`)
             .style("height", "22px")
             .style("min-width", "0")
-            .style("border", `1px solid ${isActive ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.inputStroke}`)
+            .style("border", `1px solid ${isActive ? activeColor : this.getHeaderInputBorderColor()}`)
             .style("outline", "none")
             .style("border-radius", "4px")
             .style("padding", isCompact ? "0 13px 0 3px" : "0 15px 0 4px")
@@ -2060,8 +2204,8 @@ export class Header {
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("line-height", "1")
             .style("text-align", "left")
-            .style("color", HEADER_DOCK_TOKENS.buttonText)
-            .style("background-color", isActive ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.inputBg)
+            .style("color", isAvailable ? (isActive ? activeColor : textColor) : mutedTextColor)
+            .style("background-color", inputBackground)
             .style("cursor", isAvailable ? "pointer" : "not-allowed")
             .style("display", "flex")
             .style("align-items", "center")
@@ -2111,7 +2255,7 @@ export class Header {
             .style("height", "0")
             .style("border-left", "4px solid transparent")
             .style("border-right", "4px solid transparent")
-            .style("border-top", `5px solid ${isAvailable ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted}`)
+            .style("border-top", `5px solid ${isAvailable ? (isActive ? activeColor : textColor) : mutedTextColor}`)
             .style("pointer-events", "none");
 
         const list = wrapper.append("div")
@@ -2131,16 +2275,17 @@ export class Header {
             .style("display", this.lookAheadDropdownOpen && isAvailable ? "flex" : "none")
             .style("flex-direction", "column")
             .style("gap", "1px")
-            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
+            .style("background-color", this.getHeaderChipBackground())
+            .style("border", `1px solid ${this.getHeaderChipBorderColor()}`)
             .style("border-radius", `${UI_TOKENS.radius.small}px`)
-            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("box-shadow", this.getHeaderShadow())
             .style("z-index", "90");
 
         options.forEach((option, index) => {
             const selected = option.value === activeDays;
             const optionId = `${this.lookAheadListboxId}-option-${option.value}`;
-            const selectedFill = selected ? HEADER_DOCK_TOKENS.primaryBg : "transparent";
+            const selectedFill = inputBackground;
+            const optionTextColor = selected ? activeColor : textColor;
 
             list.append("button")
                 .attr("id", optionId)
@@ -2152,7 +2297,7 @@ export class Header {
                 .style("min-height", `${LOOK_AHEAD_OPTION_ROW_HEIGHT}px`)
                 .style("width", "100%")
                 .style("padding", "0 4px")
-                .style("border", `1px solid ${selected ? HEADER_DOCK_TOKENS.primary : "transparent"}`)
+                .style("border", `1px solid ${selected ? activeColor : this.getHeaderMenuBorderColor()}`)
                 .style("border-radius", "3px")
                 .style("box-sizing", "border-box")
                 .style("font-family", "Segoe UI, sans-serif")
@@ -2160,11 +2305,11 @@ export class Header {
                 .style("font-weight", UI_TOKENS.fontWeight.semibold)
                 .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
                 .style("text-align", "left")
-                .style("color", HEADER_DOCK_TOKENS.buttonText)
+                .style("color", optionTextColor)
                 .style("background-color", selectedFill)
                 .style("cursor", "pointer")
                 .on("mouseover", function () {
-                    select(this).style("background-color", selected ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonHoverBg);
+                    select(this).style("background-color", selected ? selectedFill : hoverBackground);
                 })
                 .on("mouseout", function () {
                     select(this).style("background-color", selectedFill);
@@ -2224,11 +2369,14 @@ export class Header {
 
         const showColumns = this.currentState.showExtraColumns;
         const buttonY = UI_TOKENS.spacing.sm;
-        const buttonFill = showColumns ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = showColumns ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = showColumns ? this.lightenColor(HEADER_DOCK_TOKENS.primaryBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = showColumns ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonHoverStroke;
-        const iconColor = showColumns ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
+        const activeTextColor = this.getHeaderPrimaryColor();
+        const inactiveTextColor = this.getHeaderControlTextColor();
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = showColumns ? activeTextColor : this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = showColumns ? activeTextColor : this.getHeaderHoverBorderColor();
+        const iconColor = showColumns ? activeTextColor : inactiveTextColor;
+        const hoverIconColor = showColumns ? activeTextColor : inactiveTextColor;
 
         const btn = this.upsertButton("column-toggle-group")
             .attr("type", "button")
@@ -2283,8 +2431,8 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", HEADER_DOCK_TOKENS.buttonText);
-            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", hoverIconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", hoverIconColor);
         })
             .on("mouseout", function () {
                 bgRect.attr("fill", buttonFill)
@@ -2312,11 +2460,14 @@ export class Header {
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
-        const buttonFill = isEnabled ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = isEnabled ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = isEnabled ? this.lightenColor(HEADER_DOCK_TOKENS.primaryBg, 0.12) : HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = isEnabled ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonHoverStroke;
-        const wbsColor = isEnabled ? HEADER_DOCK_TOKENS.buttonText : HEADER_DOCK_TOKENS.buttonMuted;
+        const activeTextColor = this.getHeaderPrimaryColor();
+        const inactiveTextColor = this.getHeaderControlTextColor();
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = isEnabled ? activeTextColor : this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = isEnabled ? activeTextColor : this.getHeaderHoverBorderColor();
+        const wbsColor = isEnabled ? activeTextColor : inactiveTextColor;
+        const hoverIconColor = isEnabled ? activeTextColor : inactiveTextColor;
 
         const btn = this.upsertButton("wbs-enable-toggle-group")
             .attr("type", "button")
@@ -2375,8 +2526,8 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", HEADER_DOCK_TOKENS.buttonText);
-            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", hoverIconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", hoverIconColor);
         })
             .on("mouseout", function () {
                 bgRect.attr("fill", buttonFill)
@@ -2397,10 +2548,12 @@ export class Header {
         }
 
         const buttonY = UI_TOKENS.spacing.sm;
-        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = this.getHeaderHoverBorderColor();
+        const activeTextColor = this.getHeaderControlTextColor();
+        const mutedTextColor = this.getHeaderMutedTextColor();
 
         const btn = this.upsertButton("copy-data-button-group")
             .attr("type", "button")
@@ -2452,7 +2605,7 @@ export class Header {
         iconG.append('path')
             .attr('d', 'M-4,1 L-4,5 L4,5 L4,-3 L0,-3 M0,-7 L6,-7 L6,1 L0,1 L0,-7 Z')
             .attr('fill', 'none')
-            .attr('stroke', HEADER_DOCK_TOKENS.buttonMuted)
+            .attr('stroke', mutedTextColor)
             .attr('stroke-width', 1.5)
             .attr('stroke-linecap', 'round')
             .attr('stroke-linejoin', 'round');
@@ -2460,12 +2613,12 @@ export class Header {
         btn.on("mouseover", function () {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke);
-            iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+            iconG.select("path").attr("stroke", activeTextColor);
         })
             .on("mouseout", function () {
                 bgRect.attr("fill", buttonFill)
                     .attr("stroke", buttonStroke);
-                iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonMuted);
+                iconG.select("path").attr("stroke", mutedTextColor);
             });
     }
 
@@ -2479,10 +2632,13 @@ export class Header {
         }
 
         const buttonY = UI_TOKENS.spacing.sm;
-        const buttonFill = this.exportButtonLoading ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = this.exportButtonLoading ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const activeTextColor = this.getHeaderPrimaryColor();
+        const inactiveTextColor = this.getHeaderControlTextColor();
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = this.exportButtonLoading ? activeTextColor : this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = this.getHeaderHoverBorderColor();
+        const mutedTextColor = inactiveTextColor;
 
         const btn = this.upsertButton("export-button-group")
             .attr("type", "button")
@@ -2543,7 +2699,7 @@ export class Header {
             .attr('class', 'export-icon-path')
             .attr('d', 'M-5,-7 L-5,7 L5,7 L5,-3 L1,-7 Z')
             .attr('fill', 'none')
-            .attr('stroke', HEADER_DOCK_TOKENS.buttonMuted)
+            .attr('stroke', mutedTextColor)
             .attr('stroke-width', 1.5)
             .attr('stroke-linecap', 'round')
             .attr('stroke-linejoin', 'round')
@@ -2556,7 +2712,7 @@ export class Header {
         spinner.append('circle')
             .attr('r', 6)
             .attr('fill', 'none')
-            .attr('stroke', HEADER_DOCK_TOKENS.buttonText)
+            .attr('stroke', activeTextColor)
             .attr('stroke-width', 2)
             .attr('stroke-dasharray', '20 10')
             .attr('stroke-linecap', 'round');
@@ -2568,13 +2724,13 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke);
             iconG.select<SVGPathElement>(".export-icon-path")
-                .attr("stroke", HEADER_DOCK_TOKENS.buttonText);
+                .attr("stroke", inactiveTextColor);
         })
             .on("mouseout", () => {
                 bgRect.attr("fill", buttonFill)
                     .attr("stroke", buttonStroke);
                 iconG.select<SVGPathElement>(".export-icon-path")
-                    .attr("stroke", HEADER_DOCK_TOKENS.buttonMuted);
+                    .attr("stroke", mutedTextColor);
             });
     }
 
@@ -2588,10 +2744,12 @@ export class Header {
         }
 
         const buttonY = UI_TOKENS.spacing.sm;
-        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = this.getHeaderHoverBorderColor();
+        const activeTextColor = this.getHeaderControlTextColor();
+        const mutedTextColor = this.getHeaderMutedTextColor();
 
         const btn = this.upsertButton("export-html-button-group")
             .attr("type", "button")
@@ -2643,7 +2801,7 @@ export class Header {
         iconG.append('path')
             .attr('d', 'M-6,-7 L2,-7 L6,-3 L6,7 L-6,7 Z M2,-7 L2,-3 L6,-3')
             .attr('fill', 'none')
-            .attr('stroke', HEADER_DOCK_TOKENS.buttonMuted)
+            .attr('stroke', mutedTextColor)
             .attr('stroke-width', 1.2)
             .attr('stroke-linecap', 'round')
             .attr('stroke-linejoin', 'round');
@@ -2656,20 +2814,20 @@ export class Header {
             .style('font-family', 'Segoe UI, sans-serif')
             .style('font-size', '7px')
             .style('font-weight', '700')
-            .style('fill', HEADER_DOCK_TOKENS.buttonMuted)
+            .style('fill', mutedTextColor)
             .text('HTML');
 
         btn.on("mouseover", function () {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke);
-            iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonText);
-            iconG.select("text").style("fill", HEADER_DOCK_TOKENS.buttonText);
+            iconG.select("path").attr("stroke", activeTextColor);
+            iconG.select("text").style("fill", activeTextColor);
         })
             .on("mouseout", function () {
                 bgRect.attr("fill", buttonFill)
                     .attr("stroke", buttonStroke);
-                iconG.select("path").attr("stroke", HEADER_DOCK_TOKENS.buttonMuted);
-                iconG.select("text").style("fill", HEADER_DOCK_TOKENS.buttonMuted);
+                iconG.select("path").attr("stroke", mutedTextColor);
+                iconG.select("text").style("fill", mutedTextColor);
             });
     }
 
@@ -2683,10 +2841,12 @@ export class Header {
         }
 
         const buttonY = UI_TOKENS.spacing.sm;
-        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = this.getHeaderHoverBorderColor();
+        const activeTextColor = this.getHeaderControlTextColor();
+        const mutedTextColor = this.getHeaderMutedTextColor();
 
         const btn = this.upsertButton("help-button-group")
             .attr("type", "button")
@@ -2738,7 +2898,7 @@ export class Header {
             .style('font-family', "Segoe UI, sans-serif")
             .style('font-size', `${UI_TOKENS.fontSize.md}px`)
             .style('font-weight', UI_TOKENS.fontWeight.bold)
-            .style('fill', HEADER_DOCK_TOKENS.buttonMuted)
+            .style('fill', mutedTextColor)
             .text("?");
 
         btn.on("mouseover", function () {
@@ -2746,14 +2906,14 @@ export class Header {
                 .style("fill", hoverFill)
                 .style("stroke", hoverStroke);
             select(this).select("text")
-                .style("fill", HEADER_DOCK_TOKENS.buttonText);
+                .style("fill", activeTextColor);
         })
             .on("mouseout", function () {
                 select(this).select<SVGRectElement>(".help-button-bg")
                     .style("fill", buttonFill)
                     .style("stroke", buttonStroke);
                 select(this).select("text")
-                    .style("fill", HEADER_DOCK_TOKENS.buttonMuted);
+                    .style("fill", mutedTextColor);
             });
     }
 
@@ -2863,10 +3023,12 @@ export class Header {
         }
 
         const buttonY = UI_TOKENS.spacing.sm;
-        const buttonFill = HEADER_DOCK_TOKENS.buttonBg;
-        const buttonStroke = HEADER_DOCK_TOKENS.buttonStroke;
-        const hoverFill = HEADER_DOCK_TOKENS.buttonHoverBg;
-        const hoverStroke = HEADER_DOCK_TOKENS.buttonHoverStroke;
+        const buttonFill = this.getHeaderControlBackground();
+        const buttonStroke = this.getHeaderBorderColor();
+        const hoverFill = this.getHeaderControlHoverBackground();
+        const hoverStroke = this.getHeaderHoverBorderColor();
+        const activeTextColor = this.getHeaderControlTextColor();
+        const mutedTextColor = this.getHeaderMutedTextColor();
         const activeHiddenCount = this.getActiveHiddenControlCount(hiddenActions);
         const title = `Controls and actions: ${this.getHeaderMenuItems(hiddenActions).map(item => item.label).join(", ")}`;
 
@@ -2937,7 +3099,7 @@ export class Header {
                 .attr("x2", 7)
                 .attr("y1", y)
                 .attr("y2", y)
-                .attr("stroke", HEADER_DOCK_TOKENS.buttonMuted)
+                .attr("stroke", mutedTextColor)
                 .attr("stroke-width", 1.4)
                 .attr("stroke-linecap", "round");
 
@@ -2946,7 +3108,7 @@ export class Header {
                 .attr("cx", knobX)
                 .attr("cy", y)
                 .attr("r", 2)
-                .style("fill", HEADER_DOCK_TOKENS.buttonMuted);
+                .style("fill", mutedTextColor);
         });
 
         if (activeHiddenCount > 0) {
@@ -2956,7 +3118,7 @@ export class Header {
                 .attr("cy", 7)
                 .attr("r", 6)
                 .attr("fill", HEADER_DOCK_TOKENS.warning)
-                .attr("stroke", HEADER_DOCK_TOKENS.shell)
+                .attr("stroke", this.getHeaderBorderColor())
                 .attr("stroke-width", 1);
 
             svg.append("text")
@@ -2977,18 +3139,18 @@ export class Header {
                 .style("fill", hoverFill)
                 .style("stroke", hoverStroke);
             select(this).selectAll<SVGCircleElement, unknown>(".action-overflow-dot")
-                .style("fill", HEADER_DOCK_TOKENS.buttonText);
+                .style("fill", activeTextColor);
             select(this).selectAll<SVGLineElement, unknown>(".action-overflow-line")
-                .style("stroke", HEADER_DOCK_TOKENS.buttonText);
+                .style("stroke", activeTextColor);
         })
             .on("mouseout", function () {
                 select(this).select<SVGRectElement>(".action-overflow-button-bg")
                     .style("fill", buttonFill)
                     .style("stroke", buttonStroke);
                 select(this).selectAll<SVGCircleElement, unknown>(".action-overflow-dot")
-                    .style("fill", HEADER_DOCK_TOKENS.buttonMuted);
+                    .style("fill", mutedTextColor);
                 select(this).selectAll<SVGLineElement, unknown>(".action-overflow-line")
-                    .style("stroke", HEADER_DOCK_TOKENS.buttonMuted);
+                    .style("stroke", mutedTextColor);
             });
 
         this.renderActionOverflowMenu(buttonX, buttonSize, hiddenActions);
@@ -3105,6 +3267,32 @@ export class Header {
         });
     }
 
+    private getHeaderMenuItemActiveColor(item: HeaderMenuItem): string | null {
+        if (item.disabled) {
+            return null;
+        }
+
+        const state = this.currentState;
+        switch (item.id) {
+            case "baseline":
+                return state.showBaseline ? this.currentSettings.comparisonBars.baselineColor.value.value : null;
+            case "previousUpdate":
+                return state.showPreviousUpdate ? this.currentSettings.comparisonBars.previousUpdateColor.value.value : null;
+            case "connectorLines":
+                return state.showConnectorLines ? this.getHeaderSuccessColor() : null;
+            case "columns":
+                return state.showExtraColumns ? this.getHeaderPrimaryColor() : null;
+            case "wbsEnable":
+                return state.wbsEnabled ? this.getHeaderPrimaryColor() : null;
+            case "wbsExpand":
+                return state.wbsExpanded ? this.getHeaderPrimaryColor() : null;
+            case "wbsCollapse":
+                return ((state.wbsExpandToLevel ?? 0) === 0 || !state.wbsExpanded) ? this.getHeaderPrimaryColor() : null;
+            default:
+                return null;
+        }
+    }
+
     private renderActionOverflowMenu(
         buttonX: number,
         buttonSize: number,
@@ -3142,10 +3330,10 @@ export class Header {
             .style("display", "flex")
             .style("flex-direction", "column")
             .style("gap", "6px")
-            .style("background-color", HEADER_DOCK_TOKENS.chipBg)
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.chipStroke}`)
+            .style("background-color", this.getHeaderChipBackground())
+            .style("border", `1px solid ${this.getHeaderChipBorderColor()}`)
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
-            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("box-shadow", this.getHeaderShadow())
             .style("z-index", "70");
 
         sections.forEach(section => {
@@ -3168,7 +3356,7 @@ export class Header {
                 .style("font-weight", UI_TOKENS.fontWeight.bold)
                 .style("letter-spacing", "0.2px")
                 .style("text-transform", "uppercase")
-                .style("color", HEADER_DOCK_TOKENS.chipMuted)
+                .style("color", this.getHeaderChipMutedTextColor())
                 .text(section);
 
             sectionItems.forEach(item => this.renderHeaderMenuItem(sectionEl, item));
@@ -3198,6 +3386,13 @@ export class Header {
             return;
         }
 
+        const textColor = this.getHeaderControlTextColor();
+        const mutedTextColor = this.getHeaderChipMutedTextColor();
+        const hoverBackground = this.getHeaderControlHoverBackground();
+        const activeItemColor = this.getHeaderMenuItemActiveColor(item);
+        const itemTextColor = item.disabled ? mutedTextColor : (activeItemColor ?? textColor);
+        const itemBorderColor = activeItemColor ?? this.getHeaderMenuBorderColor();
+
         const button = sectionEl.append("button")
             .attr("class", "action-overflow-menu-item")
             .attr("type", "button")
@@ -3205,10 +3400,11 @@ export class Header {
             .property("disabled", !!item.disabled)
             .style("min-height", "30px")
             .style("padding", "0 8px")
-            .style("border", "none")
+            .style("border", `1px solid ${itemBorderColor}`)
             .style("border-radius", `${UI_TOKENS.radius.small}px`)
+            .style("box-sizing", "border-box")
             .style("background", "transparent")
-            .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
+            .style("color", itemTextColor)
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "12px")
             .style("font-weight", "600")
@@ -3220,7 +3416,7 @@ export class Header {
             .style("gap", "10px")
             .on("mouseover", function () {
                 if (!item.disabled) {
-                    select(this).style("background-color", HEADER_DOCK_TOKENS.buttonHoverBg);
+                    select(this).style("background-color", hoverBackground);
                 }
             })
             .on("mouseout", function () {
@@ -3246,7 +3442,7 @@ export class Header {
             button.append("span")
                 .style("font-size", "11px")
                 .style("font-weight", UI_TOKENS.fontWeight.semibold)
-                .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.warningText)
+                .style("color", itemTextColor)
                 .style("white-space", "nowrap")
                 .text(item.status);
         }
@@ -3258,6 +3454,12 @@ export class Header {
     ): void {
         const state = this.currentState;
         const activeReference = state.progressLineReference;
+        const textColor = this.getHeaderControlTextColor();
+        const mutedTextColor = this.getHeaderChipMutedTextColor();
+        const activeColor = this.getHeaderPrimaryColor();
+        const inputBackground = this.getHeaderInputBackground();
+        const controlBackground = this.getHeaderControlBackground();
+        const hoverBackground = this.getHeaderControlHoverBackground();
         const references: Array<{ value: ProgressLineReference; label: string; available: boolean }> = [
             { value: "baselineFinish", label: "Baseline", available: state.progressLineBaselineAvailable },
             { value: "previousUpdateFinish", label: "Previous", available: state.progressLinePreviousUpdateAvailable }
@@ -3289,7 +3491,7 @@ export class Header {
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "12px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
-            .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
+            .style("color", item.disabled ? mutedTextColor : textColor)
             .style("white-space", "nowrap")
             .style("overflow", "hidden")
             .style("text-overflow", "ellipsis")
@@ -3299,7 +3501,7 @@ export class Header {
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "10.5px")
             .style("font-weight", UI_TOKENS.fontWeight.normal)
-            .style("color", HEADER_DOCK_TOKENS.chipMuted)
+            .style("color", mutedTextColor)
             .style("white-space", "nowrap")
             .style("overflow", "hidden")
             .style("text-overflow", "ellipsis")
@@ -3308,8 +3510,9 @@ export class Header {
                 : "Finish variance");
 
         const toggleSelected = state.progressLineVisible;
-        const toggleFill = toggleSelected ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.inputBg;
-        const toggleStroke = toggleSelected ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.inputStroke;
+        const toggleFill = inputBackground;
+        const toggleStroke = toggleSelected ? activeColor : this.getHeaderInputBorderColor();
+        const toggleTextColor = toggleSelected ? activeColor : textColor;
 
         headerLine.append("button")
             .attr("class", "progress-line-toggle-button")
@@ -3327,16 +3530,16 @@ export class Header {
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "11px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
-            .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
-            .style("background-color", item.disabled ? HEADER_DOCK_TOKENS.buttonBg : toggleFill)
+            .style("color", item.disabled ? mutedTextColor : toggleTextColor)
+            .style("background-color", item.disabled ? controlBackground : toggleFill)
             .style("cursor", item.disabled ? "not-allowed" : "pointer")
             .on("mouseover", function () {
                 if (!item.disabled && !toggleSelected) {
-                    select(this).style("background-color", HEADER_DOCK_TOKENS.buttonHoverBg);
+                    select(this).style("background-color", hoverBackground);
                 }
             })
             .on("mouseout", function () {
-                select(this).style("background-color", item.disabled ? HEADER_DOCK_TOKENS.buttonBg : toggleFill);
+                select(this).style("background-color", item.disabled ? controlBackground : toggleFill);
             })
             .on("click", (event) => {
                 event.preventDefault();
@@ -3359,8 +3562,9 @@ export class Header {
         references.forEach(reference => {
             const selected = reference.value === activeReference;
             const disabled = !reference.available;
-            const selectedFill = selected ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.inputBg;
-            const selectedStroke = selected ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.inputStroke;
+            const selectedFill = inputBackground;
+            const selectedStroke = selected ? activeColor : this.getHeaderInputBorderColor();
+            const optionTextColor = selected ? activeColor : textColor;
             const title = reference.available
                 ? `Use ${getProgressLineReferenceLabel(reference.value)} as the progress line reference`
                 : `${getProgressLineReferenceLabel(reference.value)} does not have enough data`;
@@ -3382,16 +3586,16 @@ export class Header {
                 .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
                 .style("font-weight", UI_TOKENS.fontWeight.semibold)
                 .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
-                .style("color", disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
-                .style("background-color", disabled ? HEADER_DOCK_TOKENS.buttonBg : selectedFill)
+                .style("color", disabled ? mutedTextColor : optionTextColor)
+                .style("background-color", disabled ? controlBackground : selectedFill)
                 .style("cursor", disabled ? "not-allowed" : "pointer")
                 .on("mouseover", function () {
                     if (!disabled && !selected) {
-                        select(this).style("background-color", HEADER_DOCK_TOKENS.buttonHoverBg);
+                        select(this).style("background-color", hoverBackground);
                     }
                 })
                 .on("mouseout", function () {
-                    select(this).style("background-color", disabled ? HEADER_DOCK_TOKENS.buttonBg : selectedFill);
+                    select(this).style("background-color", disabled ? controlBackground : selectedFill);
                 })
                 .on("click", (event) => {
                     event.preventDefault();
@@ -3439,6 +3643,12 @@ export class Header {
     ): void {
         const activeDays = Math.max(0, Math.round(this.currentState.lookAheadWindowDays || 0));
         const options = getLookAheadOptions(activeDays);
+        const textColor = this.getHeaderControlTextColor();
+        const mutedTextColor = this.getHeaderChipMutedTextColor();
+        const activeColor = this.getHeaderPrimaryColor();
+        const inputBackground = this.getHeaderInputBackground();
+        const controlBackground = this.getHeaderControlBackground();
+        const hoverBackground = this.getHeaderControlHoverBackground();
         const row = sectionEl.append("div")
             .attr("class", "action-overflow-menu-item action-overflow-menu-field")
             .attr("title", item.title ?? item.label)
@@ -3460,14 +3670,14 @@ export class Header {
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "12px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
-            .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
+            .style("color", item.disabled ? mutedTextColor : textColor)
             .text(item.label);
 
         headerLine.append("span")
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "11px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
-            .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.warningText)
+            .style("color", item.disabled ? mutedTextColor : (activeDays > 0 ? activeColor : textColor))
             .style("white-space", "nowrap")
             .text(item.status ?? "Off");
 
@@ -3480,7 +3690,8 @@ export class Header {
 
         options.forEach(option => {
             const selected = option.value === activeDays;
-            const selectedFill = selected ? HEADER_DOCK_TOKENS.primaryBg : HEADER_DOCK_TOKENS.inputBg;
+            const selectedFill = inputBackground;
+            const optionTextColor = selected ? activeColor : textColor;
             const nextValue = Number.isFinite(option.value) ? option.value : 0;
 
             optionGrid.append("button")
@@ -3492,23 +3703,23 @@ export class Header {
                 .style("height", "24px")
                 .style("min-width", "0")
                 .style("padding", "0 3px")
-                .style("border", `1px solid ${selected ? HEADER_DOCK_TOKENS.primary : HEADER_DOCK_TOKENS.inputStroke}`)
+                .style("border", `1px solid ${selected ? activeColor : this.getHeaderInputBorderColor()}`)
                 .style("border-radius", "4px")
                 .style("box-sizing", "border-box")
                 .style("font-family", "Segoe UI, sans-serif")
                 .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
                 .style("font-weight", UI_TOKENS.fontWeight.semibold)
                 .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
-                .style("color", item.disabled ? HEADER_DOCK_TOKENS.chipMuted : HEADER_DOCK_TOKENS.buttonText)
-                .style("background-color", item.disabled ? HEADER_DOCK_TOKENS.buttonBg : selectedFill)
+                .style("color", item.disabled ? mutedTextColor : optionTextColor)
+                .style("background-color", item.disabled ? controlBackground : selectedFill)
                 .style("cursor", item.disabled ? "not-allowed" : "pointer")
                 .on("mouseover", function () {
                     if (!item.disabled && !selected) {
-                        select(this).style("background-color", HEADER_DOCK_TOKENS.buttonHoverBg);
+                        select(this).style("background-color", hoverBackground);
                     }
                 })
                 .on("mouseout", function () {
-                    select(this).style("background-color", item.disabled ? HEADER_DOCK_TOKENS.buttonBg : selectedFill);
+                    select(this).style("background-color", item.disabled ? controlBackground : selectedFill);
                 })
                 .on("click", (event) => {
                     event.stopPropagation();
@@ -3564,6 +3775,8 @@ export class Header {
         sectionEl: Selection<HTMLDivElement, unknown, null, undefined>,
         item: HeaderMenuItem
     ): void {
+        const textColor = this.getHeaderControlTextColor();
+        const inputBackground = this.getHeaderInputBackground();
         const row = sectionEl.append("div")
             .attr("class", "action-overflow-menu-item action-overflow-menu-field")
             .attr("title", item.title ?? item.label)
@@ -3579,7 +3792,7 @@ export class Header {
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "12px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
-            .style("color", HEADER_DOCK_TOKENS.buttonText)
+            .style("color", textColor)
             .text(item.label);
 
         row.append("input")
@@ -3591,14 +3804,14 @@ export class Header {
             .style("height", "24px")
             .style("width", "58px")
             .style("padding", "0 4px")
-            .style("border", `1px solid ${HEADER_DOCK_TOKENS.inputStroke}`)
+            .style("border", `1px solid ${this.getHeaderInputBorderColor()}`)
             .style("border-radius", "4px")
             .style("font-family", "Segoe UI, sans-serif")
             .style("font-size", "12px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("text-align", "center")
-            .style("color", HEADER_DOCK_TOKENS.buttonText)
-            .style("background-color", HEADER_DOCK_TOKENS.inputBg)
+            .style("color", textColor)
+            .style("background-color", inputBackground)
             .on("change", (event) => {
                 event.stopPropagation();
                 const value = parseFloat((event.target as HTMLInputElement).value);

@@ -57,6 +57,34 @@ class GeneralSettingsCard extends Card {
         value: { value: "#FFFFFF" }
     });
 
+    headerLegendBackgroundColor = new ColorPicker({
+        name: "headerLegendBackgroundColor",
+        displayName: "Header and Legend Background Color",
+        description: "Background colour of the header and legend containers",
+        value: { value: "#151B24" }
+    });
+
+    headerLegendControlBackgroundColor = new ColorPicker({
+        name: "headerLegendControlBackgroundColor",
+        displayName: "Header and Legend Control Background Color",
+        description: "Background colour of controls inside the header and legend containers",
+        value: { value: "#2D3745" }
+    });
+
+    headerLegendTextColor = new ColorPicker({
+        name: "headerLegendTextColor",
+        displayName: "Header and Legend Text Color",
+        description: "Text colour used in the header and legend containers",
+        value: { value: "#F4F7FB" }
+    });
+
+    headerLegendBorderColor = new ColorPicker({
+        name: "headerLegendBorderColor",
+        displayName: "Header and Legend Border Color",
+        description: "Default border colour used by header and legend controls",
+        value: { value: "#4D5A6E" }
+    });
+
     alternatingRowColors = new ToggleSwitch({
         name: "alternatingRowColors",
         displayName: "Alternating Row Colors",
@@ -95,6 +123,10 @@ class GeneralSettingsCard extends Card {
 
     slices: Slice[] = [
         this.visualBackgroundColor,
+        this.headerLegendBackgroundColor,
+        this.headerLegendControlBackgroundColor,
+        this.headerLegendTextColor,
+        this.headerLegendBorderColor,
         this.alternatingRowColors,
         this.alternatingRowColor,
         this.selectionHighlightColor,
@@ -782,7 +814,6 @@ class GridLinesCard extends Card {
         this.verticalLineWidth,
         this.verticalLineStyle,
         this.showTimelineLabels,
-        this.timelineLabelColor,
         this.timelineLabelFontSize
     ];
 }
@@ -1181,7 +1212,7 @@ class WBSGroupingCard extends Card {
     groupHeaderColor = new ColorPicker({ name: "groupHeaderColor", displayName: "Group Header Background", value: { value: "#F7F8FA" } });
     groupSummaryColor = new ColorPicker({ name: "groupSummaryColor", displayName: "Group Summary Bar Color", value: { value: "#DACEEF" } });
     groupNameFontSize = new NumUpDown({ name: "groupNameFontSize", displayName: "Group Name Font Size (pt)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 24 } } });
-    groupNameColor = new ColorPicker({ name: "groupNameColor", displayName: "Group Name Color", value: { value: "#2A3240" } });
+    groupNameColor = new ColorPicker({ name: "groupNameColor", displayName: "WBS Text Color", value: { value: "#2A3240" } });
     indentPerLevel = new NumUpDown({ name: "indentPerLevel", displayName: "Indent Per Level (px)", value: 22, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 } } });
 
     slices: Slice[] = [this.enableWbsGrouping, this.defaultExpanded, this.expandCollapseAll, this.showWbsToggle, this.hideEmptyGroups, this.showGroupSummary, this.groupHeaderColor, this.groupSummaryColor, this.groupNameFontSize, this.groupNameColor, this.indentPerLevel];
@@ -1216,11 +1247,11 @@ class WbsLevelStylesCard extends Card {
     level10Text = new ColorPicker({ name: "level10Text", displayName: "Level 10 Text", value: { value: "#27303D" } });
 
     slices: Slice[] = [
-        this.level1Background, this.level1Text, this.level2Background, this.level2Text,
-        this.level3Background, this.level3Text, this.level4Background, this.level4Text,
-        this.level5Background, this.level5Text, this.level6Background, this.level6Text,
-        this.level7Background, this.level7Text, this.level8Background, this.level8Text,
-        this.level9Background, this.level9Text, this.level10Background, this.level10Text
+        this.level1Background, this.level2Background,
+        this.level3Background, this.level4Background,
+        this.level5Background, this.level6Background,
+        this.level7Background, this.level8Background,
+        this.level9Background, this.level10Background
     ];
 }
 

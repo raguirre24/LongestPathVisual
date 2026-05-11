@@ -891,6 +891,7 @@ export declare class Visual implements IVisual {
      */
     private getDurationTextColor;
     private isNonEmptyColor;
+    private getWbsTextColor;
     private getWbsLevelStyle;
     private getLocalizedString;
     private updateHighContrastState;
@@ -901,6 +902,31 @@ export declare class Visual implements IVisual {
      * Gets the visual background color from settings or returns white as default.
      */
     private getVisualBackgroundColor;
+    /**
+     * Gets the shared header and legend container background from settings.
+     */
+    private getHeaderLegendBackgroundColor;
+    /**
+     * Gets the shared header and legend control background from settings.
+     */
+    private getHeaderLegendControlBackgroundColor;
+    /**
+     * Gets the shared header and legend text color from settings.
+     */
+    private getHeaderLegendTextColor;
+    /**
+     * Gets the shared default border colour for header and legend chrome.
+     */
+    private getHeaderLegendBorderColor;
+    private getHeaderLegendActiveColor;
+    private getHeaderLegendMutedTextColor;
+    private getHeaderLegendInputBackgroundColor;
+    private getHeaderLegendMenuBackgroundColor;
+    private getHeaderLegendMenuHoverColor;
+    private isDefaultHeaderLegendControlBackgroundColor;
+    private isDefaultHeaderLegendTextColor;
+    private isDefaultHeaderLegendBorderColor;
+    private isDefaultColorSetting;
     /**
      * Gets the font family from settings or returns the default system font stack.
      */

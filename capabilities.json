@@ -153,6 +153,46 @@
                         }
                     }
                 },
+                "headerLegendBackgroundColor": {
+                    "displayName": "Header and Legend Background Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "headerLegendControlBackgroundColor": {
+                    "displayName": "Header and Legend Control Background Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "headerLegendTextColor": {
+                    "displayName": "Header and Legend Text Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "headerLegendBorderColor": {
+                    "displayName": "Header and Legend Border Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
                 "alternatingRowColors": {
                     "displayName": "Alternating Row Colors",
                     "type": {

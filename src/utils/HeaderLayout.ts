@@ -174,9 +174,10 @@ export function computeHeaderButtonLayout(input: HeaderLayoutInput): HeaderButto
     const baseRightReserved = getBaseHeaderRightReserved(mode);
     const topRightBudget = getTopRightControlWidthBudget(input);
     const rightReserved = Math.max(baseRightReserved, topRightBudget.maxWidth + 24);
-    const availableWidth = viewportWidth - rightReserved;
+    const dockStartX = 16;
+    const availableWidth = viewportWidth - rightReserved - dockStartX;
 
-    const gap = mode === "wide" ? 12 : (mode === "medium" ? 8 : (mode === "narrow" ? 6 : 4));
+    const gap = mode === "wide" ? 16 : (mode === "medium" ? 12 : (mode === "narrow" ? 8 : 6));
     const iconButtonSize = UI_TOKENS.height.standard;
     const smallIconSize = UI_TOKENS.height.standard;
 
@@ -335,7 +336,7 @@ export function computeHeaderButtonLayout(input: HeaderLayoutInput): HeaderButto
         visibleWidth = calculateVisibleWidth();
     }
 
-    let x = 10;
+    let x = dockStartX;
 
     const showAllCritical = {
         x,

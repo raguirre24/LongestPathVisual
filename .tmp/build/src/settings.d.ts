@@ -6,6 +6,10 @@ declare class GeneralSettingsCard extends Card {
     name: string;
     displayName: string;
     visualBackgroundColor: formattingSettings.ColorPicker;
+    headerLegendBackgroundColor: formattingSettings.ColorPicker;
+    headerLegendControlBackgroundColor: formattingSettings.ColorPicker;
+    headerLegendTextColor: formattingSettings.ColorPicker;
+    headerLegendBorderColor: formattingSettings.ColorPicker;
     alternatingRowColors: formattingSettings.ToggleSwitch;
     alternatingRowColor: formattingSettings.ColorPicker;
     selectionHighlightColor: formattingSettings.ColorPicker;
