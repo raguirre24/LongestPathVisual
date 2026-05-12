@@ -61,7 +61,7 @@ describe("HeaderLayout", () => {
         expect(layoutAt(480, { lookAheadActive: true }).lookAhead.width).toBe(66);
     });
 
-    it("gives the top-row controls enough clearance from dock containers", () => {
+    it("keeps top-row controls compact and non-overlapping inside the command shell", () => {
         const layout = layoutAt(1240, { lookAheadActive: true });
         const visibleControls = [
             layout.showAllCritical,
@@ -77,7 +77,7 @@ describe("HeaderLayout", () => {
         ].filter(control => control.visible);
 
         expect(layout.showAllCritical.x).toBeGreaterThanOrEqual(16);
-        expect(layout.gap).toBeGreaterThanOrEqual(16);
+        expect(layout.gap).toBe(8);
 
         for (let index = 1; index < visibleControls.length; index++) {
             const previous = visibleControls[index - 1];

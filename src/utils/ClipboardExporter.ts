@@ -42,6 +42,61 @@ export interface ClipboardExportConfig {
 /** Colors for WBS level group headers */
 const WBS_COLORS = ['#d0f0c0', '#fffacd', '#e0ffff', '#ffcccb', '#d3d3d3']; // Green, Yellow, Cyan, Red, Gray
 
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+    let normalized = hex.replace(/^#/, '').trim();
+    if (normalized.length === 3) {
+        normalized = normalized.split('').map(ch => ch + ch).join('');
+    }
+    if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+        return { r: Number.NaN, g: Number.NaN, b: Number.NaN };
+    }
+
+    const value = parseInt(normalized, 16);
+    return {
+        r: (value >> 16) & 255,
+        g: (value >> 8) & 255,
+        b: value & 255
+    };
+}
+
+function getLuminance(r: number, g: number, b: number): number {
+    const channels = [r, g, b].map(value => {
+        value /= 255;
+        return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+}
+
+function getContrastRatio(foregroundColor: string, backgroundColor: string): number {
+    const foreground = hexToRgb(foregroundColor);
+    const background = hexToRgb(backgroundColor);
+    const values = [foreground.r, foreground.g, foreground.b, background.r, background.g, background.b];
+    if (values.some(value => Number.isNaN(value))) {
+        return Number.POSITIVE_INFINITY;
+    }
+
+    const foregroundLuminance = getLuminance(foreground.r, foreground.g, foreground.b);
+    const backgroundLuminance = getLuminance(background.r, background.g, background.b);
+    const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+    const darker = Math.min(foregroundLuminance, backgroundLuminance);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+function getReadableTextColor(backgroundColor: string, preferredTextColor: string = "#333333"): string {
+    const minimumContrastRatio = 4.5;
+    if (getContrastRatio(preferredTextColor, backgroundColor) >= minimumContrastRatio) {
+        return preferredTextColor;
+    }
+
+    const blackContrast = getContrastRatio("#000000", backgroundColor);
+    const whiteContrast = getContrastRatio("#FFFFFF", backgroundColor);
+    return whiteContrast >= blackContrast ? "#FFFFFF" : "#000000";
+}
+
+function getWbsExportCellStyle(color: string, style: string): string {
+    return `${style} background-color: ${color}; color: ${getReadableTextColor(color)};`;
+}
+
 /**
  * Exports task data to clipboard in both TSV (for plain text) and HTML (for rich paste) formats
  */
@@ -248,33 +303,33 @@ function generateHtmlContent(
                 }
 
                 html += `<tr style="background-color: ${color}; font-weight: bold;">`;
-                html += `<td></td><td></td>`; // Skip Index and ID
+                html += `<td style="${getWbsExportCellStyle(color, "padding: 2px;")}"></td><td style="${getWbsExportCellStyle(color, "padding: 2px;")}"></td>`; // Skip Index and ID
 
                 // Group Name Span: Just Name and Type (2 cols)
                 // We do NOT span over Baseline/Previous columns if they are present, because we want to show data there.
                 // However, if we are NOT showing them, we might want to span?
                 // Actually, the structure assumes columns are present.
                 // Typically WBS headers span Name + Type.
-                html += `<td colspan="2" style="padding-left: ${indent}px; white-space: nowrap;">${groupName}</td>`;
+                html += `<td colspan="2" style="${getWbsExportCellStyle(color, `padding-left: ${indent}px; white-space: nowrap;`)}">${groupName}</td>`;
 
                 if (showBaseline) {
-                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${baselineStartText}</td>`;
-                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${baselineFinishText}</td>`;
+                    html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${baselineStartText}</td>`;
+                    html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${baselineFinishText}</td>`;
                 }
                 if (showPreviousUpdate) {
-                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${previousStartText}</td>`;
-                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${previousFinishText}</td>`;
+                    html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${previousStartText}</td>`;
+                    html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${previousFinishText}</td>`;
                 }
 
                 // Start Date
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${startText}</td>`;
+                html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${startText}</td>`;
 
                 // Finish Date
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${finishText}</td>`;
+                html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${finishText}</td>`;
 
                 // Trailing columns (Duration, Float, Critical) - currently empty for groups
                 if (trailColSpan > 0) {
-                    html += `<td colspan="${trailColSpan}"></td>`;
+                    html += `<td colspan="${trailColSpan}" style="${getWbsExportCellStyle(color, "padding: 2px;")}"></td>`;
                 }
 
                 html += `</tr>`;
@@ -398,20 +453,20 @@ function generateWbsOnlyContent(
 
         // HTML row
         html += `<tr style="background-color: ${color}; font-weight: bold;">`;
-        html += `<td style="text-align: right; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
-        html += `<td style="padding: 2px; padding-left: ${indent}px; white-space: nowrap;">${group.name}</td>`;
+        html += `<td style="${getWbsExportCellStyle(color, "text-align: right; padding: 2px; white-space: nowrap;")}">${index + 1}</td>`;
+        html += `<td style="${getWbsExportCellStyle(color, `padding: 2px; padding-left: ${indent}px; white-space: nowrap;`)}">${group.name}</td>`;
 
         if (hasBaseline) {
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${baselineStartText}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${baselineFinishText}</td>`;
+            html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${baselineStartText}</td>`;
+            html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${baselineFinishText}</td>`;
         }
         if (hasPrevious) {
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${previousStartText}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${previousFinishText}</td>`;
+            html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${previousStartText}</td>`;
+            html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${previousFinishText}</td>`;
         }
 
-        html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${startText}</td>`;
-        html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${finishText}</td>`;
+        html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${startText}</td>`;
+        html += `<td style="${getWbsExportCellStyle(color, "text-align: center; padding: 2px; white-space: nowrap;")}">${finishText}</td>`;
         html += `</tr>`;
     });
 

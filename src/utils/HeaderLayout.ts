@@ -177,7 +177,7 @@ export function computeHeaderButtonLayout(input: HeaderLayoutInput): HeaderButto
     const dockStartX = 16;
     const availableWidth = viewportWidth - rightReserved - dockStartX;
 
-    const gap = mode === "wide" ? 16 : (mode === "medium" ? 12 : (mode === "narrow" ? 8 : 6));
+    const gap = mode === "wide" ? 8 : (mode === "medium" ? 6 : (mode === "narrow" ? 5 : 4));
     const iconButtonSize = UI_TOKENS.height.standard;
     const smallIconSize = UI_TOKENS.height.standard;
 

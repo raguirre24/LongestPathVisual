@@ -100,7 +100,6 @@ export declare class Header {
     private getHeaderBorderColor;
     private getHeaderHoverBorderColor;
     private getHeaderCommandBorderColor;
-    private getHeaderGroupBorderColor;
     private getHeaderChipBorderColor;
     private getHeaderInputBorderColor;
     private getHeaderInputFocusBorderColor;

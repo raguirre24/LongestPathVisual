@@ -17,12 +17,14 @@ export function calculateFinishVarianceProgressPoint(
     referenceFinishDate: Date | null | undefined
 ): FinishVarianceProgressPoint | null {
     if (!isValidProgressDate(dataDate) ||
-        !isValidProgressDate(finishDate) ||
-        !isValidProgressDate(referenceFinishDate)) {
+        !isValidProgressDate(finishDate)) {
         return null;
     }
 
-    const varianceMs = finishDate.getTime() - referenceFinishDate.getTime();
+    const effectiveReferenceFinishDate = isValidProgressDate(referenceFinishDate)
+        ? referenceFinishDate
+        : finishDate;
+    const varianceMs = finishDate.getTime() - effectiveReferenceFinishDate.getTime();
     return {
         progressDate: new Date(dataDate.getTime() - varianceMs),
         varianceDays: varianceMs / DAY_IN_MS

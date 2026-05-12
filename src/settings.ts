@@ -1225,25 +1225,25 @@ class WbsLevelStylesCard extends Card {
     name: string = "wbsLevelStyles";
     displayName: string = "WBS Level Styles";
 
-    level1Background = new ColorPicker({ name: "level1Background", displayName: "Level 1 Background", value: { value: "#7CCB8C" } });
+    level1Background = new ColorPicker({ name: "level1Background", displayName: "Level 1 Background", value: { value: "#4E7FA8" } });
     level1Text = new ColorPicker({ name: "level1Text", displayName: "Level 1 Text", value: { value: "#27303D" } });
-    level2Background = new ColorPicker({ name: "level2Background", displayName: "Level 2 Background", value: { value: "#E7CD72" } });
+    level2Background = new ColorPicker({ name: "level2Background", displayName: "Level 2 Background", value: { value: "#5B9AA0" } });
     level2Text = new ColorPicker({ name: "level2Text", displayName: "Level 2 Text", value: { value: "#27303D" } });
-    level3Background = new ColorPicker({ name: "level3Background", displayName: "Level 3 Background", value: { value: "#6FD1EB" } });
+    level3Background = new ColorPicker({ name: "level3Background", displayName: "Level 3 Background", value: { value: "#6F8FAE" } });
     level3Text = new ColorPicker({ name: "level3Text", displayName: "Level 3 Text", value: { value: "#27303D" } });
-    level4Background = new ColorPicker({ name: "level4Background", displayName: "Level 4 Background", value: { value: "#DE786F" } });
+    level4Background = new ColorPicker({ name: "level4Background", displayName: "Level 4 Background", value: { value: "#6B9A8C" } });
     level4Text = new ColorPicker({ name: "level4Text", displayName: "Level 4 Text", value: { value: "#27303D" } });
-    level5Background = new ColorPicker({ name: "level5Background", displayName: "Level 5 Background", value: { value: "#AEB7C5" } });
+    level5Background = new ColorPicker({ name: "level5Background", displayName: "Level 5 Background", value: { value: "#8494A6" } });
     level5Text = new ColorPicker({ name: "level5Text", displayName: "Level 5 Text", value: { value: "#27303D" } });
-    level6Background = new ColorPicker({ name: "level6Background", displayName: "Level 6 Background", value: { value: "#8BC4A4" } });
+    level6Background = new ColorPicker({ name: "level6Background", displayName: "Level 6 Background", value: { value: "#7BAFC1" } });
     level6Text = new ColorPicker({ name: "level6Text", displayName: "Level 6 Text", value: { value: "#27303D" } });
-    level7Background = new ColorPicker({ name: "level7Background", displayName: "Level 7 Background", value: { value: "#DAB983" } });
+    level7Background = new ColorPicker({ name: "level7Background", displayName: "Level 7 Background", value: { value: "#6F829E" } });
     level7Text = new ColorPicker({ name: "level7Text", displayName: "Level 7 Text", value: { value: "#27303D" } });
-    level8Background = new ColorPicker({ name: "level8Background", displayName: "Level 8 Background", value: { value: "#75BDD5" } });
+    level8Background = new ColorPicker({ name: "level8Background", displayName: "Level 8 Background", value: { value: "#7A9FAD" } });
     level8Text = new ColorPicker({ name: "level8Text", displayName: "Level 8 Text", value: { value: "#27303D" } });
-    level9Background = new ColorPicker({ name: "level9Background", displayName: "Level 9 Background", value: { value: "#D88B84" } });
+    level9Background = new ColorPicker({ name: "level9Background", displayName: "Level 9 Background", value: { value: "#80989B" } });
     level9Text = new ColorPicker({ name: "level9Text", displayName: "Level 9 Text", value: { value: "#27303D" } });
-    level10Background = new ColorPicker({ name: "level10Background", displayName: "Level 10 Background", value: { value: "#9EA8B6" } });
+    level10Background = new ColorPicker({ name: "level10Background", displayName: "Level 10 Background", value: { value: "#9AA5B1" } });
     level10Text = new ColorPicker({ name: "level10Text", displayName: "Level 10 Text", value: { value: "#27303D" } });
 
     slices: Slice[] = [

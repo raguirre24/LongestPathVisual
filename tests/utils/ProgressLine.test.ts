@@ -40,6 +40,17 @@ describe("ProgressLine", () => {
         expect(result?.progressDate.toISOString()).toBe("2026-05-10T00:00:00.000Z");
     });
 
+    it("treats a missing row-level reference finish as no variance", () => {
+        const result = calculateFinishVarianceProgressPoint(
+            utcDate(2026, 4, 10),
+            utcDate(2026, 4, 20),
+            null
+        );
+
+        expect(result?.varianceDays).toBe(0);
+        expect(result?.progressDate.toISOString()).toBe("2026-05-10T00:00:00.000Z");
+    });
+
     it("returns null when a required date is missing", () => {
         expect(calculateFinishVarianceProgressPoint(
             utcDate(2026, 4, 10),

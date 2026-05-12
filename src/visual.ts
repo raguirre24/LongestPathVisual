@@ -243,7 +243,7 @@ export class Visual implements IVisual {
     private readonly HEADER_LINE_LABEL_MIN_HEIGHT = 18;
     private readonly HEADER_LINE_LABEL_PADDING_X = 6;
     private readonly HEADER_LINE_LABEL_PADDING_Y = 3;
-    private readonly WBS_LEVEL_ACCENT_WIDTH = 4;
+    private readonly WBS_LEVEL_ACCENT_WIDTH = 5;
     private readonly WBS_TOGGLE_BOX_SIZE = 18;
     private readonly WBS_TASK_LABEL_INSET = 22;
     private legendFooterHeight = 52;
@@ -1358,7 +1358,7 @@ export class Visual implements IVisual {
             .style("z-index", "100")
             .style("background-color", this.getHeaderLegendBackgroundColor())
             .style("border-top", `1px solid ${this.getHeaderLegendBorderColor()}`)
-            .style("box-shadow", "0 -6px 18px rgba(15, 23, 34, 0.18)")
+            .style("box-shadow", "none")
             .style("display", "none")
             .style("overflow", "hidden");
 
@@ -1704,6 +1704,7 @@ export class Visual implements IVisual {
 [data-owner="${this.instanceId}"] svg .horizontal-grid-line,
 [data-owner="${this.instanceId}"] svg .label-column-separator,
 [data-owner="${this.instanceId}"] svg .divider-line,
+[data-owner="${this.instanceId}"] svg .table-timeline-header-divider,
 [data-owner="${this.instanceId}"] svg .data-date-line,
 [data-owner="${this.instanceId}"] svg .project-end-line,
 [data-owner="${this.instanceId}"] svg .baseline-end-line,
@@ -4785,6 +4786,7 @@ export class Visual implements IVisual {
             this.updateZoomSliderUI();
             this.drawZoomSliderMiniChart();
             this.updateZoomSliderTrackMargins();
+            this.updateMarginResizerPosition();
 
             const renderEndTime = performance.now();
             this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
@@ -5149,11 +5151,11 @@ export class Visual implements IVisual {
             .attr("class", "margin-resizer")
             .attr("role", "separator")
             .attr("aria-orientation", "vertical")
-            .attr("aria-label", "Resize task label margin")
+            .attr("aria-label", "Resize table and timeline divider")
             .style("position", "absolute")
             .style("top", "0")
             .style("bottom", "0")
-            .style("height", "100%")
+            .style("height", "auto")
             .style("width", `${resizerWidth}px`)
             .style("cursor", "col-resize")
             .style("z-index", "60")
@@ -5166,9 +5168,9 @@ export class Visual implements IVisual {
             .style("top", "0")
             .style("bottom", "0")
             .style("left", "50%")
-            .style("width", "2px")
-            .style("transform", "translateX(-1px)")
-            .style("background-color", "#666")
+            .style("width", "1px")
+            .style("transform", "translateX(-50%)")
+            .style("background-color", this.highContrastMode ? this.getForegroundColor() : this.getHeaderLegendBorderColor())
             .style("opacity", "1")
             .style("pointer-events", "none");
 
@@ -5339,9 +5341,14 @@ export class Visual implements IVisual {
         if (!wrapperNode) return;
 
         const wrapperRect = wrapperNode.getBoundingClientRect();
-        // const containerRect = containerNode.getBoundingClientRect(); // Unused
+        const containerRect = containerNode.getBoundingClientRect();
         const resizerWidth = parseFloat(this.marginResizer.style("width")) || 8;
         const effectiveMargin = this.getEffectiveLeftMargin();
+        const headerBandTop = this.getHeaderBandMetrics().top;
+        const footerOffset = Math.max(0, wrapperRect.bottom - containerRect.bottom);
+        const dividerColor = this.highContrastMode
+            ? this.getForegroundColor()
+            : this.getHeaderLegendBorderColor();
 
         // Calculate left relative to wrapper (since marginResizer is child of wrapper)
         // wrapperNode is usually the offsetParent, but let's be safe.
@@ -5352,7 +5359,13 @@ export class Visual implements IVisual {
 
         this.marginResizer
             .style("left", `${Math.max(0, Math.round(left))}px`)
+            .style("top", `${Math.max(0, Math.round(headerBandTop))}px`)
+            .style("bottom", `${Math.round(footerOffset)}px`)
+            .style("height", "auto")
             .attr("aria-valuenow", Math.round(effectiveMargin).toString());
+
+        this.marginResizer.select<HTMLDivElement>(".margin-resizer-line")
+            .style("background-color", dividerColor);
     }
 
     /**
@@ -5527,6 +5540,7 @@ export class Visual implements IVisual {
 
         const lineData = [viewportWidth];
         const dividerY = this.snapLineCoord(this.headerHeight - 1);
+        const dividerInsetX = 8;
         const headerPalette = this.getHeaderBandPalette();
 
         const lineSelection = this.headerSvg.selectAll<SVGLineElement, number>(".divider-line")
@@ -5535,13 +5549,13 @@ export class Visual implements IVisual {
         lineSelection.enter()
             .append("line")
             .attr("class", "divider-line")
-            .attr("x1", 0)
-            .attr("y1", dividerY)
-            .attr("y2", dividerY)
             .attr("stroke", headerPalette.stroke)
             .attr("stroke-width", 1)
             .merge(lineSelection as any)
-            .attr("x2", d => this.snapRectCoord(d));
+            .attr("x1", this.snapLineCoord(dividerInsetX))
+            .attr("x2", d => this.snapLineCoord(Math.max(dividerInsetX, d - dividerInsetX)))
+            .attr("y1", dividerY)
+            .attr("y2", dividerY);
     }
 
     private setupTimeBasedSVGAndScales(
@@ -6506,7 +6520,8 @@ export class Visual implements IVisual {
             .domain(yDomain)
             .range([0, calculatedChartHeight])
             .paddingInner(taskPadding / (taskHeight + taskPadding))
-            .paddingOuter(taskPadding / (taskHeight + taskPadding) / 2);
+            .paddingOuter(taskPadding / (taskHeight + taskPadding) / 2)
+            .align(0);
 
         this.debugLog(`Created Scales - X-Domain: ${domainMin.toISOString()} to ${domainMax.toISOString()}, Y-Domain Keys: ${yDomain.length}`);
         return { xScale, yScale, chartWidth, calculatedChartHeight };
@@ -7983,7 +7998,7 @@ export class Visual implements IVisual {
         return {
             top: this.snapRectCoord(top),
             height: this.snapRectCoord(bandHeight),
-            columnY: this.snapTextCoord(effectiveBottom - 19),
+            columnY: this.snapTextCoord(top + bandHeight / 2),
             majorLabelY: this.snapTextCoord(top + 14),
             middleLabelY: this.snapTextCoord(top + 28),
             topLabelY: this.snapTextCoord(top + 12),
@@ -8165,6 +8180,8 @@ export class Visual implements IVisual {
             1,
             this.snapRectCoord(parseFloat(headerSvg.attr("width")) || this.lastViewport?.width || this.target.clientWidth || 0)
         );
+        const bandInsetX = 8;
+        const bandWidth = Math.max(1, viewportWidth - bandInsetX * 2);
 
         let bandLayer = headerSvg.select<SVGGElement>(".header-band-layer");
         if (bandLayer.empty()) {
@@ -8173,16 +8190,18 @@ export class Visual implements IVisual {
         }
 
         bandLayer.selectAll<SVGRectElement, number>(".header-band-bg")
-            .data([viewportWidth])
+            .data([bandWidth])
             .join(
                 enter => enter.append("rect").attr("class", "header-band-bg"),
                 update => update,
                 exit => exit.remove()
             )
-            .attr("x", 0)
+            .attr("x", bandInsetX)
             .attr("y", bandMetrics.top)
             .attr("width", d => d)
             .attr("height", bandMetrics.height)
+            .attr("rx", UI_TOKENS.radius.medium)
+            .attr("ry", UI_TOKENS.radius.medium)
             .style("fill", headerPalette.fill)
             .style("stroke", headerPalette.stroke)
             .style("stroke-width", 1);
@@ -8320,6 +8339,22 @@ export class Visual implements IVisual {
             .attr("y2", lineY2)
             .style("stroke", headerPalette.divider)
             .style("stroke-width", "1px");
+
+        const tableTimelineDividerX = this.snapLineCoord(currentLeftMargin);
+        colHeaderLayer.selectAll<SVGLineElement, number>(".table-timeline-header-divider")
+            .data([tableTimelineDividerX])
+            .join(
+                enter => enter.append("line").attr("class", "table-timeline-header-divider"),
+                update => update,
+                exit => exit.remove()
+            )
+            .attr("x1", d => d)
+            .attr("x2", d => d)
+            .attr("y1", this.snapLineCoord(bandMetrics.top))
+            .attr("y2", this.snapLineCoord(bandMetrics.top + bandMetrics.height))
+            .style("stroke", headerPalette.divider)
+            .style("stroke-width", "1px")
+            .style("pointer-events", "none");
     }
 
     /**
@@ -9719,10 +9754,12 @@ export class Visual implements IVisual {
                 const bandStart = yScale(item.yOrder.toString());
                 if (!progressPoint ||
                     bandStart === undefined ||
-                    !isValidProgressDate(item.finishDate) ||
-                    !isValidProgressDate(item.referenceFinishDate)) {
+                    !isValidProgressDate(item.finishDate)) {
                     return null;
                 }
+                const referenceFinishDate = isValidProgressDate(item.referenceFinishDate)
+                    ? item.referenceFinishDate
+                    : item.finishDate;
 
                 return {
                     id: item.id,
@@ -9733,7 +9770,7 @@ export class Visual implements IVisual {
                     y: this.snapLineCoord(bandStart + taskHeight / 2, lineWidth),
                     progressDate: progressPoint.progressDate,
                     finishDate: item.finishDate,
-                    referenceFinishDate: item.referenceFinishDate,
+                    referenceFinishDate,
                     varianceDays: progressPoint.varianceDays
                 };
             })
@@ -12710,6 +12747,13 @@ export class Visual implements IVisual {
                 return;
             }
 
+            if (group.yOrder === 0 && visualOffset <= 0 && Math.abs(visualOffset) <= this.taskElementHeight) {
+                this.debugLog(`WBS top-row anchor restoration: group=${groupId}, forcing scrollTop=0`);
+                containerNode.scrollTop = 0;
+                void containerNode.scrollTop;
+                return;
+            }
+
             const newAbsoluteY = group.yOrder * this.taskElementHeight;
 
             const newScrollTop = newAbsoluteY - visualOffset;
@@ -13187,12 +13231,18 @@ export class Visual implements IVisual {
         const self = this;
         const taskPadding = self.settings.layoutSettings.taskPadding.value;
         const wbsRowBandHeight = taskHeight + taskPadding;
-        const rowBorderColor = self.resolveColor("#DEE3EA", "foreground");
+        const rowBorderColor = self.resolveColor("#D7DEE8", "foreground");
         const buttonFillColor = self.resolveColor("#FFFFFF", "background");
-        const buttonStrokeColor = self.resolveColor("#CDD4DE", "foreground");
-        const badgeFillColor = self.resolveColor("#FFFFFF", "background");
+        const buttonStrokeColor = self.resolveColor("#C5CFDA", "foreground");
         const badgeTextColor = wbsTextColor;
         const defaultGroupBg = self.resolveColor(defaultGroupHeaderColor, "background");
+        const mutedBadgeFill = self.highContrastMode
+            ? buttonFillColor
+            : self.blendColors(defaultGroupHeaderColor, "#FFFFFF", 0.68);
+        const badgeFillColor = self.resolveColor(mutedBadgeFill, "background");
+        const badgeStrokeColor = self.highContrastMode
+            ? buttonStrokeColor
+            : self.toRgba(rowBorderColor, 0.85);
 
         groupsUpdate.each(function (group) {
             const g = d3.select(this);
@@ -13204,11 +13254,12 @@ export class Visual implements IVisual {
             const levelStyle = self.getWbsLevelStyle(group.level, defaultGroupHeaderColor);
             const accentColor = self.resolveColor(levelStyle.background, "foreground");
             const groupNameColor = wbsTextColor;
-            const summaryFillColor = self.blendColors(groupSummaryColor, accentColor, 0.82);
-            const summaryStrokeColor = self.toRgba(self.getSoftOutlineColor(summaryFillColor), group.isExpanded ? 0.45 : 0.85);
+            const summaryFillColor = self.blendColors(groupSummaryColor, accentColor, 0.9);
+            const summaryStrokeColor = self.toRgba(self.getSoftOutlineColor(summaryFillColor), group.isExpanded ? 0.55 : 0.82);
             const summaryCapColor = self.getSoftOutlineColor(summaryFillColor);
-            const bgOpacity = (group.visibleTaskCount === 0) ? 0.68 : 1;
+            const bgOpacity = self.highContrastMode ? 1 : ((group.visibleTaskCount === 0) ? 0.68 : 1);
             const summaryTextColor = groupNameColor;
+            const groupNameWeight = group.level <= 1 ? '700' : '600';
 
             const bgInsetTop = 1;
             const bgHeight = Math.max(1, taskHeight + taskPadding - 2 - bgInsetTop);
@@ -13245,14 +13296,19 @@ export class Visual implements IVisual {
                 const startX = Math.round(xScale(group.summaryStartDate));
                 const finishX = Math.round(xScale(group.summaryFinishDate));
                 const barWidth = Math.round(Math.max(2, finishX - startX));
-                const barHeight = Math.max(3, taskHeight * (isCollapsed ? 0.52 : 0.28));
+                const barHeight = Math.max(2, taskHeight * (isCollapsed ? 0.42 : 0.18));
                 const barY = Math.round(bandCenter - barHeight / 2);
                 const barRadius = Math.min(5, Math.max(2, barHeight / 2));
 
-                const baseOpacity = isCollapsed ? 0.78 : 0.25;
+                const baseOpacity = self.highContrastMode ? 1 : (isCollapsed ? 0.66 : 0.18);
                 const barOpacity = (group.visibleTaskCount === 0)
                     ? baseOpacity * (isCollapsed ? 0.5 : 0.35)
                     : baseOpacity;
+                const summarySemanticOpacity = self.highContrastMode
+                    ? 1
+                    : (group.visibleTaskCount === 0
+                        ? Math.min(0.48, barOpacity + 0.1)
+                        : (isCollapsed ? Math.min(0.7, barOpacity + 0.06) : Math.min(0.36, barOpacity + 0.16)));
 
                 const prevBarHeight = isCollapsed
                     ? previousUpdateHeight
@@ -13319,7 +13375,7 @@ export class Visual implements IVisual {
                     .attr('x', startX).attr('y', barY).attr('width', barWidth).attr('height', barHeight)
                     .attr('rx', barRadius).attr('ry', barRadius)
                     .style('fill', summaryFillColor).style('opacity', barOpacity)
-                    .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 0.8 : 0.45);
+                    .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 1 : 0.7);
 
                 const summaryOverlay = self.getBeforeDataDateOverlay(
                     group.summaryStartDate,
@@ -13351,7 +13407,7 @@ export class Visual implements IVisual {
 
                 if (barWidth > 6) {
                     const capRadius = Math.min(3, Math.max(1.5, barHeight / 3));
-                    const capOpacity = isCollapsed ? barOpacity : Math.min(0.35, barOpacity + 0.1);
+                    const capOpacity = isCollapsed ? Math.min(0.62, barOpacity + 0.05) : Math.min(0.28, barOpacity + 0.08);
                     const diamondSize = Math.max(5, Math.min(8, barHeight + 2));
                     barsGroup.append('circle').attr('class', 'wbs-summary-cap-start')
                         .attr('cx', startX).attr('cy', barY + barHeight / 2).attr('r', capRadius)
@@ -13382,7 +13438,7 @@ export class Visual implements IVisual {
                             .attr('x', nearStartX).attr('y', barY).attr('width', nearWidth).attr('height', barHeight)
                             .attr('rx', (nearStartsAtBeginning && !forceSquareStart) || nearEndsAtEnd ? barRadius : 0)
                             .attr('ry', (nearStartsAtBeginning && !forceSquareStart) || nearEndsAtEnd ? barRadius : 0)
-                            .style('fill', nearCriticalColor).style('opacity', barOpacity);
+                            .style('fill', nearCriticalColor).style('opacity', summarySemanticOpacity);
                     }
                 }
 
@@ -13403,7 +13459,7 @@ export class Visual implements IVisual {
                             .attr('x', criticalStartX).attr('y', barY).attr('width', criticalWidth).attr('height', barHeight)
                             .attr('rx', (criticalStartsAtBeginning && !forceSquareStart) || criticalEndsAtEnd ? barRadius : 0)
                             .attr('ry', (criticalStartsAtBeginning && !forceSquareStart) || criticalEndsAtEnd ? barRadius : 0)
-                            .style('fill', criticalPathColor).style('opacity', barOpacity);
+                            .style('fill', criticalPathColor).style('opacity', summarySemanticOpacity);
                     }
                 }
             }
@@ -13548,7 +13604,7 @@ export class Visual implements IVisual {
                 .attr('rx', 1)
                 .attr('ry', 1)
                 .style('fill', accentColor)
-                .style('opacity', group.visibleTaskCount === 0 ? 0.55 : 0.95);
+                .style('opacity', self.highContrastMode ? 1 : (group.visibleTaskCount === 0 ? 0.55 : 0.9));
 
             toggleGroup.select<SVGRectElement>('.wbs-expand-button')
                 .attr('x', 0)
@@ -13584,9 +13640,9 @@ export class Visual implements IVisual {
                     .attr('rx', Math.round(badgeHeight / 2))
                     .attr('ry', Math.round(badgeHeight / 2))
                     .style('fill', badgeFillColor)
-                    .style('stroke', buttonStrokeColor)
+                    .style('stroke', badgeStrokeColor)
                     .style('stroke-width', 1)
-                    .style('opacity', group.visibleTaskCount === 0 ? 0.75 : 1);
+                    .style('opacity', self.highContrastMode ? 1 : (group.visibleTaskCount === 0 ? 0.72 : 0.92));
 
                 badgeGroup.select<SVGTextElement>('.wbs-count-badge-text')
                     .attr('x', badgeX + visibleBadgeWidth / 2)
@@ -13624,6 +13680,7 @@ export class Visual implements IVisual {
                     .attr('dominant-baseline', 'central')
                     .style('font-size', `${groupNameFontSizePx}px`)
                     .style('font-family', self.getFontFamily())
+                    .style('font-weight', groupNameWeight)
                     .style('fill', textColor)
                     .style('opacity', textOpacity)
                     .style('letter-spacing', '0.1px');
@@ -15023,11 +15080,9 @@ export class Visual implements IVisual {
         const controlBackground = this.getHeaderLegendControlBackgroundColor();
         const textColor = this.getHeaderLegendTextColor();
         const borderColor = this.getHeaderLegendBorderColor();
-        const shellBorder = this.highContrastMode ? this.getForegroundColor() : borderColor;
+        const dividerColor = this.highContrastMode ? this.getForegroundColor() : borderColor;
         const shellText = textColor;
         const shellMuted = textColor;
-        const railBackground = controlBackground;
-        const railBorder = this.highContrastMode ? this.getForegroundColor() : borderColor;
         const buttonBackground = controlBackground;
         const buttonBorder = this.highContrastMode ? this.getForegroundColor() : borderColor;
         const buttonHoverBackground = controlBackground;
@@ -15049,8 +15104,8 @@ export class Visual implements IVisual {
             .style("height", `${legendFooterHeight}px`)
             .style("min-height", `${legendFooterHeight}px`)
             .style("background", shellBackground)
-            .style("border-top", `1px solid ${shellBorder}`)
-            .style("box-shadow", this.highContrastMode ? "none" : "0 -6px 18px rgba(15, 23, 34, 0.18)")
+            .style("border-top", `1px solid ${dividerColor}`)
+            .style("box-shadow", "none")
             .style("color", shellText);
 
         const mainContainer = this.legendContainer.append("div")
@@ -15142,10 +15197,9 @@ export class Visual implements IVisual {
             .style("align-items", "center")
             .style("gap", `${UI_TOKENS.spacing.xs}px`)
             .style("padding", isNarrow ? "4px 5px" : "5px 6px")
-            .style("border-radius", `${UI_TOKENS.radius.medium}px`)
-            .style("background", railBackground)
-            .style("border", `1px solid ${railBorder}`)
-            .style("box-shadow", this.highContrastMode ? "none" : "inset 0 1px 0 rgba(255,255,255,0.04)");
+            .style("background", "transparent")
+            .style("border", "none")
+            .style("box-shadow", "none");
 
         const scrollWrapper = rail.append("div")
             .attr("class", "legend-scroll-wrapper")
@@ -15827,6 +15881,32 @@ export class Visual implements IVisual {
         return luminance > 0.5 ? '#000000' : '#FFFFFF';
     }
 
+    private getColorContrastRatio(foregroundColor: string, backgroundColor: string): number {
+        const foreground = this.hexToRgb(foregroundColor);
+        const background = this.hexToRgb(backgroundColor);
+        const values = [foreground.r, foreground.g, foreground.b, background.r, background.g, background.b];
+        if (values.some(value => Number.isNaN(value))) {
+            return Number.POSITIVE_INFINITY;
+        }
+
+        const foregroundLuminance = this.getLuminance(foreground.r, foreground.g, foreground.b);
+        const backgroundLuminance = this.getLuminance(background.r, background.g, background.b);
+        const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+        const darker = Math.min(foregroundLuminance, backgroundLuminance);
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    private getReadableTextColor(preferredTextColor: string, backgroundColor: string): string {
+        const minimumContrastRatio = 4.5;
+        if (this.getColorContrastRatio(preferredTextColor, backgroundColor) >= minimumContrastRatio) {
+            return preferredTextColor;
+        }
+
+        const blackContrast = this.getColorContrastRatio("#000000", backgroundColor);
+        const whiteContrast = this.getColorContrastRatio("#FFFFFF", backgroundColor);
+        return whiteContrast >= blackContrast ? "#FFFFFF" : "#000000";
+    }
+
     /**
      * Get duration text color based on settings or auto-contrast
      */
@@ -16013,7 +16093,8 @@ export class Visual implements IVisual {
             this.stickyHeaderContainer?.style("background-color", headerLegendBgColor);
             this.legendContainer
                 ?.style("background-color", headerLegendBgColor)
-                .style("border-top", `1px solid ${headerLegendBorderColor}`);
+                .style("border-top", `1px solid ${headerLegendBorderColor}`)
+                .style("box-shadow", "none");
             this.selectedTaskLabel
                 ?.style("background-color", headerLegendControlBgColor)
                 .style("color", headerLegendTextColor)
@@ -16047,7 +16128,10 @@ export class Visual implements IVisual {
 
         this.visualWrapper?.style("--lpv-header-legend-border-color", foreground);
         this.stickyHeaderContainer?.style("background-color", background);
-        this.legendContainer?.style("background-color", background);
+        this.legendContainer
+            ?.style("background-color", background)
+            .style("border-top", `1px solid ${foreground}`)
+            .style("box-shadow", "none");
 
         this.selectedTaskLabel
             ?.style("background-color", background)
@@ -16977,6 +17061,26 @@ export class Visual implements IVisual {
             : task.isCritical;
     }
 
+    private getWbsExportRowBackgroundColor(level: number, fallbackBackground: string): string {
+        const levelStyle = this.getWbsLevelStyle(level, fallbackBackground);
+        return this.highContrastMode
+            ? this.highContrastBackground
+            : this.resolveColor(levelStyle.background, "background");
+    }
+
+    private getWbsExportRowTextColor(backgroundColor: string, fallbackText: string = "#333333"): string {
+        if (this.highContrastMode) {
+            return this.highContrastForeground;
+        }
+
+        const preferredTextColor = this.resolveColor(this.getWbsTextColor(fallbackText), "foreground");
+        return this.getReadableTextColor(preferredTextColor, backgroundColor);
+    }
+
+    private getWbsExportCellStyle(backgroundColor: string, textColor: string, style: string): string {
+        return `${style} background-color: ${backgroundColor}; color: ${textColor};`;
+    }
+
     private getExportTableTasks(): Task[] {
         if (this.allTasksToShow && this.allTasksToShow.length > 0) {
             return this.allTasksToShow;
@@ -17137,31 +17241,27 @@ export class Visual implements IVisual {
         }
         html += `</tr>`;
 
+        const fallbackGroupHeaderColor = this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F7F8FA";
         visibleWbsGroups.forEach((group, index) => {
             const indent = Math.max(0, (group.level - 1) * (this.settings?.wbsGrouping?.indentPerLevel?.value || 20));
-            const levelStyle = this.getWbsLevelStyle(
-                group.level,
-                this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F0F0F0"
-            );
-            const bgColor = this.resolveColor(this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F7F8FA", "background");
-            const textColor = this.resolveColor(this.getWbsTextColor("#333333"), "foreground");
-            const accentColor = this.resolveColor(levelStyle.background, "foreground");
+            const rowBgColor = this.getWbsExportRowBackgroundColor(group.level, fallbackGroupHeaderColor);
+            const textColor = this.getWbsExportRowTextColor(rowBgColor, "#333333");
 
-            html += `<tr style="background-color: ${bgColor}; color: ${textColor}; font-weight: bold;">`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
-            html += `<td style="padding: 2px; padding-left: ${indent + 8}px; white-space: nowrap; border-left: 4px solid ${accentColor};">${this.escapeHtml(this.sanitizeExportCell(this.getWbsDisplayName(group)))}</td>`;
+            html += `<tr style="background-color: ${rowBgColor}; color: ${textColor}; font-weight: bold;">`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${index + 1}</td>`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, `padding: 2px; padding-left: ${indent + 8}px; white-space: nowrap;`)}">${this.escapeHtml(this.sanitizeExportCell(this.getWbsDisplayName(group)))}</td>`;
             if (hasBaseline) {
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : ""}</td>`;
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : ""}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : ""}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : ""}</td>`;
             }
             if (hasPrevious) {
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group.summaryPreviousUpdateStartDate ? exportDateFormatter(group.summaryPreviousUpdateStartDate) : ""}</td>`;
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group.summaryPreviousUpdateFinishDate ? exportDateFormatter(group.summaryPreviousUpdateFinishDate) : ""}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryPreviousUpdateStartDate ? exportDateFormatter(group.summaryPreviousUpdateStartDate) : ""}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryPreviousUpdateFinishDate ? exportDateFormatter(group.summaryPreviousUpdateFinishDate) : ""}</td>`;
             }
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : ""}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : ""}</td>`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : ""}</td>`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : ""}</td>`;
             if (hasFloat) {
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat) ? group.summaryTotalFloat.toFixed(0) : ""}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat) ? group.summaryTotalFloat.toFixed(0) : ""}</td>`;
             }
             html += `</tr>`;
         });
@@ -17407,34 +17507,32 @@ ${tableHtml}
                     .join("|");
                 const group = this.wbsGroupMap.get(pathId);
                 const groupLevel = group?.level ?? (levelIndex + 1);
-                const levelStyle = this.getWbsLevelStyle(groupLevel, defaultGroupHeaderColor);
-                const bgColor = this.resolveColor(defaultGroupHeaderColor, "background");
-                const textColor = this.resolveColor(defaultGroupNameColor, "foreground");
-                const accentColor = this.resolveColor(levelStyle.background, "foreground");
+                const rowBgColor = this.getWbsExportRowBackgroundColor(groupLevel, defaultGroupHeaderColor);
+                const textColor = this.getWbsExportRowTextColor(rowBgColor, defaultGroupNameColor);
                 const indentPx = Math.max(0, levelIndex * indentPerLevel);
                 const groupName = this.sanitizeExportCell(group ? this.getWbsDisplayName(group) : (currentLevels[levelIndex] || ""));
                 const groupFloat = typeof group?.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat)
                     ? group.summaryTotalFloat.toFixed(0)
                     : "";
 
-                html += `<tr style="background-color: ${bgColor}; color: ${textColor}; font-weight: bold;">`;
-                html += `<td style="padding: 2px;"></td>`;
-                html += `<td style="padding: 2px;"></td>`;
-                html += `<td style="padding: 2px ${indentPx}px; white-space: nowrap; padding-left: ${indentPx + 8}px; border-left: 4px solid ${accentColor};">${this.escapeHtml(groupName)}</td>`;
-                html += `<td style="padding: 2px;"></td>`;
+                html += `<tr style="background-color: ${rowBgColor}; color: ${textColor}; font-weight: bold;">`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, `padding: 2px ${indentPx}px; white-space: nowrap; padding-left: ${indentPx + 8}px;`)}">${this.escapeHtml(groupName)}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
                 if (this.showBaselineInternal) {
-                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group?.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : ""}</td>`;
-                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group?.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : ""}</td>`;
+                    html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : ""}</td>`;
+                    html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : ""}</td>`;
                 }
                 if (this.showPreviousUpdateInternal) {
-                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group?.summaryPreviousUpdateStartDate ? exportDateFormatter(group.summaryPreviousUpdateStartDate) : ""}</td>`;
-                    html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group?.summaryPreviousUpdateFinishDate ? exportDateFormatter(group.summaryPreviousUpdateFinishDate) : ""}</td>`;
+                    html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryPreviousUpdateStartDate ? exportDateFormatter(group.summaryPreviousUpdateStartDate) : ""}</td>`;
+                    html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryPreviousUpdateFinishDate ? exportDateFormatter(group.summaryPreviousUpdateFinishDate) : ""}</td>`;
                 }
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group?.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : ""}</td>`;
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${group?.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : ""}</td>`;
-                html += `<td style="padding: 2px;"></td>`;
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${groupFloat}</td>`;
-                html += `<td style="padding: 2px;"></td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : ""}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : ""}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${groupFloat}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
                 html += `</tr>`;
             }
 

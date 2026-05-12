@@ -336,6 +336,9 @@ describe("VisualSettings", () => {
         expect(headerSource).toContain("const LOOK_AHEAD_SELECT_FONT_SIZE = `${UI_TOKENS.fontSize.sm}px`;");
         expect(headerSource).toContain("const LOOK_AHEAD_OPTION_ROW_HEIGHT = 22;");
         expect(headerSource).toContain('"look-ahead-control-button"');
+        expect(headerSource).toContain('"look-ahead-control-caret"');
+        expect(headerSource).toContain('.style("position", "relative")');
+        expect(headerSource).toContain('.style("overflow", "hidden")');
         expect(headerSource).toContain('"look-ahead-option-list"');
         expect(headerSource).toContain('.attr("role", "listbox")');
         expect(headerSource).toContain('.attr("role", "option")');
@@ -362,6 +365,26 @@ describe("VisualSettings", () => {
         expect(headerSource).toContain('Copy HTML');
         expect(headerSource).toContain('renderLookAheadMenuItem');
         expect(headerSource).toContain('renderFloatThresholdMenuItem');
+    });
+
+    it("keeps the table timeline divider below header menus", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const resizerStart = visualSource.indexOf("private createMarginResizer()");
+        const resizerEnd = visualSource.indexOf("private updateMarginResizerPosition()", resizerStart);
+        const resizerSource = visualSource.slice(resizerStart, resizerEnd);
+        const dividerStart = visualSource.indexOf('colHeaderLayer.selectAll<SVGLineElement, number>(".table-timeline-header-divider")');
+        const dividerEnd = visualSource.indexOf("private drawLabelColumnSeparators(", dividerStart);
+        const dividerSource = visualSource.slice(dividerStart, dividerEnd);
+
+        expect(resizerStart).toBeGreaterThan(-1);
+        expect(resizerEnd).toBeGreaterThan(resizerStart);
+        expect(dividerStart).toBeGreaterThan(-1);
+        expect(dividerEnd).toBeGreaterThan(dividerStart);
+        expect(resizerSource).toContain('.style("z-index", "60")');
+        expect(dividerSource).toContain('enter => enter.append("line").attr("class", "table-timeline-header-divider")');
+        expect(dividerSource).toContain(".attr(\"y1\", this.snapLineCoord(bandMetrics.top))");
+        expect(dividerSource).toContain(".attr(\"y2\", this.snapLineCoord(bandMetrics.top + bandMetrics.height))");
+        expect(dividerSource).toContain('.style("pointer-events", "none")');
     });
 
     it("documents current interactive features in the help overlay", () => {
@@ -417,10 +440,12 @@ describe("VisualSettings", () => {
 
         expect(visualSource).toContain('anchorMode: "centerBlock" | "firstLineAtCenter" = "firstLineAtCenter"');
         expect(visualSource).toContain("const wbsRowBandHeight = taskHeight + taskPadding;");
+        expect(visualSource).toContain(".paddingOuter(taskPadding / (taskHeight + taskPadding) / 2)\n            .align(0);");
+        expect(visualSource).toContain("WBS top-row anchor restoration");
         expect(visualSource).toContain("availableWidth,\n                    wbsRowBandHeight,\n                    groupNameFontSizePx");
     });
 
-    it("uses one WBS text colour setting while keeping legacy level text properties", () => {
+    it("uses one WBS text colour setting with restrained level accents", () => {
         const settingsSource = readFileSync("src/settings.ts", "utf8");
         const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
         const visualSource = readFileSync("src/visual.ts", "utf8");
@@ -434,9 +459,18 @@ describe("VisualSettings", () => {
 
         expect(capabilities.objects.wbsGrouping.properties.groupNameColor.type.fill.solid.color).toBe(true);
         expect(settingsSource).toContain('groupNameColor = new ColorPicker({ name: "groupNameColor", displayName: "WBS Text Color"');
+        expect(visualSource).toContain("private readonly WBS_LEVEL_ACCENT_WIDTH = 5;");
 
         const wbsLevelStylesSource = slice(settingsSource, "class WbsLevelStylesCard extends Card", "class LegendCard extends Card");
         const wbsLevelStyleSlices = slice(wbsLevelStylesSource, "slices: Slice[] = [", "];");
+        const restrainedAccentDefaults = [
+            "#4E7FA8", "#5B9AA0", "#6F8FAE", "#6B9A8C", "#8494A6",
+            "#7BAFC1", "#6F829E", "#7A9FAD", "#80989B", "#9AA5B1"
+        ];
+        restrainedAccentDefaults.forEach(color => {
+            expect(wbsLevelStylesSource).toContain(`value: { value: "${color}" }`);
+        });
+        expect(wbsLevelStylesSource).not.toContain("#DE786F");
         for (let level = 1; level <= 10; level++) {
             expect(capabilities.objects.wbsLevelStyles.properties[`level${level}Text`].type.fill.solid.color).toBe(true);
             expect(wbsLevelStylesSource).toContain(`level${level}Text = new ColorPicker`);
@@ -462,15 +496,37 @@ describe("VisualSettings", () => {
         expect(drawWbsSource).toContain("const groupNameColor = wbsTextColor;");
         expect(drawWbsSource).toContain("const badgeTextColor = wbsTextColor;");
         expect(drawWbsSource).toContain("fill: string = summaryTextColor");
+        expect(drawWbsSource).toContain("const summaryFillColor = self.blendColors(groupSummaryColor, accentColor, 0.9);");
+        expect(drawWbsSource).toContain("taskHeight * (isCollapsed ? 0.42 : 0.18)");
+        expect(drawWbsSource).toContain("const baseOpacity = self.highContrastMode ? 1 : (isCollapsed ? 0.66 : 0.18);");
+        expect(drawWbsSource).toContain("const summarySemanticOpacity = self.highContrastMode");
+        expect(drawWbsSource).toContain(".style('stroke-width', isCollapsed ? 1 : 0.7)");
         expect(drawWbsSource).not.toContain("mutedTextColor");
 
+        const wbsExportStyleSource = slice(visualSource, "private getWbsExportRowBackgroundColor(", "private getExportTableTasks()");
+        expect(wbsExportStyleSource).toContain("this.getWbsLevelStyle(level, fallbackBackground)");
+        expect(wbsExportStyleSource).toContain("this.getReadableTextColor(preferredTextColor, backgroundColor)");
+        expect(wbsExportStyleSource).toContain("background-color: ${backgroundColor}; color: ${textColor};");
+
+        const readableTextSource = slice(visualSource, "private getColorContrastRatio(", "private getDurationTextColor(");
+        expect(readableTextSource).toContain("const minimumContrastRatio = 4.5;");
+        expect(readableTextSource).toContain('this.getColorContrastRatio("#FFFFFF", backgroundColor)');
+        expect(readableTextSource).toContain('return whiteContrast >= blackContrast ? "#FFFFFF" : "#000000";');
+
         const visibleWbsExportSource = slice(visualSource, "private generateVisibleWbsOnlyExportTableHtml(", "private generateVisibleWbsOnlyExportTableText(");
-        expect(visibleWbsExportSource).toContain('this.getWbsTextColor("#333333")');
+        expect(visibleWbsExportSource).toContain('const textColor = this.getWbsExportRowTextColor(rowBgColor, "#333333");');
+        expect(visibleWbsExportSource).toContain("this.getWbsExportCellStyle(rowBgColor, textColor");
+        expect(visibleWbsExportSource).toContain("const rowBgColor = this.getWbsExportRowBackgroundColor(group.level");
         expect(visibleWbsExportSource).not.toContain("levelStyle.text");
+        expect(visibleWbsExportSource).not.toContain("border-left: 4px solid");
 
         const hierarchicalWbsExportSource = slice(visualSource, "private generateWbsHierarchicalHtml(", "private async copyVisibleDataToClipboard()");
         expect(hierarchicalWbsExportSource).toContain('const defaultGroupNameColor = this.getWbsTextColor("#333333");');
+        expect(hierarchicalWbsExportSource).toContain("const rowBgColor = this.getWbsExportRowBackgroundColor(groupLevel");
+        expect(hierarchicalWbsExportSource).toContain("const textColor = this.getWbsExportRowTextColor(rowBgColor, defaultGroupNameColor);");
+        expect(hierarchicalWbsExportSource).toContain("this.getWbsExportCellStyle(rowBgColor, textColor");
         expect(hierarchicalWbsExportSource).not.toContain("levelStyle.text");
+        expect(hierarchicalWbsExportSource).not.toContain("border-left: 4px solid");
     });
 
     it("shows comparison date columns when bars are on or when the keep-visible toggle is enabled", () => {

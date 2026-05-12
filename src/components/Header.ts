@@ -139,46 +139,13 @@ export class Header {
     }
 
     private renderDockChrome(): void {
-        const layout = this.getCurrentLayout();
         const controlY = UI_TOKENS.spacing.sm;
         const controlHeight = UI_TOKENS.height.standard;
         const shellPaddingY = 4;
-        const groupPaddingY = 3;
-        const groupPaddingX = 6;
         const rowY = Math.max(0, controlY - shellPaddingY);
         const rowHeight = controlHeight + shellPaddingY * 2;
-        const groupY = Math.max(0, controlY - groupPaddingY);
-        const groupHeight = controlHeight + groupPaddingY * 2;
         const rowX = 8;
         const rowWidth = Math.max(1, this.currentViewportWidth - 16);
-
-        type GroupRect = { key: string; x: number; width: number };
-        const groups: Array<{ key: string; items: Array<{ x: number; width?: number; size?: number; visible: boolean }> }> = [
-            { key: "analysis", items: [layout.showAllCritical, layout.modeToggle, layout.lookAhead] },
-            { key: "layers", items: [layout.baseline, layout.previousUpdate, layout.connectorLines, layout.colToggle] },
-            { key: "wbs", items: [layout.wbsEnable, layout.wbsExpandToggle, layout.wbsCollapseToggle] },
-            { key: "copy", items: [layout.copyButton] },
-            { key: "actions", items: [layout.htmlExportButton, layout.exportButton, layout.helpButton, layout.actionOverflowButton] }
-        ];
-
-        const visibleGroups: GroupRect[] = groups.map(group => {
-            const visibleItems = group.items.filter(item => item.visible);
-            if (visibleItems.length === 0) {
-                return null;
-            }
-
-            const left = Math.max(rowX + 4, Math.min(...visibleItems.map(item => item.x)) - groupPaddingX);
-            const right = Math.min(
-                this.currentViewportWidth - (rowX + 4),
-                Math.max(...visibleItems.map(item => item.x + (item.width ?? item.size ?? UI_TOKENS.height.standard))) + groupPaddingX
-            );
-
-            return {
-                key: group.key,
-                x: left,
-                width: Math.max(24, right - left)
-            };
-        }).filter((group): group is GroupRect => group !== null);
 
         const shell = this.toggleButtonGroup.selectAll<SVGRectElement, number>(".header-command-shell")
             .data([rowWidth]);
@@ -199,23 +166,7 @@ export class Header {
             .attr("stroke-width", 1)
             .attr("stroke-opacity", 0.85);
 
-        this.toggleButtonGroup.selectAll<SVGRectElement, GroupRect>(".header-command-group")
-            .data(visibleGroups, d => d.key)
-            .join(
-                enter => enter.append("rect").attr("class", "header-command-group"),
-                update => update,
-                exit => exit.remove()
-            )
-            .attr("x", d => d.x)
-            .attr("y", groupY)
-            .attr("width", d => d.width)
-            .attr("height", groupHeight)
-            .attr("rx", UI_TOKENS.radius.medium)
-            .attr("ry", UI_TOKENS.radius.medium)
-            .attr("fill", this.getPaletteToken("shell"))
-            .attr("stroke", this.getHeaderGroupBorderColor())
-            .attr("stroke-width", 1)
-            .attr("stroke-opacity", 0.7);
+        this.toggleButtonGroup.selectAll<SVGRectElement, unknown>(".header-command-group").remove();
     }
 
     private upsertButton(className: string): Selection<HTMLButtonElement, unknown, null, undefined> {
@@ -337,10 +288,6 @@ export class Header {
         return this.getPaletteToken("commandStroke");
     }
 
-    private getHeaderGroupBorderColor(): string {
-        return this.getPaletteToken("groupStroke");
-    }
-
     private getHeaderChipBorderColor(): string {
         return this.getPaletteToken("chipStroke");
     }
@@ -401,7 +348,7 @@ export class Header {
         const inputBackground = this.getHeaderInputBackground();
 
         this.toggleButtonGroup
-            .selectAll<SVGRectElement, unknown>(".header-command-shell, .header-command-group")
+            .selectAll<SVGRectElement, unknown>(".header-command-shell")
             .attr("fill", shellBackground)
             .attr("stroke", border)
             .attr("stroke-width", this.currentPalette.isHighContrast ? 1.5 : 1);
@@ -2195,6 +2142,8 @@ export class Header {
             .style("width", `${valueWidth}px`)
             .style("height", "22px")
             .style("min-width", "0")
+            .style("position", "relative")
+            .style("overflow", "hidden")
             .style("border", `1px solid ${isActive ? activeColor : this.getHeaderInputBorderColor()}`)
             .style("outline", "none")
             .style("border-radius", "4px")
@@ -2240,15 +2189,18 @@ export class Header {
             });
 
         button.append("span")
+            .style("flex", "1 1 auto")
+            .style("min-width", "0")
             .style("overflow", "hidden")
             .style("text-overflow", "ellipsis")
             .style("white-space", "nowrap")
             .text(selectedOption?.label ?? "Off");
 
-        wrapper.append("span")
+        button.append("span")
+            .attr("class", "look-ahead-control-caret")
             .attr("aria-hidden", "true")
             .style("position", "absolute")
-            .style("right", isCompact ? "7px" : "8px")
+            .style("right", isCompact ? "5px" : "6px")
             .style("top", "50%")
             .style("transform", "translateY(-52%)")
             .style("width", "0")

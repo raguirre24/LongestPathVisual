@@ -886,6 +886,8 @@ export declare class Visual implements IVisual {
      * Get contrasting text color (black or white) for a given background color
      */
     private getContrastColor;
+    private getColorContrastRatio;
+    private getReadableTextColor;
     /**
      * Get duration text color based on settings or auto-contrast
      */
@@ -969,6 +971,9 @@ export declare class Visual implements IVisual {
     private getExportTaskTypeLabel;
     private getExportFloatLabel;
     private getExportCriticalValue;
+    private getWbsExportRowBackgroundColor;
+    private getWbsExportRowTextColor;
+    private getWbsExportCellStyle;
     private getExportTableTasks;
     private getVisibleExportWbsGroups;
     private generateFlatExportTableHtml;

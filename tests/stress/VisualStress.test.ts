@@ -236,6 +236,48 @@ describe("visual stress coverage", () => {
         expect(htmlContent).toMatch(/Zero duration activity<\/td><td[^>]*>Activity<\/td>/);
         expect(htmlContent).toMatch(/Finish milestone<\/td><td[^>]*>Milestone<\/td>/);
     });
+
+    it("applies WBS export colours to every WBS header cell for Excel paste", async () => {
+        class ClipboardItemMock {
+            public readonly items: Record<string, Blob>;
+
+            constructor(items: Record<string, Blob>) {
+                this.items = items;
+            }
+        }
+
+        let capturedClipboardItems: ClipboardItemMock[] | null = null;
+        const write = vi.fn(async (items: ClipboardItemMock[]) => {
+            capturedClipboardItems = items;
+        });
+
+        vi.stubGlobal("navigator", { clipboard: { write } });
+        vi.stubGlobal("ClipboardItem", ClipboardItemMock);
+
+        const tasks = [
+            buildExportTask("A1", "First activity", "TT_Task", 1),
+            buildExportTask("A2", "Second activity", "TT_Task", 2)
+        ];
+
+        await exportToClipboard({
+            tasks,
+            showWbs: true,
+            showBaseline: false,
+            showPreviousUpdate: false
+        });
+
+        expect(write).toHaveBeenCalledTimes(1);
+        if (!capturedClipboardItems?.[0]) {
+            throw new Error("Clipboard write payload was not captured");
+        }
+
+        const htmlContent = await capturedClipboardItems[0].items["text/html"].text();
+
+        expect(htmlContent).toContain('<tr style="background-color: #d0f0c0; font-weight: bold;">');
+        expect(htmlContent).toContain('<td style="padding: 2px; background-color: #d0f0c0; color: #333333;"></td>');
+        expect(htmlContent).toContain('<td colspan="2" style="padding-left: 0px; white-space: nowrap; background-color: #d0f0c0; color: #333333;">Stress</td>');
+        expect(htmlContent).not.toContain("border-left: 4px solid");
+    });
 });
 
 function processStressDataView(dataView: DataView) {
