@@ -55,6 +55,38 @@ describe("VisualSettings", () => {
         expect(headerSource).toContain("getHeaderControlHoverBackground");
     });
 
+    it("exposes the current bar date mode under Task Bars", () => {
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+        const properties = capabilities.objects.taskBars.properties;
+
+        expect(settingsSource).toContain('name: "currentBarDateMode"');
+        expect(settingsSource).toContain('displayName: "Current Bar Date Mode"');
+        expect(settingsSource).toContain('item => item.value === "startFinishOverride"');
+        expect(properties.currentBarDateMode.type.enumeration.map((item: { value: string }) => item.value)).toEqual([
+            "startFinishOverride",
+            "hybridActualEarly"
+        ]);
+    });
+
+    it("exposes critical bar style with Status Stripe as the default", () => {
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const properties = capabilities.objects.criticalPath.properties;
+
+        expect(settingsSource).toContain('name: "criticalBarStyle"');
+        expect(settingsSource).toContain('displayName: "Critical Bar Style"');
+        expect(settingsSource).toContain('item => item.value === "statusStripe"');
+        expect(properties.criticalBarStyle.type.enumeration.map((item: { value: string }) => item.value)).toEqual([
+            "statusStripe",
+            "fullFill",
+            "outline"
+        ]);
+        expect(visualSource).toContain("private getCriticalBarStyle(): CriticalBarStyle");
+        expect(visualSource).toContain("normalizeCriticalBarStyle(this.settings?.criticalPath?.criticalBarStyle?.value?.value)");
+    });
+
     it("keeps timeline label colour under General header and legend colours", () => {
         const settingsSource = readFileSync("src/settings.ts", "utf8");
         const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
@@ -547,5 +579,65 @@ describe("VisualSettings", () => {
         expect(tableHtmlIndex).toBeGreaterThan(tableFragmentIndex);
         expect(metadataIndex).toBeGreaterThan(tableHtmlIndex);
         expect(visualSource).not.toContain("injectClipboardExportTimestampCell");
+    });
+
+    it("uses task bar label dates for flat and hierarchical task exports", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const flatHtmlExportSource = slice(visualSource, "private generateFlatExportTableHtml(", "private generateFlatExportTableText(");
+        const flatTextExportSource = slice(visualSource, "private generateFlatExportTableText(", "private generateVisibleWbsOnlyExportTableHtml(");
+        const hierarchicalWbsExportSource = slice(visualSource, "private generateWbsHierarchicalHtml(", "private async copyVisibleDataToClipboard()");
+        const clipboardSource = slice(visualSource, "private async copyVisibleDataToClipboard()", "private showCopySuccess");
+
+        expect(flatHtmlExportSource).toContain("const visualStartDate = this.getTaskBarLabelStart(task);");
+        expect(flatTextExportSource).toContain("const visualStartDate = this.getTaskBarLabelStart(task);");
+        expect(hierarchicalWbsExportSource).toContain("const visualStartDate = this.getTaskBarLabelStart(task);");
+        expect(clipboardSource).toContain("const tableHtml = this.generateVisibleExportTableHtml();");
+        expect(clipboardSource).toContain("const plainText = this.generateVisibleExportTableText();");
+    });
+
+    it("draws critical status markers after task overlays in SVG and canvas render paths", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const svgTaskSource = slice(visualSource, "private drawTasks(", "private drawTasksCanvas(");
+        const svgOverlayIndex = svgTaskSource.indexOf("const overlay = self.getBeforeDataDateOverlay");
+        const svgMarkerIndex = svgTaskSource.indexOf("const markerStyle = self.getCriticalStatusMarkerStyle(d, criticalColor, nearCriticalColor, false, applyCriticalFormat)");
+        const svgMilestoneRingIndex = svgTaskSource.indexOf("critical-status-ring", svgMarkerIndex);
+
+        expect(svgOverlayIndex).toBeGreaterThan(-1);
+        expect(svgMarkerIndex).toBeGreaterThan(svgOverlayIndex);
+        expect(svgMilestoneRingIndex).toBeGreaterThan(svgMarkerIndex);
+        expect(svgTaskSource).toContain("critical-status-marker");
+        expect(svgTaskSource).toContain("const applyCriticalFormat = self.shouldApplyCriticalFormatToSegment(segment);");
+        expect(svgTaskSource).toContain("const baseFillColor = getTaskFillColor(d, taskColor, applyCriticalFormat);");
+
+        const canvasTaskSource = slice(visualSource, "private drawTasksCanvas(", "// Draw duration text on task bars");
+        const canvasOverlayIndex = canvasTaskSource.indexOf("beforeDataDateDividerBatches.forEach");
+        const canvasMarkerIndex = canvasTaskSource.indexOf("statusMarkerBatches.forEach");
+        const canvasMilestoneIndex = canvasTaskSource.indexOf("milestoneBatches.forEach");
+        const canvasMilestoneMarkerIndex = canvasTaskSource.indexOf("milestoneStatusMarkerBatches.forEach");
+
+        expect(canvasMarkerIndex).toBeGreaterThan(canvasOverlayIndex);
+        expect(canvasMilestoneMarkerIndex).toBeGreaterThan(canvasMilestoneIndex);
+        expect(visualSource).toContain("private shouldApplyCriticalFormatToSegment(segment: TaskBarSegment): boolean");
+        expect(visualSource).toContain("return segment.kind !== \"started\";");
+        expect(canvasTaskSource).toContain("const applyCriticalFormat = this.shouldApplyCriticalFormatToSegment(segment);");
+        expect(canvasTaskSource).toContain("const semanticFill = this.getSemanticTaskFillColor(task, taskColor, criticalColor, nearCriticalColor, applyCriticalFormat);");
+        expect(canvasTaskSource).toContain("const markerStyle = this.getCriticalStatusMarkerStyle(task, criticalColor, nearCriticalColor, false, applyCriticalFormat)");
+        expect(canvasTaskSource).toContain("const markerStyle = this.getCriticalStatusMarkerStyle(task, criticalColor, nearCriticalColor, true)");
     });
 });

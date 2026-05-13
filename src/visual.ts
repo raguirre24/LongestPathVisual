@@ -51,6 +51,20 @@ import {
     isValidProgressDate
 } from "./utils/ProgressLine";
 import type { ProgressLineReference } from "./utils/ProgressLine";
+import {
+    getCurrentTaskBarGeometry,
+    getScheduleFinish,
+    getScheduleStart,
+    normalizeCurrentBarDateMode
+} from "./utils/TaskBarGeometry";
+import type { CurrentBarDateMode, TaskBarGeometry, TaskBarSegment } from "./utils/TaskBarGeometry";
+import {
+    getCriticalStatusMarkerDescriptor,
+    getSemanticTaskFillColorForStyle,
+    normalizeCriticalBarStyle,
+    shouldUseCriticalOutline
+} from "./utils/CriticalBarStyle";
+import type { CriticalBarStyle, CriticalStatusMarkerDescriptor, CriticalTaskLike } from "./utils/CriticalBarStyle";
 import { buildDataSignature } from "./utils/DataSignature";
 import {
     buildLabelColumnLayout,
@@ -92,6 +106,18 @@ type TaskRenderStyle = {
     shadowBlur: number;
     shadowOffsetY: number;
     svgFilter: string;
+};
+
+type StatusMarkerBatch = {
+    x1: number;
+    x2: number;
+    y: number;
+};
+
+type MilestoneStatusMarkerBatch = {
+    x: number;
+    y: number;
+    size: number;
 };
 
 type BeforeDataDateOverlay = {
@@ -1509,6 +1535,7 @@ export class Visual implements IVisual {
                             this.requestUpdate(true, measuredViewport);
                         }
                     }
+
                 }
             });
             this.resizeObserver.observe(this.target);
@@ -1771,26 +1798,54 @@ export class Visual implements IVisual {
         this.wbsToggleScrollAnchor = null;
     }
 
-    private getVisualStart(task: Task): Date | null {
-        return task.manualStartDate ?? task.startDate ?? null;
+    private getCurrentBarDateMode(): CurrentBarDateMode {
+        return normalizeCurrentBarDateMode(this.settings?.taskBars?.currentBarDateMode?.value?.value);
     }
 
-    private getVisualFinish(task: Task): Date | null {
-        return task.manualFinishDate ?? task.finishDate ?? null;
+    private getCriticalBarStyle(): CriticalBarStyle {
+        return normalizeCriticalBarStyle(this.settings?.criticalPath?.criticalBarStyle?.value?.value);
+    }
+
+    private getTaskBarGeometry(task: Task): TaskBarGeometry {
+        return getCurrentTaskBarGeometry(task, this.getCurrentBarDateMode(), this.dataDate);
+    }
+
+    private getTaskBarSortDate(task: Task): Date | null {
+        return this.getTaskBarGeometry(task).sortDate;
+    }
+
+    private getTaskBarLabelStart(task: Task): Date | null {
+        return this.getTaskBarGeometry(task).labelStartDate;
+    }
+
+    private getTaskBarLabelFinish(task: Task): Date | null {
+        return this.getTaskBarGeometry(task).labelFinishDate;
+    }
+
+    private getTaskBarDurationSegment(task: Task): TaskBarSegment | null {
+        const geometry = this.getTaskBarGeometry(task);
+        return geometry.segments.find(segment => segment.kind === "scheduled") ?? geometry.segments[0] ?? null;
+    }
+
+    private getScheduleStart(task: Task): Date | null {
+        return getScheduleStart(task);
+    }
+
+    private getScheduleFinish(task: Task): Date | null {
+        return getScheduleFinish(task);
     }
 
     private getVisualMilestoneDate(task: Task): Date | null {
-        return this.getVisualStart(task) ?? this.getVisualFinish(task);
+        return this.getTaskBarGeometry(task).milestoneDate;
     }
 
     private hasValidVisualDates(task: Task): boolean {
-        const start = this.getVisualStart(task);
-        const finish = this.getVisualFinish(task);
-        return start instanceof Date &&
-            !isNaN(start.getTime()) &&
-            finish instanceof Date &&
-            !isNaN(finish.getTime()) &&
-            finish >= start;
+        const geometry = this.getTaskBarGeometry(task);
+        if (geometry.isMilestone) {
+            return geometry.milestoneDate instanceof Date && !isNaN(geometry.milestoneDate.getTime());
+        }
+
+        return geometry.segments.length > 0;
     }
 
     private hasValidPlotDates(task: Task): boolean {
@@ -1880,12 +1935,12 @@ export class Visual implements IVisual {
 
         const sortedByStartDate = this.allTasksData
             .filter(task => {
-                const s = this.getVisualStart(task);
+                const s = this.getTaskBarSortDate(task);
                 return s instanceof Date && !isNaN(s.getTime());
             })
             .sort((a, b) => {
-                const aStart = this.getVisualStart(a)?.getTime() ?? 0;
-                const bStart = this.getVisualStart(b)?.getTime() ?? 0;
+                const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
+                const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
                 return aStart - bStart;
             });
 
@@ -4683,8 +4738,8 @@ export class Visual implements IVisual {
                 orderedTasks = this.applyWbsOrdering(tasksAfterLegendFilter);
             } else {
                 orderedTasks = [...tasksAfterLegendFilter].sort((a, b) => {
-                    const aStart = this.getVisualStart(a)?.getTime() ?? 0;
-                    const bStart = this.getVisualStart(b)?.getTime() ?? 0;
+                    const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
+                    const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
                     return aStart - bStart;
                 });
             }
@@ -5652,14 +5707,20 @@ export class Visual implements IVisual {
 
         tasksToShow.forEach(task => {
 
-            const start = this.getVisualStart(task);
-            const finish = this.getVisualFinish(task);
-
-            if (start && !isNaN(start.getTime())) {
-                allTimestamps.push(start.getTime());
-            }
-            if (finish && !isNaN(finish.getTime())) {
-                allTimestamps.push(finish.getTime());
+            const geometry = this.getTaskBarGeometry(task);
+            if (geometry.isMilestone) {
+                if (geometry.milestoneDate && !isNaN(geometry.milestoneDate.getTime())) {
+                    allTimestamps.push(geometry.milestoneDate.getTime());
+                }
+            } else {
+                for (const segment of geometry.segments) {
+                    if (!isNaN(segment.start.getTime())) {
+                        allTimestamps.push(segment.start.getTime());
+                    }
+                    if (!isNaN(segment.finish.getTime())) {
+                        allTimestamps.push(segment.finish.getTime());
+                    }
+                }
             }
 
             if (includeBaselineInScale) {
@@ -5856,8 +5917,9 @@ export class Visual implements IVisual {
                 continue;
             }
 
-            if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
-                const milestoneDate = this.getVisualMilestoneDate(task);
+            const geometry = this.getTaskBarGeometry(task);
+            if (geometry.isMilestone) {
+                const milestoneDate = geometry.milestoneDate;
                 if (!milestoneDate) continue;
                 const milestoneX = this.xScale(milestoneDate);
                 const size = this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
@@ -5865,13 +5927,12 @@ export class Visual implements IVisual {
                     return task;
                 }
             } else {
-                const visualStart = this.getVisualStart(task);
-                const visualFinish = this.getVisualFinish(task);
-                if (!visualStart || !visualFinish) continue;
-                const taskX = this.xScale(visualStart);
-                const taskWidth = this.xScale(visualFinish) - taskX;
-                if (x >= taskX && x <= taskX + taskWidth) {
-                    return task;
+                for (const segment of geometry.segments) {
+                    const taskX = this.xScale(segment.start);
+                    const taskWidth = this.xScale(segment.finish) - taskX;
+                    if (x >= taskX && x <= taskX + taskWidth) {
+                        return task;
+                    }
                 }
             }
         }
@@ -7226,8 +7287,8 @@ export class Visual implements IVisual {
             }
         };
 
-        const getTaskFillColor = (d: Task, fallbackColor: string): string =>
-            this.getSemanticTaskFillColor(d, fallbackColor, criticalColor, nearCriticalColor);
+        const getTaskFillColor = (d: Task, fallbackColor: string, applyCriticalFormat: boolean = true): string =>
+            this.getSemanticTaskFillColor(d, fallbackColor, criticalColor, nearCriticalColor, applyCriticalFormat);
 
         const taskGroupsSelection = this.taskLayer.selectAll<SVGGElement, Task>(".task-group")
             .data(tasks, (d: Task) => d.internalId);
@@ -7376,21 +7437,24 @@ export class Visual implements IVisual {
             allTaskGroups.selectAll(".baseline-bar").remove();
         }
 
-        allTaskGroups.selectAll(".task-bar, .milestone, .task-bar-before-data-date, .task-bar-data-date-divider").remove();
+        allTaskGroups.selectAll(".task-bar, .milestone, .task-bar-before-data-date, .task-bar-data-date-divider, .critical-status-marker, .critical-status-ring").remove();
 
         allTaskGroups.filter((d: Task) =>
             (d.type !== 'TT_Mile' && d.type !== 'TT_FinMile')
         )
             .each(function (d: Task) {
-                const start = self.getVisualStart(d);
-                const finish = self.getVisualFinish(d);
+                const geometry = self.getTaskBarGeometry(d);
+                const labelStart = geometry.labelStartDate;
+                const labelFinish = geometry.labelFinishDate;
+                const segmentCount = geometry.segments.length;
 
-                if (start instanceof Date && !isNaN(start.getTime()) && finish instanceof Date && !isNaN(finish.getTime()) && finish >= start) {
-                    const startX = self.snapRectCoord(xScale(start));
-                    const finishX = self.snapRectCoord(xScale(finish));
+                for (const segment of geometry.segments) {
+                    const startX = self.snapRectCoord(xScale(segment.start));
+                    const finishX = self.snapRectCoord(xScale(segment.finish));
                     const barWidth = Math.max(1, finishX - startX);
                     const barRadius = Math.min(taskBarCornerRadius, barWidth / 2, barHeight / 2);
-                    const baseFillColor = getTaskFillColor(d, taskColor);
+                    const applyCriticalFormat = self.shouldApplyCriticalFormatToSegment(segment);
+                    const baseFillColor = getTaskFillColor(d, taskColor, applyCriticalFormat);
                     const renderStyle = self.getTaskRenderStyle(
                         d,
                         baseFillColor,
@@ -7399,23 +7463,26 @@ export class Visual implements IVisual {
                         taskBarStrokeColor,
                         taskBarStrokeWidth,
                         criticalColor,
-                        nearCriticalColor
+                        nearCriticalColor,
+                        applyCriticalFormat
                     );
 
                     d3.select(this).append("rect")
                         .attr("class", (d: Task) => {
-                            if (d.isCritical) return "task-bar critical";
-                            if (d.isNearCritical) return "task-bar near-critical";
-                            return "task-bar normal";
+                            const segmentClass = `task-bar-${segment.kind}`;
+                            if (applyCriticalFormat && d.isCritical) return `task-bar ${segmentClass} critical`;
+                            if (applyCriticalFormat && d.isNearCritical) return `task-bar ${segmentClass} near-critical`;
+                            return `task-bar ${segmentClass} normal`;
                         })
                         .attr("role", "button")
                         .attr("aria-label", (d: Task) => {
                             const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
                             const lookAheadText = self.isTaskInLookAheadWindow(d) ? ", In look-ahead window" : "";
                             const selectedText = d.internalId === self.selectedTaskId ? " (Selected)" : "";
-                            return `${d.name}, ${statusText} task${lookAheadText}, Start: ${self.formatDate(start)}, Finish: ${self.formatDate(finish)}${selectedText}. Press Enter or Space to select.`;
+                            const splitText = segmentCount > 1 ? `, ${segment.kind} segment` : "";
+                            return `${d.name}, ${statusText} task${splitText}${lookAheadText}, Start: ${self.formatDate(labelStart)}, Finish: ${self.formatDate(labelFinish)}${selectedText}. Press Enter or Space to select.`;
                         })
-                        .attr("tabindex", 0)
+                        .attr("tabindex", segment.kind === "started" && segmentCount > 1 ? -1 : 0)
                         .attr("aria-pressed", (d: Task) => d.internalId === self.selectedTaskId ? "true" : "false")
                         .attr("x", startX)
                         .attr("y", barYOffset)
@@ -7435,7 +7502,7 @@ export class Visual implements IVisual {
                         .style("stroke-opacity", renderStyle.strokeOpacity)
                         .style("filter", renderStyle.svgFilter);
 
-                    const overlay = self.getBeforeDataDateOverlay(start, finish, startX, finishX, barRadius);
+                    const overlay = self.getBeforeDataDateOverlay(segment.start, segment.finish, startX, finishX, barRadius);
                     if (overlay) {
                         const overrideColor = self.settings.dataDateColorOverride.beforeDataDateColor.value.value;
                         const overlayY = barYOffset;
@@ -7460,6 +7527,30 @@ export class Visual implements IVisual {
                                 .style("stroke-width", 1)
                                 .style("pointer-events", "none");
                         }
+                    }
+
+                    const markerStyle = self.getCriticalStatusMarkerStyle(d, criticalColor, nearCriticalColor, false, applyCriticalFormat);
+                    if (markerStyle) {
+                        const markerInset = Math.min(
+                            Math.max(0, barWidth / 2 - 0.5),
+                            Math.max(0, Math.min(barRadius, markerStyle.thickness))
+                        );
+                        const markerX1 = startX + markerInset;
+                        const markerX2 = finishX - markerInset;
+
+                        d3.select(this)
+                            .append("line")
+                            .attr("class", `critical-status-marker ${markerStyle.status === "critical" ? "critical" : "near-critical"}`)
+                            .attr("aria-hidden", "true")
+                            .attr("x1", markerX1)
+                            .attr("x2", markerX2)
+                            .attr("y1", barYOffset + markerStyle.thickness / 2)
+                            .attr("y2", barYOffset + markerStyle.thickness / 2)
+                            .style("stroke", markerStyle.color)
+                            .style("stroke-width", markerStyle.thickness)
+                            .style("stroke-linecap", "round")
+                            .style("stroke-dasharray", markerStyle.dashed ? markerStyle.dashArray : "none")
+                            .style("pointer-events", "none");
                     }
                 }
             });
@@ -7534,6 +7625,25 @@ export class Visual implements IVisual {
                         .style("stroke-width", renderStyle.strokeWidth)
                         .style("stroke-opacity", renderStyle.strokeOpacity)
                         .style("filter", renderStyle.svgFilter);
+
+                    const markerStyle = self.getCriticalStatusMarkerStyle(d, criticalColor, nearCriticalColor, true);
+                    if (markerStyle) {
+                        d3.select(this).append("path")
+                            .attr("class", `critical-status-ring ${markerStyle.status === "critical" ? "critical" : "near-critical"}`)
+                            .attr("aria-hidden", "true")
+                            .attr("transform", (d: Task) => {
+                                const x = xScale(mDate);
+                                if (isNaN(x)) console.warn(`Invalid X position for milestone ${d.internalId}`);
+                                return `translate(${self.snapRectCoord(x)}, ${milestoneCenterY})`;
+                            })
+                            .attr("d", () => getMilestonePath(milestoneShape, milestoneSize + markerStyle.thickness))
+                            .style("fill", "none")
+                            .style("stroke", markerStyle.color)
+                            .style("stroke-width", markerStyle.thickness)
+                            .style("stroke-linejoin", "round")
+                            .style("stroke-dasharray", markerStyle.dashed ? markerStyle.dashArray : "none")
+                            .style("pointer-events", "none");
+                    }
                 }
             });
 
@@ -7559,7 +7669,7 @@ export class Visual implements IVisual {
                 .style("pointer-events", "none")
                 .attr("x", (d: Task): number | null => {
                     let xPos: number | null = null;
-                    const dateToUse = self.getVisualFinish(d);
+                    const dateToUse = self.getTaskBarLabelFinish(d);
                     if (!(dateToUse instanceof Date && !isNaN(dateToUse.getTime()))) return null;
 
                     if (d.type === 'TT_Mile' || d.type === 'TT_FinMile') {
@@ -7576,7 +7686,7 @@ export class Visual implements IVisual {
                     return (xPos === null || isNaN(xPos)) ? null : self.snapTextCoord(xPos + self.dateLabelOffset);
                 })
                 .text((d: Task) => {
-                    const dateToUse = self.getVisualFinish(d);
+                    const dateToUse = self.getTaskBarLabelFinish(d);
                     return dateToUse ? self.formatDate(dateToUse) : "";
                 })
                 .filter(function () { return d3.select(this).attr("x") !== null; });
@@ -7637,19 +7747,17 @@ export class Visual implements IVisual {
                 .style("font-weight", "500")
                 .style("pointer-events", "none")
                 .attr("x", (d: Task): number | null => {
-                    const visualStart = self.getVisualStart(d);
-                    const visualFinish = self.getVisualFinish(d);
-                    if (!visualStart || !visualFinish) return null;
-                    const startX = xScale(visualStart);
-                    const finishX = xScale(visualFinish);
+                    const segment = self.getTaskBarDurationSegment(d);
+                    if (!segment) return null;
+                    const startX = xScale(segment.start);
+                    const finishX = xScale(segment.finish);
                     return (isNaN(startX) || isNaN(finishX)) ? null : this.snapTextCoord(startX + (finishX - startX) / 2);
                 })
                 .text((d: Task): string => {
-                    const visualStart = self.getVisualStart(d);
-                    const visualFinish = self.getVisualFinish(d);
-                    if (!visualStart || !visualFinish) return "";
-                    const startX = xScale(visualStart);
-                    const finishX = xScale(visualFinish);
+                    const segment = self.getTaskBarDurationSegment(d);
+                    if (!segment) return "";
+                    const startX = xScale(segment.start);
+                    const finishX = xScale(segment.finish);
                     if (isNaN(startX) || isNaN(finishX)) return "";
                     const barWidth = finishX - startX;
                     const textContent = `${Math.round(d.duration || 0)}d`;
@@ -7899,11 +8007,11 @@ export class Visual implements IVisual {
             const getColumnText = (columnId: LabelColumnId, task: Task): string => {
                 switch (columnId) {
                     case "start": {
-                        const date = this.getVisualStart(task);
+                        const date = this.getTaskBarLabelStart(task);
                         return date ? this.formatColumnDate(date) : "";
                     }
                     case "finish": {
-                        const date = this.getVisualFinish(task);
+                        const date = this.getTaskBarLabelFinish(task);
                         return date ? this.formatColumnDate(date) : "";
                     }
                     case "duration":
@@ -8444,6 +8552,8 @@ export class Visual implements IVisual {
         const beforeDataDateBatches = new Map<string, RectBatch[]>();
         const beforeDataDateDividerBatches = new Map<string, LineBatch[]>();
         const milestoneBatches = new Map<string, MilestoneBatch[]>();
+        const statusMarkerBatches = new Map<string, StatusMarkerBatch[]>();
+        const milestoneStatusMarkerBatches = new Map<string, MilestoneStatusMarkerBatch[]>();
 
         for (const task of tasks) {
             const domainKey = task.yOrder?.toString() ?? '';
@@ -8511,58 +8621,84 @@ export class Visual implements IVisual {
 
                     if (!milestoneBatches.has(styleKey)) milestoneBatches.set(styleKey, []);
                     milestoneBatches.get(styleKey)!.push({ x, y, size: milestoneSize, rotated: true });
+
+                    const markerStyle = this.getCriticalStatusMarkerStyle(task, criticalColor, nearCriticalColor, true);
+                    if (markerStyle) {
+                        const markerKey = this.getCriticalStatusMarkerBatchKey(markerStyle);
+                        if (!milestoneStatusMarkerBatches.has(markerKey)) milestoneStatusMarkerBatches.set(markerKey, []);
+                        milestoneStatusMarkerBatches.get(markerKey)!.push({
+                            x,
+                            y,
+                            size: milestoneSize + markerStyle.thickness
+                        });
+                    }
                 }
             } else {
-                const start = this.getVisualStart(task);
-                const finish = this.getVisualFinish(task);
-                if (!start || !finish) {
-                    continue;
-                }
-                const startX = this.snapRectCoord(xScale(start));
-                const finishX = this.snapRectCoord(xScale(finish));
-                const x = startX;
-                const w = Math.max(1, finishX - startX);
-                const h = barHeight;
-                const y = this.snapRectCoord(yPos + barYOffset);
-                const r = Math.min(taskBarCornerRadius, w / 2, h / 2);
-                const semanticFill = this.getSemanticTaskFillColor(task, taskColor, criticalColor, nearCriticalColor);
-                const renderStyle = this.getTaskRenderStyle(
-                    task,
-                    semanticFill,
-                    w,
-                    false,
-                    taskBarStrokeColor,
-                    taskBarStrokeWidth,
-                    criticalColor,
-                    nearCriticalColor
-                );
-                const styleKey = `${semanticFill}|${renderStyle.strokeColor}|${renderStyle.strokeWidth}|${renderStyle.strokeOpacity}|${renderStyle.shadowBlur}|${renderStyle.shadowColor}|${renderStyle.shadowOffsetY}`;
+                const geometry = this.getTaskBarGeometry(task);
+                for (const segment of geometry.segments) {
+                    const startX = this.snapRectCoord(xScale(segment.start));
+                    const finishX = this.snapRectCoord(xScale(segment.finish));
+                    const x = startX;
+                    const w = Math.max(1, finishX - startX);
+                    const h = barHeight;
+                    const y = this.snapRectCoord(yPos + barYOffset);
+                    const r = Math.min(taskBarCornerRadius, w / 2, h / 2);
+                    const applyCriticalFormat = this.shouldApplyCriticalFormatToSegment(segment);
+                    const semanticFill = this.getSemanticTaskFillColor(task, taskColor, criticalColor, nearCriticalColor, applyCriticalFormat);
+                    const renderStyle = this.getTaskRenderStyle(
+                        task,
+                        semanticFill,
+                        w,
+                        false,
+                        taskBarStrokeColor,
+                        taskBarStrokeWidth,
+                        criticalColor,
+                        nearCriticalColor,
+                        applyCriticalFormat
+                    );
+                    const styleKey = `${semanticFill}|${renderStyle.strokeColor}|${renderStyle.strokeWidth}|${renderStyle.strokeOpacity}|${renderStyle.shadowBlur}|${renderStyle.shadowColor}|${renderStyle.shadowOffsetY}`;
 
-                if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
-                taskBatches.get(styleKey)!.push({ x, y, w, h, r });
+                    if (!taskBatches.has(styleKey)) taskBatches.set(styleKey, []);
+                    taskBatches.get(styleKey)!.push({ x, y, w, h, r });
 
-                const overlay = this.getBeforeDataDateOverlay(start, finish, startX, finishX, r);
-                if (overlay) {
-                    const overrideColor = this.settings.dataDateColorOverride.beforeDataDateColor.value.value;
-                    const overlayStyleKey = `${overrideColor}`;
-                    if (!beforeDataDateBatches.has(overlayStyleKey)) beforeDataDateBatches.set(overlayStyleKey, []);
-                    beforeDataDateBatches.get(overlayStyleKey)!.push({
-                        x: overlay.x,
-                        y,
-                        w: overlay.width,
-                        h,
-                        r,
-                        corners: overlay.corners
-                    });
+                    const overlay = this.getBeforeDataDateOverlay(segment.start, segment.finish, startX, finishX, r);
+                    if (overlay) {
+                        const overrideColor = this.settings.dataDateColorOverride.beforeDataDateColor.value.value;
+                        const overlayStyleKey = `${overrideColor}`;
+                        if (!beforeDataDateBatches.has(overlayStyleKey)) beforeDataDateBatches.set(overlayStyleKey, []);
+                        beforeDataDateBatches.get(overlayStyleKey)!.push({
+                            x: overlay.x,
+                            y,
+                            w: overlay.width,
+                            h,
+                            r,
+                            corners: overlay.corners
+                        });
 
-                    if (overlay.dividerX !== null && overlay.dividerX > startX + 1 && overlay.dividerX < finishX - 1) {
-                        const dividerKey = this.toRgba(this.getSoftOutlineColor(overrideColor), 0.6);
-                        if (!beforeDataDateDividerBatches.has(dividerKey)) beforeDataDateDividerBatches.set(dividerKey, []);
-                        beforeDataDateDividerBatches.get(dividerKey)!.push({
-                            x1: overlay.dividerX,
-                            y1: y + 1,
-                            x2: overlay.dividerX,
-                            y2: y + h - 1
+                        if (overlay.dividerX !== null && overlay.dividerX > startX + 1 && overlay.dividerX < finishX - 1) {
+                            const dividerKey = this.toRgba(this.getSoftOutlineColor(overrideColor), 0.6);
+                            if (!beforeDataDateDividerBatches.has(dividerKey)) beforeDataDateDividerBatches.set(dividerKey, []);
+                            beforeDataDateDividerBatches.get(dividerKey)!.push({
+                                x1: overlay.dividerX,
+                                y1: y + 1,
+                                x2: overlay.dividerX,
+                                y2: y + h - 1
+                            });
+                        }
+                    }
+
+                    const markerStyle = this.getCriticalStatusMarkerStyle(task, criticalColor, nearCriticalColor, false, applyCriticalFormat);
+                    if (markerStyle) {
+                        const markerKey = this.getCriticalStatusMarkerBatchKey(markerStyle);
+                        const markerInset = Math.min(
+                            Math.max(0, w / 2 - 0.5),
+                            Math.max(0, Math.min(r, markerStyle.thickness))
+                        );
+                        if (!statusMarkerBatches.has(markerKey)) statusMarkerBatches.set(markerKey, []);
+                        statusMarkerBatches.get(markerKey)!.push({
+                            x1: x + markerInset,
+                            x2: x + w - markerInset,
+                            y: y + markerStyle.thickness / 2
                         });
                     }
                 }
@@ -8665,6 +8801,27 @@ export class Visual implements IVisual {
             ctx.stroke();
         });
 
+        statusMarkerBatches.forEach((batch, markerKey) => {
+            const [stroke, widthStr, dashStyle] = markerKey.split('|');
+            const markerWidth = parseFloat(widthStr);
+
+            ctx.save();
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = markerWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.setLineDash(dashStyle === "dashed"
+                ? [Math.max(3, markerWidth * 2.4), Math.max(2, markerWidth * 1.5)]
+                : []);
+            ctx.beginPath();
+            for (const marker of batch) {
+                ctx.moveTo(marker.x1, marker.y);
+                ctx.lineTo(marker.x2, marker.y);
+            }
+            ctx.stroke();
+            ctx.restore();
+        });
+
         milestoneBatches.forEach((batch, styleKey) => {
             const [fill, stroke, widthStr, opacityStr, blurStr, shadowCol, offsetStr] = styleKey.split('|');
             const strokeWidth = parseFloat(widthStr);
@@ -8718,6 +8875,46 @@ export class Visual implements IVisual {
             ctx.shadowColor = 'transparent';
         });
 
+        milestoneStatusMarkerBatches.forEach((batch, markerKey) => {
+            const [stroke, widthStr, dashStyle] = markerKey.split('|');
+            const markerWidth = parseFloat(widthStr);
+
+            ctx.save();
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = markerWidth;
+            ctx.lineJoin = 'round';
+            ctx.setLineDash(dashStyle === "dashed"
+                ? [Math.max(3, markerWidth * 2.4), Math.max(2, markerWidth * 1.5)]
+                : []);
+
+            for (const marker of batch) {
+                const half = marker.size / 2;
+                ctx.beginPath();
+                switch (milestoneShape) {
+                    case "circle": {
+                        ctx.arc(marker.x, marker.y, half, 0, Math.PI * 2);
+                        break;
+                    }
+                    case "square": {
+                        ctx.rect(marker.x - half, marker.y - half, marker.size, marker.size);
+                        break;
+                    }
+                    case "diamond":
+                    default: {
+                        ctx.moveTo(marker.x, marker.y - half);
+                        ctx.lineTo(marker.x + half, marker.y);
+                        ctx.lineTo(marker.x, marker.y + half);
+                        ctx.lineTo(marker.x - half, marker.y);
+                        ctx.closePath();
+                        break;
+                    }
+                }
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        });
+
         // Draw duration text on task bars (matching SVG)
         if (showDuration) {
             const durationFontSize = Math.max(7, generalFontSize * 0.8);
@@ -8729,17 +8926,16 @@ export class Visual implements IVisual {
 
             for (const task of tasks) {
                 if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') continue;
-                const start = this.getVisualStart(task);
-                const finish = this.getVisualFinish(task);
-                if (!(start instanceof Date) || !(finish instanceof Date) || finish < start) continue;
+                const segment = this.getTaskBarDurationSegment(task);
+                if (!segment) continue;
                 if (!task.duration || task.duration <= 0) continue;
 
                 const domainKey = task.yOrder?.toString() ?? '';
                 const yPosition = yScale(domainKey);
                 if (yPosition === undefined || isNaN(yPosition)) continue;
 
-                const startX = xScale(start);
-                const finishX = xScale(finish);
+                const startX = xScale(segment.start);
+                const finishX = xScale(segment.finish);
                 if (isNaN(startX) || isNaN(finishX)) continue;
 
                 const barWidth = finishX - startX;
@@ -8748,7 +8944,8 @@ export class Visual implements IVisual {
                 const minWidth = Math.max(minInlineDurationWidth, estimatedTextWidth + 8);
                 if (barWidth < minWidth) continue;
 
-                const taskFill = this.getSemanticTaskFillColor(task, taskColor, criticalColor, nearCriticalColor);
+                const applyCriticalFormat = this.shouldApplyCriticalFormatToSegment(segment);
+                const taskFill = this.getSemanticTaskFillColor(task, taskColor, criticalColor, nearCriticalColor, applyCriticalFormat);
                 ctx.fillStyle = this.getDurationTextColor(taskFill);
                 ctx.fillText(textContent, this.snapTextCoord(startX + barWidth / 2), this.snapTextCoord(yPosition + taskHeight / 2));
             }
@@ -8776,7 +8973,7 @@ export class Visual implements IVisual {
                         task.type !== 'TT_Mile' && task.type !== 'TT_FinMile') continue;
                 }
 
-                const dateToUse = this.getVisualFinish(task);
+                const dateToUse = this.getTaskBarLabelFinish(task);
                 if (!(dateToUse instanceof Date) || isNaN(dateToUse.getTime())) continue;
 
                 const domainKey = task.yOrder?.toString() ?? '';
@@ -8920,7 +9117,7 @@ export class Visual implements IVisual {
                     const milestoneDate = this.getVisualMilestoneDate(d);
                     return `${d.name}, ${statusText} milestone, Date: ${this.formatDate(milestoneDate)}${selectedText}. Press Enter or Space to select.`;
                 } else {
-                    return `${d.name}, ${statusText} task, Start: ${this.formatDate(this.getVisualStart(d))}, Finish: ${this.formatDate(this.getVisualFinish(d))}${selectedText}. Press Enter or Space to select.`;
+                    return `${d.name}, ${statusText} task, Start: ${this.formatDate(this.getTaskBarLabelStart(d))}, Finish: ${this.formatDate(this.getTaskBarLabelFinish(d))}${selectedText}. Press Enter or Space to select.`;
                 }
             })
             .attr("tabindex", 0)
@@ -9081,10 +9278,10 @@ export class Visual implements IVisual {
                 let baseStartDate: Date | null | undefined = null;
                 let baseEndDate: Date | null | undefined = null;
 
-                const predStart = this.getVisualStart(pred);
-                const predFinish = this.getVisualFinish(pred);
-                const succStart = this.getVisualStart(succ);
-                const succFinish = this.getVisualFinish(succ);
+                const predStart = this.getScheduleStart(pred);
+                const predFinish = this.getScheduleFinish(pred);
+                const succStart = this.getScheduleStart(succ);
+                const succFinish = this.getScheduleFinish(succ);
 
                 switch (relType) {
                     case 'FS': case 'FF':
@@ -9352,10 +9549,10 @@ export class Visual implements IVisual {
         let baseStartDate: Date | null | undefined = null;
         let baseEndDate: Date | null | undefined = null;
 
-        const predStart = this.getVisualStart(pred);
-        const predFinish = this.getVisualFinish(pred);
-        const succStart = this.getVisualStart(succ);
-        const succFinish = this.getVisualFinish(succ);
+        const predStart = this.getScheduleStart(pred);
+        const predFinish = this.getScheduleFinish(pred);
+        const succStart = this.getScheduleStart(succ);
+        const succFinish = this.getScheduleFinish(succ);
 
         switch (relType) {
             case 'FS':
@@ -10148,7 +10345,7 @@ export class Visual implements IVisual {
         const headerBandMetrics = this.getHeaderBandMetrics();
 
         const latestFinishDate = settings.show.value
-            ? this.getLatestFinishDate(allTasks, (t: Task) => this.getVisualFinish(t))
+            ? this.getLatestFinishDate(allTasks, (t: Task) => this.getTaskBarLabelFinish(t))
             : null;
 
         this.drawFinishLine({
@@ -12787,8 +12984,8 @@ export class Visual implements IVisual {
                 const directTasks = group.tasks
                     .filter(t => taskSet.has(t.internalId))
                     .sort((a, b) => {
-                        const aStart = this.getVisualStart(a)?.getTime() ?? 0;
-                        const bStart = this.getVisualStart(b)?.getTime() ?? 0;
+                        const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
+                        const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
                         return aStart - bStart;
                     });
 
@@ -12806,8 +13003,8 @@ export class Visual implements IVisual {
         const tasksWithoutWbs = tasks
             .filter(t => !t.wbsGroupId)
             .sort((a, b) => {
-                const aStart = this.getVisualStart(a)?.getTime() ?? 0;
-                const bStart = this.getVisualStart(b)?.getTime() ?? 0;
+                const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
+                const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
                 return aStart - bStart;
             });
 
@@ -12877,8 +13074,9 @@ export class Visual implements IVisual {
 
                 if (!filteredTaskIds.has(task.internalId)) continue;
 
-                const visualStart = this.getVisualStart(task);
-                const visualFinish = this.getVisualFinish(task);
+                const taskGeometry = this.getTaskBarGeometry(task);
+                const visualStart = taskGeometry.extentStart;
+                const visualFinish = taskGeometry.extentFinish;
 
                 // Filter out invalid or extremely old dates (likely placeholders)
                 const isValidStart = visualStart && visualStart.getFullYear() > 1980;
@@ -13096,8 +13294,8 @@ export class Visual implements IVisual {
                 const directVisibleTasks = group.tasks
                     .filter(t => visibleTaskIds.has(t.internalId))
                     .sort((a, b) => {
-                        const aStart = this.getVisualStart(a)?.getTime() ?? 0;
-                        const bStart = this.getVisualStart(b)?.getTime() ?? 0;
+                        const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
+                        const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
                         return aStart - bStart;
                     });
 
@@ -13115,8 +13313,8 @@ export class Visual implements IVisual {
         const tasksWithoutWbs = tasksToShow
             .filter(t => !t.wbsGroupId)
             .sort((a, b) => {
-                const aStart = this.getVisualStart(a)?.getTime() ?? 0;
-                const bStart = this.getVisualStart(b)?.getTime() ?? 0;
+                const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
+                const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
                 return aStart - bStart;
             });
 
@@ -15530,14 +15728,55 @@ export class Visual implements IVisual {
         task: Task,
         fallbackColor: string,
         criticalColor: string,
-        nearCriticalColor: string
+        nearCriticalColor: string,
+        applyCriticalFormat: boolean = true
     ): string {
-        if (this.legendDataExists && task.legendColor) return task.legendColor;
-        if (!this.legendDataExists) {
-            if (task.isCritical) return criticalColor;
-            if (task.isNearCritical) return nearCriticalColor;
+        return getSemanticTaskFillColorForStyle(
+            this.getCriticalFormatTask(task, applyCriticalFormat),
+            this.getCriticalBarStyle(),
+            this.legendDataExists,
+            fallbackColor,
+            criticalColor,
+            nearCriticalColor
+        );
+    }
+
+    private shouldApplyCriticalFormatToSegment(segment: TaskBarSegment): boolean {
+        return segment.kind !== "started";
+    }
+
+    private getCriticalFormatTask(task: Task, applyCriticalFormat: boolean): CriticalTaskLike {
+        if (applyCriticalFormat) {
+            return task;
         }
-        return fallbackColor;
+
+        return {
+            isCritical: false,
+            isNearCritical: false,
+            legendColor: task.legendColor
+        };
+    }
+
+    private getCriticalStatusMarkerStyle(
+        task: Task,
+        criticalColor: string,
+        nearCriticalColor: string,
+        isMilestone: boolean,
+        applyCriticalFormat: boolean = true
+    ): CriticalStatusMarkerDescriptor | null {
+        return getCriticalStatusMarkerDescriptor({
+            task: this.getCriticalFormatTask(task, applyCriticalFormat),
+            style: this.getCriticalBarStyle(),
+            criticalColor,
+            nearCriticalColor,
+            criticalThickness: this.settings.criticalPath.criticalBorderWidth.value,
+            nearCriticalThickness: this.settings.criticalPath.nearCriticalBorderWidth.value,
+            isMilestone
+        });
+    }
+
+    private getCriticalStatusMarkerBatchKey(markerStyle: CriticalStatusMarkerDescriptor): string {
+        return `${markerStyle.color}|${markerStyle.thickness}|${markerStyle.dashed ? "dashed" : "solid"}`;
     }
 
     private getRenderedMilestoneSize(milestoneSizeSetting: number, taskHeight: number): number {
@@ -15664,15 +15903,12 @@ export class Visual implements IVisual {
             return milestoneTime >= lookAheadWindow.startTime && milestoneTime <= lookAheadWindow.endTime;
         }
 
-        const start = this.getVisualStart(task);
-        const finish = this.getVisualFinish(task);
-        if (!(start instanceof Date) || !(finish instanceof Date) || isNaN(start.getTime()) || isNaN(finish.getTime()) || finish < start) {
-            return false;
-        }
-
-        const startTime = this.normalizeToStartOfDay(start);
-        const finishTime = this.normalizeToStartOfDay(finish);
-        return finishTime >= lookAheadWindow.startTime && startTime <= lookAheadWindow.endTime;
+        const geometry = this.getTaskBarGeometry(task);
+        return geometry.segments.some(segment => {
+            const startTime = this.normalizeToStartOfDay(segment.start);
+            const finishTime = this.normalizeToStartOfDay(segment.finish);
+            return finishTime >= lookAheadWindow.startTime && startTime <= lookAheadWindow.endTime;
+        });
     }
 
     private getBeforeDataDateOverlay(
@@ -15725,12 +15961,16 @@ export class Visual implements IVisual {
         taskBarStrokeColor: string,
         taskBarStrokeWidth: number,
         criticalColor: string,
-        nearCriticalColor: string
+        nearCriticalColor: string,
+        applyCriticalFormat: boolean = true
     ): TaskRenderStyle {
         const hasExplicitStroke = taskBarStrokeWidth > 0 || this.isNonEmptyColor(taskBarStrokeColor);
         const defaultOutline = this.getSoftOutlineColor(baseFillColor);
         const explicitOutline = this.isNonEmptyColor(taskBarStrokeColor) ? taskBarStrokeColor : defaultOutline;
         const selectionHighlightColor = this.getSelectionColor();
+        const criticalBarStyle = this.getCriticalBarStyle();
+        const criticalFormatTask = this.getCriticalFormatTask(task, applyCriticalFormat);
+        const useCriticalOutline = shouldUseCriticalOutline(criticalBarStyle, criticalFormatTask);
 
         let strokeColor = hasExplicitStroke ? explicitOutline : "none";
         let strokeWidth = hasExplicitStroke ? Math.max(0.75, taskBarStrokeWidth || 1) : 0;
@@ -15752,7 +15992,7 @@ export class Visual implements IVisual {
             hoverStrokeOpacity = 1;
         }
 
-        if (task.isCritical) {
+        if (useCriticalOutline && criticalFormatTask.isCritical) {
             shadowColor = this.toRgba(criticalColor, this.legendDataExists ? 0.28 : 0.22);
             shadowBlur = visualWidth >= 10 || isMilestone ? (isMilestone ? 3 : 4) : 0;
             svgFilter = shadowBlur > 0 ? `drop-shadow(0 0 ${shadowBlur}px ${shadowColor})` : svgFilter;
@@ -15769,7 +16009,7 @@ export class Visual implements IVisual {
             hoverStrokeColor = criticalColor;
             hoverStrokeWidth = Math.max(hoverStrokeWidth, strokeWidth + 0.35);
             hoverStrokeOpacity = 1;
-        } else if (task.isNearCritical) {
+        } else if (useCriticalOutline && criticalFormatTask.isNearCritical) {
             shadowColor = this.toRgba(nearCriticalColor, this.legendDataExists ? 0.24 : 0.2);
             shadowBlur = visualWidth >= 10 || isMilestone ? (isMilestone ? 2.5 : 3) : 0;
             svgFilter = shadowBlur > 0 ? `drop-shadow(0 0 ${shadowBlur}px ${shadowColor})` : svgFilter;
@@ -16249,10 +16489,10 @@ export class Visual implements IVisual {
             items.push({ displayName: taskLabel, value: task.name });
         }
 
-        const startText = this.formatDate(this.getVisualStart(task));
+        const startText = this.formatDate(this.getTaskBarLabelStart(task));
         if (startText) items.push({ displayName: startLabel, value: startText });
 
-        const finishText = this.formatDate(this.getVisualFinish(task));
+        const finishText = this.formatDate(this.getTaskBarLabelFinish(task));
         if (finishText) items.push({ displayName: finishLabel, value: finishText });
 
         const lookAheadWindow = this.getLookAheadWindow();
@@ -17121,8 +17361,8 @@ export class Visual implements IVisual {
             const taskType = this.getExportTaskTypeLabel(task);
             const totalFloat = this.getExportFloatLabel(task);
             const isCritical = this.getExportCriticalValue(task);
-            const visualStartDate = this.getVisualStart(task);
-            const visualFinishDate = this.getVisualFinish(task);
+            const visualStartDate = this.getTaskBarLabelStart(task);
+            const visualFinishDate = this.getTaskBarLabelFinish(task);
             const taskId = this.sanitizeExportCell(task.id?.toString() || "");
             const taskName = this.sanitizeExportCell(task.name || "");
 
@@ -17173,8 +17413,8 @@ export class Visual implements IVisual {
             const taskType = this.getExportTaskTypeLabel(task);
             const totalFloat = this.getExportFloatLabel(task);
             const isCritical = this.getExportCriticalValue(task);
-            const visualStartDate = this.getVisualStart(task);
-            const visualFinishDate = this.getVisualFinish(task);
+            const visualStartDate = this.getTaskBarLabelStart(task);
+            const visualFinishDate = this.getTaskBarLabelFinish(task);
 
             const row = [
                 String(index + 1),
@@ -17487,8 +17727,8 @@ ${tableHtml}
             const taskType = this.getExportTaskTypeLabel(task);
             const totalFloat = this.getExportFloatLabel(task);
             const isCritical = this.getExportCriticalValue(task);
-            const visualStartDate = this.getVisualStart(task);
-            const visualFinishDate = this.getVisualFinish(task);
+            const visualStartDate = this.getTaskBarLabelStart(task);
+            const visualFinishDate = this.getTaskBarLabelFinish(task);
             const currentLevels = task.wbsLevels || [];
 
             let divergenceIndex = 0;

@@ -34,6 +34,17 @@ const progressLineReferenceItems: powerbi.IEnumMember[] = [
     { value: "previousUpdateFinish", displayName: "Previous Update Finish" }
 ];
 
+const currentBarDateModeItems: powerbi.IEnumMember[] = [
+    { value: "startFinishOverride", displayName: "Start/Finish Override" },
+    { value: "hybridActualEarly", displayName: "Hybrid Start + Early" }
+];
+
+const criticalBarStyleItems: powerbi.IEnumMember[] = [
+    { value: "statusStripe", displayName: "Status Stripe" },
+    { value: "fullFill", displayName: "Full Fill" },
+    { value: "outline", displayName: "Outline" }
+];
+
 const fontFamilyItems: powerbi.IEnumMember[] = [
     { value: "Segoe UI", displayName: "Segoe UI" },
     { value: "Arial", displayName: "Arial" },
@@ -142,6 +153,14 @@ class TaskBarsCard extends Card {
     name: string = "taskBars";
     displayName: string = "Task Bars";
 
+    currentBarDateMode = new ItemDropdown({
+        name: "currentBarDateMode",
+        displayName: "Current Bar Date Mode",
+        description: "Choose whether current bars use Start/Finish override dates or P6-style Start plus Early Start/Early Finish dates",
+        items: currentBarDateModeItems,
+        value: currentBarDateModeItems.find(item => item.value === "startFinishOverride")
+    });
+
     taskColor = new ColorPicker({
         name: "taskColor",
         displayName: "Non-Critical Task Color",
@@ -226,6 +245,7 @@ class TaskBarsCard extends Card {
     });
 
     slices: Slice[] = [
+        this.currentBarDateMode,
         this.taskColor,
         this.milestoneColor,
         this.taskHeight,
@@ -256,10 +276,18 @@ class CriticalPathCard extends Card {
         value: { value: "floatBased", displayName: "Float-Based" }
     });
 
+    criticalBarStyle = new ItemDropdown({
+        name: "criticalBarStyle",
+        displayName: "Critical Bar Style",
+        description: "Choose whether critical tasks use an independent status stripe, full fill, or outline marker",
+        items: criticalBarStyleItems,
+        value: criticalBarStyleItems.find(item => item.value === "statusStripe")
+    });
+
     criticalPathColor = new ColorPicker({
         name: "criticalPathColor",
         displayName: "Critical Path Color",
-        description: "Color for critical task borders and glow",
+        description: "Colour for critical task markers, bars, borders, and connector lines",
         value: { value: "#E81123" }
     });
 
@@ -308,6 +336,7 @@ class CriticalPathCard extends Card {
 
     slices: Slice[] = [
         this.calculationMode,
+        this.criticalBarStyle,
         this.criticalPathColor,
         this.criticalBorderWidth,
         this.showNearCritical,

@@ -236,6 +236,21 @@
         "taskBars": {
             "displayName": "Task Bars",
             "properties": {
+                "currentBarDateMode": {
+                    "displayName": "Current Bar Date Mode",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "startFinishOverride",
+                                "displayName": "Start/Finish Override"
+                            },
+                            {
+                                "value": "hybridActualEarly",
+                                "displayName": "Hybrid Start + Early"
+                            }
+                        ]
+                    }
+                },
                 "taskColor": {
                     "displayName": "Non-Critical Task Color",
                     "type": {
@@ -519,6 +534,25 @@
                             {
                                 "value": "floatBased",
                                 "displayName": "Float-Based"
+                            }
+                        ]
+                    }
+                },
+                "criticalBarStyle": {
+                    "displayName": "Critical Bar Style",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "statusStripe",
+                                "displayName": "Status Stripe"
+                            },
+                            {
+                                "value": "fullFill",
+                                "displayName": "Full Fill"
+                            },
+                            {
+                                "value": "outline",
+                                "displayName": "Outline"
                             }
                         ]
                     }

@@ -20,6 +20,7 @@ declare class GeneralSettingsCard extends Card {
 declare class TaskBarsCard extends Card {
     name: string;
     displayName: string;
+    currentBarDateMode: formattingSettings.ItemDropdown;
     taskColor: formattingSettings.ColorPicker;
     milestoneColor: formattingSettings.ColorPicker;
     taskHeight: formattingSettings.NumUpDown;
@@ -35,6 +36,7 @@ declare class CriticalPathCard extends Card {
     name: string;
     displayName: string;
     calculationMode: formattingSettings.ItemDropdown;
+    criticalBarStyle: formattingSettings.ItemDropdown;
     criticalPathColor: formattingSettings.ColorPicker;
     criticalBorderWidth: formattingSettings.NumUpDown;
     showNearCritical: formattingSettings.ToggleSwitch;

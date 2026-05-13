@@ -299,8 +299,15 @@ export declare class Visual implements IVisual {
     private getDataSignature;
     private getWbsBindingSignature;
     private resetWbsBindingState;
-    private getVisualStart;
-    private getVisualFinish;
+    private getCurrentBarDateMode;
+    private getCriticalBarStyle;
+    private getTaskBarGeometry;
+    private getTaskBarSortDate;
+    private getTaskBarLabelStart;
+    private getTaskBarLabelFinish;
+    private getTaskBarDurationSegment;
+    private getScheduleStart;
+    private getScheduleFinish;
     private getVisualMilestoneDate;
     private hasValidVisualDates;
     private hasValidPlotDates;
@@ -862,6 +869,10 @@ export declare class Visual implements IVisual {
     private getSoftOutlineColor;
     private getComparisonStrokeColor;
     private getSemanticTaskFillColor;
+    private shouldApplyCriticalFormatToSegment;
+    private getCriticalFormatTask;
+    private getCriticalStatusMarkerStyle;
+    private getCriticalStatusMarkerBatchKey;
     private getRenderedMilestoneSize;
     private getCornerRadii;
     private clampCornerRadii;
