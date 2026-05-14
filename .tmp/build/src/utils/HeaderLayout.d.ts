@@ -131,5 +131,6 @@ export declare function getLookAheadOptions(activeDays: number): Array<{
     value: number;
     label: string;
 }>;
+export declare function formatLookAheadWindowLabel(days: number, weekSuffix?: "W" | "w"): string;
 export declare function getActiveHiddenHeaderControlCount(actions: HeaderMenuAction[], state: HeaderActiveControlState): number;
 export declare function computeSecondRowLayout(input: HeaderSecondRowLayoutInput): HeaderSecondRowLayout;

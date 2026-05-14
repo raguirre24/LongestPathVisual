@@ -132,8 +132,8 @@ describe("HeaderLayout", () => {
     });
 
     it("keeps custom look-ahead options available without duplicating the standard list", () => {
-        expect(getLookAheadOptions(84).map(option => option.label)).toEqual(["Off", "2W", "3W", "4W", "6W", "8W", "12W"]);
-        expect(getLookAheadOptions(35)).toContainEqual({ value: 35, label: "35d" });
+        expect(getLookAheadOptions(84).map(option => option.label)).toEqual(["Off", "2W", "4W", "6W", "8W", "12W", "24W"]);
+        expect(getLookAheadOptions(35)).toContainEqual({ value: 35, label: "5W" });
     });
 
     it("reserves trace controls before clamping the selected-task search width", () => {

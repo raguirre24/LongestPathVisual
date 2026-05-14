@@ -474,19 +474,30 @@ export function getLookAheadOptions(activeDays: number): Array<{ value: number; 
     const options = [
         { value: 0, label: "Off" },
         { value: 14, label: "2W" },
-        { value: 21, label: "3W" },
         { value: 28, label: "4W" },
         { value: 42, label: "6W" },
         { value: 56, label: "8W" },
-        { value: 84, label: "12W" }
+        { value: 84, label: "12W" },
+        { value: 168, label: "24W" }
     ];
 
     if (activeDays > 0 && !options.some(option => option.value === activeDays)) {
-        options.push({ value: activeDays, label: `${activeDays}d` });
+        options.push({ value: activeDays, label: formatLookAheadWindowLabel(activeDays) });
         options.sort((a, b) => a.value - b.value);
     }
 
     return options;
+}
+
+export function formatLookAheadWindowLabel(days: number, weekSuffix: "W" | "w" = "W"): string {
+    const roundedDays = Math.max(0, Math.round(days || 0));
+    if (roundedDays <= 0) {
+        return "Off";
+    }
+
+    return roundedDays % 7 === 0
+        ? `${roundedDays / 7}${weekSuffix}`
+        : `${roundedDays}d`;
 }
 
 export function getActiveHiddenHeaderControlCount(

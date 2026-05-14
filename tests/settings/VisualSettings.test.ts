@@ -235,7 +235,7 @@ describe("VisualSettings", () => {
         expect(styleSource).toContain("var(--lpv-header-legend-border-color, #4D5A6E)");
     });
 
-    it("keeps path, task dropdown, and float threshold controls free of drop shadows", () => {
+    it("keeps path, task dropdown, look-ahead, and float threshold controls free of drop shadows", () => {
         const headerSource = readFileSync("src/components/Header.ts", "utf8");
         const visualSource = readFileSync("src/visual.ts", "utf8");
         const styleSource = readFileSync("style/visual.less", "utf8");
@@ -249,6 +249,7 @@ describe("VisualSettings", () => {
 
         const constructorChromeSource = slice(visualSource, 'this.selectedTaskLabel = this.stickyHeaderContainer.append("div")', 'this.scrollableContainer = this.visualWrapper.append("div")');
         const taskDropdownSource = slice(visualSource, "private createpathSelectionDropdown(): void", "private createTraceModeToggle(): void");
+        const lookAheadWrapperSource = slice(headerSource, '.upsertDiv("look-ahead-control-wrapper")', "if (!isCompact)");
         const floatThresholdSource = slice(headerSource, "private createFloatThresholdControl(): void", "private createModeToggleButton(): void");
         const taskSelectionListStyle = slice(styleSource, ".task-selection-list {", ".selected-task-label {");
 
@@ -257,6 +258,8 @@ describe("VisualSettings", () => {
         expect(taskDropdownSource).toContain('.style("box-shadow", "none")');
         expect(taskDropdownSource).not.toContain("HEADER_DOCK_TOKENS.shadow");
         expect(taskDropdownSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+        expect(lookAheadWrapperSource).toContain('.style("box-shadow", "none")');
+        expect(lookAheadWrapperSource).not.toContain("this.getHeaderShadow()");
         expect(floatThresholdSource).toContain('.style("box-shadow", "none")');
         expect(floatThresholdSource).not.toContain("this.getHeaderShadow()");
         expect(floatThresholdSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");

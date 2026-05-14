@@ -7,6 +7,7 @@ import { getProgressLineReferenceLabel } from "../utils/ProgressLine";
 import type { ProgressLineReference } from "../utils/ProgressLine";
 import {
     computeHeaderButtonLayout,
+    formatLookAheadWindowLabel,
     getActiveHiddenHeaderControlCount,
     getLookAheadOptions,
     HeaderButtonLayout,
@@ -2115,7 +2116,7 @@ export class Header {
             .style("border", `1px solid ${borderColor}`)
             .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("opacity", isAvailable ? "1" : "0.5")
-            .style("box-shadow", isActive ? this.getHeaderShadow() : "none")
+            .style("box-shadow", "none")
             .style("z-index", this.lookAheadDropdownOpen ? "85" : "45");
 
         if (!isCompact) {
@@ -3119,7 +3120,7 @@ export class Header {
                 id: "lookAhead",
                 section: "Analysis",
                 label: "Look-ahead",
-                status: state.lookAheadWindowDays > 0 ? `${state.lookAheadWindowDays}d ${state.lookAheadDisplayMode}` : "Off",
+                status: state.lookAheadWindowDays > 0 ? `${formatLookAheadWindowLabel(state.lookAheadWindowDays)} ${state.lookAheadDisplayMode}` : "Off",
                 title: state.lookAheadAvailable ? "Choose the look-ahead window from the Data Date." : "Look-ahead requires a Data Date.",
                 disabled: !state.lookAheadAvailable,
                 kind: "options"

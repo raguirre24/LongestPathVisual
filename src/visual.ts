@@ -77,7 +77,7 @@ import {
     MIN_WBS_TASK_NAME_WIDTH,
     packLabelColumns
 } from "./utils/ColumnLayout";
-import { computeSecondRowLayout } from "./utils/HeaderLayout";
+import { computeSecondRowLayout, formatLookAheadWindowLabel } from "./utils/HeaderLayout";
 
 type DrivingChain = {
     tasks: Set<string>;
@@ -8276,6 +8276,8 @@ export class Visual implements IVisual {
             );
             placed.push(item);
         }
+
+        headerLayer.selectAll<SVGGElement, unknown>(".look-ahead-window-label-group").raise();
     }
 
     private drawColumnHeaders(currentLeftMargin: number): void {
@@ -10461,7 +10463,7 @@ export class Visual implements IVisual {
         if (!showLabel) { return; }
 
         const headerBandMetrics = this.getHeaderBandMetrics();
-        const labelText = `Look-ahead +${lookAheadWindow.days}d: ${this.formatLineDate(lookAheadWindow.end)}`;
+        const labelText = `Look-ahead +${formatLookAheadWindowLabel(lookAheadWindow.days, "w")}: ${this.formatLineDate(lookAheadWindow.end)}`;
         const labelX = this.snapTextCoord(lineX + 5);
         const labelY = headerBandMetrics.topLabelY;
         const labelBackgroundColor = this.resolveColor("#FFFFFF", "background");
@@ -17081,7 +17083,7 @@ export class Visual implements IVisual {
         const headerList = createList(headerSection);
         addListItem(headerList, 'Show All / Critical', 'Controls whether the visual shows the full filtered task set or only critical/near-critical results for the current mode.');
         addListItem(headerList, 'LP / Float', 'Switches between Longest Path relationship logic and Float-Based criticality.');
-        addListItem(headerList, 'LA Selector', 'Lets report users turn look-ahead off or choose a 2W, 3W, 4W, 6W, 8W, or 12W review window from the Data Date.');
+        addListItem(headerList, 'LA Selector', 'Lets report users turn look-ahead off or choose a 2W, 4W, 6W, 8W, 12W, or 24W review window from the Data Date.');
         addListItem(headerList, 'Near-Critical Threshold', 'In Float mode, sets the Total Float threshold used to identify near-critical tasks. On tighter headers this moves into the controls menu.');
         addListItem(headerList, 'Controls and Actions Menu', 'Opens grouped controls for Analysis, Timeline Layers, WBS, and Actions when the header is crowded. A badge indicates hidden controls that are active.');
         addListItem(headerList, 'Timeline Layers', 'Show or hide baseline bars, previous update bars, progress line, connector lines, and extra table columns. Baseline and previous update bars also show their matching date columns when columns are enabled.');

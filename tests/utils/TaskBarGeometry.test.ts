@@ -7,6 +7,10 @@ function utcDate(day: number): Date {
     return new Date(Date.UTC(2026, 4, day));
 }
 
+function utcDateParts(year: number, month: number, day: number): Date {
+    return new Date(Date.UTC(year, month - 1, day));
+}
+
 function task(overrides: Partial<Task> = {}): Task {
     return {
         id: overrides.id ?? "A1000",
@@ -62,6 +66,32 @@ describe("TaskBarGeometry", () => {
         expect(geometry.labelStartDate?.toISOString()).toBe("2026-05-01T00:00:00.000Z");
         expect(geometry.labelFinishDate?.toISOString()).toBe("2026-05-15T00:00:00.000Z");
         expect(geometry.sortDate?.toISOString()).toBe("2026-05-10T00:00:00.000Z");
+    });
+
+    it("keeps the started segment when the data date matches early start in hybrid mode", () => {
+        const earlyStart = utcDateParts(2026, 5, 1);
+        const geometry = getCurrentTaskBarGeometry(
+            task({
+                startDate: earlyStart,
+                finishDate: utcDateParts(2026, 7, 23),
+                manualStartDate: utcDateParts(2026, 3, 23),
+                manualFinishDate: utcDateParts(2026, 7, 23)
+            }),
+            "hybridActualEarly",
+            earlyStart
+        );
+
+        expect(geometry.hasSplit).toBe(true);
+        expect(geometry.segments.map(segment => segment.kind)).toEqual(["started", "scheduled"]);
+        expect(geometry.segments[0].start.toISOString()).toBe("2026-03-23T00:00:00.000Z");
+        expect(geometry.segments[0].finish.toISOString()).toBe("2026-05-01T00:00:00.000Z");
+        expect(geometry.segments[1].start.toISOString()).toBe("2026-05-01T00:00:00.000Z");
+        expect(geometry.segments[1].finish.toISOString()).toBe("2026-07-23T00:00:00.000Z");
+        expect(geometry.extentStart?.toISOString()).toBe("2026-03-23T00:00:00.000Z");
+        expect(geometry.extentFinish?.toISOString()).toBe("2026-07-23T00:00:00.000Z");
+        expect(geometry.labelStartDate?.toISOString()).toBe("2026-03-23T00:00:00.000Z");
+        expect(geometry.labelFinishDate?.toISOString()).toBe("2026-07-23T00:00:00.000Z");
+        expect(geometry.sortDate?.toISOString()).toBe("2026-05-01T00:00:00.000Z");
     });
 
     it("falls back to the scheduled segment when no valid started gap can be drawn", () => {

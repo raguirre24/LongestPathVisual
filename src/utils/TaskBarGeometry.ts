@@ -145,7 +145,7 @@ export function getCurrentTaskBarGeometry(
     if (
         startedSegment &&
         startedSegment.start < startedSegment.finish &&
-        startedSegment.finish < scheduledSegment.start
+        startedSegment.finish <= scheduledSegment.start
     ) {
         segments.push(startedSegment);
     }
