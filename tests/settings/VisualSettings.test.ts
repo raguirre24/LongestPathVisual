@@ -28,22 +28,27 @@ describe("VisualSettings", () => {
         expect(capabilities.objects.generalSettings.properties.headerLegendControlBackgroundColor.type.fill.solid.color).toBe(true);
         expect(capabilities.objects.generalSettings.properties.headerLegendTextColor.type.fill.solid.color).toBe(true);
         expect(capabilities.objects.generalSettings.properties.headerLegendBorderColor.type.fill.solid.color).toBe(true);
+        expect(capabilities.objects.generalSettings.properties.headerLegendActiveColor.type.fill.solid.color).toBe(true);
         expect(settingsSource).toContain('name: "headerLegendBackgroundColor"');
         expect(settingsSource).toContain('name: "headerLegendControlBackgroundColor"');
         expect(settingsSource).toContain('name: "headerLegendTextColor"');
         expect(settingsSource).toContain('name: "headerLegendBorderColor"');
+        expect(settingsSource).toContain('name: "headerLegendActiveColor"');
         expect(settingsSource).toContain('displayName: "Header and Legend Background Color"');
         expect(settingsSource).toContain('displayName: "Header and Legend Control Background Color"');
         expect(settingsSource).toContain('displayName: "Header and Legend Text Color"');
         expect(settingsSource).toContain('displayName: "Header and Legend Border Color"');
+        expect(settingsSource).toContain('displayName: "Header and Legend Active Color"');
         expect(visualSource).toContain("getHeaderLegendBackgroundColor");
         expect(visualSource).toContain("getHeaderLegendControlBackgroundColor");
         expect(visualSource).toContain("getHeaderLegendTextColor");
         expect(visualSource).toContain("getHeaderLegendBorderColor");
+        expect(visualSource).toContain("getHeaderLegendActiveColor");
         expect(visualSource).toContain("headerLegendBackgroundColor?.value?.value");
         expect(visualSource).toContain("headerLegendControlBackgroundColor?.value?.value");
         expect(visualSource).toContain("headerLegendTextColor?.value?.value");
         expect(visualSource).toContain("headerLegendBorderColor?.value?.value");
+        expect(visualSource).toContain("headerLegendActiveColor?.value?.value");
         expect(headerSource).toContain("usesCustomColours");
         expect(headerSource).toContain("getHeaderControlBackground");
         expect(headerSource).toContain("getHeaderControlTextColor");
@@ -207,6 +212,7 @@ describe("VisualSettings", () => {
 
         const resolvedPaletteSource = slice(visualSource, "private getResolvedHeaderPalette()", "private updateHeaderElements");
         expect(resolvedPaletteSource).toContain("const borderColor = this.getHeaderLegendBorderColor();");
+        expect(resolvedPaletteSource).toContain("const activeColor = this.getHeaderLegendActiveColor();");
         expect(resolvedPaletteSource).toContain("commandStroke: borderColor");
         expect(resolvedPaletteSource).toContain("contextStroke: borderColor");
         expect(resolvedPaletteSource).toContain("groupStroke: borderColor");
@@ -214,8 +220,9 @@ describe("VisualSettings", () => {
         expect(resolvedPaletteSource).toContain("buttonHoverStroke: borderColor");
         expect(resolvedPaletteSource).toContain("chipStroke: borderColor");
         expect(resolvedPaletteSource).toContain("inputStroke: borderColor");
-        expect(resolvedPaletteSource).toContain("inputFocus: borderColor");
+        expect(resolvedPaletteSource).toContain("inputFocus: activeColor");
         expect(resolvedPaletteSource).toContain("menuStroke: borderColor");
+        expect(resolvedPaletteSource).toContain("primary: activeColor");
         expect(headerSource).toContain("private getHeaderBorderColor()");
         expect(headerSource).toContain("private getHeaderInputBorderColor()");
         expect(headerSource).toContain("private getHeaderMenuBorderColor()");
@@ -233,6 +240,7 @@ describe("VisualSettings", () => {
         expect(legendSource).toContain("const borderColor = this.getHeaderLegendBorderColor();");
         expect(legendSource).toContain("const buttonBorder = this.highContrastMode ? this.getForegroundColor() : borderColor;");
         expect(styleSource).toContain("var(--lpv-header-legend-border-color, #4D5A6E)");
+        expect(styleSource).toContain("var(--lpv-header-legend-active-color, #7CABFF)");
     });
 
     it("keeps path, task dropdown, look-ahead, and float threshold controls free of drop shadows", () => {
@@ -284,7 +292,7 @@ describe("VisualSettings", () => {
         ]);
     });
 
-    it("exposes the finish-variance progress line format card", () => {
+    it("exposes the start/finish progress line format card", () => {
         const settingsSource = readFileSync("src/settings.ts", "utf8");
         const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
         const properties = capabilities.objects.progressLine.properties;
@@ -299,33 +307,81 @@ describe("VisualSettings", () => {
 
         expect(Object.keys(properties)).toEqual([
             "show",
+            "dateMode",
             "referenceFinish",
             "lineColor",
+            "startLineColor",
             "lineWidth",
             "lineStyle",
             "showMarkers",
             "markerSize",
+            "bandColor",
+            "recoveryBandColor",
+            "slippageBandColor",
+            "bandTransparency",
             "includeWbsGroups",
-            "showLabel"
+            "showLabel",
+            "showAnalysisLegend",
+            "showVarianceLabels",
+            "showVarianceTooltips"
+        ]);
+        expect(properties.dateMode.type.enumeration.map((item: { value: string }) => item.value)).toEqual([
+            "finish",
+            "start",
+            "both"
         ]);
         expect(properties.referenceFinish.type.enumeration.map((item: { value: string }) => item.value)).toEqual([
             "baselineFinish",
             "previousUpdateFinish"
         ]);
 
-        expect(visualSource).toContain("calculateFinishVarianceProgressPoint");
-        expect(visualSource).toContain("getWbsProgressLineReferenceFinish");
+        expect(visualSource).toContain("calculateDateVarianceProgressPoint");
+        expect(visualSource).toContain("getEffectiveProgressLineDate");
+        expect(visualSource).toContain("getProgressLineBandSegmentsBetweenPairs");
+        expect(visualSource).toContain("interpolateProgressLinePoint");
+        expect(visualSource).toContain("getWbsProgressLineReferenceDate");
+        expect(visualSource).toContain("summaryBaselineStartDate");
         expect(visualSource).toContain("summaryBaselineFinishDate");
+        expect(visualSource).toContain("summaryPreviousUpdateStartDate");
         expect(visualSource).toContain("summaryPreviousUpdateFinishDate");
+        expect(visualSource).toContain("progress-line-band");
+        expect(visualSource).toContain("progress-line-band-${segment.tone}");
+        expect(visualSource).toContain("progress-line-analysis-legend-group");
+        expect(visualSource).toContain("progress-line-variance-label");
+        expect(visualSource).toContain("showProgressLineTooltip");
+        expect(visualSource).toContain("progress-line-tooltip-target");
+        expect(visualSource).toContain("getProgressLineTooltipHitRadius");
+        expect(visualSource).toContain("getProgressLineBandSegmentPolygon");
+        expect(visualSource).toContain("isPointInsidePolygon");
+        expect(visualSource).toContain("return !!(this.settings?.progressLine?.showVarianceTooltips?.value ?? true)");
+        expect(visualSource).not.toContain("showMarkers && showVarianceTooltips");
+        expect(visualSource).toContain("prioritySlippageCount");
+        expect(settingsSource).toContain('name: "showAnalysisLegend"');
+        expect(settingsSource).toContain('name: "showVarianceLabels"');
+        expect(settingsSource).toContain('name: "showVarianceTooltips"');
+        expect(visualSource).toContain("recoveryBandColor");
+        expect(visualSource).toContain("slippageBandColor");
         expect(visualSource).toContain("drawProgressLine(renderableTasks");
         expect(visualSource).toContain("onToggleProgressLine: () => this.toggleProgressLineDisplay()");
         expect(visualSource).toContain("onProgressLineReferenceChanged: (reference) => this.setProgressLineReference(reference)");
-        expect(visualSource).toContain('properties: { referenceFinish: reference }');
+        expect(visualSource).toContain("onProgressLineDateModeChanged: (dateMode) => this.setProgressLineDateMode(dateMode)");
+        expect(visualSource).toContain("onToggleProgressLineVarianceLabels: () => this.toggleProgressLineVarianceLabels()");
+        expect(visualSource).toContain("properties: {");
+        expect(visualSource).toContain("referenceFinish: reference");
+        expect(visualSource).toContain("dateMode");
+        expect(visualSource).toContain("showVarianceLabels: nextVisible");
         expect(headerSource).toContain("renderProgressLineMenuItem");
         expect(headerSource).toContain("onProgressLineReferenceChanged");
+        expect(headerSource).toContain("onProgressLineDateModeChanged");
+        expect(headerSource).toContain("onToggleProgressLineVarianceLabels");
+        expect(headerSource).toContain("progressLineVarianceLabelsVisible");
+        expect(headerSource).toContain("progress-line-variance-labels-toggle-button");
         expect(headerSource).toContain("progressLineBaselineAvailable");
-        expect(visualSource).toContain("progressLineAvailable: progressLineBaselineAvailable || progressLinePreviousUpdateAvailable");
-        expect(visualSource).toContain("if (visible && !this.hasProgressLineReferenceData(reference))");
+        expect(headerSource).toContain("progressLineStartAvailable");
+        expect(headerSource).toContain("progressLineFinishAvailable");
+        expect(headerSource).toContain("progressLineBothAvailable");
+        expect(visualSource).toContain("progressLineAvailable: progressLineStartAvailable || progressLineFinishAvailable || progressLineBothAvailable");
+        expect(visualSource).toContain("const resolvedConfig = this.resolveProgressLineConfig(reference, dateMode)");
     });
 
     it("keeps the progress-line header menu open while changing progress-line options", () => {
@@ -338,6 +394,8 @@ describe("VisualSettings", () => {
         expect(progressMenuEnd).toBeGreaterThan(progressMenuStart);
         expect(progressMenuSource).toContain("this.callbacks.onToggleProgressLine()");
         expect(progressMenuSource).toContain("this.callbacks.onProgressLineReferenceChanged(reference.value)");
+        expect(progressMenuSource).toContain("this.callbacks.onProgressLineDateModeChanged(dateMode.value)");
+        expect(progressMenuSource).toContain("this.callbacks.onToggleProgressLineVarianceLabels()");
         expect(progressMenuSource).toContain('property("disabled", disabled)');
         expect(progressMenuSource).not.toContain("this.closeControlsMenu");
     });

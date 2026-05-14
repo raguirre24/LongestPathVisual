@@ -31,6 +31,8 @@ export declare class Visual implements IVisual {
     private highContrastForegroundSelected;
     private lastTooltipItems;
     private lastTooltipIdentities;
+    private progressLineCanvasTooltipTargets;
+    private hoveredProgressLineTargetId;
     private header;
     private stickyHeaderContainer;
     private scrollableContainer;
@@ -332,11 +334,16 @@ export declare class Visual implements IVisual {
     private toggleColumnDisplayInternal;
     private setLookAheadWindowDays;
     private getFallbackProgressLineReference;
+    private getProgressLineFallbackDateModes;
     private setProgressLineReferenceSettingValue;
+    private setProgressLineDateModeSettingValue;
+    private resolveProgressLineConfig;
     private refreshAfterProgressLineHeaderChange;
     private toggleProgressLineDisplay;
     private setProgressLineVisible;
     private setProgressLineReference;
+    private setProgressLineDateMode;
+    private toggleProgressLineVarianceLabels;
     /**
      * Toggles WBS grouping on/off for the viewer (persisted in formatting properties).
      */
@@ -535,8 +542,12 @@ export declare class Visual implements IVisual {
     private setupTimeBasedSVGAndScales;
     private setupVirtualScroll;
     private getCanvasMouseCoordinates;
+    private getProgressLineTooltipTargetAtCanvasPoint;
+    private isPointInsidePolygon;
     private getTaskAtCanvasPoint;
     private showTaskTooltip;
+    private shouldShowProgressLineTooltips;
+    private showProgressLineTooltip;
     private hideTooltip;
     private getMinimumNameLaneWidth;
     private getViewportWidthForColumnLayout;
@@ -623,16 +634,47 @@ export declare class Visual implements IVisual {
     private drawArrows;
     private getLineDashArray;
     private getProgressLineReferenceSetting;
-    private getTaskProgressLineReferenceFinish;
-    private getWbsProgressLineReferenceFinish;
+    private getProgressLineDateModeSetting;
+    private getProgressLinePointKinds;
+    private getTaskProgressLineCurrentDate;
+    private getWbsProgressLineCurrentDate;
+    private getTaskProgressLineReferenceDate;
+    private getWbsProgressLineReferenceDate;
+    private hasProgressLineReferenceDataForKind;
     private hasProgressLineReferenceData;
-    private getEffectiveProgressLineReference;
+    private hasAnyProgressLineReferenceData;
+    private getEffectiveProgressLineConfig;
     private isProgressLineRenderable;
     private addProgressLineTimestamp;
+    private addProgressLineTimestamps;
     private getProgressLinePoints;
+    private getProgressLineBandPairs;
+    private getProgressLineBandSegments;
+    private getProgressLineBandSegmentsBetweenPairs;
+    private createProgressLineBandSegment;
+    private interpolateProgressLinePoint;
+    private getProgressLinePairById;
+    private getProgressLinePairForBandSegment;
+    private getProgressLineBandSegmentPolygon;
+    private getProgressLineTooltipHitRadius;
+    private getProgressLinePairTone;
+    private getProgressLineMovementDays;
+    private getProgressLinePriority;
+    private isProgressLinePriorityRow;
+    private getProgressLinePriorityLabel;
+    private getProgressLineAnalysisSummary;
+    private formatProgressLineDayValue;
+    private formatProgressLineVariance;
+    private formatProgressLineMovement;
+    private getProgressLinePointLabel;
+    private getProgressLinePairLabel;
+    private getProgressLineBandSegmentPath;
     private drawProgressLine;
     private drawProgressLineSvg;
     private drawProgressLineCanvas;
+    private drawProgressLineVarianceLabelsSvg;
+    private drawProgressLineVarianceLabelsCanvas;
+    private drawProgressLineAnalysisLegend;
     private drawProgressLineHeaderLabel;
     /**
      * Gets the appropriate task set for finish line calculations.
@@ -939,6 +981,7 @@ export declare class Visual implements IVisual {
     private isDefaultHeaderLegendControlBackgroundColor;
     private isDefaultHeaderLegendTextColor;
     private isDefaultHeaderLegendBorderColor;
+    private isDefaultHeaderLegendActiveColor;
     private isDefaultColorSetting;
     /**
      * Gets the font family from settings or returns the default system font stack.
@@ -953,6 +996,8 @@ export declare class Visual implements IVisual {
     private applyFontFamilySettings;
     private formatTooltipValue;
     private buildTooltipDataItems;
+    private buildProgressLineTooltipDataItems;
+    private getProgressLineTooltipIdentities;
     private getTooltipIdentities;
     private moveTaskTooltip;
     private showContextMenu;

@@ -30,8 +30,14 @@ const lookAheadDisplayModeItems: powerbi.IEnumMember[] = [
 ];
 
 const progressLineReferenceItems: powerbi.IEnumMember[] = [
-    { value: "baselineFinish", displayName: "Baseline Finish" },
-    { value: "previousUpdateFinish", displayName: "Previous Update Finish" }
+    { value: "baselineFinish", displayName: "Baseline" },
+    { value: "previousUpdateFinish", displayName: "Previous Update" }
+];
+
+const progressLineDateModeItems: powerbi.IEnumMember[] = [
+    { value: "finish", displayName: "Finish" },
+    { value: "start", displayName: "Start" },
+    { value: "both", displayName: "Start + Finish" }
 ];
 
 const currentBarDateModeItems: powerbi.IEnumMember[] = [
@@ -96,6 +102,13 @@ class GeneralSettingsCard extends Card {
         value: { value: "#4D5A6E" }
     });
 
+    headerLegendActiveColor = new ColorPicker({
+        name: "headerLegendActiveColor",
+        displayName: "Header and Legend Active Color",
+        description: "Active colour used by selected header and controls-menu toggles",
+        value: { value: "#7CABFF" }
+    });
+
     alternatingRowColors = new ToggleSwitch({
         name: "alternatingRowColors",
         displayName: "Alternating Row Colors",
@@ -138,6 +151,7 @@ class GeneralSettingsCard extends Card {
         this.headerLegendControlBackgroundColor,
         this.headerLegendTextColor,
         this.headerLegendBorderColor,
+        this.headerLegendActiveColor,
         this.alternatingRowColors,
         this.alternatingRowColor,
         this.selectionHighlightColor,
@@ -967,22 +981,36 @@ class ProgressLineCard extends Card {
     show = new ToggleSwitch({
         name: "show",
         displayName: "Show Progress Line",
-        description: "Draw a finish-variance progress line from the Data Date using Current Finish against the selected reference finish",
+        description: "Draw progress variance from the Data Date using current start and/or finish dates against the selected reference",
         value: false
+    });
+
+    dateMode = new ItemDropdown({
+        name: "dateMode",
+        displayName: "Date Mode",
+        description: "Choose whether progress variance uses Start, Finish, or both Start and Finish dates",
+        items: progressLineDateModeItems,
+        value: progressLineDateModeItems.find(item => item.value === "finish")
     });
 
     referenceFinish = new ItemDropdown({
         name: "referenceFinish",
-        displayName: "Reference Finish",
-        description: "Choose whether finish variance is measured against Baseline Finish or Previous Update Finish",
+        displayName: "Reference",
+        description: "Choose whether progress variance is measured against Baseline or Previous Update dates",
         items: progressLineReferenceItems,
         value: progressLineReferenceItems.find(item => item.value === "baselineFinish")
     });
 
     lineColor = new ColorPicker({
         name: "lineColor",
-        displayName: "Line Color",
+        displayName: "Finish Line Color",
         value: { value: "#D13438" }
+    });
+
+    startLineColor = new ColorPicker({
+        name: "startLineColor",
+        displayName: "Start Line Color",
+        value: { value: "#0078D4" }
     });
 
     lineWidth = new NumUpDown({
@@ -1018,6 +1046,36 @@ class ProgressLineCard extends Card {
         }
     });
 
+    bandColor = new ColorPicker({
+        name: "bandColor",
+        displayName: "Neutral Band Color",
+        value: { value: "#8A8886" }
+    });
+
+    recoveryBandColor = new ColorPicker({
+        name: "recoveryBandColor",
+        displayName: "Recovery Band Color",
+        description: "Band colour when Finish variance is to the right of Start variance",
+        value: { value: "#107C10" }
+    });
+
+    slippageBandColor = new ColorPicker({
+        name: "slippageBandColor",
+        displayName: "Slippage Band Color",
+        description: "Band colour when Finish variance is to the left of Start variance",
+        value: { value: "#D13438" }
+    });
+
+    bandTransparency = new NumUpDown({
+        name: "bandTransparency",
+        displayName: "Band Transparency (%)",
+        value: 82,
+        options: {
+            minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 },
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
+        }
+    });
+
     includeWbsGroups = new ToggleSwitch({
         name: "includeWbsGroups",
         displayName: "Include WBS Summary Rows",
@@ -1031,16 +1089,46 @@ class ProgressLineCard extends Card {
         value: true
     });
 
+    showAnalysisLegend = new ToggleSwitch({
+        name: "showAnalysisLegend",
+        displayName: "Show Delay Analysis Legend",
+        description: "Show recovery, slippage, neutral and critical-slippage counts for the visible progress-line rows",
+        value: true
+    });
+
+    showVarianceLabels = new ToggleSwitch({
+        name: "showVarianceLabels",
+        displayName: "Show Variance Labels",
+        description: "Show row-level variance or movement labels next to the progress-line points",
+        value: false
+    });
+
+    showVarianceTooltips = new ToggleSwitch({
+        name: "showVarianceTooltips",
+        displayName: "Show Variance Tooltips",
+        description: "Show progress-line delay-analysis tooltips for Start, Finish and movement variance",
+        value: true
+    });
+
     slices: Slice[] = [
         this.show,
+        this.dateMode,
         this.referenceFinish,
         this.lineColor,
+        this.startLineColor,
         this.lineWidth,
         this.lineStyle,
         this.showMarkers,
         this.markerSize,
+        this.bandColor,
+        this.recoveryBandColor,
+        this.slippageBandColor,
+        this.bandTransparency,
         this.includeWbsGroups,
-        this.showLabel
+        this.showLabel,
+        this.showAnalysisLegend,
+        this.showVarianceLabels,
+        this.showVarianceTooltips
     ];
 }
 

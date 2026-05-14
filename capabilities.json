@@ -193,6 +193,16 @@
                         }
                     }
                 },
+                "headerLegendActiveColor": {
+                    "displayName": "Header and Legend Active Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
                 "alternatingRowColors": {
                     "displayName": "Alternating Row Colors",
                     "type": {
@@ -362,23 +372,52 @@
                         "bool": true
                     }
                 },
+                "dateMode": {
+                    "displayName": "Date Mode",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "finish",
+                                "displayName": "Finish"
+                            },
+                            {
+                                "value": "start",
+                                "displayName": "Start"
+                            },
+                            {
+                                "value": "both",
+                                "displayName": "Start + Finish"
+                            }
+                        ]
+                    }
+                },
                 "referenceFinish": {
-                    "displayName": "Reference Finish",
+                    "displayName": "Reference",
                     "type": {
                         "enumeration": [
                             {
                                 "value": "baselineFinish",
-                                "displayName": "Baseline Finish"
+                                "displayName": "Baseline"
                             },
                             {
                                 "value": "previousUpdateFinish",
-                                "displayName": "Previous Update Finish"
+                                "displayName": "Previous Update"
                             }
                         ]
                     }
                 },
                 "lineColor": {
-                    "displayName": "Line Color",
+                    "displayName": "Finish Line Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "startLineColor": {
+                    "displayName": "Start Line Color",
                     "type": {
                         "fill": {
                             "solid": {
@@ -424,6 +463,42 @@
                         "numeric": true
                     }
                 },
+                "bandColor": {
+                    "displayName": "Neutral Band Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "recoveryBandColor": {
+                    "displayName": "Recovery Band Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "slippageBandColor": {
+                    "displayName": "Slippage Band Color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "bandTransparency": {
+                    "displayName": "Band Transparency (%)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
                 "includeWbsGroups": {
                     "displayName": "Include WBS Summary Rows",
                     "type": {
@@ -432,6 +507,24 @@
                 },
                 "showLabel": {
                     "displayName": "Show Header Label",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "showAnalysisLegend": {
+                    "displayName": "Show Delay Analysis Legend",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "showVarianceLabels": {
+                    "displayName": "Show Variance Labels",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "showVarianceTooltips": {
+                    "displayName": "Show Variance Tooltips",
                     "type": {
                         "bool": true
                     }

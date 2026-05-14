@@ -46,11 +46,16 @@ import {
     serializeLegendSelection
 } from "./utils/VisualState";
 import {
-    calculateFinishVarianceProgressPoint,
+    calculateDateVarianceProgressPoint,
+    getEffectiveProgressLineDate,
+    getProgressLineBandTone,
+    getProgressLineDateModeLabel,
+    getProgressLinePointKinds as getProgressLinePointKindsForMode,
     getProgressLineReferenceLabel,
+    getProgressLineReferenceDateLabel,
     isValidProgressDate
 } from "./utils/ProgressLine";
-import type { ProgressLineReference } from "./utils/ProgressLine";
+import type { ProgressLineBandTone, ProgressLineDateMode, ProgressLinePointKind, ProgressLineReference } from "./utils/ProgressLine";
 import {
     getCurrentTaskBarGeometry,
     getScheduleFinish,
@@ -138,18 +143,65 @@ type LookAheadWindow = {
 type LookAheadDisplayMode = "filter" | "highlight";
 
 type ProgressLineRowKind = "task" | "wbs";
+type ProgressLinePriority = "critical" | "nearCritical" | "nonCritical" | "wbsCritical" | "wbsNearCritical" | "wbs";
 
 type ProgressLinePoint = {
     id: string;
     label: string;
     rowKind: ProgressLineRowKind;
+    task?: Task;
+    wbsGroup?: WBSGroup;
+    pointKind: ProgressLinePointKind;
     yOrder: number;
     x: number;
     y: number;
     progressDate: Date;
-    finishDate: Date;
-    referenceFinishDate: Date;
+    currentDate: Date;
+    referenceDate: Date;
     varianceDays: number;
+};
+
+type ProgressLineRenderConfig = {
+    reference: ProgressLineReference;
+    dateMode: ProgressLineDateMode;
+};
+
+type ProgressLineSeries = {
+    pointKind: ProgressLinePointKind;
+    color: string;
+    points: ProgressLinePoint[];
+};
+
+type ProgressLineBandPair = {
+    id: string;
+    yOrder: number;
+    start: ProgressLinePoint;
+    finish: ProgressLinePoint;
+};
+
+type ProgressLineBandSegment = {
+    id: string;
+    tone: ProgressLineBandTone;
+    topStart: ProgressLinePoint;
+    bottomStart: ProgressLinePoint;
+    bottomFinish: ProgressLinePoint;
+    topFinish: ProgressLinePoint;
+};
+
+type ProgressLineTooltipTarget = {
+    id: string;
+    point: ProgressLinePoint;
+    pair?: ProgressLineBandPair;
+    config: ProgressLineRenderConfig;
+    radius: number;
+    polygon?: Array<{ x: number; y: number }>;
+};
+
+type ProgressLineAnalysisSummary = {
+    recoveryCount: number;
+    slippageCount: number;
+    neutralCount: number;
+    prioritySlippageCount: number;
 };
 
 type RelationshipRenderGeometry = {
@@ -198,6 +250,8 @@ export class Visual implements IVisual {
     private highContrastForegroundSelected: string = "#000000";
     private lastTooltipItems: VisualTooltipDataItem[] = [];
     private lastTooltipIdentities: powerbi.extensibility.ISelectionId[] = [];
+    private progressLineCanvasTooltipTargets: ProgressLineTooltipTarget[] = [];
+    private hoveredProgressLineTargetId: string | null = null;
 
     private header: Header;
     private stickyHeaderContainer: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -1138,6 +1192,8 @@ export class Visual implements IVisual {
             onTogglePreviousUpdate: () => this.togglePreviousUpdateDisplayInternal(),
             onToggleProgressLine: () => this.toggleProgressLineDisplay(),
             onProgressLineReferenceChanged: (reference) => this.setProgressLineReference(reference),
+            onProgressLineDateModeChanged: (dateMode) => this.setProgressLineDateMode(dateMode),
+            onToggleProgressLineVarianceLabels: () => this.toggleProgressLineVarianceLabels(),
             onToggleConnectorLines: () => this.toggleConnectorLinesDisplay(),
             onToggleWbsExpand: () => this.toggleWbsExpandCollapseDisplay(),
             onToggleWbsCollapse: () => this.toggleWbsCollapseCycleDisplay(),
@@ -1476,6 +1532,23 @@ export class Visual implements IVisual {
 
             const showTooltips = this.settings.generalSettings.showTooltips.value;
             const coords = this.getCanvasMouseCoordinates(event);
+            const previousProgressLineTargetId = this.hoveredProgressLineTargetId;
+            const progressLineTarget = this.getProgressLineTooltipTargetAtCanvasPoint(coords.x, coords.y);
+            if (progressLineTarget && this.shouldShowProgressLineTooltips()) {
+                this.setHoveredTask(null);
+                if (this.hoveredProgressLineTargetId === progressLineTarget.id) {
+                    this.moveTaskTooltip(event);
+                } else {
+                    this.showProgressLineTooltip(progressLineTarget.config, progressLineTarget.point, progressLineTarget.pair, event);
+                }
+                this.hoveredProgressLineTargetId = progressLineTarget.id;
+                d3.select(this.canvasElement).style("cursor", "help");
+                return;
+            }
+            if (previousProgressLineTargetId) {
+                this.hideTooltip();
+            }
+            this.hoveredProgressLineTargetId = null;
             const hoveredTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
             const previousHoveredId = this.hoveredTaskId;
             const nextHoveredId = hoveredTask ? hoveredTask.internalId : null;
@@ -1501,6 +1574,7 @@ export class Visual implements IVisual {
 
         d3.select(this.canvasElement).on("mouseout", () => {
             this.setHoveredTask(null);
+            this.hoveredProgressLineTargetId = null;
             this.hideTooltip();
             d3.select(this.canvasElement).style("cursor", "default");
         });
@@ -2369,6 +2443,17 @@ export class Visual implements IVisual {
         return reference === "baselineFinish" ? "previousUpdateFinish" : "baselineFinish";
     }
 
+    private getProgressLineFallbackDateModes(dateMode: ProgressLineDateMode): ProgressLineDateMode[] {
+        switch (dateMode) {
+            case "start":
+                return ["finish", "both"];
+            case "both":
+                return ["finish", "start"];
+            default:
+                return ["start", "both"];
+        }
+    }
+
     private setProgressLineReferenceSettingValue(reference: ProgressLineReference): void {
         if (!this.settings?.progressLine?.referenceFinish) {
             return;
@@ -2378,6 +2463,49 @@ export class Visual implements IVisual {
             value: reference,
             displayName: getProgressLineReferenceLabel(reference)
         };
+    }
+
+    private setProgressLineDateModeSettingValue(dateMode: ProgressLineDateMode): void {
+        if (!this.settings?.progressLine?.dateMode) {
+            return;
+        }
+
+        this.settings.progressLine.dateMode.value = {
+            value: dateMode,
+            displayName: getProgressLineDateModeLabel(dateMode)
+        };
+    }
+
+    private resolveProgressLineConfig(
+        reference: ProgressLineReference,
+        dateMode: ProgressLineDateMode
+    ): ProgressLineRenderConfig | null {
+        const candidates: ProgressLineRenderConfig[] = [
+            { reference, dateMode },
+            { reference: this.getFallbackProgressLineReference(reference), dateMode }
+        ];
+
+        for (const fallbackDateMode of this.getProgressLineFallbackDateModes(dateMode)) {
+            candidates.push(
+                { reference, dateMode: fallbackDateMode },
+                { reference: this.getFallbackProgressLineReference(reference), dateMode: fallbackDateMode }
+            );
+        }
+
+        const seen = new Set<string>();
+        for (const candidate of candidates) {
+            const key = `${candidate.reference}:${candidate.dateMode}`;
+            if (seen.has(key)) {
+                continue;
+            }
+            seen.add(key);
+
+            if (this.hasProgressLineReferenceData(candidate.reference, candidate.dateMode)) {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     private refreshAfterProgressLineHeaderChange(): void {
@@ -2410,18 +2538,27 @@ export class Visual implements IVisual {
         }
 
         let reference = this.getProgressLineReferenceSetting();
-        const properties: { show: boolean; referenceFinish?: ProgressLineReference } = { show: visible };
+        let dateMode = this.getProgressLineDateModeSetting();
+        const properties: { show: boolean; referenceFinish?: ProgressLineReference; dateMode?: ProgressLineDateMode } = { show: visible };
 
-        if (visible && !this.hasProgressLineReferenceData(reference)) {
-            const fallbackReference = this.getFallbackProgressLineReference(reference);
-            if (!this.hasProgressLineReferenceData(fallbackReference)) {
-                this.debugLog("Progress line toggle blocked: no valid baseline or previous update reference finish data");
+        if (visible) {
+            const resolvedConfig = this.resolveProgressLineConfig(reference, dateMode);
+            if (!resolvedConfig) {
+                this.debugLog("Progress line toggle blocked: no valid start or finish progress data");
                 return;
             }
 
-            reference = fallbackReference;
-            properties.referenceFinish = reference;
-            this.setProgressLineReferenceSettingValue(reference);
+            if (resolvedConfig.reference !== reference) {
+                reference = resolvedConfig.reference;
+                properties.referenceFinish = reference;
+                this.setProgressLineReferenceSettingValue(reference);
+            }
+
+            if (resolvedConfig.dateMode !== dateMode) {
+                dateMode = resolvedConfig.dateMode;
+                properties.dateMode = dateMode;
+                this.setProgressLineDateModeSettingValue(dateMode);
+            }
         }
 
         this.settings.progressLine.show.value = visible;
@@ -2442,21 +2579,85 @@ export class Visual implements IVisual {
             return;
         }
 
-        if (!this.hasProgressLineReferenceData(reference)) {
+        const dateMode = this.getProgressLineDateModeSetting();
+        const resolvedConfig = this.resolveProgressLineConfig(reference, dateMode);
+        if (!resolvedConfig || resolvedConfig.reference !== reference) {
             this.debugLog(`Progress line reference change blocked: ${reference} data is not available`);
             return;
         }
 
-        if (this.getProgressLineReferenceSetting() === reference) {
+        if (this.getProgressLineReferenceSetting() === reference &&
+            this.getProgressLineDateModeSetting() === resolvedConfig.dateMode) {
             return;
         }
 
         this.setProgressLineReferenceSettingValue(reference);
+        if (resolvedConfig.dateMode !== dateMode) {
+            this.setProgressLineDateModeSettingValue(resolvedConfig.dateMode);
+        }
 
         this.host.persistProperties({
             merge: [{
                 objectName: "progressLine",
-                properties: { referenceFinish: reference },
+                properties: {
+                    referenceFinish: reference,
+                    ...(resolvedConfig.dateMode !== dateMode ? { dateMode: resolvedConfig.dateMode } : {})
+                },
+                selector: null
+            }]
+        });
+
+        this.refreshAfterProgressLineHeaderChange();
+    }
+
+    private setProgressLineDateMode(dateMode: ProgressLineDateMode): void {
+        if (dateMode !== "finish" && dateMode !== "start" && dateMode !== "both") {
+            return;
+        }
+
+        const reference = this.getProgressLineReferenceSetting();
+        const resolvedConfig = this.resolveProgressLineConfig(reference, dateMode);
+        if (!resolvedConfig || resolvedConfig.dateMode !== dateMode) {
+            this.debugLog(`Progress line date mode change blocked: ${dateMode} data is not available`);
+            return;
+        }
+
+        if (this.getProgressLineDateModeSetting() === dateMode &&
+            this.getProgressLineReferenceSetting() === resolvedConfig.reference) {
+            return;
+        }
+
+        this.setProgressLineDateModeSettingValue(dateMode);
+        if (resolvedConfig.reference !== reference) {
+            this.setProgressLineReferenceSettingValue(resolvedConfig.reference);
+        }
+
+        this.host.persistProperties({
+            merge: [{
+                objectName: "progressLine",
+                properties: {
+                    dateMode,
+                    ...(resolvedConfig.reference !== reference ? { referenceFinish: resolvedConfig.reference } : {})
+                },
+                selector: null
+            }]
+        });
+
+        this.refreshAfterProgressLineHeaderChange();
+    }
+
+    private toggleProgressLineVarianceLabels(): void {
+        const showVarianceLabels = this.settings?.progressLine?.showVarianceLabels;
+        if (!showVarianceLabels) {
+            return;
+        }
+
+        const nextVisible = !showVarianceLabels.value;
+        showVarianceLabels.value = nextVisible;
+        this.host.persistProperties({
+            merge: [{
+                objectName: "progressLine",
+                properties: { showVarianceLabels: nextVisible },
                 selector: null
             }]
         });
@@ -5665,8 +5866,8 @@ export class Visual implements IVisual {
 
         const includeBaselineInScale = this.showBaselineInternal;
         const includePreviousUpdateInScale = this.showPreviousUpdateInternal;
-        const progressLineReference = this.getEffectiveProgressLineReference();
-        const includeProgressLineInScale = this.isProgressLineRenderable(progressLineReference);
+        const progressLineConfig = this.getEffectiveProgressLineConfig();
+        const includeProgressLineInScale = this.isProgressLineRenderable(progressLineConfig);
 
         if (wbsGroupingEnabled && this.wbsGroups.length > 0) {
             for (const group of this.wbsGroups) {
@@ -5695,11 +5896,14 @@ export class Visual implements IVisual {
                     }
                 }
 
-                if (includeProgressLineInScale && progressLineReference) {
-                    this.addProgressLineTimestamp(
+                if (includeProgressLineInScale && progressLineConfig) {
+                    this.addProgressLineTimestamps(
                         allTimestamps,
+                        group.summaryStartDate,
                         group.summaryFinishDate,
-                        this.getWbsProgressLineReferenceFinish(group, progressLineReference)
+                        this.getWbsProgressLineReferenceDate(group, progressLineConfig.reference, "start"),
+                        this.getWbsProgressLineReferenceDate(group, progressLineConfig.reference, "finish"),
+                        progressLineConfig.dateMode
                     );
                 }
             }
@@ -5741,11 +5945,14 @@ export class Visual implements IVisual {
                 }
             }
 
-            if (includeProgressLineInScale && progressLineReference) {
-                this.addProgressLineTimestamp(
+            if (includeProgressLineInScale && progressLineConfig) {
+                this.addProgressLineTimestamps(
                     allTimestamps,
-                    task.finishDate,
-                    this.getTaskProgressLineReferenceFinish(task, progressLineReference)
+                    this.getTaskProgressLineCurrentDate(task, "start"),
+                    this.getTaskProgressLineCurrentDate(task, "finish"),
+                    this.getTaskProgressLineReferenceDate(task, progressLineConfig.reference, "start"),
+                    this.getTaskProgressLineReferenceDate(task, progressLineConfig.reference, "finish"),
+                    progressLineConfig.dateMode
                 );
             }
         });
@@ -5775,11 +5982,14 @@ export class Visual implements IVisual {
                             allTimestamps.push(group.summaryBaselineFinishDate.getTime());
                         }
                     }
-                    if (includeProgressLineInScale && progressLineReference) {
-                        this.addProgressLineTimestamp(
+                    if (includeProgressLineInScale && progressLineConfig) {
+                        this.addProgressLineTimestamps(
                             allTimestamps,
+                            group.summaryStartDate,
                             group.summaryFinishDate,
-                            this.getWbsProgressLineReferenceFinish(group, progressLineReference)
+                            this.getWbsProgressLineReferenceDate(group, progressLineConfig.reference, "start"),
+                            this.getWbsProgressLineReferenceDate(group, progressLineConfig.reference, "finish"),
+                            progressLineConfig.dateMode
                         );
                     }
                 }
@@ -5901,6 +6111,55 @@ export class Visual implements IVisual {
         };
     }
 
+    private getProgressLineTooltipTargetAtCanvasPoint(x: number, y: number): ProgressLineTooltipTarget | null {
+        let bestTarget: ProgressLineTooltipTarget | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        for (const target of this.progressLineCanvasTooltipTargets) {
+            if (target.polygon) {
+                continue;
+            }
+            const dx = x - target.point.x;
+            const dy = y - target.point.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance <= target.radius && distance < bestDistance) {
+                bestTarget = target;
+                bestDistance = distance;
+            }
+        }
+
+        if (bestTarget) {
+            return bestTarget;
+        }
+
+        for (const target of this.progressLineCanvasTooltipTargets) {
+            if (target.polygon && this.isPointInsidePolygon(x, y, target.polygon)) {
+                return target;
+            }
+        }
+
+        return null;
+    }
+
+    private isPointInsidePolygon(x: number, y: number, polygon: Array<{ x: number; y: number }>): boolean {
+        if (polygon.length < 3) {
+            return false;
+        }
+
+        let inside = false;
+        for (let index = 0, previousIndex = polygon.length - 1; index < polygon.length; previousIndex = index++) {
+            const current = polygon[index];
+            const previous = polygon[previousIndex];
+            const intersects = ((current.y > y) !== (previous.y > y)) &&
+                (x < ((previous.x - current.x) * (y - current.y)) / (previous.y - current.y) + current.x);
+            if (intersects) {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
     private getTaskAtCanvasPoint(x: number, y: number): Task | null {
         if (!this.xScale || !this.yScale) return null;
 
@@ -5946,6 +6205,53 @@ export class Visual implements IVisual {
 
         const dataItems = this.buildTooltipDataItems(task);
         const identities = this.getTooltipIdentities(task);
+
+        if (this.tooltipService && this.tooltipService.enabled()) {
+            this.lastTooltipItems = dataItems;
+            this.lastTooltipIdentities = identities;
+            this.tooltipService.show({
+                coordinates: [event.clientX, event.clientY],
+                isTouchEvent: false,
+                dataItems,
+                identities
+            });
+            if (this.tooltipDiv) {
+                this.tooltipDiv.style("visibility", "hidden");
+            }
+            return;
+        }
+
+        const tooltip = this.tooltipDiv;
+        if (!tooltip) return;
+
+        tooltip.selectAll("*").remove();
+        tooltip.style("visibility", "visible");
+
+        for (const item of dataItems) {
+            const row = tooltip.append("div");
+            row.append("strong").text(`${item.displayName}: `);
+            row.append("span").text(item.value || "");
+        }
+
+        this.positionTooltip(tooltip.node(), event);
+    }
+
+    private shouldShowProgressLineTooltips(): boolean {
+        return !!(this.settings?.progressLine?.showVarianceTooltips?.value ?? true);
+    }
+
+    private showProgressLineTooltip(
+        config: ProgressLineRenderConfig,
+        point: ProgressLinePoint,
+        pair: ProgressLineBandPair | undefined,
+        event: MouseEvent
+    ): void {
+        if (!this.shouldShowProgressLineTooltips()) {
+            return;
+        }
+
+        const dataItems = this.buildProgressLineTooltipDataItems(config, point, pair);
+        const identities = this.getProgressLineTooltipIdentities(point);
 
         if (this.tooltipService && this.tooltipService.enabled()) {
             this.lastTooltipItems = dataItems;
@@ -6103,9 +6409,11 @@ export class Visual implements IVisual {
             const controlBackground = this.getHeaderLegendControlBackgroundColor();
             const textColor = this.getHeaderLegendTextColor();
             const borderColor = this.getHeaderLegendBorderColor();
+            const activeColor = this.getHeaderLegendActiveColor();
             const usesCustomColours = !this.isDefaultHeaderLegendControlBackgroundColor()
                 || !this.isDefaultHeaderLegendTextColor()
-                || !this.isDefaultHeaderLegendBorderColor();
+                || !this.isDefaultHeaderLegendBorderColor()
+                || !this.isDefaultHeaderLegendActiveColor();
 
             return {
                 usesCustomColours,
@@ -6128,12 +6436,13 @@ export class Visual implements IVisual {
                 chipMuted: textColor,
                 inputBg: controlBackground,
                 inputStroke: borderColor,
-                inputFocus: borderColor,
+                inputFocus: activeColor,
                 inputPlaceholder: textColor,
                 menuBg: controlBackground,
                 menuStroke: borderColor,
                 menuHover: controlBackground,
-                rowDivider: borderColor
+                rowDivider: borderColor,
+                primary: activeColor
             };
         }
 
@@ -6188,8 +6497,10 @@ export class Visual implements IVisual {
         const headerLegendControlBackground = this.getHeaderLegendControlBackgroundColor();
         const headerLegendText = this.getHeaderLegendTextColor();
         const headerLegendBorder = this.getHeaderLegendBorderColor();
+        const headerLegendActive = this.getHeaderLegendActiveColor();
 
         this.visualWrapper?.style("--lpv-header-legend-border-color", headerLegendBorder);
+        this.visualWrapper?.style("--lpv-header-legend-active-color", headerLegendActive);
         this.stickyHeaderContainer?.style("background-color", headerLegendBackground);
         this.selectedTaskLabel
             ?.style("background-color", headerLegendControlBackground)
@@ -6202,9 +6513,19 @@ export class Visual implements IVisual {
 
         const baselineAvailable = this.boundFields.baselineAvailable;
         const previousUpdateAvailable = this.boundFields.previousUpdateAvailable;
-        const progressLineReference = this.getProgressLineReferenceSetting();
-        const progressLineBaselineAvailable = this.hasProgressLineReferenceData("baselineFinish");
-        const progressLinePreviousUpdateAvailable = this.hasProgressLineReferenceData("previousUpdateFinish");
+        const configuredProgressLineReference = this.getProgressLineReferenceSetting();
+        const configuredProgressLineDateMode = this.getProgressLineDateModeSetting();
+        const effectiveProgressLineConfig = this.resolveProgressLineConfig(
+            configuredProgressLineReference,
+            configuredProgressLineDateMode
+        );
+        const progressLineReference = effectiveProgressLineConfig?.reference ?? configuredProgressLineReference;
+        const progressLineDateMode = effectiveProgressLineConfig?.dateMode ?? configuredProgressLineDateMode;
+        const progressLineBaselineAvailable = this.hasProgressLineReferenceData("baselineFinish", progressLineDateMode);
+        const progressLinePreviousUpdateAvailable = this.hasProgressLineReferenceData("previousUpdateFinish", progressLineDateMode);
+        const progressLineStartAvailable = this.hasAnyProgressLineReferenceData("start");
+        const progressLineFinishAvailable = this.hasAnyProgressLineReferenceData("finish");
+        const progressLineBothAvailable = this.hasAnyProgressLineReferenceData("both");
 
         const state: HeaderState = {
             showAllTasks: this.showAllTasksInternal,
@@ -6212,11 +6533,16 @@ export class Visual implements IVisual {
             baselineAvailable: baselineAvailable,
             showPreviousUpdate: this.showPreviousUpdateInternal,
             previousUpdateAvailable: previousUpdateAvailable,
-            progressLineVisible: !!this.settings?.progressLine?.show?.value,
-            progressLineAvailable: progressLineBaselineAvailable || progressLinePreviousUpdateAvailable,
+            progressLineVisible: !!this.settings?.progressLine?.show?.value && !!effectiveProgressLineConfig,
+            progressLineAvailable: progressLineStartAvailable || progressLineFinishAvailable || progressLineBothAvailable,
             progressLineReference,
+            progressLineDateMode,
             progressLineBaselineAvailable,
             progressLinePreviousUpdateAvailable,
+            progressLineStartAvailable,
+            progressLineFinishAvailable,
+            progressLineBothAvailable,
+            progressLineVarianceLabelsVisible: !!this.settings?.progressLine?.showVarianceLabels?.value,
             boundFields: this.boundFields,
             showConnectorLines: this.showConnectorLinesInternal,
             wbsExpanded: this.wbsExpandedInternal,
@@ -9830,33 +10156,80 @@ export class Visual implements IVisual {
         return rawValue === "previousUpdateFinish" ? "previousUpdateFinish" : "baselineFinish";
     }
 
-    private getTaskProgressLineReferenceFinish(task: Task, reference: ProgressLineReference): Date | null | undefined {
-        return reference === "previousUpdateFinish"
-            ? task.previousUpdateFinishDate
+    private getProgressLineDateModeSetting(): ProgressLineDateMode {
+        const rawValue = this.settings?.progressLine?.dateMode?.value?.value;
+        if (rawValue === "start" || rawValue === "both") {
+            return rawValue;
+        }
+        return "finish";
+    }
+
+    private getProgressLinePointKinds(dateMode: ProgressLineDateMode): ProgressLinePointKind[] {
+        return getProgressLinePointKindsForMode(dateMode);
+    }
+
+    private getTaskProgressLineCurrentDate(task: Task, pointKind: ProgressLinePointKind): Date | null {
+        return pointKind === "start"
+            ? getEffectiveProgressLineDate(task.manualStartDate, task.startDate)
+            : getEffectiveProgressLineDate(task.manualFinishDate, task.finishDate);
+    }
+
+    private getWbsProgressLineCurrentDate(group: WBSGroup, pointKind: ProgressLinePointKind): Date | null | undefined {
+        return pointKind === "start"
+            ? group.summaryStartDate
+            : group.summaryFinishDate;
+    }
+
+    private getTaskProgressLineReferenceDate(
+        task: Task,
+        reference: ProgressLineReference,
+        pointKind: ProgressLinePointKind
+    ): Date | null | undefined {
+        if (reference === "previousUpdateFinish") {
+            return pointKind === "start"
+                ? task.previousUpdateStartDate
+                : task.previousUpdateFinishDate;
+        }
+
+        return pointKind === "start"
+            ? task.baselineStartDate
             : task.baselineFinishDate;
     }
 
-    private getWbsProgressLineReferenceFinish(group: WBSGroup, reference: ProgressLineReference): Date | null | undefined {
-        return reference === "previousUpdateFinish"
-            ? group.summaryPreviousUpdateFinishDate
+    private getWbsProgressLineReferenceDate(
+        group: WBSGroup,
+        reference: ProgressLineReference,
+        pointKind: ProgressLinePointKind
+    ): Date | null | undefined {
+        if (reference === "previousUpdateFinish") {
+            return pointKind === "start"
+                ? group.summaryPreviousUpdateStartDate
+                : group.summaryPreviousUpdateFinishDate;
+        }
+
+        return pointKind === "start"
+            ? group.summaryBaselineStartDate
             : group.summaryBaselineFinishDate;
     }
 
-    private hasProgressLineReferenceData(reference: ProgressLineReference): boolean {
+    private hasProgressLineReferenceDataForKind(
+        reference: ProgressLineReference,
+        pointKind: ProgressLinePointKind
+    ): boolean {
         if (!isValidProgressDate(this.dataDate)) {
             return false;
         }
 
         for (const task of this.allTasksData) {
-            if (isValidProgressDate(task.finishDate) &&
-                isValidProgressDate(this.getTaskProgressLineReferenceFinish(task, reference))) {
+            if (isValidProgressDate(this.getTaskProgressLineCurrentDate(task, pointKind)) &&
+                isValidProgressDate(this.getTaskProgressLineReferenceDate(task, reference, pointKind))) {
                 return true;
             }
         }
 
         for (const group of this.wbsGroups) {
-            if (isValidProgressDate(group.summaryFinishDate) &&
-                isValidProgressDate(this.getWbsProgressLineReferenceFinish(group, reference))) {
+            if (isValidProgressDate(this.getWbsProgressLineCurrentDate(group, pointKind)) &&
+                isValidProgressDate(this.getWbsProgressLineReferenceDate(group, reference, pointKind))) {
                 return true;
             }
         }
@@ -9864,28 +10237,62 @@ export class Visual implements IVisual {
         return false;
     }
 
-    private getEffectiveProgressLineReference(): ProgressLineReference | null {
-        const selectedReference = this.getProgressLineReferenceSetting();
-        return this.hasProgressLineReferenceData(selectedReference) ? selectedReference : null;
+    private hasProgressLineReferenceData(
+        reference: ProgressLineReference,
+        dateMode: ProgressLineDateMode = this.getProgressLineDateModeSetting()
+    ): boolean {
+        return this.getProgressLinePointKinds(dateMode)
+            .every(pointKind => this.hasProgressLineReferenceDataForKind(reference, pointKind));
     }
 
-    private isProgressLineRenderable(reference: ProgressLineReference | null = this.getEffectiveProgressLineReference()): boolean {
+    private hasAnyProgressLineReferenceData(dateMode: ProgressLineDateMode): boolean {
+        return this.hasProgressLineReferenceData("baselineFinish", dateMode) ||
+            this.hasProgressLineReferenceData("previousUpdateFinish", dateMode);
+    }
+
+    private getEffectiveProgressLineConfig(): ProgressLineRenderConfig | null {
+        return this.resolveProgressLineConfig(
+            this.getProgressLineReferenceSetting(),
+            this.getProgressLineDateModeSetting()
+        );
+    }
+
+    private isProgressLineRenderable(
+        config: ProgressLineRenderConfig | null = this.getEffectiveProgressLineConfig()
+    ): boolean {
         return !!(
             this.settings?.progressLine?.show?.value &&
-            reference &&
+            config &&
             isValidProgressDate(this.dataDate) &&
-            this.hasProgressLineReferenceData(reference)
+            this.hasProgressLineReferenceData(config.reference, config.dateMode)
         );
     }
 
     private addProgressLineTimestamp(
         timestamps: number[],
-        finishDate: Date | null | undefined,
-        referenceFinishDate: Date | null | undefined
+        currentDate: Date | null | undefined,
+        referenceDate: Date | null | undefined
     ): void {
-        const progressPoint = calculateFinishVarianceProgressPoint(this.dataDate, finishDate, referenceFinishDate);
+        const progressPoint = calculateDateVarianceProgressPoint(this.dataDate, currentDate, referenceDate);
         if (progressPoint && isValidProgressDate(progressPoint.progressDate)) {
             timestamps.push(progressPoint.progressDate.getTime());
+        }
+    }
+
+    private addProgressLineTimestamps(
+        timestamps: number[],
+        currentStartDate: Date | null | undefined,
+        currentFinishDate: Date | null | undefined,
+        referenceStartDate: Date | null | undefined,
+        referenceFinishDate: Date | null | undefined,
+        dateMode: ProgressLineDateMode
+    ): void {
+        for (const pointKind of this.getProgressLinePointKinds(dateMode)) {
+            this.addProgressLineTimestamp(
+                timestamps,
+                pointKind === "start" ? currentStartDate : currentFinishDate,
+                pointKind === "start" ? referenceStartDate : referenceFinishDate
+            );
         }
     }
 
@@ -9894,15 +10301,18 @@ export class Visual implements IVisual {
         xScale: ScaleTime<number, number>,
         yScale: ScaleBand<string>,
         reference: ProgressLineReference,
+        pointKind: ProgressLinePointKind,
         lineWidth: number
     ): ProgressLinePoint[] {
         const rowItems: Array<{
             id: string;
             label: string;
             rowKind: ProgressLineRowKind;
+            task?: Task;
+            wbsGroup?: WBSGroup;
             yOrder: number;
-            finishDate: Date | null | undefined;
-            referenceFinishDate: Date | null | undefined;
+            currentDate: Date | null | undefined;
+            referenceDate: Date | null | undefined;
         }> = [];
 
         const taskHeight = this.settings.taskBars.taskHeight.value;
@@ -9921,9 +10331,10 @@ export class Visual implements IVisual {
                     id: `wbs:${group.id}`,
                     label: this.getWbsDisplayName(group),
                     rowKind: "wbs",
+                    wbsGroup: group,
                     yOrder: group.yOrder,
-                    finishDate: group.summaryFinishDate,
-                    referenceFinishDate: this.getWbsProgressLineReferenceFinish(group, reference)
+                    currentDate: this.getWbsProgressLineCurrentDate(group, pointKind),
+                    referenceDate: this.getWbsProgressLineReferenceDate(group, reference, pointKind)
                 });
             }
         }
@@ -9936,44 +10347,342 @@ export class Visual implements IVisual {
                 id: `task:${task.internalId}`,
                 label: task.name || String(task.id),
                 rowKind: "task",
+                task,
                 yOrder: task.yOrder,
-                finishDate: task.finishDate,
-                referenceFinishDate: this.getTaskProgressLineReferenceFinish(task, reference)
+                currentDate: this.getTaskProgressLineCurrentDate(task, pointKind),
+                referenceDate: this.getTaskProgressLineReferenceDate(task, reference, pointKind)
             });
         }
 
         return rowItems
             .sort((a, b) => a.yOrder - b.yOrder)
-            .map(item => {
-                const progressPoint = calculateFinishVarianceProgressPoint(
+            .map((item): ProgressLinePoint | null => {
+                const progressPoint = calculateDateVarianceProgressPoint(
                     this.dataDate,
-                    item.finishDate,
-                    item.referenceFinishDate
+                    item.currentDate,
+                    item.referenceDate
                 );
                 const bandStart = yScale(item.yOrder.toString());
                 if (!progressPoint ||
                     bandStart === undefined ||
-                    !isValidProgressDate(item.finishDate)) {
+                    !isValidProgressDate(item.currentDate)) {
                     return null;
                 }
-                const referenceFinishDate = isValidProgressDate(item.referenceFinishDate)
-                    ? item.referenceFinishDate
-                    : item.finishDate;
+                const referenceDate = isValidProgressDate(item.referenceDate)
+                    ? item.referenceDate
+                    : item.currentDate;
 
                 return {
                     id: item.id,
                     label: item.label,
                     rowKind: item.rowKind,
+                    task: item.task,
+                    wbsGroup: item.wbsGroup,
+                    pointKind,
                     yOrder: item.yOrder,
                     x: this.snapLineCoord(xScale(progressPoint.progressDate), lineWidth),
                     y: this.snapLineCoord(bandStart + taskHeight / 2, lineWidth),
                     progressDate: progressPoint.progressDate,
-                    finishDate: item.finishDate,
-                    referenceFinishDate,
+                    currentDate: item.currentDate,
+                    referenceDate,
                     varianceDays: progressPoint.varianceDays
                 };
             })
             .filter((point): point is ProgressLinePoint => point !== null);
+    }
+
+    private getProgressLineBandPairs(
+        startPoints: ProgressLinePoint[],
+        finishPoints: ProgressLinePoint[]
+    ): ProgressLineBandPair[] {
+        const finishById = new Map(finishPoints.map(point => [point.id, point]));
+        return startPoints
+            .map(start => {
+                const finish = finishById.get(start.id);
+                return finish
+                    ? { id: start.id, yOrder: start.yOrder, start, finish }
+                    : null;
+            })
+            .filter((pair): pair is ProgressLineBandPair => pair !== null)
+            .sort((a, b) => a.yOrder - b.yOrder);
+    }
+
+    private getProgressLineBandSegments(pairs: ProgressLineBandPair[]): ProgressLineBandSegment[] {
+        const segments: ProgressLineBandSegment[] = [];
+
+        for (let index = 0; index < pairs.length - 1; index++) {
+            const current = pairs[index];
+            const next = pairs[index + 1];
+            segments.push(...this.getProgressLineBandSegmentsBetweenPairs(current, next));
+        }
+
+        return segments;
+    }
+
+    private getProgressLineBandSegmentsBetweenPairs(
+        current: ProgressLineBandPair,
+        next: ProgressLineBandPair
+    ): ProgressLineBandSegment[] {
+        const currentTone = this.getProgressLinePairTone(current);
+        const nextTone = this.getProgressLinePairTone(next);
+        const currentDelta = current.finish.x - current.start.x;
+        const nextDelta = next.finish.x - next.start.x;
+        const fallbackTone = getProgressLineBandTone(
+            (current.start.x + next.start.x) / 2,
+            (current.finish.x + next.finish.x) / 2
+        );
+
+        const createWholeSegment = (tone: ProgressLineBandTone): ProgressLineBandSegment => this.createProgressLineBandSegment(
+            `${current.id}->${next.id}`,
+            tone,
+            current.start,
+            next.start,
+            next.finish,
+            current.finish
+        );
+
+        if (currentTone === nextTone) {
+            return [createWholeSegment(currentTone)];
+        }
+
+        if (currentTone === "neutral") {
+            return [createWholeSegment(nextTone)];
+        }
+
+        if (nextTone === "neutral") {
+            return [createWholeSegment(currentTone)];
+        }
+
+        if (currentDelta === 0 || nextDelta === 0 || Math.sign(currentDelta) === Math.sign(nextDelta)) {
+            return [createWholeSegment(fallbackTone)];
+        }
+
+        const crossingFraction = Math.abs(currentDelta) / (Math.abs(currentDelta) + Math.abs(nextDelta));
+        if (!Number.isFinite(crossingFraction) || crossingFraction <= 0 || crossingFraction >= 1) {
+            return [createWholeSegment(fallbackTone)];
+        }
+
+        const crossingStart = this.interpolateProgressLinePoint(current.start, next.start, crossingFraction);
+        const crossingFinish = this.interpolateProgressLinePoint(current.finish, next.finish, crossingFraction);
+
+        return [
+            this.createProgressLineBandSegment(
+                `${current.id}->${next.id}:top`,
+                currentTone,
+                current.start,
+                crossingStart,
+                crossingFinish,
+                current.finish
+            ),
+            this.createProgressLineBandSegment(
+                `${current.id}->${next.id}:bottom`,
+                nextTone,
+                crossingStart,
+                next.start,
+                next.finish,
+                crossingFinish
+            )
+        ];
+    }
+
+    private createProgressLineBandSegment(
+        id: string,
+        tone: ProgressLineBandTone,
+        topStart: ProgressLinePoint,
+        bottomStart: ProgressLinePoint,
+        bottomFinish: ProgressLinePoint,
+        topFinish: ProgressLinePoint
+    ): ProgressLineBandSegment {
+        return {
+            id,
+            tone,
+            topStart,
+            bottomStart,
+            bottomFinish,
+            topFinish
+        };
+    }
+
+    private interpolateProgressLinePoint(
+        top: ProgressLinePoint,
+        bottom: ProgressLinePoint,
+        fraction: number
+    ): ProgressLinePoint {
+        const interpolateNumber = (start: number, finish: number): number => start + ((finish - start) * fraction);
+        const interpolateDate = (start: Date, finish: Date): Date =>
+            new Date(interpolateNumber(start.getTime(), finish.getTime()));
+
+        return {
+            ...top,
+            id: `${top.id}->${bottom.id}:${fraction.toFixed(4)}`,
+            yOrder: interpolateNumber(top.yOrder, bottom.yOrder),
+            x: this.snapLineCoord(interpolateNumber(top.x, bottom.x)),
+            y: this.snapLineCoord(interpolateNumber(top.y, bottom.y)),
+            progressDate: interpolateDate(top.progressDate, bottom.progressDate),
+            currentDate: interpolateDate(top.currentDate, bottom.currentDate),
+            referenceDate: interpolateDate(top.referenceDate, bottom.referenceDate),
+            varianceDays: interpolateNumber(top.varianceDays, bottom.varianceDays)
+        };
+    }
+
+    private getProgressLinePairById(pairs: ProgressLineBandPair[]): Map<string, ProgressLineBandPair> {
+        return new Map(pairs.map(pair => [pair.id, pair]));
+    }
+
+    private getProgressLinePairForBandSegment(
+        segment: ProgressLineBandSegment,
+        pairById: Map<string, ProgressLineBandPair>
+    ): ProgressLineBandPair | undefined {
+        return pairById.get(segment.topStart.id) ??
+            pairById.get(segment.bottomStart.id) ??
+            pairById.get(segment.bottomFinish.id) ??
+            pairById.get(segment.topFinish.id);
+    }
+
+    private getProgressLineBandSegmentPolygon(segment: ProgressLineBandSegment): Array<{ x: number; y: number }> {
+        return [
+            { x: segment.topStart.x, y: segment.topStart.y },
+            { x: segment.bottomStart.x, y: segment.bottomStart.y },
+            { x: segment.bottomFinish.x, y: segment.bottomFinish.y },
+            { x: segment.topFinish.x, y: segment.topFinish.y }
+        ];
+    }
+
+    private getProgressLineTooltipHitRadius(markerSize: number, lineWidth: number): number {
+        return Math.max(markerSize + 6, lineWidth + 8, 12);
+    }
+
+    private getProgressLinePairTone(pair: ProgressLineBandPair): ProgressLineBandTone {
+        return getProgressLineBandTone(pair.start.x, pair.finish.x);
+    }
+
+    private getProgressLineMovementDays(pair: ProgressLineBandPair): number {
+        return pair.finish.varianceDays - pair.start.varianceDays;
+    }
+
+    private getProgressLinePriority(point: ProgressLinePoint): ProgressLinePriority {
+        if (point.rowKind === "wbs") {
+            if (point.wbsGroup?.hasCriticalTasks) {
+                return "wbsCritical";
+            }
+            if (point.wbsGroup?.hasNearCriticalTasks) {
+                return "wbsNearCritical";
+            }
+            return "wbs";
+        }
+
+        if (point.task?.isCritical) {
+            return "critical";
+        }
+
+        if (point.task?.isNearCritical) {
+            return "nearCritical";
+        }
+
+        return "nonCritical";
+    }
+
+    private isProgressLinePriorityRow(point: ProgressLinePoint): boolean {
+        const priority = this.getProgressLinePriority(point);
+        return priority === "critical" ||
+            priority === "nearCritical" ||
+            priority === "wbsCritical" ||
+            priority === "wbsNearCritical";
+    }
+
+    private getProgressLinePriorityLabel(point: ProgressLinePoint): string {
+        switch (this.getProgressLinePriority(point)) {
+            case "critical":
+                return "Critical / longest-path row";
+            case "nearCritical":
+                return "Near-critical row";
+            case "wbsCritical":
+                return "WBS summary with critical tasks";
+            case "wbsNearCritical":
+                return "WBS summary with near-critical tasks";
+            case "wbs":
+                return "WBS summary";
+            default:
+                return "Non-critical row";
+        }
+    }
+
+    private getProgressLineAnalysisSummary(pairs: ProgressLineBandPair[]): ProgressLineAnalysisSummary {
+        return pairs.reduce<ProgressLineAnalysisSummary>(
+            (summary, pair) => {
+                const tone = this.getProgressLinePairTone(pair);
+                if (tone === "recovery") {
+                    summary.recoveryCount++;
+                } else if (tone === "slippage") {
+                    summary.slippageCount++;
+                    if (this.isProgressLinePriorityRow(pair.start) || this.isProgressLinePriorityRow(pair.finish)) {
+                        summary.prioritySlippageCount++;
+                    }
+                } else {
+                    summary.neutralCount++;
+                }
+                return summary;
+            },
+            { recoveryCount: 0, slippageCount: 0, neutralCount: 0, prioritySlippageCount: 0 }
+        );
+    }
+
+    private formatProgressLineDayValue(days: number): string {
+        const rounded = Math.round(Math.abs(days) * 10) / 10;
+        return Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1);
+    }
+
+    private formatProgressLineVariance(days: number): string {
+        const label = this.formatProgressLineDayValue(days);
+        if (Math.abs(days) < 0.05) {
+            return "0d on reference";
+        }
+
+        return days > 0
+            ? `+${label}d late`
+            : `-${label}d early`;
+    }
+
+    private formatProgressLineMovement(pair: ProgressLineBandPair): string {
+        const movementDays = this.getProgressLineMovementDays(pair);
+        const label = this.formatProgressLineDayValue(movementDays);
+        const tone = this.getProgressLinePairTone(pair);
+
+        if (tone === "recovery") {
+            return `Recovered ${label}d after start`;
+        }
+        if (tone === "slippage") {
+            return `Slipped ${label}d after start`;
+        }
+        return "No material start-to-finish movement";
+    }
+
+    private getProgressLinePointLabel(point: ProgressLinePoint): string {
+        return `${point.pointKind === "start" ? "Start" : "Finish"} ${this.formatProgressLineVariance(point.varianceDays).replace(" on reference", "")}`;
+    }
+
+    private getProgressLinePairLabel(pair: ProgressLineBandPair): string {
+        const tone = this.getProgressLinePairTone(pair);
+        const movementDays = this.getProgressLineMovementDays(pair);
+        const label = this.formatProgressLineDayValue(movementDays);
+
+        if (tone === "recovery") {
+            return `Recover ${label}d`;
+        }
+        if (tone === "slippage") {
+            return `Slip ${label}d`;
+        }
+        return "No change";
+    }
+
+    private getProgressLineBandSegmentPath(segment: ProgressLineBandSegment): string {
+        return [
+            `M ${segment.topStart.x},${segment.topStart.y}`,
+            `L ${segment.bottomStart.x},${segment.bottomStart.y}`,
+            `L ${segment.bottomFinish.x},${segment.bottomFinish.y}`,
+            `L ${segment.topFinish.x},${segment.topFinish.y}`,
+            "Z"
+        ].join(" ");
     }
 
     private drawProgressLine(
@@ -9985,41 +10694,76 @@ export class Visual implements IVisual {
         forceSvg: boolean = false
     ): void {
         this.taskLayer?.selectAll(".progress-line-group").remove();
-        this.headerGridLayer?.selectAll(".progress-line-label-group").remove();
+        this.headerGridLayer?.selectAll(".progress-line-label-group, .progress-line-analysis-legend-group").remove();
+        this.progressLineCanvasTooltipTargets = [];
+        this.hoveredProgressLineTargetId = null;
 
-        const reference = this.getEffectiveProgressLineReference();
-        if (!this.isProgressLineRenderable(reference) || !reference) {
+        const config = this.getEffectiveProgressLineConfig();
+        if (!this.isProgressLineRenderable(config) || !config) {
             return;
         }
 
         const settings = this.settings.progressLine;
         const lineWidth = Math.max(0.5, settings.lineWidth?.value ?? 2);
-        const points = this.getProgressLinePoints(tasksToShow, xScale, yScale, reference, lineWidth);
-        if (points.length === 0) {
+        const finishLineColor = this.resolveColor(settings.lineColor?.value?.value ?? "#D13438", "foreground");
+        const startLineColor = this.resolveColor(settings.startLineColor?.value?.value ?? "#0078D4", "foreground");
+        const series = this.getProgressLinePointKinds(config.dateMode)
+            .map((pointKind): ProgressLineSeries => ({
+                pointKind,
+                color: pointKind === "start" ? startLineColor : finishLineColor,
+                points: this.getProgressLinePoints(tasksToShow, xScale, yScale, config.reference, pointKind, lineWidth)
+            }))
+            .filter(entry => entry.points.length > 0);
+
+        if (series.length === 0) {
             return;
         }
 
-        const lineColor = this.resolveColor(settings.lineColor?.value?.value ?? "#D13438", "foreground");
         const lineStyle = (settings.lineStyle?.value?.value as string | undefined) ?? "solid";
         const markerSize = Math.max(2, settings.markerSize?.value ?? 4);
         const showMarkers = settings.showMarkers?.value ?? true;
+        const showVarianceLabels = settings.showVarianceLabels?.value ?? false;
+        const showVarianceTooltips = settings.showVarianceTooltips?.value ?? true;
+        const bandColors: Record<ProgressLineBandTone, string> = {
+            recovery: this.resolveColor(settings.recoveryBandColor?.value?.value ?? "#107C10", "foreground"),
+            slippage: this.resolveColor(settings.slippageBandColor?.value?.value ?? "#D13438", "foreground"),
+            neutral: this.resolveColor(settings.bandColor?.value?.value ?? "#8A8886", "foreground")
+        };
+        const bandOpacity = this.highContrastMode
+            ? 0
+            : Math.max(0, Math.min(1, 1 - ((settings.bandTransparency?.value ?? 82) / 100)));
+        const startSeries = series.find(entry => entry.pointKind === "start");
+        const finishSeries = series.find(entry => entry.pointKind === "finish");
+        const bandPairs = config.dateMode === "both" && startSeries && finishSeries
+            ? this.getProgressLineBandPairs(startSeries.points, finishSeries.points)
+            : [];
+        const bandSegments = this.getProgressLineBandSegments(bandPairs);
 
         if (this.useCanvasRendering && !forceSvg) {
-            this.drawProgressLineCanvas(points, lineColor, lineWidth, lineStyle, markerSize, showMarkers, chartWidth, chartHeight);
+            this.drawProgressLineCanvas(series, bandPairs, bandSegments, bandColors, bandOpacity, lineWidth, lineStyle, markerSize, showMarkers, showVarianceLabels, showVarianceTooltips, config, chartWidth, chartHeight);
         } else {
-            this.drawProgressLineSvg(points, lineColor, lineWidth, lineStyle, markerSize, showMarkers);
+            this.drawProgressLineSvg(series, bandPairs, bandSegments, bandColors, bandOpacity, lineWidth, lineStyle, markerSize, showMarkers, showVarianceLabels, showVarianceTooltips, config);
         }
 
-        this.drawProgressLineHeaderLabel(reference, points.length, lineColor, xScale, chartWidth);
+        const pointCount = new Set(series.flatMap(entry => entry.points.map(point => point.id))).size;
+        const labelLineColor = config.dateMode === "start" ? startLineColor : finishLineColor;
+        this.drawProgressLineHeaderLabel(config, pointCount, labelLineColor, xScale, chartWidth);
+        this.drawProgressLineAnalysisLegend(config, bandPairs, bandColors, chartWidth);
     }
 
     private drawProgressLineSvg(
-        points: ProgressLinePoint[],
-        lineColor: string,
+        series: ProgressLineSeries[],
+        bandPairs: ProgressLineBandPair[],
+        bandSegments: ProgressLineBandSegment[],
+        bandColors: Record<ProgressLineBandTone, string>,
+        bandOpacity: number,
         lineWidth: number,
         lineStyle: string,
         markerSize: number,
-        showMarkers: boolean
+        showMarkers: boolean,
+        showVarianceLabels: boolean,
+        showVarianceTooltips: boolean,
+        config: ProgressLineRenderConfig
     ): void {
         if (!this.taskLayer?.node()) {
             return;
@@ -10029,45 +10773,110 @@ export class Visual implements IVisual {
             .attr("class", "progress-line-group")
             .attr("clip-path", this.getScopedUrlRef("chart-area-clip"))
             .attr("aria-hidden", "true")
-            .style("pointer-events", "none");
+            .style("pointer-events", showVarianceTooltips ? "auto" : "none");
 
-        if (points.length > 1) {
-            const lineGenerator = d3.line<ProgressLinePoint>()
-                .x(point => point.x)
-                .y(point => point.y);
+        const pairById = this.getProgressLinePairById(bandPairs);
 
-            progressLineGroup.append("path")
-                .attr("class", "progress-line-path")
-                .attr("d", lineGenerator(points))
-                .style("fill", "none")
-                .style("stroke", lineColor)
-                .style("stroke-width", lineWidth)
-                .style("stroke-linejoin", "round")
-                .style("stroke-linecap", "round")
-                .style("stroke-dasharray", this.getLineDashArray(lineStyle));
+        if (bandSegments.length > 0 && bandOpacity > 0) {
+            progressLineGroup.selectAll<SVGPathElement, ProgressLineBandSegment>(".progress-line-band")
+                .data(bandSegments, segment => segment.id)
+                .join("path")
+                .attr("class", segment => `progress-line-band progress-line-band-${segment.tone}`)
+                .attr("d", segment => this.getProgressLineBandSegmentPath(segment))
+                .style("fill", segment => bandColors[segment.tone])
+                .style("fill-opacity", bandOpacity)
+                .style("stroke", "none")
+                .style("pointer-events", showVarianceTooltips ? "auto" : "none")
+                .on("mouseover", (event: MouseEvent, segment: ProgressLineBandSegment) => {
+                    const pair = this.getProgressLinePairForBandSegment(segment, pairById);
+                    if (pair) {
+                        this.showProgressLineTooltip(config, pair.start, pair, event);
+                    }
+                })
+                .on("mousemove", (event: MouseEvent) => {
+                    this.moveTaskTooltip(event);
+                })
+                .on("mouseout", () => {
+                    this.hideTooltip();
+                });
         }
 
-        if (showMarkers) {
-            progressLineGroup.selectAll<SVGCircleElement, ProgressLinePoint>(".progress-line-marker")
-                .data(points, point => point.id)
-                .join("circle")
-                .attr("class", point => `progress-line-marker progress-line-marker-${point.rowKind}`)
-                .attr("cx", point => point.x)
-                .attr("cy", point => point.y)
-                .attr("r", markerSize)
-                .style("fill", this.highContrastMode ? this.highContrastBackground : "#FFFFFF")
-                .style("stroke", lineColor)
-                .style("stroke-width", Math.max(1, lineWidth * 0.75));
+        const tooltipHitRadius = this.getProgressLineTooltipHitRadius(markerSize, lineWidth);
+
+        for (const entry of series) {
+            const points = entry.points;
+            if (points.length > 1) {
+                const lineGenerator = d3.line<ProgressLinePoint>()
+                    .x(point => point.x)
+                    .y(point => point.y);
+
+                progressLineGroup.append("path")
+                    .attr("class", `progress-line-path progress-line-path-${entry.pointKind}`)
+                    .attr("d", lineGenerator(points))
+                    .style("fill", "none")
+                    .style("stroke", entry.color)
+                    .style("stroke-width", lineWidth)
+                    .style("stroke-linejoin", "round")
+                    .style("stroke-linecap", "round")
+                    .style("stroke-dasharray", this.getLineDashArray(lineStyle))
+                    .style("pointer-events", "none");
+            }
+
+            if (showMarkers) {
+                progressLineGroup.selectAll<SVGCircleElement, ProgressLinePoint>(`.progress-line-marker-${entry.pointKind}`)
+                    .data(points, point => point.id)
+                    .join("circle")
+                    .attr("class", point => `progress-line-marker progress-line-marker-${point.pointKind} progress-line-marker-${point.rowKind}`)
+                    .attr("cx", point => point.x)
+                    .attr("cy", point => point.y)
+                    .attr("r", markerSize)
+                    .style("fill", this.highContrastMode ? this.highContrastBackground : "#FFFFFF")
+                    .style("stroke", entry.color)
+                    .style("stroke-width", Math.max(1, lineWidth * 0.75))
+                    .style("pointer-events", "none");
+            }
+
+            if (showVarianceTooltips) {
+                progressLineGroup.selectAll<SVGCircleElement, ProgressLinePoint>(`.progress-line-tooltip-target-${entry.pointKind}`)
+                    .data(points, point => point.id)
+                    .join("circle")
+                    .attr("class", point => `progress-line-tooltip-target progress-line-tooltip-target-${point.pointKind}`)
+                    .attr("cx", point => point.x)
+                    .attr("cy", point => point.y)
+                    .attr("r", tooltipHitRadius)
+                    .style("fill", "transparent")
+                    .style("stroke", "transparent")
+                    .style("pointer-events", "all")
+                    .on("mouseover", (event: MouseEvent, point: ProgressLinePoint) => {
+                        this.showProgressLineTooltip(config, point, pairById.get(point.id), event);
+                    })
+                    .on("mousemove", (event: MouseEvent) => {
+                        this.moveTaskTooltip(event);
+                    })
+                    .on("mouseout", () => {
+                        this.hideTooltip();
+                    });
+            }
+        }
+
+        if (showVarianceLabels) {
+            this.drawProgressLineVarianceLabelsSvg(progressLineGroup, series, bandPairs, bandColors);
         }
     }
 
     private drawProgressLineCanvas(
-        points: ProgressLinePoint[],
-        lineColor: string,
+        series: ProgressLineSeries[],
+        bandPairs: ProgressLineBandPair[],
+        bandSegments: ProgressLineBandSegment[],
+        bandColors: Record<ProgressLineBandTone, string>,
+        bandOpacity: number,
         lineWidth: number,
         lineStyle: string,
         markerSize: number,
         showMarkers: boolean,
+        showVarianceLabels: boolean,
+        showVarianceTooltips: boolean,
+        config: ProgressLineRenderConfig,
         chartWidth: number,
         chartHeight: number
     ): void {
@@ -10080,49 +10889,304 @@ export class Visual implements IVisual {
         ctx.beginPath();
         ctx.rect(0, 0, Math.max(0, chartWidth), Math.max(0, chartHeight));
         ctx.clip();
-        ctx.strokeStyle = lineColor;
-        ctx.lineWidth = lineWidth;
-        ctx.lineJoin = "round";
-        ctx.lineCap = "round";
-        switch (lineStyle) {
-            case "dashed":
-                ctx.setLineDash([5, 3]);
-                break;
-            case "dotted":
-                ctx.setLineDash([1, 3]);
-                break;
-            default:
-                ctx.setLineDash([]);
-                break;
-        }
 
-        if (points.length > 1) {
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            for (let index = 1; index < points.length; index++) {
-                ctx.lineTo(points[index].x, points[index].y);
-            }
-            ctx.stroke();
-        }
-
-        if (showMarkers) {
-            ctx.setLineDash([]);
-            ctx.fillStyle = this.highContrastMode ? this.highContrastBackground : "#FFFFFF";
-            ctx.strokeStyle = lineColor;
-            ctx.lineWidth = Math.max(1, lineWidth * 0.75);
-            for (const point of points) {
+        if (bandSegments.length > 0 && bandOpacity > 0) {
+            ctx.save();
+            ctx.globalAlpha = bandOpacity;
+            for (const segment of bandSegments) {
+                ctx.fillStyle = bandColors[segment.tone];
                 ctx.beginPath();
-                ctx.arc(point.x, point.y, markerSize, 0, Math.PI * 2);
+                ctx.moveTo(segment.topStart.x, segment.topStart.y);
+                ctx.lineTo(segment.bottomStart.x, segment.bottomStart.y);
+                ctx.lineTo(segment.bottomFinish.x, segment.bottomFinish.y);
+                ctx.lineTo(segment.topFinish.x, segment.topFinish.y);
+                ctx.closePath();
                 ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        for (const entry of series) {
+            const points = entry.points;
+            ctx.strokeStyle = entry.color;
+            ctx.lineWidth = lineWidth;
+            ctx.lineJoin = "round";
+            ctx.lineCap = "round";
+            switch (lineStyle) {
+                case "dashed":
+                    ctx.setLineDash([5, 3]);
+                    break;
+                case "dotted":
+                    ctx.setLineDash([1, 3]);
+                    break;
+                default:
+                    ctx.setLineDash([]);
+                    break;
+            }
+
+            if (points.length > 1) {
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, points[0].y);
+                for (let index = 1; index < points.length; index++) {
+                    ctx.lineTo(points[index].x, points[index].y);
+                }
                 ctx.stroke();
+            }
+
+            if (showMarkers) {
+                ctx.setLineDash([]);
+                ctx.fillStyle = this.highContrastMode ? this.highContrastBackground : "#FFFFFF";
+                ctx.strokeStyle = entry.color;
+                ctx.lineWidth = Math.max(1, lineWidth * 0.75);
+                for (const point of points) {
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, markerSize, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                }
+            }
+        }
+
+        if (showVarianceLabels) {
+            this.drawProgressLineVarianceLabelsCanvas(series, bandPairs, bandColors);
+        }
+
+        if (showVarianceTooltips) {
+            const pairById = this.getProgressLinePairById(bandPairs);
+            const hitRadius = this.getProgressLineTooltipHitRadius(markerSize, lineWidth);
+            const pointTargets = series.flatMap(entry =>
+                entry.points.map(point => ({
+                    id: `${point.pointKind}:${point.id}`,
+                    point,
+                    pair: pairById.get(point.id),
+                    config,
+                    radius: hitRadius
+                }))
+            );
+            const bandTargets = bandSegments
+                .map((segment): ProgressLineTooltipTarget | null => {
+                    const pair = this.getProgressLinePairForBandSegment(segment, pairById);
+                    return pair
+                        ? {
+                            id: `band:${segment.id}`,
+                            point: pair.start,
+                            pair,
+                            config,
+                            radius: 0,
+                            polygon: this.getProgressLineBandSegmentPolygon(segment)
+                        }
+                        : null;
+                })
+                .filter((target): target is ProgressLineTooltipTarget => target !== null);
+
+            this.progressLineCanvasTooltipTargets = [...pointTargets, ...bandTargets];
+        }
+
+        ctx.restore();
+    }
+
+    private drawProgressLineVarianceLabelsSvg(
+        progressLineGroup: Selection<SVGGElement, unknown, null, undefined>,
+        series: ProgressLineSeries[],
+        bandPairs: ProgressLineBandPair[],
+        bandColors: Record<ProgressLineBandTone, string>
+    ): void {
+        const fontSize = this.fontPxFromPtSetting(Math.max(7, this.settings.textAndLabels.fontSize.value * 0.72));
+        const haloColor = this.highContrastMode ? this.highContrastBackground : "#FFFFFF";
+
+        if (bandPairs.length > 0) {
+            progressLineGroup.selectAll<SVGTextElement, ProgressLineBandPair>(".progress-line-variance-label")
+                .data(bandPairs, pair => pair.id)
+                .join("text")
+                .attr("class", pair => `progress-line-variance-label progress-line-variance-label-${this.getProgressLinePairTone(pair)}`)
+                .attr("x", pair => this.snapTextCoord((pair.start.x + pair.finish.x) / 2 + 6))
+                .attr("y", pair => this.snapTextCoord(pair.start.y - 7))
+                .attr("text-anchor", "start")
+                .attr("dominant-baseline", "central")
+                .style("font-family", this.getFontFamily())
+                .style("font-size", fontSize)
+                .style("font-weight", pair => this.isProgressLinePriorityRow(pair.start) || this.isProgressLinePriorityRow(pair.finish) ? "700" : "600")
+                .style("fill", pair => this.highContrastMode ? this.highContrastForeground : bandColors[this.getProgressLinePairTone(pair)])
+                .style("stroke", haloColor)
+                .style("stroke-width", this.highContrastMode ? "0" : "3px")
+                .style("paint-order", "stroke")
+                .style("pointer-events", "none")
+                .text(pair => this.getProgressLinePairLabel(pair));
+            return;
+        }
+
+        for (const entry of series) {
+            progressLineGroup.selectAll<SVGTextElement, ProgressLinePoint>(`.progress-line-variance-label-${entry.pointKind}`)
+                .data(entry.points, point => point.id)
+                .join("text")
+                .attr("class", `progress-line-variance-label progress-line-variance-label-${entry.pointKind}`)
+                .attr("x", point => this.snapTextCoord(point.x + 6))
+                .attr("y", point => this.snapTextCoord(point.y - 7))
+                .attr("text-anchor", "start")
+                .attr("dominant-baseline", "central")
+                .style("font-family", this.getFontFamily())
+                .style("font-size", fontSize)
+                .style("font-weight", point => this.isProgressLinePriorityRow(point) ? "700" : "600")
+                .style("fill", this.highContrastMode ? this.highContrastForeground : entry.color)
+                .style("stroke", haloColor)
+                .style("stroke-width", this.highContrastMode ? "0" : "3px")
+                .style("paint-order", "stroke")
+                .style("pointer-events", "none")
+                .text(point => this.getProgressLinePointLabel(point));
+        }
+    }
+
+    private drawProgressLineVarianceLabelsCanvas(
+        series: ProgressLineSeries[],
+        bandPairs: ProgressLineBandPair[],
+        bandColors: Record<ProgressLineBandTone, string>
+    ): void {
+        if (!this.canvasContext) {
+            return;
+        }
+
+        const ctx = this.canvasContext;
+        const fontSize = Math.max(9, Math.round(this.pointsToCssPx(Math.max(7, this.settings.textAndLabels.fontSize.value * 0.72))));
+        const haloColor = this.highContrastMode ? this.highContrastBackground : "#FFFFFF";
+        ctx.save();
+        ctx.font = `600 ${fontSize}px ${this.getFontFamily()}`;
+        ctx.textBaseline = "middle";
+        ctx.lineJoin = "round";
+
+        const drawText = (text: string, x: number, y: number, fill: string, bold: boolean) => {
+            ctx.font = `${bold ? "700" : "600"} ${fontSize}px ${this.getFontFamily()}`;
+            if (!this.highContrastMode) {
+                ctx.strokeStyle = haloColor;
+                ctx.lineWidth = 3;
+                ctx.strokeText(text, x, y);
+            }
+            ctx.fillStyle = this.highContrastMode ? this.highContrastForeground : fill;
+            ctx.fillText(text, x, y);
+        };
+
+        if (bandPairs.length > 0) {
+            for (const pair of bandPairs) {
+                const tone = this.getProgressLinePairTone(pair);
+                drawText(
+                    this.getProgressLinePairLabel(pair),
+                    this.snapTextCoord((pair.start.x + pair.finish.x) / 2 + 6),
+                    this.snapTextCoord(pair.start.y - 7),
+                    bandColors[tone],
+                    this.isProgressLinePriorityRow(pair.start) || this.isProgressLinePriorityRow(pair.finish)
+                );
+            }
+            ctx.restore();
+            return;
+        }
+
+        for (const entry of series) {
+            for (const point of entry.points) {
+                drawText(
+                    this.getProgressLinePointLabel(point),
+                    this.snapTextCoord(point.x + 6),
+                    this.snapTextCoord(point.y - 7),
+                    entry.color,
+                    this.isProgressLinePriorityRow(point)
+                );
             }
         }
 
         ctx.restore();
     }
 
+    private drawProgressLineAnalysisLegend(
+        config: ProgressLineRenderConfig,
+        bandPairs: ProgressLineBandPair[],
+        bandColors: Record<ProgressLineBandTone, string>,
+        chartWidth: number
+    ): void {
+        if (!this.headerGridLayer?.node() ||
+            !(this.settings?.progressLine?.showAnalysisLegend?.value ?? true) ||
+            config.dateMode !== "both" ||
+            bandPairs.length === 0 ||
+            chartWidth < 260) {
+            return;
+        }
+
+        const summary = this.getProgressLineAnalysisSummary(bandPairs);
+        const metrics = this.getHeaderBandMetrics();
+        const textColor = this.highContrastMode ? this.highContrastForeground : this.getHeaderLegendTextColor();
+        const backgroundColor = this.highContrastMode ? this.highContrastBackground : "#FFFFFF";
+        const borderColor = this.highContrastMode ? this.highContrastForeground : this.getHeaderLegendBorderColor();
+        const fontSize = this.fontPxFromPtSetting(Math.max(8, this.settings.textAndLabels.fontSize.value * 0.74));
+        const group = this.headerGridLayer.append("g")
+            .attr("class", "progress-line-analysis-legend-group")
+            .attr("data-label-priority", "13")
+            .style("pointer-events", "none");
+
+        group.append("title")
+            .text("Green means finish variance improved after start; red means finish variance slipped further after start.");
+
+        let cursorX = 0;
+        const baselineY = 0;
+
+        const addText = (text: string, weight: string = "600") => {
+            const textElement = group.append("text")
+                .attr("x", this.snapTextCoord(cursorX))
+                .attr("y", baselineY)
+                .attr("dominant-baseline", "central")
+                .style("font-family", this.getFontFamily())
+                .style("font-size", fontSize)
+                .style("font-weight", weight)
+                .style("fill", textColor)
+                .text(text);
+            const width = (textElement.node() as SVGTextElement)?.getBBox().width ?? text.length * 6;
+            cursorX += width + 8;
+        };
+
+        const addSwatchItem = (tone: ProgressLineBandTone, label: string, count: number) => {
+            group.append("rect")
+                .attr("x", this.snapRectCoord(cursorX))
+                .attr("y", -4)
+                .attr("width", 8)
+                .attr("height", 8)
+                .attr("rx", 2)
+                .attr("ry", 2)
+                .style("fill", this.highContrastMode ? this.highContrastForeground : bandColors[tone])
+                .style("stroke", borderColor)
+                .style("stroke-width", "1");
+            cursorX += 12;
+            addText(`${label} ${count}`, "600");
+        };
+
+        addText("Delay:", "700");
+        addSwatchItem("recovery", "Recovery", summary.recoveryCount);
+        addSwatchItem("slippage", "Slippage", summary.slippageCount);
+        addSwatchItem("neutral", "No change", summary.neutralCount);
+        if (summary.prioritySlippageCount > 0) {
+            addText(`Priority slip ${summary.prioritySlippageCount}`, "700");
+        }
+
+        const bbox = (group.node() as SVGGElement)?.getBBox();
+        if (!bbox) {
+            return;
+        }
+
+        const paddingX = 6;
+        const paddingY = 3;
+        const groupX = Math.max(4, chartWidth - bbox.width - paddingX * 2 - 8);
+        const groupY = metrics.bottomLabelY;
+        group.attr("transform", `translate(${this.snapRectCoord(groupX)},${this.snapTextCoord(groupY)})`);
+        group.insert("rect", ":first-child")
+            .attr("x", this.snapRectCoord(bbox.x - paddingX))
+            .attr("y", this.snapRectCoord(bbox.y - paddingY))
+            .attr("width", Math.max(1, this.snapRectCoord(bbox.width + paddingX * 2)))
+            .attr("height", Math.max(1, this.snapRectCoord(bbox.height + paddingY * 2)))
+            .attr("rx", 4)
+            .attr("ry", 4)
+            .style("fill", backgroundColor)
+            .style("fill-opacity", this.highContrastMode ? 1 : 0.88)
+            .style("stroke", borderColor)
+            .style("stroke-width", "1");
+    }
+
     private drawProgressLineHeaderLabel(
-        reference: ProgressLineReference,
+        config: ProgressLineRenderConfig,
         pointCount: number,
         lineColor: string,
         xScale: ScaleTime<number, number>,
@@ -10139,7 +11203,15 @@ export class Visual implements IVisual {
 
         const labelX = this.snapTextCoord(Math.max(0, Math.min(chartWidth, rawDataDateX)) + 5);
         const labelY = this.getHeaderBandMetrics().topLabelY;
-        const labelText = `Progress: ${getProgressLineReferenceLabel(reference)} variance (${pointCount} rows)`;
+        const referenceText = config.dateMode === "both"
+            ? getProgressLineReferenceLabel(config.reference)
+            : getProgressLineReferenceDateLabel(
+                config.reference,
+                config.dateMode === "start" ? "start" : "finish"
+            );
+        const labelText = config.dateMode === "both"
+            ? `Progress: ${referenceText} start/finish variance (${pointCount} rows)`
+            : `Progress: ${referenceText} variance (${pointCount} rows)`;
         const labelGroup = this.headerGridLayer.append("g")
             .attr("class", "progress-line-label-group")
             .attr("data-label-priority", "12")
@@ -16263,7 +17335,8 @@ export class Visual implements IVisual {
     }
 
     private getHeaderLegendActiveColor(): string {
-        return this.resolveColor(HEADER_DOCK_TOKENS.primary, "selected");
+        const settingColor = this.settings?.generalSettings?.headerLegendActiveColor?.value?.value;
+        return this.resolveColor(settingColor || HEADER_DOCK_TOKENS.primary, "selected");
     }
 
     private getHeaderLegendMutedTextColor(): string {
@@ -16303,6 +17376,13 @@ export class Visual implements IVisual {
         );
     }
 
+    private isDefaultHeaderLegendActiveColor(): boolean {
+        return this.isDefaultColorSetting(
+            this.settings?.generalSettings?.headerLegendActiveColor?.value?.value,
+            HEADER_DOCK_TOKENS.primary
+        );
+    }
+
     private isDefaultColorSetting(value: string | undefined, defaultValue: string): boolean {
         if (!value) {
             return true;
@@ -16331,7 +17411,9 @@ export class Visual implements IVisual {
             const headerLegendControlBgColor = this.getHeaderLegendControlBackgroundColor();
             const headerLegendTextColor = this.getHeaderLegendTextColor();
             const headerLegendBorderColor = this.getHeaderLegendBorderColor();
+            const headerLegendActiveColor = this.getHeaderLegendActiveColor();
             this.visualWrapper?.style("--lpv-header-legend-border-color", headerLegendBorderColor);
+            this.visualWrapper?.style("--lpv-header-legend-active-color", headerLegendActiveColor);
             this.stickyHeaderContainer?.style("background-color", headerLegendBgColor);
             this.legendContainer
                 ?.style("background-color", headerLegendBgColor)
@@ -16369,6 +17451,7 @@ export class Visual implements IVisual {
         const background = this.highContrastBackground;
 
         this.visualWrapper?.style("--lpv-header-legend-border-color", foreground);
+        this.visualWrapper?.style("--lpv-header-legend-active-color", this.highContrastForegroundSelected || foreground);
         this.stickyHeaderContainer?.style("background-color", background);
         this.legendContainer
             ?.style("background-color", background)
@@ -16533,6 +17616,59 @@ export class Visual implements IVisual {
         }
 
         return items;
+    }
+
+    private buildProgressLineTooltipDataItems(
+        config: ProgressLineRenderConfig,
+        point: ProgressLinePoint,
+        pair?: ProgressLineBandPair
+    ): VisualTooltipDataItem[] {
+        const items: VisualTooltipDataItem[] = [
+            { displayName: "Progress Line", value: `${getProgressLineDateModeLabel(config.dateMode)} vs ${getProgressLineReferenceLabel(config.reference)}` },
+            { displayName: point.rowKind === "wbs" ? "WBS" : "Task", value: point.label },
+            { displayName: "Delay Priority", value: this.getProgressLinePriorityLabel(point) }
+        ];
+
+        if (pair) {
+            const tone = this.getProgressLinePairTone(pair);
+            const analysisText = tone === "recovery"
+                ? "Finish variance is better than Start variance"
+                : tone === "slippage"
+                    ? "Finish variance is worse than Start variance"
+                    : "Start and Finish variance are aligned";
+
+            items.push(
+                { displayName: "Current Start", value: this.formatDate(pair.start.currentDate) },
+                { displayName: getProgressLineReferenceDateLabel(config.reference, "start"), value: this.formatDate(pair.start.referenceDate) },
+                { displayName: "Start Variance", value: this.formatProgressLineVariance(pair.start.varianceDays) },
+                { displayName: "Current Finish", value: this.formatDate(pair.finish.currentDate) },
+                { displayName: getProgressLineReferenceDateLabel(config.reference, "finish"), value: this.formatDate(pair.finish.referenceDate) },
+                { displayName: "Finish Variance", value: this.formatProgressLineVariance(pair.finish.varianceDays) },
+                { displayName: "Movement", value: this.formatProgressLineMovement(pair) },
+                { displayName: "Analysis", value: analysisText }
+            );
+
+            if (tone === "slippage" && (this.isProgressLinePriorityRow(pair.start) || this.isProgressLinePriorityRow(pair.finish))) {
+                items.push({ displayName: "Programme Focus", value: "Priority slippage: review before non-critical movement" });
+            }
+
+            return items;
+        }
+
+        items.push(
+            { displayName: point.pointKind === "start" ? "Current Start" : "Current Finish", value: this.formatDate(point.currentDate) },
+            { displayName: getProgressLineReferenceDateLabel(config.reference, point.pointKind), value: this.formatDate(point.referenceDate) },
+            { displayName: `${point.pointKind === "start" ? "Start" : "Finish"} Variance`, value: this.formatProgressLineVariance(point.varianceDays) }
+        );
+
+        return items;
+    }
+
+    private getProgressLineTooltipIdentities(point: ProgressLinePoint): powerbi.extensibility.ISelectionId[] {
+        if (point.task?.selectionId) {
+            return [point.task.selectionId as unknown as powerbi.extensibility.ISelectionId];
+        }
+        return [];
     }
 
     private getTooltipIdentities(task: Task): powerbi.extensibility.ISelectionId[] {
@@ -17085,7 +18221,7 @@ export class Visual implements IVisual {
         addListItem(headerList, 'LP / Float', 'Switches between Longest Path relationship logic and Float-Based criticality.');
         addListItem(headerList, 'LA Selector', 'Lets report users turn look-ahead off or choose a 2W, 4W, 6W, 8W, 12W, or 24W review window from the Data Date.');
         addListItem(headerList, 'Near-Critical Threshold', 'In Float mode, sets the Total Float threshold used to identify near-critical tasks. On tighter headers this moves into the controls menu.');
-        addListItem(headerList, 'Controls and Actions Menu', 'Opens grouped controls for Analysis, Timeline Layers, WBS, and Actions when the header is crowded. A badge indicates hidden controls that are active.');
+        addListItem(headerList, 'Controls and Actions Menu', 'Opens grouped controls for Analysis, Timeline Layers, WBS, and Actions when the header is crowded. The Progress Line control includes Start/Finish/Both mode, reference selection, and variance-label on/off control. A badge indicates hidden controls that are active.');
         addListItem(headerList, 'Timeline Layers', 'Show or hide baseline bars, previous update bars, progress line, connector lines, and extra table columns. Baseline and previous update bars also show their matching date columns when columns are enabled.');
         addListItem(headerList, 'WBS Controls', 'Enable WBS grouping and cycle expand/collapse depth from the header or the controls menu.');
         addListItem(headerList, 'Copy To Excel', 'Copies visible rows from its own header button so it remains available outside the Controls and actions menu.');
@@ -17145,7 +18281,7 @@ export class Visual implements IVisual {
         addListItem(timelineList, 'Milestones', 'Milestones appear as diamonds at a single scheduled date.');
         addListItem(timelineList, 'Baseline / Previous Bars', 'When enabled, lighter comparison bars appear beneath the current task bar so you can compare baseline, previous update, and current dates.');
         addListItem(timelineList, 'Finish & Reference Lines', 'Project Finish, Baseline Finish, Previous Finish, and Data Date can each draw a vertical line and label.');
-        addListItem(timelineList, 'Progress Line', 'When enabled, draws a finish-variance line from the Data Date. Rows finishing later than the selected reference finish bend left of the Data Date, and rows finishing earlier bend right. Visible WBS summary rows can contribute their own summary points.');
+        addListItem(timelineList, 'Progress Line', 'When enabled, draws Start, Finish, or Start + Finish variance from the Data Date against Baseline or Previous Update. In Start + Finish mode, green shading means finish variance improved after start, red means it slipped further after start, and the optional analysis legend, labels, and tooltips explain the visible rows.');
         addListItem(timelineList, 'Data Date Override', 'When the before-data-date override is enabled in settings, the earlier portion of a task bar uses the override color while the remaining portion keeps the task state color.');
         addListItem(timelineList, 'Look-Ahead Window', 'Shows the review band, optional end line, and optional end label when look-ahead is active.');
         addListItem(timelineList, 'Header Label Reflow', 'Date-line labels are reflowed to reduce overlap when project finish, data date, comparison finish, and look-ahead labels are close together.');

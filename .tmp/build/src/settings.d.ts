@@ -10,6 +10,7 @@ declare class GeneralSettingsCard extends Card {
     headerLegendControlBackgroundColor: formattingSettings.ColorPicker;
     headerLegendTextColor: formattingSettings.ColorPicker;
     headerLegendBorderColor: formattingSettings.ColorPicker;
+    headerLegendActiveColor: formattingSettings.ColorPicker;
     alternatingRowColors: formattingSettings.ToggleSwitch;
     alternatingRowColor: formattingSettings.ColorPicker;
     selectionHighlightColor: formattingSettings.ColorPicker;
@@ -208,14 +209,23 @@ declare class ProgressLineCard extends Card {
     name: string;
     displayName: string;
     show: formattingSettings.ToggleSwitch;
+    dateMode: formattingSettings.ItemDropdown;
     referenceFinish: formattingSettings.ItemDropdown;
     lineColor: formattingSettings.ColorPicker;
+    startLineColor: formattingSettings.ColorPicker;
     lineWidth: formattingSettings.NumUpDown;
     lineStyle: formattingSettings.ItemDropdown;
     showMarkers: formattingSettings.ToggleSwitch;
     markerSize: formattingSettings.NumUpDown;
+    bandColor: formattingSettings.ColorPicker;
+    recoveryBandColor: formattingSettings.ColorPicker;
+    slippageBandColor: formattingSettings.ColorPicker;
+    bandTransparency: formattingSettings.NumUpDown;
     includeWbsGroups: formattingSettings.ToggleSwitch;
     showLabel: formattingSettings.ToggleSwitch;
+    showAnalysisLegend: formattingSettings.ToggleSwitch;
+    showVarianceLabels: formattingSettings.ToggleSwitch;
+    showVarianceTooltips: formattingSettings.ToggleSwitch;
     slices: Slice[];
 }
 declare class LookAheadCard extends Card {

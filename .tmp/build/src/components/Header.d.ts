@@ -2,13 +2,15 @@ import { Selection } from "d3-selection";
 import { VisualSettings } from "../settings";
 import { HEADER_DOCK_TOKENS } from "../utils/Theme";
 import { BoundFieldState } from "../data/Interfaces";
-import type { ProgressLineReference } from "../utils/ProgressLine";
+import type { ProgressLineDateMode, ProgressLineReference } from "../utils/ProgressLine";
 export interface HeaderCallbacks {
     onToggleCriticalPath: () => void;
     onToggleBaseline: () => void;
     onTogglePreviousUpdate: () => void;
     onToggleProgressLine: () => void;
     onProgressLineReferenceChanged: (reference: ProgressLineReference) => void;
+    onProgressLineDateModeChanged: (dateMode: ProgressLineDateMode) => void;
+    onToggleProgressLineVarianceLabels: () => void;
     onToggleConnectorLines: () => void;
     onToggleWbsExpand: () => void;
     onToggleWbsCollapse: () => void;
@@ -33,8 +35,13 @@ export interface HeaderState {
     progressLineVisible: boolean;
     progressLineAvailable: boolean;
     progressLineReference: ProgressLineReference;
+    progressLineDateMode: ProgressLineDateMode;
     progressLineBaselineAvailable: boolean;
     progressLinePreviousUpdateAvailable: boolean;
+    progressLineStartAvailable: boolean;
+    progressLineFinishAvailable: boolean;
+    progressLineBothAvailable: boolean;
+    progressLineVarianceLabelsVisible: boolean;
     boundFields: BoundFieldState;
     showConnectorLines: boolean;
     wbsExpanded: boolean;
@@ -165,6 +172,7 @@ export declare class Header {
     private handleOverflowMenuKeydown;
     private createActionOverflowButton;
     private getProgressLineReferenceShortLabel;
+    private getProgressLineDateModeShortLabel;
     private getHeaderMenuItems;
     private getActiveHiddenControlCount;
     private getHeaderMenuItemActiveColor;
