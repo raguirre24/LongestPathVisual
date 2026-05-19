@@ -35,6 +35,10 @@ export function isTaskMilestone(task: Pick<Task, "type">): boolean {
     return task.type === "TT_Mile" || task.type === "TT_FinMile";
 }
 
+export function shouldApplyCriticalFormatToTaskBarSegment(segment: Pick<TaskBarSegment, "kind">): boolean {
+    return segment.kind !== "started";
+}
+
 export function isValidTaskDate(value: Date | null | undefined): value is Date {
     return value instanceof Date && Number.isFinite(value.getTime());
 }

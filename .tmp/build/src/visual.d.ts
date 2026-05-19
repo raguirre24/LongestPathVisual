@@ -630,7 +630,7 @@ export declare class Visual implements IVisual {
      * @param event The mouse event that triggered the tooltip
      */
     private positionTooltip;
-    private getRelationshipRenderGeometry;
+    private getVisibleRelationshipGeometries;
     private drawArrows;
     private getLineDashArray;
     private getProgressLineReferenceSetting;

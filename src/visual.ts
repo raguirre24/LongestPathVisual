@@ -60,9 +60,11 @@ import {
     getCurrentTaskBarGeometry,
     getScheduleFinish,
     getScheduleStart,
-    normalizeCurrentBarDateMode
+    normalizeCurrentBarDateMode,
+    shouldApplyCriticalFormatToTaskBarSegment
 } from "./utils/TaskBarGeometry";
 import type { CurrentBarDateMode, TaskBarGeometry, TaskBarSegment } from "./utils/TaskBarGeometry";
+import { getCriticalFormattingExtentFromTaskBarGeometry } from "./utils/WbsSummaryMetrics";
 import {
     getCriticalStatusMarkerDescriptor,
     getSemanticTaskFillColorForStyle,
@@ -83,6 +85,8 @@ import {
     packLabelColumns
 } from "./utils/ColumnLayout";
 import { computeSecondRowLayout, formatLookAheadWindowLabel } from "./utils/HeaderLayout";
+import { getConnectorRenderGeometry } from "./utils/ConnectorGeometry";
+import type { ConnectorRenderGeometry } from "./utils/ConnectorGeometry";
 
 type DrivingChain = {
     tasks: Set<string>;
@@ -202,14 +206,6 @@ type ProgressLineAnalysisSummary = {
     slippageCount: number;
     neutralCount: number;
     prioritySlippageCount: number;
-};
-
-type RelationshipRenderGeometry = {
-    pathData: string;
-    startX: number;
-    startY: number;
-    endX: number;
-    endY: number;
 };
 
 type WbsHeaderContextMenuAction = {
@@ -2237,6 +2233,9 @@ export class Visual implements IVisual {
 
         this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship }>(".relationship-arrow")
             .style("stroke-opacity", d => this.getConnectorOpacity(d.relationship));
+
+        this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship }>(".relationship-arrowhead")
+            .style("fill-opacity", d => this.getConnectorOpacity(d.relationship));
 
         this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship }>(".connection-dot-start, .connection-dot-end")
             .style("fill-opacity", d => this.getConnectorOpacity(d.relationship))
@@ -7027,13 +7026,6 @@ export class Visual implements IVisual {
             if (this._setupCanvasForDrawing(chartWidth, chartHeight)) {
                 this.drawLookAheadWindowCanvasBand(xScale, chartWidth, chartHeight);
 
-                this.drawTasksCanvas(
-                    renderableTasks, xScale, yScale,
-                    taskColor, milestoneColor, criticalColor,
-                    labelColor, showDuration, taskHeight, taskBarHeight,
-                    dateBgColor, dateBgOpacity
-                );
-
                 if (this.showConnectorLinesInternal) {
                     this.drawArrowsCanvas(
                         renderableTasks, xScale, yScale,
@@ -7041,6 +7033,13 @@ export class Visual implements IVisual {
                         taskHeight, this.settings.taskBars.milestoneSize.value
                     );
                 }
+
+                this.drawTasksCanvas(
+                    renderableTasks, xScale, yScale,
+                    taskColor, milestoneColor, criticalColor,
+                    labelColor, showDuration, taskHeight, taskBarHeight,
+                    dateBgColor, dateBgOpacity
+                );
 
                 this.drawTaskLabelsLayer(
                     renderableTasks,
@@ -7475,6 +7474,9 @@ export class Visual implements IVisual {
 
             // Ensure we cover the full domain if ticks don't (optional, D3 ticks usually suffice)
 
+            const rangeLeft = Math.min(range[0], range[1]);
+            const rangeRight = Math.max(range[0], range[1]);
+
             headerLayer.selectAll<SVGTextElement, Date>(".major-grid-label")
                 .data(majorTicks, (d: Date) => d.getTime())
                 .join(
@@ -7487,18 +7489,17 @@ export class Visual implements IVisual {
                     exit => exit.remove()
                 )
                 .attr("x", (d: Date) => {
-                    const x = this.snapLineCoord(xScale(d), lineWidth);
-                    return this.snapTextCoord(x + 5);
+                    const tickX = this.snapLineCoord(xScale(d), lineWidth);
+                    const labelWidth = formatMajor(d).length * labelFontSizePx * 0.6;
+                    const maxX = rangeRight - labelWidth - 2;
+                    const clampedX = Math.max(rangeLeft, Math.min(tickX + 5, maxX));
+                    return this.snapTextCoord(clampedX);
                 })
                 .attr("y", headerBandMetrics.majorLabelY)
                 .style("font-family", this.getFontFamily())
                 .style("font-size", this.fontPxFromPtSetting(labelFontSize))
                 .style("fill", labelColor)
-                .text((d: Date) => {
-                    // Hide if way off screen to the left? 
-                    // Since we align "start", if x < -100 it's gone anyway.
-                    return formatMajor(d);
-                });
+                .text((d: Date) => formatMajor(d));
 
             // --- MINOR TIER (Bottom) ---
             const formatMinor = (d: Date): string => {
@@ -7532,7 +7533,10 @@ export class Visual implements IVisual {
                 .style("fill", labelColor)
                 .style("font-weight", "600")
                 .text((d: Date) => {
-                    if (xScale(d) < 35) return "";
+                    const tickX = xScale(d);
+                    if (tickX < 35) return "";
+                    const halfLabel = (formatMinor(d).length * labelFontSizePx * 0.6) / 2;
+                    if (tickX + halfLabel > rangeRight) return "";
                     return formatMinor(d);
                 });
         } else {
@@ -9561,95 +9565,20 @@ export class Visual implements IVisual {
         if (!this.canvasContext || !this.canvasElement) return;
 
         const ctx = this.canvasContext;
-
         ctx.save();
 
         try {
-            const connectionEndPadding = 0;
-            const elbowOffset = this.settings.connectorLines.elbowOffset.value;
+            const relationshipGeometries = this.getVisibleRelationshipGeometries(
+                tasks,
+                xScale,
+                yScale,
+                taskHeight,
+                milestoneSizeSetting
+            );
 
-            const taskPositions = new Map<string, number>();
-            tasks.forEach((task: Task) => {
-                if (task.yOrder !== undefined) taskPositions.set(task.internalId, task.yOrder);
-            });
-
-            const visibleTaskIds = new Set(taskPositions.keys());
-            const visibleRelationships: Relationship[] = [];
-            for (const predecessorId of visibleTaskIds) {
-                const relationships = this.relationshipByPredecessor.get(predecessorId);
-                if (!relationships) continue;
-                for (const rel of relationships) {
-                    if (visibleTaskIds.has(rel.successorId)) {
-                        visibleRelationships.push(rel);
-                    }
-                }
-            }
-
-            visibleRelationships.forEach((rel: Relationship) => {
-                const pred = this.taskIdToTask.get(rel.predecessorId);
-                const succ = this.taskIdToTask.get(rel.successorId);
-                const predYOrder = taskPositions.get(rel.predecessorId);
-                const succYOrder = taskPositions.get(rel.successorId);
-
-                if (!pred || !succ || predYOrder === undefined || succYOrder === undefined) return;
-
-                const predYBandPos = yScale(predYOrder.toString());
-                const succYBandPos = yScale(succYOrder.toString());
-                if (predYBandPos === undefined || succYBandPos === undefined) return;
-
-                const predY = predYBandPos + taskHeight / 2;
-                const succY = succYBandPos + taskHeight / 2;
-                const relType = rel.type || 'FS';
-                const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
-                const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
-
-                let baseStartDate: Date | null | undefined = null;
-                let baseEndDate: Date | null | undefined = null;
-
-                const predStart = this.getScheduleStart(pred);
-                const predFinish = this.getScheduleFinish(pred);
-                const succStart = this.getScheduleStart(succ);
-                const succFinish = this.getScheduleFinish(succ);
-
-                switch (relType) {
-                    case 'FS': case 'FF':
-                        baseStartDate = predIsMilestone ? (predStart ?? predFinish) : predFinish;
-                        break;
-                    case 'SS': case 'SF':
-                        baseStartDate = predStart;
-                        break;
-                }
-                switch (relType) {
-                    case 'FS': case 'SS':
-                        baseEndDate = succStart;
-                        break;
-                    case 'FF': case 'SF':
-                        baseEndDate = succIsMilestone ? (succStart ?? succFinish) : succFinish;
-                        break;
-                }
-
-                if (!baseStartDate || !baseEndDate) return;
-
-                const startX = xScale(baseStartDate);
-                const endX = xScale(baseEndDate);
-
-                const milestoneDrawSize = this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
-                const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
-                const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
-
-                let effectiveStartX = startX;
-                let effectiveEndX = endX;
-
-                if (relType === 'FS' || relType === 'FF') effectiveStartX += startGap;
-                else effectiveStartX -= startGap;
-                if (predIsMilestone && (relType === 'SS' || relType === 'SF')) effectiveStartX = startX + startGap;
-
-                if (relType === 'FS' || relType === 'SS') effectiveEndX -= endGap;
-                else effectiveEndX += endGap;
-                if (succIsMilestone && (relType === 'FF' || relType === 'SF')) effectiveEndX = endX + endGap - connectionEndPadding;
-
+            relationshipGeometries.forEach(({ relationship: rel, geometry }) => {
                 const isCritical = rel.isCritical;
-                const isDriving = rel.isDriving ?? isCritical; // Driving if marked or critical
+                const isDriving = rel.isDriving ?? isCritical;
                 const baseLineWidth = isCritical ? criticalConnectorWidth : connectorWidth;
                 const enhancedLineWidth = isCritical
                     ? Math.max(1.6, baseLineWidth)
@@ -9662,13 +9591,12 @@ export class Visual implements IVisual {
                 const nonDrivingOpacity = (this.settings?.connectorLines?.nonDrivingOpacity?.value ?? 40) / 100;
                 const nonDrivingLineStyle = this.settings?.connectorLines?.nonDrivingLineStyle?.value?.value ?? 'dashed';
 
-                // Apply opacity - driving lines are full opacity, non-driving are reduced
                 const baseOpacity = this.getConnectorOpacity(rel);
                 ctx.globalAlpha = differentiateDrivers && !isDriving ? baseOpacity * nonDrivingOpacity : baseOpacity;
                 ctx.strokeStyle = isCritical ? criticalColor : connectorColor;
                 ctx.lineWidth = enhancedLineWidth;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
+                ctx.lineCap = 'butt';
+                ctx.lineJoin = 'miter';
 
                 // Phase 2: Set dash pattern for non-driving lines
                 if (differentiateDrivers && !isDriving) {
@@ -9690,110 +9618,23 @@ export class Visual implements IVisual {
                 (ctx as any).imageSmoothingQuality = 'high';
 
                 ctx.beginPath();
-                ctx.moveTo(effectiveStartX, predY);
-
-                const cornerRadius = 8;
-
-                if (Math.abs(predY - succY) < 1) {
-
-                    ctx.lineTo(effectiveEndX, succY);
-                } else {
-
-                    const isGoingDown = succY > predY;
-
-                    switch (relType) {
-                        case 'FS':
-
-                            if (Math.abs(succY - predY) > cornerRadius * 2) {
-                                const verticalEnd = succY - (isGoingDown ? cornerRadius : -cornerRadius);
-
-                                ctx.lineTo(effectiveStartX, verticalEnd);
-                                ctx.arcTo(effectiveStartX, succY, effectiveStartX + cornerRadius, succY, cornerRadius);
-                                ctx.lineTo(effectiveEndX, succY);
-                            } else {
-
-                                ctx.lineTo(effectiveStartX, succY);
-                                ctx.lineTo(effectiveEndX, succY);
-                            }
-                            break;
-                        case 'SS':
-                            const ssOffsetX = Math.min(effectiveStartX, effectiveEndX) - elbowOffset;
-
-                            if (Math.abs(effectiveStartX - ssOffsetX) > cornerRadius &&
-                                Math.abs(succY - predY) > cornerRadius * 2) {
-                                ctx.lineTo(ssOffsetX + cornerRadius, predY);
-                                ctx.arcTo(ssOffsetX, predY, ssOffsetX, predY + (isGoingDown ? cornerRadius : -cornerRadius), cornerRadius);
-                                const vertEnd = succY - (isGoingDown ? cornerRadius : -cornerRadius);
-                                ctx.lineTo(ssOffsetX, vertEnd);
-                                ctx.arcTo(ssOffsetX, succY, ssOffsetX + cornerRadius, succY, cornerRadius);
-                                ctx.lineTo(effectiveEndX, succY);
-                            } else {
-                                ctx.lineTo(ssOffsetX, predY);
-                                ctx.lineTo(ssOffsetX, succY);
-                                ctx.lineTo(effectiveEndX, succY);
-                            }
-                            break;
-                        case 'FF':
-                            const ffOffsetX = Math.max(effectiveStartX, effectiveEndX) + elbowOffset;
-                            if (Math.abs(ffOffsetX - effectiveStartX) > cornerRadius &&
-                                Math.abs(succY - predY) > cornerRadius * 2) {
-                                ctx.lineTo(ffOffsetX - cornerRadius, predY);
-                                ctx.arcTo(ffOffsetX, predY, ffOffsetX, predY + (isGoingDown ? cornerRadius : -cornerRadius), cornerRadius);
-                                const vertEnd = succY - (isGoingDown ? cornerRadius : -cornerRadius);
-                                ctx.lineTo(ffOffsetX, vertEnd);
-                                ctx.arcTo(ffOffsetX, succY, ffOffsetX - cornerRadius, succY, cornerRadius);
-                                ctx.lineTo(effectiveEndX, succY);
-                            } else {
-                                ctx.lineTo(ffOffsetX, predY);
-                                ctx.lineTo(ffOffsetX, succY);
-                                ctx.lineTo(effectiveEndX, succY);
-                            }
-                            break;
-                        case 'SF':
-                            const sfStartOffset = effectiveStartX - elbowOffset;
-                            const sfEndOffset = effectiveEndX + elbowOffset;
-                            const midY = (predY + succY) / 2;
-
-                            if (Math.abs(effectiveStartX - sfStartOffset) > cornerRadius) {
-                                ctx.lineTo(sfStartOffset + cornerRadius, predY);
-                                ctx.arcTo(sfStartOffset, predY, sfStartOffset, midY, cornerRadius);
-                                const mid1 = midY + (predY < midY ? -cornerRadius : cornerRadius);
-                                ctx.lineTo(sfStartOffset, mid1);
-                                ctx.arcTo(sfStartOffset, midY, sfEndOffset, midY, cornerRadius);
-                                ctx.lineTo(sfEndOffset - cornerRadius, midY);
-                                const mid2 = midY + (succY > midY ? cornerRadius : -cornerRadius);
-                                ctx.arcTo(sfEndOffset, midY, sfEndOffset, mid2, cornerRadius);
-                                ctx.lineTo(sfEndOffset, succY - (succY > midY ? cornerRadius : -cornerRadius));
-                                ctx.arcTo(sfEndOffset, succY, effectiveEndX, succY, cornerRadius);
-                                ctx.lineTo(effectiveEndX, succY);
-                            } else {
-
-                                ctx.lineTo(sfStartOffset, predY);
-                                ctx.lineTo(sfStartOffset, midY);
-                                ctx.lineTo(sfEndOffset, midY);
-                                ctx.lineTo(sfEndOffset, succY);
-                                ctx.lineTo(effectiveEndX, succY);
-                            }
-                            break;
-                        default:
-
-                            ctx.lineTo(effectiveStartX, succY);
-                            ctx.lineTo(effectiveEndX, succY);
+                geometry.points.forEach((point, index) => {
+                    if (index === 0) {
+                        ctx.moveTo(point.x, point.y);
+                    } else {
+                        ctx.lineTo(point.x, point.y);
                     }
-                }
+                });
 
                 ctx.stroke();
 
-                // Draw arrowhead at the end point (matching SVG marker-end)
                 ctx.setLineDash([]); // Arrowheads are always solid
                 const arrowSize = this.getConnectorArrowSize();
-                // Determine incoming direction to the end point
-                // The line always arrives at (effectiveEndX, succY) horizontally
-                const arrowDirX = (relType === 'FS' || relType === 'SS') ? -1 : 1;
+                const arrowBaseX = geometry.endX - geometry.arrowDirectionX * arrowSize;
                 ctx.beginPath();
-                ctx.moveTo(effectiveEndX, succY);
-                ctx.lineTo(effectiveEndX + arrowDirX * arrowSize, succY - arrowSize / 2);
-                ctx.lineTo(effectiveEndX + arrowDirX * arrowSize, succY + arrowSize / 2);
+                ctx.moveTo(geometry.endX, geometry.endY);
+                ctx.lineTo(arrowBaseX, geometry.endY - arrowSize / 2);
+                ctx.lineTo(arrowBaseX, geometry.endY + arrowSize / 2);
                 ctx.closePath();
                 ctx.fillStyle = isCritical ? criticalColor : connectorColor;
                 ctx.fill();
@@ -9843,197 +9684,18 @@ export class Visual implements IVisual {
             .style("top", `${yPos}px`);
     }
 
-    private getRelationshipRenderGeometry(
-        rel: Relationship,
-        taskPositions: ReadonlyMap<string, number>,
-        xScale: ScaleTime<number, number>,
-        yScale: ScaleBand<string>,
-        taskHeight: number,
-        milestoneSizeSetting: number,
-        elbowOffset: number,
-        connectionEndPadding: number
-    ): RelationshipRenderGeometry | null {
-        const pred = this.taskIdToTask.get(rel.predecessorId);
-        const succ = this.taskIdToTask.get(rel.successorId);
-        const predYOrder = taskPositions.get(rel.predecessorId);
-        const succYOrder = taskPositions.get(rel.successorId);
-
-        if (!pred || !succ || predYOrder === undefined || succYOrder === undefined) {
-            return null;
-        }
-
-        const predYBandPos = yScale(predYOrder.toString());
-        const succYBandPos = yScale(succYOrder.toString());
-        if (predYBandPos === undefined || succYBandPos === undefined || isNaN(predYBandPos) || isNaN(succYBandPos)) {
-            return null;
-        }
-
-        const predY = predYBandPos + taskHeight / 2;
-        const succY = succYBandPos + taskHeight / 2;
-        const relType = rel.type || 'FS';
-        const predIsMilestone = pred.type === 'TT_Mile' || pred.type === 'TT_FinMile';
-        const succIsMilestone = succ.type === 'TT_Mile' || succ.type === 'TT_FinMile';
-
-        let baseStartDate: Date | null | undefined = null;
-        let baseEndDate: Date | null | undefined = null;
-
-        const predStart = this.getScheduleStart(pred);
-        const predFinish = this.getScheduleFinish(pred);
-        const succStart = this.getScheduleStart(succ);
-        const succFinish = this.getScheduleFinish(succ);
-
-        switch (relType) {
-            case 'FS':
-            case 'FF':
-                baseStartDate = predIsMilestone ? (predStart ?? predFinish) : predFinish;
-                break;
-            case 'SS':
-            case 'SF':
-                baseStartDate = predStart;
-                break;
-        }
-        switch (relType) {
-            case 'FS':
-            case 'SS':
-                baseEndDate = succStart;
-                break;
-            case 'FF':
-            case 'SF':
-                baseEndDate = succIsMilestone ? (succStart ?? succFinish) : succFinish;
-                break;
-        }
-
-        let startX: number | null = null;
-        let endX: number | null = null;
-        if (baseStartDate instanceof Date && !isNaN(baseStartDate.getTime())) {
-            startX = xScale(baseStartDate);
-        }
-        if (baseEndDate instanceof Date && !isNaN(baseEndDate.getTime())) {
-            endX = xScale(baseEndDate);
-        }
-
-        if (startX === null || endX === null || isNaN(startX) || isNaN(endX)) {
-            return null;
-        }
-
-        const milestoneDrawSize = this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
-        const startGap = predIsMilestone ? (milestoneDrawSize / 2 + 3) : 3;
-        const endGap = succIsMilestone ? (milestoneDrawSize / 2 + 3 + connectionEndPadding) : (3 + connectionEndPadding);
-
-        let effectiveStartX = startX;
-        let effectiveEndX = endX;
-
-        if (relType === 'FS' || relType === 'FF') effectiveStartX += startGap;
-        else effectiveStartX -= startGap;
-        if (predIsMilestone && (relType === 'SS' || relType === 'SF')) effectiveStartX = startX + startGap;
-
-        if (relType === 'FS' || relType === 'SS') effectiveEndX -= endGap;
-        else effectiveEndX += endGap;
-        if (succIsMilestone && (relType === 'FF' || relType === 'SF')) effectiveEndX = endX + endGap - connectionEndPadding;
-
-        const pStartX = effectiveStartX;
-        const pStartY = predY;
-        const pEndX = effectiveEndX;
-        const pEndY = succY;
-
-        if (Math.abs(pStartX - pEndX) < elbowOffset && Math.abs(pStartY - pEndY) < 1) {
-            return null;
-        }
-
-        const cornerRadius = 8;
-        let pathData: string;
-
-        if (Math.abs(pStartY - pEndY) < 1) {
-            pathData = `M ${pStartX},${pStartY} H ${pEndX}`;
-        } else {
-            const isGoingDown = pEndY > pStartY;
-
-            switch (relType) {
-                case 'FS':
-                    if (Math.abs(pEndY - pStartY) > cornerRadius * 2) {
-                        const verticalEnd = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
-                        pathData = `M ${pStartX},${pStartY} L ${pStartX},${verticalEnd} Q ${pStartX},${pEndY} ${pStartX + cornerRadius},${pEndY} L ${pEndX},${pEndY}`;
-                    } else {
-                        pathData = `M ${pStartX},${pStartY} V ${pEndY} H ${pEndX}`;
-                    }
-                    break;
-                case 'SS':
-                    const ssOffsetX = Math.min(pStartX, pEndX) - elbowOffset;
-                    if (Math.abs(pStartX - ssOffsetX) > cornerRadius && Math.abs(pEndY - pStartY) > cornerRadius * 2) {
-                        const h1End = ssOffsetX + cornerRadius;
-                        const v1End = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
-                        pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${ssOffsetX},${pStartY} ${ssOffsetX},${pStartY + (isGoingDown ? cornerRadius : -cornerRadius)} L ${ssOffsetX},${v1End} Q ${ssOffsetX},${pEndY} ${h1End},${pEndY} L ${pEndX},${pEndY}`;
-                    } else {
-                        pathData = `M ${pStartX},${pStartY} H ${ssOffsetX} V ${pEndY} H ${pEndX}`;
-                    }
-                    break;
-                case 'FF':
-                    const ffOffsetX = Math.max(pStartX, pEndX) + elbowOffset;
-                    if (Math.abs(ffOffsetX - pStartX) > cornerRadius && Math.abs(pEndY - pStartY) > cornerRadius * 2) {
-                        const h1End = ffOffsetX - cornerRadius;
-                        const v1End = pEndY - (isGoingDown ? cornerRadius : -cornerRadius);
-                        pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${ffOffsetX},${pStartY} ${ffOffsetX},${pStartY + (isGoingDown ? cornerRadius : -cornerRadius)} L ${ffOffsetX},${v1End} Q ${ffOffsetX},${pEndY} ${h1End},${pEndY} L ${pEndX},${pEndY}`;
-                    } else {
-                        pathData = `M ${pStartX},${pStartY} H ${ffOffsetX} V ${pEndY} H ${pEndX}`;
-                    }
-                    break;
-                case 'SF':
-                    const sfStartOffset = pStartX - elbowOffset;
-                    const sfEndOffset = pEndX + elbowOffset;
-                    const midY = (pStartY + pEndY) / 2;
-                    if (Math.abs(pStartX - sfStartOffset) > cornerRadius) {
-                        const h1End = sfStartOffset + cornerRadius;
-                        const v1Start = pStartY + (midY > pStartY ? cornerRadius : -cornerRadius);
-                        const v1End = midY - (midY > pStartY ? cornerRadius : -cornerRadius);
-                        const h2End = sfEndOffset - cornerRadius;
-                        const v2Start = midY + (pEndY > midY ? cornerRadius : -cornerRadius);
-                        const v2End = pEndY - (pEndY > midY ? cornerRadius : -cornerRadius);
-                        pathData = `M ${pStartX},${pStartY} L ${h1End},${pStartY} Q ${sfStartOffset},${pStartY} ${sfStartOffset},${v1Start} L ${sfStartOffset},${v1End} Q ${sfStartOffset},${midY} ${h1End},${midY} L ${h2End},${midY} Q ${sfEndOffset},${midY} ${sfEndOffset},${v2Start} L ${sfEndOffset},${v2End} Q ${sfEndOffset},${pEndY} ${h2End},${pEndY} L ${pEndX},${pEndY}`;
-                    } else {
-                        pathData = `M ${pStartX},${pStartY} H ${sfStartOffset} V ${midY} H ${sfEndOffset} V ${pEndY} H ${pEndX}`;
-                    }
-                    break;
-                default:
-                    pathData = `M ${pStartX},${pStartY} V ${pEndY} H ${pEndX}`;
-            }
-        }
-
-        return {
-            pathData,
-            startX: pStartX,
-            startY: pStartY,
-            endX: pEndX,
-            endY: pEndY
-        };
-    }
-
-    private drawArrows(
+    private getVisibleRelationshipGeometries(
         tasks: Task[],
         xScale: ScaleTime<number, number>,
         yScale: ScaleBand<string>,
-        criticalColor: string,
-        connectorColor: string,
-        connectorWidth: number,
-        criticalConnectorWidth: number,
         taskHeight: number,
         milestoneSizeSetting: number
-
-    ): void {
-
-        if (!this.showConnectorLinesInternal) {
-            if (this.arrowLayer) {
-                this.arrowLayer.selectAll(".relationship-arrow, .connection-dot-start, .connection-dot-end").remove();
-            }
-            return;
-        }
-
-        if (!this.arrowLayer?.node() || !xScale || !yScale) {
-            console.warn("Skipping arrow drawing: Missing layer or invalid scales.");
-            return;
-        }
-
-        const connectionEndPadding = 0;
+    ): Array<{ relationship: Relationship; geometry: ConnectorRenderGeometry }> {
         const elbowOffset = this.settings.connectorLines.elbowOffset.value;
+        const milestoneDrawSize = this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight);
+        const arrowHeadSize = this.getConnectorArrowSize();
+        const xRange = xScale.range();
+        const chartWidth = Math.max(...xRange.map(value => Number.isFinite(value) ? value : 0));
 
         const taskPositions = new Map<string, number>();
         tasks.forEach((task: Task) => {
@@ -10051,10 +9713,84 @@ export class Visual implements IVisual {
                 }
             }
         }
-        // Phase 2: Get driving differentiation settings
+
+        return visibleRelationships
+            .map(rel => {
+                const predecessor = this.taskIdToTask.get(rel.predecessorId);
+                const successor = this.taskIdToTask.get(rel.successorId);
+                const predecessorYOrder = taskPositions.get(rel.predecessorId);
+                const successorYOrder = taskPositions.get(rel.successorId);
+
+                if (!predecessor || !successor || predecessorYOrder === undefined || successorYOrder === undefined) {
+                    return null;
+                }
+
+                const predecessorYBandPos = yScale(predecessorYOrder.toString());
+                const successorYBandPos = yScale(successorYOrder.toString());
+                if (
+                    predecessorYBandPos === undefined ||
+                    successorYBandPos === undefined ||
+                    isNaN(predecessorYBandPos) ||
+                    isNaN(successorYBandPos)
+                ) {
+                    return null;
+                }
+
+                const geometry = getConnectorRenderGeometry({
+                    relationship: rel,
+                    predecessor,
+                    successor,
+                    predecessorY: predecessorYBandPos + taskHeight / 2,
+                    successorY: successorYBandPos + taskHeight / 2,
+                    xScale: (date: Date) => xScale(date),
+                    currentBarDateMode: this.getCurrentBarDateMode(),
+                    dataDate: this.dataDate,
+                    taskHeight,
+                    milestoneSize: milestoneDrawSize,
+                    elbowOffset,
+                    arrowHeadSize,
+                    chartWidth
+                });
+
+                return geometry ? { relationship: rel, geometry } : null;
+            })
+            .filter((entry): entry is { relationship: Relationship; geometry: ConnectorRenderGeometry } => entry !== null);
+    }
+
+    private drawArrows(
+        tasks: Task[],
+        xScale: ScaleTime<number, number>,
+        yScale: ScaleBand<string>,
+        criticalColor: string,
+        connectorColor: string,
+        connectorWidth: number,
+        criticalConnectorWidth: number,
+        taskHeight: number,
+        milestoneSizeSetting: number
+
+    ): void {
+
+        if (!this.showConnectorLinesInternal) {
+            if (this.arrowLayer) {
+                this.arrowLayer.selectAll(".relationship-arrow, .relationship-arrowhead, .connection-dot-start, .connection-dot-end").remove();
+            }
+            return;
+        }
+
+        if (!this.arrowLayer?.node() || !xScale || !yScale) {
+            console.warn("Skipping arrow drawing: Missing layer or invalid scales.");
+            return;
+        }
+
         const differentiateDrivers = this.settings?.connectorLines?.differentiateDrivers?.value ?? true;
         const nonDrivingOpacity = (this.settings?.connectorLines?.nonDrivingOpacity?.value ?? 40) / 100;
         const nonDrivingLineStyle = this.settings?.connectorLines?.nonDrivingLineStyle?.value?.value ?? 'dashed';
+
+        const getRelationshipOpacity = (rel: Relationship): number => {
+            const isDriving = rel.isDriving ?? rel.isCritical;
+            const baseOpacity = this.getConnectorOpacity(rel);
+            return differentiateDrivers && !isDriving ? baseOpacity * nonDrivingOpacity : baseOpacity;
+        };
 
         // Helper to get dash array for SVG
         const getDashArray = (rel: Relationship): string => {
@@ -10067,23 +9803,15 @@ export class Visual implements IVisual {
             }
         };
 
-        const relationshipGeometries = visibleRelationships
-            .map(rel => ({
-                relationship: rel,
-                geometry: this.getRelationshipRenderGeometry(
-                    rel,
-                    taskPositions,
-                    xScale,
-                    yScale,
-                    taskHeight,
-                    milestoneSizeSetting,
-                    elbowOffset,
-                    connectionEndPadding
-                )
-            }))
-            .filter((entry): entry is { relationship: Relationship; geometry: RelationshipRenderGeometry } => entry.geometry !== null);
+        const relationshipGeometries = this.getVisibleRelationshipGeometries(
+            tasks,
+            xScale,
+            yScale,
+            taskHeight,
+            milestoneSizeSetting
+        );
 
-        this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship; geometry: RelationshipRenderGeometry }>(".relationship-arrow")
+        this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship; geometry: ConnectorRenderGeometry }>(".relationship-arrow")
             .data(relationshipGeometries, d => getRelationshipIdentityKey(d.relationship))
             .join(
                 enter => enter.append("path"),
@@ -10096,24 +9824,38 @@ export class Visual implements IVisual {
             })
             .attr("fill", "none")
             .attr("stroke", (d) => d.relationship.isCritical ? criticalColor : connectorColor)
-            .attr("stroke-opacity", (d) => {
-                const isDriving = d.relationship.isDriving ?? d.relationship.isCritical;
-                const baseOpacity = this.getConnectorOpacity(d.relationship);
-                return differentiateDrivers && !isDriving ? baseOpacity * nonDrivingOpacity : baseOpacity;
-            })
+            .attr("stroke-opacity", (d) => getRelationshipOpacity(d.relationship))
             .attr("stroke-width", (d) => {
                 const baseWidth = d.relationship.isCritical ? criticalConnectorWidth : connectorWidth;
                 return d.relationship.isCritical ? Math.max(1.6, baseWidth) : Math.max(1, baseWidth);
             })
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round")
+            .attr("stroke-linecap", "butt")
+            .attr("stroke-linejoin", "miter")
             .attr("stroke-dasharray", (d) => getDashArray(d.relationship))
-            .attr("marker-end", (d) => d.relationship.isCritical
-                ? this.getScopedUrlRef("arrowhead-critical")
-                : this.getScopedUrlRef("arrowhead"))
+            .attr("marker-end", null)
             .attr("d", d => d.geometry.pathData);
 
-        this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship; geometry: RelationshipRenderGeometry }>(".connection-dot-start")
+        const arrowSize = this.getConnectorArrowSize();
+        this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship; geometry: ConnectorRenderGeometry }>(".relationship-arrowhead")
+            .data(relationshipGeometries, d => getRelationshipIdentityKey(d.relationship))
+            .join(
+                enter => enter.append("path"),
+                update => update,
+                exit => exit.remove()
+            )
+            .attr("class", d => {
+                const isDriving = d.relationship.isDriving ?? d.relationship.isCritical;
+                return `relationship-arrowhead ${d.relationship.isCritical ? "critical" : "normal"} ${isDriving ? "driving" : "non-driving"}`;
+            })
+            .attr("d", d => {
+                const arrowBaseX = d.geometry.endX - d.geometry.arrowDirectionX * arrowSize;
+                return `M ${d.geometry.endX},${d.geometry.endY} L ${arrowBaseX},${d.geometry.endY - arrowSize / 2} L ${arrowBaseX},${d.geometry.endY + arrowSize / 2} Z`;
+            })
+            .attr("fill", d => d.relationship.isCritical ? criticalColor : connectorColor)
+            .attr("fill-opacity", d => getRelationshipOpacity(d.relationship))
+            .style("pointer-events", "none");
+
+        this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship; geometry: ConnectorRenderGeometry }>(".connection-dot-start")
             .data(relationshipGeometries, d => getRelationshipIdentityKey(d.relationship))
             .join(
                 enter => enter.append("circle").attr("class", "connection-dot-start"),
@@ -10127,7 +9869,7 @@ export class Visual implements IVisual {
             .style("fill-opacity", 0)
             .style("pointer-events", "none");
 
-        this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship; geometry: RelationshipRenderGeometry }>(".connection-dot-end")
+        this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship; geometry: ConnectorRenderGeometry }>(".connection-dot-end")
             .data(relationshipGeometries, d => getRelationshipIdentityKey(d.relationship))
             .join(
                 enter => enter.append("circle").attr("class", "connection-dot-end"),
@@ -14151,6 +13893,7 @@ export class Visual implements IVisual {
                 const taskGeometry = this.getTaskBarGeometry(task);
                 const visualStart = taskGeometry.extentStart;
                 const visualFinish = taskGeometry.extentFinish;
+                const criticalFormattingExtent = getCriticalFormattingExtentFromTaskBarGeometry(taskGeometry);
 
                 // Filter out invalid or extremely old dates (likely placeholders)
                 const isValidStart = visualStart && visualStart.getFullYear() > 1980;
@@ -14175,21 +13918,25 @@ export class Visual implements IVisual {
 
                 if (task.isCritical) {
                     hasCritical = true;
-                    if (visualStart && (!criticalMinStart || visualStart < criticalMinStart)) {
-                        criticalMinStart = visualStart;
+                    if (criticalFormattingExtent.start && criticalFormattingExtent.start.getFullYear() > 1980 &&
+                        (!criticalMinStart || criticalFormattingExtent.start < criticalMinStart)) {
+                        criticalMinStart = criticalFormattingExtent.start;
                     }
-                    if (visualFinish && (!criticalMaxFinish || visualFinish > criticalMaxFinish)) {
-                        criticalMaxFinish = visualFinish;
+                    if (criticalFormattingExtent.finish && criticalFormattingExtent.finish.getFullYear() > 1980 &&
+                        (!criticalMaxFinish || criticalFormattingExtent.finish > criticalMaxFinish)) {
+                        criticalMaxFinish = criticalFormattingExtent.finish;
                     }
                 }
 
                 if (task.isNearCritical) {
                     hasNearCritical = true;
-                    if (visualStart && (!nearCriticalMinStart || visualStart < nearCriticalMinStart)) {
-                        nearCriticalMinStart = visualStart;
+                    if (criticalFormattingExtent.start && criticalFormattingExtent.start.getFullYear() > 1980 &&
+                        (!nearCriticalMinStart || criticalFormattingExtent.start < nearCriticalMinStart)) {
+                        nearCriticalMinStart = criticalFormattingExtent.start;
                     }
-                    if (visualFinish && (!nearCriticalMaxFinish || visualFinish > nearCriticalMaxFinish)) {
-                        nearCriticalMaxFinish = visualFinish;
+                    if (criticalFormattingExtent.finish && criticalFormattingExtent.finish.getFullYear() > 1980 &&
+                        (!nearCriticalMaxFinish || criticalFormattingExtent.finish > nearCriticalMaxFinish)) {
+                        nearCriticalMaxFinish = criticalFormattingExtent.finish;
                     }
                 }
 
@@ -14431,6 +14178,7 @@ export class Visual implements IVisual {
         const indentPerLevel = this.settings.wbsGrouping.indentPerLevel.value;
         // const currentLeftMargin = this.getEffectiveLeftMargin(); // Use passed argument!
         const taskNameFontSize = this.settings.textAndLabels.taskNameFontSize.value;
+        const taskBarHeight = this.settings.taskBars.taskBarHeight.value;
 
         const groupNameFontSizeSetting = this.settings.wbsGrouping.groupNameFontSize?.value ?? 0;
         const groupNameFontSizePt = groupNameFontSizeSetting > 0 ? groupNameFontSizeSetting : taskNameFontSize + 1;
@@ -14568,33 +14316,49 @@ export class Visual implements IVisual {
                 const startX = Math.round(xScale(group.summaryStartDate));
                 const finishX = Math.round(xScale(group.summaryFinishDate));
                 const barWidth = Math.round(Math.max(2, finishX - startX));
-                const barHeight = Math.max(2, taskHeight * (isCollapsed ? 0.42 : 0.18));
+                const collapsedBarHeight = Math.max(2, taskHeight * 0.42);
+                const expandedBarHeight = Math.max(3, Math.min(4, taskBarHeight * 0.3));
+                const barHeight = isCollapsed ? collapsedBarHeight : expandedBarHeight;
                 const barY = Math.round(bandCenter - barHeight / 2);
-                const barRadius = Math.min(5, Math.max(2, barHeight / 2));
+                const barRadius = isCollapsed ? Math.min(5, Math.max(2, barHeight / 2)) : 0;
 
-                const baseOpacity = self.highContrastMode ? 1 : (isCollapsed ? 0.66 : 0.18);
+                const expandedSummaryLineColor = self.highContrastMode
+                    ? summaryFillColor
+                    : self.blendColors(self.getSoftOutlineColor(summaryFillColor), "#1F2937", 0.42);
+                const mainSummaryFillColor = isCollapsed ? summaryFillColor : expandedSummaryLineColor;
+                const mainSummaryStrokeColor = isCollapsed ? summaryStrokeColor : expandedSummaryLineColor;
+                const mainSummaryStrokeWidth = isCollapsed ? 1 : Math.max(1.4, Math.min(2, barHeight * 0.5));
+                const baseOpacity = self.highContrastMode ? 1 : (isCollapsed ? 0.66 : 0.94);
                 const barOpacity = (group.visibleTaskCount === 0)
                     ? baseOpacity * (isCollapsed ? 0.5 : 0.35)
                     : baseOpacity;
+                const comparisonBarOpacity = self.highContrastMode
+                    ? 1
+                    : (isCollapsed ? barOpacity : Math.min(0.42, barOpacity * 0.5));
                 const summarySemanticOpacity = self.highContrastMode
                     ? 1
                     : (group.visibleTaskCount === 0
-                        ? Math.min(0.48, barOpacity + 0.1)
-                        : (isCollapsed ? Math.min(0.7, barOpacity + 0.06) : Math.min(0.36, barOpacity + 0.16)));
+                        ? (isCollapsed ? Math.min(0.48, barOpacity + 0.1) : Math.min(0.7, barOpacity + 0.22))
+                        : (isCollapsed ? Math.min(0.7, barOpacity + 0.06) : 0.98));
+                const semanticBarHeight = isCollapsed ? barHeight : Math.max(1.5, Math.min(2, barHeight * 0.52));
+                const semanticBarY = isCollapsed ? barY : barY;
+                const semanticBarRadius = isCollapsed ? barRadius : 0;
+                const summaryOverlayHeight = isCollapsed ? barHeight : Math.max(1, Math.min(2, barHeight * 0.5));
+                const summaryOverlayY = isCollapsed ? barY : barY + barHeight - summaryOverlayHeight;
 
                 const prevBarHeight = isCollapsed
                     ? previousUpdateHeight
-                    : Math.max(1, Math.min(previousUpdateHeight, barHeight * 0.7));
+                    : Math.max(1, Math.min(2, previousUpdateHeight, barHeight * 0.45));
                 const prevOffset = isCollapsed
                     ? previousUpdateOffset
-                    : Math.max(1, Math.min(previousUpdateOffset, barHeight * 0.6));
+                    : Math.max(1, Math.min(previousUpdateOffset, barHeight * 0.75));
                 const prevRadius = Math.min(3, prevBarHeight / 2);
                 const baselineBarHeight = isCollapsed
                     ? baselineHeight
-                    : Math.max(1, Math.min(baselineHeight, barHeight * 0.7));
+                    : Math.max(1, Math.min(2, baselineHeight, barHeight * 0.45));
                 const baselineOffsetEff = isCollapsed
                     ? baselineOffset
-                    : Math.max(1, Math.min(baselineOffset, barHeight * 0.6));
+                    : Math.max(1, Math.min(baselineOffset, barHeight * 0.75));
                 const baselineRadius = Math.min(3, baselineBarHeight / 2);
 
                 if (showPreviousUpdate &&
@@ -14614,7 +14378,7 @@ export class Visual implements IVisual {
                         .attr('rx', prevRadius)
                         .attr('ry', prevRadius)
                         .style('fill', previousUpdateColor)
-                        .style('opacity', barOpacity);
+                        .style('opacity', comparisonBarOpacity);
                 }
 
                 if (showBaseline &&
@@ -14636,7 +14400,7 @@ export class Visual implements IVisual {
                         .attr('rx', baselineRadius)
                         .attr('ry', baselineRadius)
                         .style('fill', baselineColor)
-                        .style('opacity', barOpacity);
+                        .style('opacity', comparisonBarOpacity);
                 }
 
                 const enableOverride = self.settings.dataDateColorOverride.enableP6Style.value;
@@ -14646,8 +14410,8 @@ export class Visual implements IVisual {
                     .attr('class', 'wbs-summary-bar')
                     .attr('x', startX).attr('y', barY).attr('width', barWidth).attr('height', barHeight)
                     .attr('rx', barRadius).attr('ry', barRadius)
-                    .style('fill', summaryFillColor).style('opacity', barOpacity)
-                    .style('stroke', summaryStrokeColor).style('stroke-width', isCollapsed ? 1 : 0.7);
+                    .style('fill', mainSummaryFillColor).style('opacity', barOpacity)
+                    .style('stroke', mainSummaryStrokeColor).style('stroke-width', mainSummaryStrokeWidth);
 
                 const summaryOverlay = self.getBeforeDataDateOverlay(
                     group.summaryStartDate,
@@ -14660,17 +14424,17 @@ export class Visual implements IVisual {
                 if (summaryOverlay) {
                     barsGroup.append('path')
                         .attr('class', 'wbs-summary-bar-before-data-date')
-                        .attr('d', self.getRoundedRectPath(summaryOverlay.x, barY, summaryOverlay.width, barHeight, summaryOverlay.corners))
+                        .attr('d', self.getRoundedRectPath(summaryOverlay.x, summaryOverlayY, summaryOverlay.width, summaryOverlayHeight, isCollapsed ? summaryOverlay.corners : { tl: 0, tr: 0, br: 0, bl: 0 }))
                         .style('fill', overrideColor)
-                        .style('opacity', barOpacity);
+                        .style('opacity', isCollapsed ? barOpacity : Math.min(0.75, barOpacity));
 
                     if (summaryOverlay.dividerX !== null && summaryOverlay.dividerX > startX + 1 && summaryOverlay.dividerX < finishX - 1) {
                         barsGroup.append('line')
                             .attr('class', 'wbs-summary-bar-divider')
                             .attr('x1', summaryOverlay.dividerX)
                             .attr('x2', summaryOverlay.dividerX)
-                            .attr('y1', barY + 1)
-                            .attr('y2', barY + barHeight - 1)
+                            .attr('y1', summaryOverlayY)
+                            .attr('y2', summaryOverlayY + summaryOverlayHeight)
                             .style('stroke', self.toRgba(self.getSoftOutlineColor(overrideColor), 0.6))
                             .style('stroke-width', 1)
                             .style('opacity', barOpacity);
@@ -14678,16 +14442,44 @@ export class Visual implements IVisual {
                 }
 
                 if (barWidth > 6) {
-                    const capRadius = Math.min(3, Math.max(1.5, barHeight / 3));
-                    const capOpacity = isCollapsed ? Math.min(0.62, barOpacity + 0.05) : Math.min(0.28, barOpacity + 0.08);
-                    const diamondSize = Math.max(5, Math.min(8, barHeight + 2));
-                    barsGroup.append('circle').attr('class', 'wbs-summary-cap-start')
-                        .attr('cx', startX).attr('cy', barY + barHeight / 2).attr('r', capRadius)
-                        .style('fill', summaryCapColor).style('opacity', capOpacity);
-                    barsGroup.append('path').attr('class', 'wbs-summary-cap-end')
-                        .attr('d', `M 0,-${diamondSize / 2} L ${diamondSize / 2},0 L 0,${diamondSize / 2} L -${diamondSize / 2},0 Z`)
-                        .attr('transform', `translate(${finishX}, ${barY + barHeight / 2})`)
-                        .style('fill', summaryCapColor).style('opacity', capOpacity);
+                    if (isCollapsed) {
+                        const capRadius = Math.min(3, Math.max(1.5, barHeight / 3));
+                        const capOpacity = Math.min(0.62, barOpacity + 0.05);
+                        const diamondSize = Math.max(5, Math.min(8, barHeight + 2));
+                        barsGroup.append('circle').attr('class', 'wbs-summary-cap-start')
+                            .attr('cx', startX).attr('cy', barY + barHeight / 2).attr('r', capRadius)
+                            .style('fill', summaryCapColor).style('opacity', capOpacity);
+                        barsGroup.append('path').attr('class', 'wbs-summary-cap-end')
+                            .attr('d', `M 0,-${diamondSize / 2} L ${diamondSize / 2},0 L 0,${diamondSize / 2} L -${diamondSize / 2},0 Z`)
+                            .attr('transform', `translate(${finishX}, ${barY + barHeight / 2})`)
+                            .style('fill', summaryCapColor).style('opacity', capOpacity);
+                    } else {
+                        const capHeight = Math.max(8, Math.min(taskHeight * 0.72, barHeight + 8));
+                        const capY = Math.round(bandCenter - capHeight / 2);
+                        const capWidth = Math.max(3, Math.min(7, barWidth / 4));
+                        const capStrokeWidth = Math.max(1.5, Math.min(2.25, barHeight * 0.55));
+                        const capOpacity = Math.min(1, barOpacity + 0.08);
+                        const expandedCapColor = expandedSummaryLineColor;
+                        const startCapPath = `M ${startX + capWidth},${capY} H ${startX} V ${capY + capHeight} H ${startX + capWidth}`;
+                        const finishCapPath = `M ${finishX - capWidth},${capY} H ${finishX} V ${capY + capHeight} H ${finishX - capWidth}`;
+
+                        barsGroup.append('path').attr('class', 'wbs-summary-bracket-start')
+                            .attr('d', startCapPath)
+                            .style('fill', 'none')
+                            .style('stroke', expandedCapColor)
+                            .style('stroke-width', capStrokeWidth)
+                            .style('stroke-linecap', 'square')
+                            .style('stroke-linejoin', 'miter')
+                            .style('opacity', capOpacity);
+                        barsGroup.append('path').attr('class', 'wbs-summary-bracket-end')
+                            .attr('d', finishCapPath)
+                            .style('fill', 'none')
+                            .style('stroke', expandedCapColor)
+                            .style('stroke-width', capStrokeWidth)
+                            .style('stroke-linecap', 'square')
+                            .style('stroke-linejoin', 'miter')
+                            .style('opacity', capOpacity);
+                    }
                 }
 
                 // Near Critical
@@ -14707,9 +14499,9 @@ export class Visual implements IVisual {
                         const forceSquareStart = enableOverride && dataDate && effectiveNearStart.getTime() === dataDate.getTime();
 
                         barsGroup.append('rect').attr('class', 'wbs-summary-bar-near-critical')
-                            .attr('x', nearStartX).attr('y', barY).attr('width', nearWidth).attr('height', barHeight)
-                            .attr('rx', (nearStartsAtBeginning && !forceSquareStart) || nearEndsAtEnd ? barRadius : 0)
-                            .attr('ry', (nearStartsAtBeginning && !forceSquareStart) || nearEndsAtEnd ? barRadius : 0)
+                            .attr('x', nearStartX).attr('y', semanticBarY).attr('width', nearWidth).attr('height', semanticBarHeight)
+                            .attr('rx', (nearStartsAtBeginning && !forceSquareStart) || nearEndsAtEnd ? semanticBarRadius : 0)
+                            .attr('ry', (nearStartsAtBeginning && !forceSquareStart) || nearEndsAtEnd ? semanticBarRadius : 0)
                             .style('fill', nearCriticalColor).style('opacity', summarySemanticOpacity);
                     }
                 }
@@ -14728,9 +14520,9 @@ export class Visual implements IVisual {
                         const forceSquareStart = enableOverride && dataDate && effectiveCriticalStart.getTime() === dataDate.getTime();
 
                         barsGroup.append('rect').attr('class', 'wbs-summary-bar-critical')
-                            .attr('x', criticalStartX).attr('y', barY).attr('width', criticalWidth).attr('height', barHeight)
-                            .attr('rx', (criticalStartsAtBeginning && !forceSquareStart) || criticalEndsAtEnd ? barRadius : 0)
-                            .attr('ry', (criticalStartsAtBeginning && !forceSquareStart) || criticalEndsAtEnd ? barRadius : 0)
+                            .attr('x', criticalStartX).attr('y', semanticBarY).attr('width', criticalWidth).attr('height', semanticBarHeight)
+                            .attr('rx', (criticalStartsAtBeginning && !forceSquareStart) || criticalEndsAtEnd ? semanticBarRadius : 0)
+                            .attr('ry', (criticalStartsAtBeginning && !forceSquareStart) || criticalEndsAtEnd ? semanticBarRadius : 0)
                             .style('fill', criticalPathColor).style('opacity', summarySemanticOpacity);
                     }
                 }
@@ -15464,19 +15256,19 @@ export class Visual implements IVisual {
         const secondRowLayout = this.getSecondRowLayout(viewportWidth);
         const layoutMode = this.getLayoutMode(viewportWidth);
         const isCompact = layoutMode === "narrow";
-        const isMedium = layoutMode === "medium";
 
-        const labelBackward = isCompact ? "Back" : (isMedium ? "Backward" : "Trace Backward");
-        const labelForward = isCompact ? "Fwd" : (isMedium ? "Forward" : "Trace Forward");
+        const labelBackward = isCompact ? "Back" : "Backward";
+        const labelForward = isCompact ? "Fwd" : "Forward";
         const configuredMode = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
         const currentMode = this.normalizeTraceMode(this.traceMode || configuredMode);
         const secondRowControlTop = this.getSecondRowControlTop(UI_TOKENS.height.compact);
         const controlBackground = this.getHeaderLegendControlBackgroundColor();
         const textColor = this.getHeaderLegendTextColor();
-        const mutedTextColor = this.getHeaderLegendMutedTextColor();
         const borderColor = this.getHeaderLegendBorderColor();
         const activeColor = this.getHeaderLegendActiveColor();
         const hoverBackground = this.getHeaderLegendMenuHoverColor();
+        const activeBackground = this.highContrastMode ? "transparent" : this.toRgba(activeColor, 0.14);
+        const activeHoverBackground = this.highContrastMode ? "transparent" : this.toRgba(activeColor, 0.2);
         this.traceMode = currentMode;
 
         let container = this.stickyHeaderContainer.select<HTMLDivElement>(".trace-mode-toggle");
@@ -15497,13 +15289,13 @@ export class Visual implements IVisual {
             .style("display", "inline-flex")
             .style("align-items", "center")
             .style("height", `${UI_TOKENS.height.compact}px`) // 24px
-            .style("padding", "0 2px")
-            .style("gap", "2px")
+            .style("padding", "1px")
+            .style("gap", "0")
             .style("background-color", controlBackground)
             .style("border", `1px solid ${borderColor}`)
-            .style("border-radius", `${UI_TOKENS.radius.pill}px`)
+            .style("border-radius", `${UI_TOKENS.radius.medium}px`)
             .style("box-sizing", "border-box")
-            .style("box-shadow", HEADER_DOCK_TOKENS.shadow)
+            .style("box-shadow", "none")
             .style("z-index", "25")
             .style("user-select", "none");
 
@@ -15535,20 +15327,23 @@ export class Visual implements IVisual {
             {
                 value: "backward",
                 title: "Trace backward from the selected task",
-                path: "M 10 3 L 4 8 L 10 13" // Left arrow
+                path: "M 9.5 4 L 5.5 8 L 9.5 12 M 5.75 8 H 12"
             },
             {
                 value: "forward",
                 title: "Trace forward from the selected task",
-                path: "M 6 3 L 12 8 L 6 13" // Right arrow
+                path: "M 6.5 4 L 10.5 8 L 6.5 12 M 4 8 H 10.25"
             }
         ];
 
         for (const option of options) {
             const isActive = option.value === currentMode;
             const optionLabel = option.value === "backward" ? labelBackward : labelForward;
-            const buttonWidth = Math.floor((secondRowLayout.traceModeToggle.width - 6) / 2);
-            const buttonHeight = UI_TOKENS.height.compact - 6;
+            const buttonWidth = Math.floor((secondRowLayout.traceModeToggle.width - 4) / 2);
+            const buttonHeight = UI_TOKENS.height.compact - 4;
+            const borderRadius = option.value === "backward"
+                ? `${UI_TOKENS.radius.small}px 0 0 ${UI_TOKENS.radius.small}px`
+                : `0 ${UI_TOKENS.radius.small}px ${UI_TOKENS.radius.small}px 0`;
 
             const button = container.append("div")
                 .attr("class", `trace-mode-option ${option.value}`)
@@ -15559,31 +15354,33 @@ export class Visual implements IVisual {
                 .style("display", "flex")
                 .style("align-items", "center")
                 .style("justify-content", "center")
-                .style("gap", isCompact ? "0" : "4px")
+                .style("gap", isCompact ? "0" : "5px")
                 .style("width", `${buttonWidth}px`)
                 .style("height", `${buttonHeight}px`)
-                .style("border-radius", `${UI_TOKENS.radius.pill}px`)
-                .style("background-color", "transparent")
-                .style("border", `1px solid ${isActive ? activeColor : borderColor}`)
+                .style("border-radius", borderRadius)
+                .style("background-color", isActive ? activeBackground : "transparent")
+                .style("border", "none")
+                .style("border-left", option.value === "forward" ? `1px solid ${borderColor}` : "none")
                 .style("box-sizing", "border-box")
-                .style("color", isActive ? activeColor : mutedTextColor)
+                .style("color", isActive ? activeColor : textColor)
                 .style("cursor", "pointer")
-                .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
+                .style("transition", `background-color ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}, color ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
                 .style("font-family", this.getFontFamily())
                 .style("font-size", this.fontPxFromPtSetting(8))
-                .style("font-weight", "600");
+                .style("font-weight", isActive ? "700" : "600");
 
             const svg = button.append("svg")
-                .attr("width", "16")
-                .attr("height", "16")
+                .attr("width", "14")
+                .attr("height", "14")
                 .attr("viewBox", "0 0 16 16")
+                .style("flex", "0 0 auto")
                 .style("display", "block");
 
             svg.append("path")
                 .attr("d", option.path)
                 .attr("fill", "none")
-                .attr("stroke", isActive ? activeColor : mutedTextColor)
-                .attr("stroke-width", "2")
+                .attr("stroke", isActive ? activeColor : textColor)
+                .attr("stroke-width", "1.8")
                 .attr("stroke-linecap", "round")
                 .attr("stroke-linejoin", "round");
 
@@ -15591,6 +15388,7 @@ export class Visual implements IVisual {
                 button.append("span")
                     .style("pointer-events", "none")
                     .style("white-space", "nowrap")
+                    .style("line-height", "1")
                     .text(optionLabel);
             }
 
@@ -15598,22 +15396,20 @@ export class Visual implements IVisual {
 
             button
                 .on("mouseover", function () {
-                    if (option.value !== self.traceMode) {
-                        d3.select(this)
-                            .style("background-color", hoverBackground)
-                            .style("color", textColor);
-                        d3.select(this).select("path")
-                            .attr("stroke", textColor);
-                    }
+                    d3.select(this)
+                        .style("background-color", option.value === self.traceMode ? activeHoverBackground : hoverBackground)
+                        .style("color", option.value === self.traceMode ? activeColor : textColor);
+                    d3.select(this).select("path")
+                        .attr("stroke", option.value === self.traceMode ? activeColor : textColor);
                 })
                 .on("mouseout", function () {
-                    if (option.value !== self.traceMode) {
-                        d3.select(this)
-                            .style("background-color", "transparent")
-                            .style("color", mutedTextColor);
-                        d3.select(this).select("path")
-                            .attr("stroke", mutedTextColor);
-                    }
+                    const isCurrent = option.value === self.traceMode;
+                    d3.select(this)
+                        .style("background-color", isCurrent ? activeBackground : "transparent")
+                        .style("color", isCurrent ? activeColor : textColor)
+                        .style("font-weight", isCurrent ? "700" : "600");
+                    d3.select(this).select("path")
+                        .attr("stroke", isCurrent ? activeColor : textColor);
                 })
                 .on("click", function (event) {
                     event.stopPropagation();
@@ -16816,7 +16612,7 @@ export class Visual implements IVisual {
     }
 
     private shouldApplyCriticalFormatToSegment(segment: TaskBarSegment): boolean {
-        return segment.kind !== "started";
+        return shouldApplyCriticalFormatToTaskBarSegment(segment);
     }
 
     private getCriticalFormatTask(task: Task, applyCriticalFormat: boolean): CriticalTaskLike {

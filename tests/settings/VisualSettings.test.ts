@@ -187,10 +187,16 @@ describe("VisualSettings", () => {
         const taskDropdownSource = slice(visualSource, "private renderTaskDropdown(searchText: string)", "private openDropdown()");
         const legendSource = slice(visualSource, "private renderLegend(viewportWidth: number)", "private hexToRgb");
         expect(traceModeSource).toContain("const activeColor = this.getHeaderLegendActiveColor();");
-        expect(traceModeSource).toContain('.style("background-color", "transparent")');
+        expect(traceModeSource).toContain('const labelBackward = isCompact ? "Back" : "Backward";');
+        expect(traceModeSource).toContain('const labelForward = isCompact ? "Fwd" : "Forward";');
+        expect(traceModeSource).toContain("const activeBackground = this.highContrastMode ? \"transparent\" : this.toRgba(activeColor, 0.14);");
         expect(traceModeSource).toContain("const borderColor = this.getHeaderLegendBorderColor();");
-        expect(traceModeSource).toContain('.style("border", `1px solid ${isActive ? activeColor : borderColor}`)');
+        expect(traceModeSource).toContain('.style("box-shadow", "none")');
+        expect(traceModeSource).toContain('.style("background-color", isActive ? activeBackground : "transparent")');
+        expect(traceModeSource).toContain('.style("border", "none")');
+        expect(traceModeSource).toContain('.style("border-left", option.value === "forward" ? `1px solid ${borderColor}` : "none")');
         expect(traceModeSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+        expect(traceModeSource).not.toContain("HEADER_DOCK_TOKENS.shadow");
         expect(taskDropdownSource).toContain("const activeColor = this.getHeaderLegendActiveColor();");
         expect(taskDropdownSource).toContain("const defaultBg = menuBackground;");
         expect(taskDropdownSource).not.toContain("HEADER_DOCK_TOKENS.menuActive");
@@ -257,6 +263,7 @@ describe("VisualSettings", () => {
 
         const constructorChromeSource = slice(visualSource, 'this.selectedTaskLabel = this.stickyHeaderContainer.append("div")', 'this.scrollableContainer = this.visualWrapper.append("div")');
         const taskDropdownSource = slice(visualSource, "private createpathSelectionDropdown(): void", "private createTraceModeToggle(): void");
+        const traceModeSource = slice(visualSource, "private createTraceModeToggle(): void", "private populateTaskDropdown(): void");
         const lookAheadWrapperSource = slice(headerSource, '.upsertDiv("look-ahead-control-wrapper")', "if (!isCompact)");
         const floatThresholdSource = slice(headerSource, "private createFloatThresholdControl(): void", "private createModeToggleButton(): void");
         const taskSelectionListStyle = slice(styleSource, ".task-selection-list {", ".selected-task-label {");
@@ -266,6 +273,8 @@ describe("VisualSettings", () => {
         expect(taskDropdownSource).toContain('.style("box-shadow", "none")');
         expect(taskDropdownSource).not.toContain("HEADER_DOCK_TOKENS.shadow");
         expect(taskDropdownSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
+        expect(traceModeSource).toContain('.style("box-shadow", "none")');
+        expect(traceModeSource).not.toContain("HEADER_DOCK_TOKENS.shadow");
         expect(lookAheadWrapperSource).toContain('.style("box-shadow", "none")');
         expect(lookAheadWrapperSource).not.toContain("this.getHeaderShadow()");
         expect(floatThresholdSource).toContain('.style("box-shadow", "none")');
@@ -590,10 +599,23 @@ describe("VisualSettings", () => {
         expect(drawWbsSource).toContain("const badgeTextColor = wbsTextColor;");
         expect(drawWbsSource).toContain("fill: string = summaryTextColor");
         expect(drawWbsSource).toContain("const summaryFillColor = self.blendColors(groupSummaryColor, accentColor, 0.9);");
-        expect(drawWbsSource).toContain("taskHeight * (isCollapsed ? 0.42 : 0.18)");
-        expect(drawWbsSource).toContain("const baseOpacity = self.highContrastMode ? 1 : (isCollapsed ? 0.66 : 0.18);");
+        expect(drawWbsSource).toContain("const collapsedBarHeight = Math.max(2, taskHeight * 0.42);");
+        expect(drawWbsSource).toContain("const expandedBarHeight = Math.max(3, Math.min(4, taskBarHeight * 0.3));");
+        expect(drawWbsSource).toContain("const expandedSummaryLineColor = self.highContrastMode");
+        expect(drawWbsSource).toContain("const mainSummaryFillColor = isCollapsed ? summaryFillColor : expandedSummaryLineColor;");
+        expect(drawWbsSource).toContain("const baseOpacity = self.highContrastMode ? 1 : (isCollapsed ? 0.66 : 0.94);");
+        expect(drawWbsSource).toContain("const comparisonBarOpacity = self.highContrastMode");
         expect(drawWbsSource).toContain("const summarySemanticOpacity = self.highContrastMode");
-        expect(drawWbsSource).toContain(".style('stroke-width', isCollapsed ? 1 : 0.7)");
+        expect(drawWbsSource).toContain("const semanticBarHeight = isCollapsed ? barHeight : Math.max(1.5, Math.min(2, barHeight * 0.52));");
+        expect(drawWbsSource).toContain("const summaryOverlayHeight = isCollapsed ? barHeight : Math.max(1, Math.min(2, barHeight * 0.5));");
+        expect(drawWbsSource).toContain(".style('fill', mainSummaryFillColor).style('opacity', barOpacity)");
+        expect(drawWbsSource).toContain(".style('stroke', mainSummaryStrokeColor).style('stroke-width', mainSummaryStrokeWidth);");
+        expect(drawWbsSource).toContain("wbs-summary-cap-start");
+        expect(drawWbsSource).toContain("wbs-summary-bracket-start");
+        expect(drawWbsSource).toContain("wbs-summary-bracket-end");
+        expect(drawWbsSource).toContain(".style('stroke-linecap', 'square')");
+        expect(drawWbsSource).toContain(".attr('x', criticalStartX).attr('y', semanticBarY).attr('width', criticalWidth).attr('height', semanticBarHeight)");
+        expect(drawWbsSource).toContain(".attr('x', nearStartX).attr('y', semanticBarY).attr('width', nearWidth).attr('height', semanticBarHeight)");
         expect(drawWbsSource).not.toContain("mutedTextColor");
 
         const wbsExportStyleSource = slice(visualSource, "private getWbsExportRowBackgroundColor(", "private getExportTableTasks()");
@@ -695,10 +717,55 @@ describe("VisualSettings", () => {
         expect(canvasMarkerIndex).toBeGreaterThan(canvasOverlayIndex);
         expect(canvasMilestoneMarkerIndex).toBeGreaterThan(canvasMilestoneIndex);
         expect(visualSource).toContain("private shouldApplyCriticalFormatToSegment(segment: TaskBarSegment): boolean");
-        expect(visualSource).toContain("return segment.kind !== \"started\";");
+        expect(visualSource).toContain("return shouldApplyCriticalFormatToTaskBarSegment(segment);");
+        expect(readFileSync("src/utils/TaskBarGeometry.ts", "utf8")).toContain("return segment.kind !== \"started\";");
         expect(canvasTaskSource).toContain("const applyCriticalFormat = this.shouldApplyCriticalFormatToSegment(segment);");
         expect(canvasTaskSource).toContain("const semanticFill = this.getSemanticTaskFillColor(task, taskColor, criticalColor, nearCriticalColor, applyCriticalFormat);");
         expect(canvasTaskSource).toContain("const markerStyle = this.getCriticalStatusMarkerStyle(task, criticalColor, nearCriticalColor, false, applyCriticalFormat)");
         expect(canvasTaskSource).toContain("const markerStyle = this.getCriticalStatusMarkerStyle(task, criticalColor, nearCriticalColor, true)");
+    });
+
+    it("uses shared bar-date-aware connector geometry for SVG and canvas render paths", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const connectorGeometrySource = readFileSync("src/utils/ConnectorGeometry.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const renderBranchSource = slice(visualSource, "if (this.useCanvasRendering) {", "            // SVG Rendering");
+        const canvasArrowIndex = renderBranchSource.indexOf("this.drawArrowsCanvas(");
+        const canvasTaskIndex = renderBranchSource.indexOf("this.drawTasksCanvas(");
+        expect(canvasArrowIndex).toBeGreaterThan(-1);
+        expect(canvasTaskIndex).toBeGreaterThan(canvasArrowIndex);
+
+        const canvasArrowSource = slice(visualSource, "private drawArrowsCanvas(", "private positionTooltip(");
+        const svgArrowSource = slice(visualSource, "private drawArrows(", "private getLineDashArray(");
+
+        expect(visualSource).toContain('import { getConnectorRenderGeometry } from "./utils/ConnectorGeometry";');
+        expect(canvasArrowSource).toContain("const relationshipGeometries = this.getVisibleRelationshipGeometries(");
+        expect(svgArrowSource).toContain("const relationshipGeometries = this.getVisibleRelationshipGeometries(");
+        expect(canvasArrowSource).toContain("geometry.points.forEach((point, index) => {");
+        expect(canvasArrowSource).toContain("const arrowBaseX = geometry.endX - geometry.arrowDirectionX * arrowSize;");
+        expect(canvasArrowSource).toContain("ctx.lineCap = 'butt';");
+        expect(canvasArrowSource).toContain("ctx.lineJoin = 'miter';");
+        expect(svgArrowSource).toContain('.attr("d", d => d.geometry.pathData)');
+        expect(svgArrowSource).toContain('.attr("stroke-linecap", "butt")');
+        expect(svgArrowSource).toContain('.attr("stroke-linejoin", "miter")');
+        expect(svgArrowSource).toContain("const getRelationshipOpacity = (rel: Relationship): number => {");
+        expect(svgArrowSource).toContain('.attr("marker-end", null)');
+        expect(svgArrowSource).toContain('".relationship-arrowhead"');
+        expect(svgArrowSource).toContain('.attr("fill-opacity", d => getRelationshipOpacity(d.relationship))');
+        expect(visualSource).toContain('.relationship-arrowhead, .connection-dot-start, .connection-dot-end');
+        expect(visualSource).toContain('this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship }>(".relationship-arrowhead")');
+        expect(visualSource).toContain('.style("fill-opacity", d => this.getConnectorOpacity(d.relationship));');
+        expect(connectorGeometrySource).toContain("getCurrentTaskBarGeometry(input.task, input.currentBarDateMode, input.dataDate)");
+        expect(connectorGeometrySource).toContain('if (mode === "hybridActualEarly")');
+        expect(connectorGeometrySource).toContain('segments.find(segment => segment.kind === "scheduled")');
+        expect(connectorGeometrySource).toContain("clearance: SOURCE_ENDPOINT_CLEARANCE");
+        expect(connectorGeometrySource).toContain("const targetClearance = getConnectorTargetEndpointClearance(options.arrowHeadSize);");
     });
 });

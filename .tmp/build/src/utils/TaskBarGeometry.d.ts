@@ -26,6 +26,7 @@ export declare const currentBarDateModeItems: readonly [{
 }];
 export declare function normalizeCurrentBarDateMode(value: unknown): CurrentBarDateMode;
 export declare function isTaskMilestone(task: Pick<Task, "type">): boolean;
+export declare function shouldApplyCriticalFormatToTaskBarSegment(segment: Pick<TaskBarSegment, "kind">): boolean;
 export declare function isValidTaskDate(value: Date | null | undefined): value is Date;
 export declare function getScheduleStart(task: Pick<Task, "startDate">): Date | null;
 export declare function getScheduleFinish(task: Pick<Task, "finishDate">): Date | null;
