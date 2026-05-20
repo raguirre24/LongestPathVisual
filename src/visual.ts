@@ -96,6 +96,11 @@ type DrivingChain = {
     endingTask?: Task | null;
 };
 
+type DrivingChainBuildResult = {
+    chains: DrivingChain[];
+    blockedByCycle: boolean;
+};
+
 type CornerRadii = {
     tl: number;
     tr: number;
@@ -447,6 +452,7 @@ export class Visual implements IVisual {
     private allDrivingChains: DrivingChain[] = [];
     private selectedPathIndex: number = 0;
     private drivingPathsTruncationMessage: string | null = null;
+    private scopedCycleWarningMessage: string | null = null;
 
     private readonly VIEWPORT_CHANGE_THRESHOLD = 0.01;
     private forceFullUpdate: boolean = false;
@@ -1907,6 +1913,7 @@ export class Visual implements IVisual {
         this.allDrivingChains = [];
         this.selectedPathIndex = 0;
         this.drivingPathsTruncationMessage = null;
+        this.scopedCycleWarningMessage = null;
         for (const task of this.allTasksData) {
             task.isCritical = false;
             task.isCriticalByFloat = false;
@@ -1937,14 +1944,11 @@ export class Visual implements IVisual {
         if (this.dataQuality.possibleTruncation) {
             reasons.push("dataset may be truncated at 30,000 rows");
         }
-        if (this.dataQuality.circularPaths.length > 0) {
-            reasons.push("circular dependencies detected");
-        }
         if (this.dataQuality.invalidRawDateRangeTaskIds.length > 0) {
             reasons.push("invalid start/finish date ranges found");
         }
         if (reasons.length === 0) {
-            return "Longest Path unavailable: cyclic, truncated, or invalid schedule data.";
+            return "Longest Path unavailable: truncated or invalid schedule data.";
         }
 
         return `Longest Path disabled: ${reasons.join("; ")}.`;
@@ -1970,6 +1974,10 @@ export class Visual implements IVisual {
 
         if (!this.isLongestPathMode()) {
             return null;
+        }
+
+        if (this.scopedCycleWarningMessage) {
+            return this.scopedCycleWarningMessage;
         }
 
         if ((this.dataQuality?.relationshipCount ?? 0) > 0 && !this.hasRelationshipFreeFloat) {
@@ -11760,8 +11768,15 @@ export class Visual implements IVisual {
             drivingScope,
             projectFinishTasks.map(task => task.internalId)
         );
-        const resolvedChains = drivingChains.length > 0
-            ? drivingChains
+        if (drivingChains.blockedByCycle) {
+            this.setScopedCycleWarningMessage();
+            this.allDrivingChains = [];
+            this.updatePathInfoLabel();
+            return;
+        }
+
+        const resolvedChains = drivingChains.chains.length > 0
+            ? drivingChains.chains
             : projectFinishTasks.map(task => ({
                 tasks: new Set([task.internalId]),
                 relationships: [],
@@ -12069,6 +12084,14 @@ export class Visual implements IVisual {
         this.drivingPathsTruncationMessage = "Path generation truncated";
     }
 
+    private createDrivingChainBuildResult(chains: DrivingChain[] = [], blockedByCycle: boolean = false): DrivingChainBuildResult {
+        return { chains, blockedByCycle };
+    }
+
+    private setScopedCycleWarningMessage(): void {
+        this.scopedCycleWarningMessage = "Longest Path blocked for this scope because its driving relationships contain a circular dependency.";
+    }
+
     private getTaskScheduleSpanDays(task: Task | null | undefined): number {
         const startTime = task?.startDate?.getTime();
         const finishTime = task?.finishDate?.getTime();
@@ -12100,17 +12123,17 @@ export class Visual implements IVisual {
         scopeTaskIds: Set<string>,
         sinkTaskIds: string[],
         explicitSourceTaskIds?: string[]
-    ): DrivingChain[] {
+    ): DrivingChainBuildResult {
         this.drivingPathsTruncationMessage = null;
 
         if (scopeTaskIds.size === 0) {
-            return [];
+            return this.createDrivingChainBuildResult();
         }
 
         const topoOrder = this.getDrivingTopologicalOrder(scopeTaskIds);
         if (!topoOrder) {
             console.warn("Unable to build driving paths: driving graph is cyclic.");
-            return [];
+            return this.createDrivingChainBuildResult([], true);
         }
 
         const scopedRelationships: Relationship[] = [];
@@ -12148,7 +12171,7 @@ export class Visual implements IVisual {
             .filter(nodeId => graph.nodeIndex.has(nodeId));
 
         if (sourceNodeIds.length === 0 || candidateSinkNodeIds.length === 0) {
-            return [];
+            return this.createDrivingChainBuildResult();
         }
 
         const longestPaths = calculateLongestDrivingPaths(graph, sourceNodeIds, this.floatTolerance);
@@ -12159,7 +12182,7 @@ export class Visual implements IVisual {
         );
 
         if (bestSinkNodeIds.length === 0) {
-            return [];
+            return this.createDrivingChainBuildResult();
         }
 
         const expandedPaths = expandBestDrivingPaths(
@@ -12179,51 +12202,51 @@ export class Visual implements IVisual {
             .filter((chain): chain is DrivingChain => chain !== null);
 
         if (chains.length > 0) {
-            return chains;
+            return this.createDrivingChainBuildResult(chains);
         }
 
         if (explicitSourceTaskIds && explicitSourceTaskIds.length === 1) {
             const singleTaskId = explicitSourceTaskIds[0];
             const fallbackTask = this.taskIdToTask.get(singleTaskId) ?? null;
             if (fallbackTask) {
-                return [{
+                return this.createDrivingChainBuildResult([{
                     tasks: new Set([singleTaskId]),
                     relationships: [],
                     totalDuration: this.getTaskScheduleSpanDays(fallbackTask),
                     startingTask: fallbackTask,
                     endingTask: fallbackTask
-                }];
+                }]);
             }
         }
 
-        return [];
+        return this.createDrivingChainBuildResult();
     }
 
-    private buildBestDrivingChainsToTarget(targetTaskId: string): DrivingChain[] {
+    private buildBestDrivingChainsToTarget(targetTaskId: string): DrivingChainBuildResult {
         const targetTask = this.taskIdToTask.get(targetTaskId);
         if (!targetTask) {
-            return [];
+            return this.createDrivingChainBuildResult();
         }
 
         const ancestorIds = this.collectDrivingAncestors(targetTaskId);
-        const chains = this.buildBestDrivingChains(ancestorIds, [targetTaskId]);
-        if (chains.length > 0) {
-            return chains;
+        const result = this.buildBestDrivingChains(ancestorIds, [targetTaskId]);
+        if (result.blockedByCycle || result.chains.length > 0) {
+            return result;
         }
 
-        return [{
+        return this.createDrivingChainBuildResult([{
             tasks: new Set([targetTaskId]),
             relationships: [],
             totalDuration: this.getTaskScheduleSpanDays(targetTask),
             startingTask: targetTask,
             endingTask: targetTask
-        }];
+        }]);
     }
 
-    private buildBestDrivingChainsFromSource(sourceTaskId: string): DrivingChain[] {
+    private buildBestDrivingChainsFromSource(sourceTaskId: string): DrivingChainBuildResult {
         const sourceTask = this.taskIdToTask.get(sourceTaskId);
         if (!sourceTask) {
-            return [];
+            return this.createDrivingChainBuildResult();
         }
 
         const descendantIds = this.collectDrivingDescendants(sourceTaskId);
@@ -12233,18 +12256,18 @@ export class Visual implements IVisual {
             terminalTaskIds.length > 0 ? terminalTaskIds : descendantIds,
             this.floatTolerance
         );
-        const chains = this.buildBestDrivingChains(descendantIds, sinkTaskIds, [sourceTaskId]);
-        if (chains.length > 0) {
-            return chains;
+        const result = this.buildBestDrivingChains(descendantIds, sinkTaskIds, [sourceTaskId]);
+        if (result.blockedByCycle || result.chains.length > 0) {
+            return result;
         }
 
-        return [{
+        return this.createDrivingChainBuildResult([{
             tasks: new Set([sourceTaskId]),
             relationships: [],
             totalDuration: this.getTaskScheduleSpanDays(sourceTask),
             startingTask: sourceTask,
             endingTask: sourceTask
-        }];
+        }]);
     }
 
     private sortAndStoreDrivingChains(chains: DrivingChain[]): DrivingChain[] {
@@ -12821,7 +12844,14 @@ export class Visual implements IVisual {
         this.identifyDrivingRelationships();
 
         const chains = this.buildBestDrivingChainsToTarget(targetTaskId);
-        this.allDrivingChains = this.sortAndStoreDrivingChains(chains);
+        if (chains.blockedByCycle) {
+            this.setScopedCycleWarningMessage();
+            this.allDrivingChains = [];
+            this.updatePathInfoLabel();
+            return;
+        }
+
+        this.allDrivingChains = this.sortAndStoreDrivingChains(chains.chains);
 
         if (this.selectedPathIndex >= this.allDrivingChains.length) {
             this.selectedPathIndex = 0;
@@ -12883,9 +12913,15 @@ export class Visual implements IVisual {
         this.clearCriticalPathState();
 
         this.identifyDrivingRelationships();
-        this.allDrivingChains = this.sortForwardDrivingChains(
-            this.buildBestDrivingChainsFromSource(sourceTaskId)
-        );
+        const chains = this.buildBestDrivingChainsFromSource(sourceTaskId);
+        if (chains.blockedByCycle) {
+            this.setScopedCycleWarningMessage();
+            this.allDrivingChains = [];
+            this.updatePathInfoLabel();
+            return;
+        }
+
+        this.allDrivingChains = this.sortForwardDrivingChains(chains.chains);
 
         if (this.selectedPathIndex >= this.allDrivingChains.length) {
             this.selectedPathIndex = 0;
@@ -17935,7 +17971,7 @@ export class Visual implements IVisual {
         addListItem(modeList, 'Relationship Free Float', 'When P6 Relationship Free Float is bound and populated, Longest Path uses it directly. Task Total Float does not trigger relationship-free-float strict mode.');
         addListItem(modeList, 'Approximate Fallback', 'If Relationship Free Float is not provided, Longest Path falls back to scheduled dates, relationship type, and lag. That fallback is approximate because P6 calendars are not recalculated in the visual.');
         addListItem(modeList, 'Multiple Driving Paths', 'If multiple valid driving paths exist, the path chip can show the active path and lets you step between paths when multi-path navigation is enabled.');
-        addListItem(modeList, 'Circular Logic', 'If circular relationships are detected, Longest Path analysis is disabled and the visual explains the data-quality issue instead of returning a misleading path.');
+        addListItem(modeList, 'Circular Logic', 'If circular relationships are detected, the visual reports them globally and blocks only affected Longest Path scopes instead of returning a misleading path.');
 
         // ========== Header Controls ==========
         const headerSection = createSection('🧭', 'Header Controls');
@@ -18062,7 +18098,7 @@ export class Visual implements IVisual {
         addListItem(warningList, 'Relationship Free Float Source', 'The visual distinguishes between using P6 Relationship Free Float and approximating driving logic from dates, relationship type, and lag.');
         addListItem(warningList, 'Blank Relationship Float', 'If Relationship Free Float is missing or blank, Longest Path can still run using the approximate fallback, but the results should be reviewed.');
         addListItem(warningList, 'Missing Predecessor Activities', 'Predecessor IDs that are not present as task rows are tolerated so the visual does not break longest-path logic. They are represented as missing predecessor references in data quality feedback.');
-        addListItem(warningList, 'Circular Logic', 'Detected circular dependencies disable Longest Path analysis because a valid driving chain cannot be calculated safely.');
+        addListItem(warningList, 'Circular Logic', 'Detected circular dependencies are reported globally. Longest Path is blocked only when the active driving scope contains a circular dependency.');
         addListItem(warningList, 'Duplicate Activity Rows', 'Duplicate activity rows are tolerated; Longest Path uses one canonical row per Task ID while retaining inconsistent schedule fields as diagnostics.');
         addListItem(warningList, 'Row Limit', 'If the dataset appears to hit the 30,000-row custom visual limit, relationship or WBS results may be incomplete.');
         addListItem(warningList, 'Invalid Plotted Dates', 'Rows with invalid visual start/finish ranges are excluded from plotting and reported through data-quality feedback.');

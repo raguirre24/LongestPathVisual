@@ -735,6 +735,10 @@ describe('DataProcessor', () => {
                 result.taskIdToTask
             );
             expect(cycles.length).toBeGreaterThan(0);
+            expect(result.dataQuality.circularPaths.length).toBeGreaterThan(0);
+            expect(result.dataQuality.cpmSafe).toBe(true);
+            expect(result.dataQuality.warnings.some(warning => warning.includes('affected Longest Path scopes will be blocked'))).toBe(true);
+            expect(result.dataQuality.warnings.some(warning => warning.includes('Critical path disabled: circular dependencies'))).toBe(false);
         });
 
         it('returns empty array when no cycles exist', () => {

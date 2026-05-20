@@ -124,7 +124,7 @@ The current Longest Path mode is P6-aware rather than a generic topological sort
 - `RelationshipLogic.normalizeRelationshipType` supports FS, SS, FF, and SF and normalises P6-style `PR_*` values.
 - `DrivingPathScoring` builds a start/finish event graph so each relationship type connects the correct predecessor and successor event endpoints.
 - `visual.ts` identifies driving relationships using relationship free float when supplied. If the field is missing, it falls back to an approximation using task dates, relationship type, and lag.
-- The visual gates CPM confidence with `DataQualityInfo.cpmSafe`, including truncation, circular path, and invalid raw date checks.
+- The visual gates hard global CPM confidence with `DataQualityInfo.cpmSafe` for truncation and invalid raw date checks, while circular paths are reported globally and block only affected Longest Path scopes.
 
 This is one of the strongest parts of the implementation. The visual is aligned with how P6 users reason about relationship-driven paths, especially where relationship free float is available from the P6 export.
 

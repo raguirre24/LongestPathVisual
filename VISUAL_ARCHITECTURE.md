@@ -135,9 +135,10 @@ Key behaviour:
 
 Safety gates:
 
-- Longest Path is disabled when CPM is unsafe.
-- Unsafe conditions include possible 30,000-row truncation, circular
-  dependencies, or invalid raw date ranges.
+- Longest Path is disabled globally when CPM is unsafe because of possible
+  30,000-row truncation or invalid raw date ranges.
+- Circular dependencies are reported globally, but only block Longest Path
+  when the active latest-finish or selected-task driving scope is cyclic.
 - Duplicate relationship rows are allowed when only relationship-level fields
   differ.
 - Conflicting task-level duplicate rows are diagnostic-only. Longest Path uses
@@ -235,11 +236,12 @@ Important warning classes:
 - Invalid visual/manual start/finish ranges.
 - Missing relationship free float when relationships exist.
 
-The visual uses `cpmSafe` to decide whether Longest Path can run. Do not bypass
-this without replacing it with an equally explicit safety decision. Duplicate
-task-row conflicts should remain available as diagnostics, but should not block
-Longest Path or add visible warnings unless a separate structural graph blocker
-is present.
+The visual uses `cpmSafe` for hard global blockers before Longest Path is
+attempted. Scoped driving-path builders then block the active path only when
+that active scope is cyclic. Do not bypass either layer without replacing it
+with an equally explicit safety decision. Duplicate task-row conflicts should
+remain available as diagnostics, but should not block Longest Path or add
+visible warnings unless a separate structural graph blocker is present.
 
 ## Tests and What They Cover
 

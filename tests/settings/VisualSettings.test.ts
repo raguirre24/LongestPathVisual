@@ -92,6 +92,41 @@ describe("VisualSettings", () => {
         expect(visualSource).toContain("normalizeCriticalBarStyle(this.settings?.criticalPath?.criticalBarStyle?.value?.value)");
     });
 
+    it("blocks cyclic Longest Path scopes without using cycles as a global CPM kill switch", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const dataProcessorSource = readFileSync("src/data/DataProcessor.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const cpmSafeSource = slice(dataProcessorSource, "const cpmSafe =", "const dataQuality");
+        const pathBuilderSource = slice(visualSource, "private buildBestDrivingChains(", "private buildBestDrivingChainsToTarget(");
+        const toTargetSource = slice(visualSource, "private buildBestDrivingChainsToTarget(", "private buildBestDrivingChainsFromSource(");
+        const fromSourceSource = slice(visualSource, "private buildBestDrivingChainsFromSource(", "private sortAndStoreDrivingChains(");
+        const wholePathSource = slice(visualSource, "private identifyLongestPathFromP6()", "private identifyDrivingRelationships()");
+        const selectedTargetSource = slice(visualSource, "private calculateCPMToTask(", "private calculateCPMFromTask(");
+        const selectedSourceSource = slice(visualSource, "private calculateCPMFromTask(", "private identifyPredecessorTasksFloatBased(");
+
+        expect(cpmSafeSource).not.toContain("circularPaths.length === 0");
+        expect(dataProcessorSource).toContain("Circular dependencies detected");
+        expect(dataProcessorSource).toContain("affected Longest Path scopes will be blocked");
+        expect(visualSource).toContain("type DrivingChainBuildResult = {");
+        expect(visualSource).toContain("blockedByCycle: boolean;");
+        expect(pathBuilderSource).toContain("return this.createDrivingChainBuildResult([], true);");
+        expect(wholePathSource).toContain("if (drivingChains.blockedByCycle)");
+        expect(wholePathSource).toContain("this.setScopedCycleWarningMessage();");
+        expect(toTargetSource).toContain("if (result.blockedByCycle || result.chains.length > 0)");
+        expect(fromSourceSource).toContain("if (result.blockedByCycle || result.chains.length > 0)");
+        expect(selectedTargetSource).toContain("if (chains.blockedByCycle)");
+        expect(selectedTargetSource).toContain("return;");
+        expect(selectedSourceSource).toContain("if (chains.blockedByCycle)");
+        expect(selectedSourceSource).toContain("return;");
+    });
+
     it("keeps timeline label colour under General header and legend colours", () => {
         const settingsSource = readFileSync("src/settings.ts", "utf8");
         const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));

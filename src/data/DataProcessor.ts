@@ -1218,7 +1218,7 @@ export class DataProcessor {
             warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
         }
         if (circularPaths.length > 0) {
-            warnings.push(`Critical path disabled: circular dependencies detected (${circularPaths.length}).`);
+            warnings.push(`Circular dependencies detected (${circularPaths.length}); affected Longest Path scopes will be blocked.`);
         }
         if (invalidRawDateRangeTaskIds.length > 0) {
             warnings.push(`Critical path disabled: invalid raw start/finish ranges found (${invalidRawDateRangeTaskIds.length}).`);
@@ -1231,7 +1231,6 @@ export class DataProcessor {
         }
 
         const cpmSafe = !possibleTruncation &&
-            circularPaths.length === 0 &&
             invalidRawDateRangeTaskIds.length === 0;
 
         const dataQuality: DataQualityInfo = {

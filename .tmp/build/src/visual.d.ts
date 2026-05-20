@@ -189,6 +189,7 @@ export declare class Visual implements IVisual {
     private allDrivingChains;
     private selectedPathIndex;
     private drivingPathsTruncationMessage;
+    private scopedCycleWarningMessage;
     private readonly VIEWPORT_CHANGE_THRESHOLD;
     private forceFullUpdate;
     private preserveScrollOnUpdate;
@@ -711,6 +712,8 @@ export declare class Visual implements IVisual {
     private collectDrivingDescendants;
     private getDrivingTopologicalOrder;
     private updateDrivingPathGenerationState;
+    private createDrivingChainBuildResult;
+    private setScopedCycleWarningMessage;
     private getTaskScheduleSpanDays;
     private createDrivingChain;
     private buildBestDrivingChains;
