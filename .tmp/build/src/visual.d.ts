@@ -59,10 +59,8 @@ export declare class Visual implements IVisual {
     private readonly POWER_BI_CANVAS_SHARPNESS_SCALE;
     private canvasLayer;
     private loadingOverlay;
-    private loadingText;
-    private loadingRowsText;
-    private loadingProgressText;
-    private loadingStartTime;
+    private loadingAccent;
+    private hasCompletedInitialDataRender;
     private allTasksData;
     private relationships;
     private taskIdToTask;
@@ -494,14 +492,12 @@ export declare class Visual implements IVisual {
      * Log data loading info. With 'top' algorithm, data arrives in one batch.
      */
     private logDataLoadInfo;
-    /**
-     * Format a number with thousands separators for display.
-     */
-    private formatNumber;
-    /**
-     * Show/hide loading overlay (simplified - no segment tracking).
-     */
-    private setLoadingOverlayVisible;
+    private applyInitialLoadChromeColors;
+    private shouldShowInitialLoadIndicator;
+    private showInitialLoadIndicator;
+    private hideInitialLoadIndicator;
+    private completeInitialDataRender;
+    private yieldInitialLoadFrame;
     update(options: VisualUpdateOptions): void;
     private updateInternal;
     private updateRenderOnly;

@@ -281,10 +281,8 @@ export class Visual implements IVisual {
     private readonly POWER_BI_CANVAS_SHARPNESS_SCALE: number = 1.25;
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
     private loadingOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
-    private loadingText: Selection<HTMLDivElement, unknown, null, undefined>;
-    private loadingRowsText: Selection<HTMLDivElement, unknown, null, undefined>;
-    private loadingProgressText: Selection<HTMLDivElement, unknown, null, undefined>;
-    private loadingStartTime: number | null = null;
+    private loadingAccent: Selection<HTMLDivElement, unknown, null, undefined>;
+    private hasCompletedInitialDataRender: boolean = false;
 
     private allTasksData: Task[] = [];
     private relationships: Relationship[] = [];
@@ -1147,6 +1145,7 @@ export class Visual implements IVisual {
         this.showBaselineInternal = true;
         this.showPreviousUpdateInternal = true;
         this.isInitialLoad = true;
+        this.hasCompletedInitialDataRender = false;
         this.floatThreshold = 0;
         this.showConnectorLinesInternal = true;
         this.wbsExpandedInternal = true;
@@ -1333,65 +1332,26 @@ export class Visual implements IVisual {
             .style("width", "100%")
             .style("height", "100%")
             .style("display", "none")
-            .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("flex-direction", "column")
-            .style("background", "rgba(255,255,255,0.92)")
-            .style("backdrop-filter", "blur(2px)")
-            .style("z-index", "50");
+            .style("background", this.getVisualBackgroundColor())
+            .style("z-index", "50")
+            .style("pointer-events", "none");
 
-        const overlayContent = this.loadingOverlay.append("div")
-            .style("min-width", "260px")
-            .style("padding", "12px 16px")
-            .style("border-radius", "10px")
-            .style("box-shadow", "0 4px 12px rgba(0,0,0,0.12)")
-            .style("background", "#ffffff")
-            .style("display", "flex")
-            .style("flex-direction", "column")
-            .style("gap", "10px");
-
-        this.loadingText = overlayContent.append("div")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", "13px")
-            .style("color", "#323130")
-            .style("font-weight", "600")
-            .text("Loading data…");
-
-        this.loadingRowsText = overlayContent.append("div")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", "20px")
-            .style("color", "#0078D4")
-            .style("font-weight", "700")
-            .style("text-align", "center")
-            .style("margin", "4px 0")
-            .text("0 rows");
-
-        const barTrack = overlayContent.append("div")
-            .style("height", "6px")
-            .style("width", "100%")
-            .style("border-radius", "999px")
-            .style("background", "#f3f2f1")
-            .style("overflow", "hidden");
-
-        barTrack.append("div")
-            .style("height", "100%")
-            .style("width", "35%")
-            .style("border-radius", "999px")
-            .style("background", "linear-gradient(90deg, #0078D4, #1890F5)")
-            .style("animation", this.prefersReducedMotion() ? "none" : `${this.getScopedId("loadingBarPulse")} 1.2s ease-in-out infinite`)
-            .style("transform", "translateX(-30%)");
-
-        this.loadingProgressText = overlayContent.append("div")
-            .style("font-family", "Segoe UI, sans-serif")
-            .style("font-size", "11px")
-            .style("color", "#605E5C")
-            .style("text-align", "center")
-            .text("");
+        this.loadingAccent = this.loadingOverlay.append("div")
+            .attr("class", "initial-load-progress-line")
+            .attr("aria-hidden", "true")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0")
+            .style("height", "2px")
+            .style("width", "40%")
+            .style("background", this.getHeaderLegendActiveColor())
+            .style("opacity", "0.9")
+            .style("transform", "translateX(-100%)")
+            .style("animation", this.prefersReducedMotion() ? "none" : `${this.getScopedId("initialLoadLineSweep")} 1.15s cubic-bezier(0.4, 0, 0.2, 1) infinite`);
 
         this.ensureOwnedStyle(
-            "loading-bar-pulse-style",
-            `@keyframes ${this.getScopedId("loadingBarPulse")} { 0% { transform: translateX(-40%); } 50% { transform: translateX(20%); } 100% { transform: translateX(100%); } }
-@keyframes ${this.getScopedId("loadingBarDeterminate")} { from { width: 0%; } }`
+            "initial-load-indicator-style",
+            `@keyframes ${this.getScopedId("initialLoadLineSweep")} { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }`
         );
 
         this.mainSvg = this.scrollableContainer.append("svg")
@@ -2150,7 +2110,7 @@ export class Visual implements IVisual {
         }
 
         // Clean up loading animation style
-        this.removeOwnedStyle("loading-bar-pulse-style");
+        this.removeOwnedStyle("initial-load-indicator-style");
 
         // Clean up help overlay if visible
         this.clearHelpOverlay();
@@ -4232,41 +4192,58 @@ export class Visual implements IVisual {
         }
     }
 
-    /**
-     * Format a number with thousands separators for display.
-     */
-    private formatNumber(num: number): string {
-        return num.toLocaleString();
+    private applyInitialLoadChromeColors(): void {
+        const visualBackground = this.getVisualBackgroundColor();
+        const headerBackground = this.getHeaderLegendBackgroundColor();
+        const activeColor = this.getHeaderLegendActiveColor();
+
+        this.visualWrapper?.style("background-color", visualBackground);
+        this.scrollableContainer?.style("background-color", visualBackground);
+        this.loadingOverlay?.style("background", visualBackground);
+        this.stickyHeaderContainer?.style("background-color", headerBackground);
+        this.loadingAccent?.style("background", activeColor);
     }
 
-    /**
-     * Show/hide loading overlay (simplified - no segment tracking).
-     */
-    private setLoadingOverlayVisible(show: boolean, options?: { message?: string; rowCount?: number }): void {
+    private shouldShowInitialLoadIndicator(updateType: UpdateType, shouldTransform: boolean): boolean {
+        return !this.hasCompletedInitialDataRender &&
+            shouldTransform &&
+            this.allTasksData.length === 0 &&
+            updateType !== UpdateType.SettingsOnly &&
+            updateType !== UpdateType.ViewportOnly;
+    }
+
+    private showInitialLoadIndicator(): void {
         if (!this.loadingOverlay) return;
 
-        if (show) {
-            if (!this.loadingStartTime) {
-                this.loadingStartTime = performance.now();
-            }
-            if (options?.message && this.loadingText) {
-                this.loadingText.text(options.message);
-            }
-            if (this.loadingRowsText && options?.rowCount !== undefined) {
-                this.loadingRowsText.text(options.rowCount > 0 ? `${this.formatNumber(options.rowCount)} rows` : "Initializing…");
-            }
-            if (this.loadingProgressText) {
-                this.loadingProgressText.text("");
-            }
-            this.loadingOverlay.style("display", "flex");
-            this.mainSvg?.style("visibility", "hidden");
-            this.canvasLayer?.style("visibility", "hidden");
-        } else {
-            this.loadingStartTime = null;
-            this.loadingOverlay.style("display", "none");
-            this.mainSvg?.style("visibility", "visible");
-            this.canvasLayer?.style("visibility", "visible");
+        this.applyInitialLoadChromeColors();
+        this.loadingOverlay.style("display", "block");
+        this.mainSvg?.style("visibility", "hidden");
+        this.canvasLayer?.style("visibility", "hidden");
+    }
+
+    private hideInitialLoadIndicator(): void {
+        if (!this.loadingOverlay) return;
+
+        this.loadingOverlay.style("display", "none");
+        this.mainSvg?.style("visibility", "visible");
+        this.canvasLayer?.style("visibility", "visible");
+    }
+
+    private completeInitialDataRender(): void {
+        this.hasCompletedInitialDataRender = true;
+        this.hideInitialLoadIndicator();
+    }
+
+    private async yieldInitialLoadFrame(): Promise<void> {
+        if (!this.loadingOverlay || this.loadingOverlay.style("display") === "none") {
+            return;
         }
+
+        await new Promise<void>(resolve => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => resolve());
+            });
+        });
     }
 
     public update(options: VisualUpdateOptions) {
@@ -4439,6 +4416,7 @@ export class Visual implements IVisual {
             this.clearLandingPage();
 
             if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
+                this.completeInitialDataRender();
                 this.displayLandingPage();
                 return;
             }
@@ -4470,8 +4448,6 @@ export class Visual implements IVisual {
             if (dataChanged) {
                 this.logDataLoadInfo(dataView);
             }
-
-            this.setLoadingOverlayVisible(false);
 
             this.wbsLevelColumnNames = [];
             this.wbsDataExistsInMetadata = this.dataProcessor.hasDataRole(dataView, 'wbsLevels');
@@ -4643,18 +4619,26 @@ export class Visual implements IVisual {
 
             this.clearVisual();
             this.updateHeaderElements(viewportWidth);
+            this.applyInitialLoadChromeColors();
 
             this.createpathSelectionDropdown();
             this.createTraceModeToggle();
 
             if (!this.dataProcessor.validateDataView(dataView, this.settings)) {
                 const missingRoles = this.getMissingRequiredRoles(dataView);
+                this.completeInitialDataRender();
                 this.displayLandingPage(missingRoles);
                 return;
             }
             this.debugLog("Data roles validated.");
 
             const shouldTransform = dataChanged || this.allTasksData.length === 0;
+            const shouldShowInitialLoadIndicator = this.shouldShowInitialLoadIndicator(updateType, shouldTransform);
+            if (shouldShowInitialLoadIndicator) {
+                this.showInitialLoadIndicator();
+                await this.yieldInitialLoadFrame();
+            }
+
             if (shouldTransform) {
                 const processedData = this.dataProcessor.processData(
                     dataView,
@@ -4720,6 +4704,7 @@ export class Visual implements IVisual {
             }
 
             if (this.allTasksData.length === 0) {
+                this.completeInitialDataRender();
                 this.displayMessage("No valid task data found to display.");
                 return;
             }
@@ -5026,6 +5011,7 @@ export class Visual implements IVisual {
             this.drawZoomSliderMiniChart();
             this.updateZoomSliderTrackMargins();
             this.updateMarginResizerPosition();
+            this.completeInitialDataRender();
 
             const renderEndTime = performance.now();
             this.debugLog(`Total render time: ${renderEndTime - this.renderStartTime}ms`);
@@ -5036,6 +5022,7 @@ export class Visual implements IVisual {
             renderingFailed = true;
             eventService?.renderingFailed(options, errorMessage);
 
+            this.completeInitialDataRender();
             this.displayMessage(`Error updating visual: ${errorMessage}`);
         } finally {
             if (!renderingFailed) {
@@ -17273,11 +17260,6 @@ export class Visual implements IVisual {
 
         // Apply to tooltip
         this.tooltipDiv?.style("font-family", fontFamily);
-
-        // Apply to loading text elements
-        this.loadingText?.style("font-family", fontFamily);
-        this.loadingRowsText?.style("font-family", fontFamily);
-        this.loadingProgressText?.style("font-family", fontFamily);
 
         // Apply to legend
         this.legendContainer?.style("font-family", fontFamily);

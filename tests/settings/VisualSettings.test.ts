@@ -284,6 +284,53 @@ describe("VisualSettings", () => {
         expect(styleSource).toContain("var(--lpv-header-legend-active-color, #7CABFF)");
     });
 
+    it("uses a text-free initial-load indicator with configured header colours", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const styleSource = readFileSync("style/visual.less", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const loadingConstructorSource = slice(visualSource, 'this.loadingOverlay = this.scrollableContainer.append("div")', 'this.mainSvg = this.scrollableContainer.append("svg")');
+        const initialLoadHelpersSource = slice(visualSource, "private applyInitialLoadChromeColors()", "public update(options: VisualUpdateOptions)");
+        const indicatorGateSource = slice(visualSource, "private shouldShowInitialLoadIndicator(", "private showInitialLoadIndicator()");
+        const updateSource = slice(visualSource, "private async updateInternal(options: VisualUpdateOptions)", "private handleViewportOnlyUpdate(");
+        const loadingStyleSource = slice(styleSource, ".loading-overlay {", "}");
+
+        expect(visualSource).toContain("private hasCompletedInitialDataRender: boolean = false;");
+        expect(loadingConstructorSource).toContain('attr("class", "initial-load-progress-line")');
+        expect(loadingConstructorSource).toContain('.style("height", "2px")');
+        expect(loadingConstructorSource).toContain("this.getVisualBackgroundColor()");
+        expect(loadingConstructorSource).toContain("this.getHeaderLegendActiveColor()");
+        expect(initialLoadHelpersSource).toContain("const visualBackground = this.getVisualBackgroundColor();");
+        expect(initialLoadHelpersSource).toContain("const headerBackground = this.getHeaderLegendBackgroundColor();");
+        expect(initialLoadHelpersSource).toContain("const activeColor = this.getHeaderLegendActiveColor();");
+        expect(initialLoadHelpersSource).toContain('this.stickyHeaderContainer?.style("background-color", headerBackground)');
+        expect(initialLoadHelpersSource).toContain('this.loadingAccent?.style("background", activeColor)');
+        expect(initialLoadHelpersSource).toContain('this.loadingOverlay.style("display", "block")');
+        expect(indicatorGateSource).toContain("!this.hasCompletedInitialDataRender");
+        expect(indicatorGateSource).toContain("shouldTransform");
+        expect(indicatorGateSource).toContain("updateType !== UpdateType.SettingsOnly");
+        expect(indicatorGateSource).toContain("updateType !== UpdateType.ViewportOnly");
+        expect(updateSource).toContain("const shouldShowInitialLoadIndicator = this.shouldShowInitialLoadIndicator(updateType, shouldTransform);");
+        expect(updateSource).toContain("await this.yieldInitialLoadFrame();");
+        expect(updateSource).toContain("this.completeInitialDataRender();");
+        expect(visualSource).not.toContain("loadingText");
+        expect(visualSource).not.toContain("loadingRowsText");
+        expect(visualSource).not.toContain("loadingProgressText");
+        expect(visualSource).not.toContain("setLoadingOverlayVisible");
+        expect(loadingConstructorSource).not.toContain("overlayContent");
+        expect(loadingConstructorSource).not.toContain("Loading data");
+        expect(loadingConstructorSource).not.toContain("Initializing");
+        expect(loadingStyleSource).not.toContain("backdrop-filter");
+        expect(loadingStyleSource).not.toContain("justify-content: center");
+        expect(loadingStyleSource).not.toContain("box-shadow");
+    });
+
     it("keeps path, task dropdown, look-ahead, and float threshold controls free of drop shadows", () => {
         const headerSource = readFileSync("src/components/Header.ts", "utf8");
         const visualSource = readFileSync("src/visual.ts", "utf8");
