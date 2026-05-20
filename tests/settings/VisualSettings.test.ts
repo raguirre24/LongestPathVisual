@@ -283,6 +283,14 @@ describe("VisualSettings", () => {
         expect(taskSelectionListStyle).toContain("box-shadow: none;");
     });
 
+    it("does not render a visible copyright watermark inside the visual", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+
+        expect(visualSource).not.toContain("visual-watermark");
+        expect(visualSource).not.toContain("watermarkOverlay");
+        expect(visualSource).not.toMatch(/\u00a9\s+Ricardo Aguirre/);
+    });
+
     it("keeps look-ahead capabilities aligned with the settings card", () => {
         const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
         const properties = capabilities.objects.lookAhead.properties;

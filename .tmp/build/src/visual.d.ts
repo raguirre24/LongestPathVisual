@@ -58,8 +58,6 @@ export declare class Visual implements IVisual {
     private readonly MAX_CANVAS_PIXEL_RATIO;
     private readonly POWER_BI_CANVAS_SHARPNESS_SCALE;
     private canvasLayer;
-    private watermarkOverlay;
-    private watermarkOverlayRaf;
     private loadingOverlay;
     private loadingText;
     private loadingRowsText;
@@ -577,9 +575,6 @@ export declare class Visual implements IVisual {
     private createScales;
     private drawVisualElements;
     private syncCanvasElementPresentation;
-    private scheduleWatermarkOverlayUpdate;
-    private updateWatermarkOverlayVisibility;
-    private updateWatermarkOverlayPosition;
     private drawHorizontalGridLines;
     private drawgridLines;
     /** Draws task bars, milestones, and associated labels */

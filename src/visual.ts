@@ -275,8 +275,6 @@ export class Visual implements IVisual {
     private readonly MAX_CANVAS_PIXEL_RATIO: number = 3;
     private readonly POWER_BI_CANVAS_SHARPNESS_SCALE: number = 1.25;
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
-    private watermarkOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
-    private watermarkOverlayRaf: number | null = null;
     private loadingOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingText: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingRowsText: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -1451,23 +1449,6 @@ export class Visual implements IVisual {
         this.scrollableContainer.node()?.appendChild(this.canvasElement);
 
         this.canvasLayer = d3.select(this.canvasElement);
-        this.watermarkOverlay = this.visualWrapper.append("div")
-            .attr("class", "visual-watermark")
-            .style("position", "absolute")
-            .style("right", "8px")
-            .style("bottom", "6px")
-            .style("pointer-events", "none")
-            .style("user-select", "none")
-            .style("z-index", "1000")
-            .style("font-family", "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif")
-            .style("font-size", "10px")
-            .style("line-height", "1")
-            .style("white-space", "nowrap")
-            .style("color", "#888888")
-            .style("opacity", "0.75")
-            .style("text-shadow", "0 1px 1px rgba(255, 255, 255, 0.65)")
-            .text("© Ricardo Aguirre · CPM Gantt");
-        this.scheduleWatermarkOverlayUpdate();
 
         this.applyPublishModeOptimizations();
 
@@ -2122,11 +2103,6 @@ export class Visual implements IVisual {
         if (this.resizeSettleRaf !== null) {
             cancelAnimationFrame(this.resizeSettleRaf);
             this.resizeSettleRaf = null;
-        }
-
-        if (this.watermarkOverlayRaf !== null) {
-            cancelAnimationFrame(this.watermarkOverlayRaf);
-            this.watermarkOverlayRaf = null;
         }
 
         if (this.scrollThrottleTimeout) {
@@ -5640,7 +5616,6 @@ export class Visual implements IVisual {
             this.canvasElement.style.display = 'none';
             this.canvasElement.style.visibility = 'hidden';
         }
-        this.updateWatermarkOverlayVisibility(true);
 
         // 1. Update group transforms
         this.mainGroup?.attr("transform", `translate(${this.snapRectCoord(effectiveMargin)}, ${this.snapRectCoord(this.margin.top)})`);
@@ -5755,7 +5730,6 @@ export class Visual implements IVisual {
         // 6. Reposition resizer and zoom slider
         this.updateMarginResizerPosition();
         this.updateZoomSliderTrackMargins();
-        this.scheduleWatermarkOverlayUpdate();
     }
 
     private clearVisual(): void {
@@ -5786,8 +5760,6 @@ export class Visual implements IVisual {
             this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
             this.canvasElement.style.display = 'none';
         }
-
-        this.updateWatermarkOverlayVisibility(true);
     }
 
     private drawHeaderDivider(viewportWidth: number): void {
@@ -7107,7 +7079,6 @@ export class Visual implements IVisual {
 
         // --- 7. Vertical Separators ---
         this.drawLabelColumnSeparators(chartHeight, currentLeftMargin);
-        this.scheduleWatermarkOverlayUpdate();
     }
 
     private syncCanvasElementPresentation(currentLeftMargin: number): void {
@@ -7130,49 +7101,6 @@ export class Visual implements IVisual {
             this.canvasElement.style.display = 'none';
             this.canvasElement.style.visibility = 'hidden';
         }
-    }
-
-    private scheduleWatermarkOverlayUpdate(): void {
-        if (this.watermarkOverlayRaf !== null) {
-            cancelAnimationFrame(this.watermarkOverlayRaf);
-        }
-
-        this.watermarkOverlayRaf = requestAnimationFrame(() => {
-            this.watermarkOverlayRaf = requestAnimationFrame(() => {
-                this.watermarkOverlayRaf = null;
-                this.updateWatermarkOverlayVisibility(true);
-            });
-        });
-    }
-
-    private updateWatermarkOverlayVisibility(forceVisible: boolean = false): void {
-        if (!this.watermarkOverlay) return;
-
-        this.updateWatermarkOverlayPosition();
-        this.watermarkOverlay.style("display", forceVisible ? "block" : "block");
-    }
-
-    private updateWatermarkOverlayPosition(): void {
-        if (!this.watermarkOverlay || !this.visualWrapper || !this.scrollableContainer) return;
-
-        const wrapperNode = this.visualWrapper.node();
-        const scrollNode = this.scrollableContainer.node();
-        if (!wrapperNode || !scrollNode) return;
-
-        const wrapperRect = wrapperNode.getBoundingClientRect();
-        const scrollRect = scrollNode.getBoundingClientRect();
-        const rightOffset = Math.max(
-            8,
-            wrapperRect.right - scrollRect.right + 8
-        );
-        const bottomOffset = Math.max(
-            6,
-            wrapperRect.bottom - scrollRect.bottom + 6
-        );
-
-        this.watermarkOverlay
-            .style("right", `${Math.round(rightOffset)}px`)
-            .style("bottom", `${Math.round(bottomOffset)}px`);
     }
 
     private drawHorizontalGridLines(yScale: ScaleBand<string>, chartWidth: number, currentLeftMargin: number): void {
