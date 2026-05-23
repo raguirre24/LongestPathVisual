@@ -17,6 +17,7 @@ The visual supports:
 - Longest Path analysis using scheduled start/finish dates and relationship
   logic.
 - Float-Based analysis using task total float.
+- No Calculation visualiser mode for basic task/date schedules.
 - Relationship connector lines with driving/non-driving differentiation.
 - Task selection and backward/forward trace behaviour.
 - Show All versus critical/near-critical filtering.
@@ -83,9 +84,9 @@ Core roles:
 |---|---|
 | `taskId` | Required unique activity identifier. Also used for relationship joins and selection. |
 | `taskName` | Display label. Defaults to `Task <id>` if missing. |
-| `taskType` | Activity type such as `TT_Task`, `TT_Mile`, or `TT_FinMile`. Export milestone labels should prefer this over duration. |
-| `duration` | Required in Longest Path mode. Milestone types are forced to duration `0`. |
-| `startDate`, `finishDate` | Required plotted/calculation dates for Longest Path mode. |
+| `taskType` | Activity type such as `TT_Task`, `TT_Mile`, or `TT_FinMile`. Export milestone labels prefer this over duration except in No Calculation mode, where zero-duration tasks are visual milestones. |
+| `duration` | Required in Longest Path mode, optional in No Calculation mode. When missing or blank in No Calculation mode, elapsed calendar days are calculated from `startDate` to `finishDate`. Milestone types are forced to duration `0`. |
+| `startDate`, `finishDate` | Required plotted/calculation dates for all modes. In No Calculation mode they also provide the duration fallback. |
 | `manualStartDate`, `manualFinishDate` | Optional plotted dates. They do not replace CPM calculation dates. |
 | `taskTotalFloat` | Required in Float-Based mode. Drives critical and near-critical classification. |
 | `taskFreeFloat` | Optional task-level free float display/input. |
@@ -108,7 +109,40 @@ If adding or renaming roles, update all of these together:
 - render/export logic that consumes the field
 - tests that cover the role
 
+## WBS Grouping
+
+`DataProcessor` builds real WBS groups only from contiguous populated
+`wbsLevels` values. Once a blank WBS level is reached, lower-level values on
+that row are ignored so the task belongs to the last populated parent. Tasks
+without any WBS level remain real tasks with `wbsGroupId` unset.
+
+Expanded WBS groups render direct tasks under the parent first, sorted by the
+existing task date sort, then child WBS groups recursively. Export and copy use
+the same visible order, so tasks with blank lower levels appear directly below
+their last populated WBS parent instead of under the next child group.
+
+When WBS grouping is active, `visual.ts` adds an internal bottom-level
+`Unassigned WBS` group for currently filtered tasks that do not have a WBS
+path. This group is visual-only, participates in expand/collapse, visible
+exports, and WBS summary display, and is removed when no unassigned tasks are
+in the filtered scope.
+
+Project, baseline, and previous-update finish lines use the filtered task scope
+captured before WBS collapse. If that scope contains real WBS tasks, finish
+lines are calculated from those real WBS tasks only; unassigned tasks do not
+extend the WBS finish line. If the filtered scope contains only unassigned
+tasks, the finish line falls back to those tasks so non-WBS-only filtered views
+remain useful.
+
 ## Calculation Modes
+
+The `criticalPath.calculationMode` setting has three values:
+
+- `longestPath`: Longest Path (CPM)
+- `floatBased`: Float-Based
+- `none`: No Calculation (Visualiser)
+
+The default remains `floatBased` for existing report compatibility.
 
 ### Longest Path
 
@@ -169,6 +203,37 @@ Key behaviour:
 - Backward/forward trace uses predecessor/successor traversal and filters the
   rendered task set according to Show All versus critical-only display.
 
+### No Calculation (Visualiser)
+
+No Calculation mode is selected by `criticalPath.calculationMode = none`.
+It requires only `taskId`, `startDate`, and `finishDate`; `duration`,
+`taskTotalFloat`, `taskFreeFloat`, and relationship type are optional.
+
+Key behaviour:
+
+- No criticality, CPM, float-based, near-critical, driving, or Longest Path
+  state is calculated.
+- All plottable tasks are shown when no task is selected.
+- When a task is selected and predecessor data exists, backward/forward trace
+  shows the structural predecessor/successor path only. It does not mark tasks
+  or relationships as critical or driving.
+- Relationship parsing stays active. Missing, blank, or invalid relationship
+  types default to `FS`, so connector arrows still have deterministic
+  semantics.
+- If `duration` is bound and finite, that value is used. If it is missing or
+  blank, duration is calculated as elapsed calendar days from Start Date to
+  Finish Date. Invalid or negative calculated duration is clamped to `0`.
+- Manual Start/Finish override roles remain visual override fields; they do not
+  replace the Start/Finish duration fallback.
+- A calculated or supplied duration of `0` is treated as a visual milestone in
+  rendering and export classification, in addition to `TT_Mile` and
+  `TT_FinMile`.
+- The header hides the Longest Path/Float-Based toggle, Show Critical/Show All
+  toggle, and near-critical threshold controls. Other timeline, WBS, connector,
+  column, copy/export, and help controls remain available.
+- The left-pane Total Float column is suppressed in No Calculation mode even
+  when the column setting is enabled.
+
 ## Rendering and Interaction Structure
 
 `src/visual.ts` is large. Prefer locating behaviour by subsystem:
@@ -215,6 +280,8 @@ Export task type labels should use `task.type` first:
 - `TT_Mile` and `TT_FinMile` -> `Milestone`
 - other nonblank task types, including zero-duration `TT_Task` -> `Activity`
 - duration `0` is only a fallback when task type is missing or blank
+- In No Calculation mode, supplied or calculated zero-duration tasks export as
+  `Milestone` even when their task type is `TT_Task`.
 
 When editing export:
 

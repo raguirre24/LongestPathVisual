@@ -114,6 +114,19 @@ describe("HeaderLayout", () => {
         expect(layout.actionOverflowButton.hiddenActions).not.toContain("copy");
     });
 
+    it("hides calculation controls in no calculation visualiser mode", () => {
+        const layout = layoutAt(850, {
+            currentMode: "none",
+            showNearCritical: true
+        });
+
+        expect(layout.showAllCritical.visible).toBe(false);
+        expect(layout.modeToggle.visible).toBe(false);
+        expect(layout.actionOverflowButton.hiddenActions).not.toContain("floatThreshold");
+        expect(layout.lookAhead.visible).toBe(true);
+        expect(layout.copyButton.visible).toBe(true);
+    });
+
     it("counts active hidden controls for the overflow badge", () => {
         const count = getActiveHiddenHeaderControlCount(
             ["lookAhead", "floatThreshold", "baseline", "previousUpdate", "progressLine", "connectorLines", "columns", "wbsEnable"],

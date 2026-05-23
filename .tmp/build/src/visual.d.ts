@@ -90,6 +90,8 @@ export declare class Visual implements IVisual {
     private readonly WBS_LEVEL_ACCENT_WIDTH;
     private readonly WBS_TOGGLE_BOX_SIZE;
     private readonly WBS_TASK_LABEL_INSET;
+    private readonly UNASSIGNED_WBS_GROUP_ID;
+    private readonly UNASSIGNED_WBS_GROUP_NAME;
     private legendFooterHeight;
     private dateLabelOffset;
     private floatTolerance;
@@ -301,6 +303,7 @@ export declare class Visual implements IVisual {
     private getCurrentBarDateMode;
     private getCriticalBarStyle;
     private getTaskBarGeometry;
+    private isVisualMilestoneTask;
     private getTaskBarSortDate;
     private getTaskBarLabelStart;
     private getTaskBarLabelFinish;
@@ -312,6 +315,7 @@ export declare class Visual implements IVisual {
     private hasValidPlotDates;
     private clearCriticalPathState;
     private isLongestPathMode;
+    private isNoCalculationMode;
     private isCpmSafe;
     private getUnsafeCpmWarningMessage;
     private getDrivingLogicStatusMessage;
@@ -670,11 +674,12 @@ export declare class Visual implements IVisual {
     private drawProgressLineHeaderLabel;
     /**
      * Gets the appropriate task set for finish line calculations.
-     * Prefers `allFilteredTasks` which respects all filters (LP, Search, Legend).
-     * Falls back to `allTasksToShow` when `allFilteredTasks` is unavailable
-     * (e.g., during a settings-only update cycle from persistProperties).
+     * In WBS mode, prefer the durable pre-collapse filtered scope and exclude
+     * unassigned tasks when real WBS tasks exist in that same filtered scope.
      */
     private getTasksForFinishLines;
+    private getWbsScopedFinishLineTasks;
+    private isTaskInRealWbsGroup;
     private getLatestFinishDate;
     private drawFinishLine;
     private drawProjectEndLine;
@@ -822,6 +827,13 @@ export declare class Visual implements IVisual {
      * Returns tasks sorted by WBS hierarchy with collapsed groups filtered out
      */
     private applyWbsOrdering;
+    private getUnassignedWbsGroup;
+    private removeUnassignedWbsGroup;
+    private getUnassignedWbsExpandedState;
+    private syncUnassignedWbsGroup;
+    private sortTasksByBarStart;
+    private getSortedVisibleWbsGroupTasks;
+    private updateUnassignedWbsGroupSummary;
     /**
      * WBS GROUPING: Update filtered task counts for groups
      * This must be called BEFORE applyWbsOrdering so that collapse state doesn't affect counts

@@ -120,4 +120,21 @@ describe("TaskBarGeometry", () => {
         expect(startMilestone.milestoneDate?.toISOString()).toBe("2026-05-10T00:00:00.000Z");
         expect(finishMilestone.milestoneDate?.toISOString()).toBe("2026-05-15T00:00:00.000Z");
     });
+
+    it("treats zero-duration regular tasks as milestones only when requested", () => {
+        const zeroDurationTask = task({
+            duration: 0,
+            startDate: utcDate(10),
+            finishDate: utcDate(10),
+            manualStartDate: null,
+            manualFinishDate: null
+        });
+
+        const defaultGeometry = getCurrentTaskBarGeometry(zeroDurationTask, "startFinishOverride", utcDate(5));
+        const visualiserGeometry = getCurrentTaskBarGeometry(zeroDurationTask, "startFinishOverride", utcDate(5), true);
+
+        expect(defaultGeometry.isMilestone).toBe(false);
+        expect(visualiserGeometry.isMilestone).toBe(true);
+        expect(visualiserGeometry.milestoneDate?.toISOString()).toBe("2026-05-10T00:00:00.000Z");
+    });
 });

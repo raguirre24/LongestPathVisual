@@ -58,7 +58,8 @@ function geometry(
     successor: Task,
     mode: "startFinishOverride" | "hybridActualEarly" = "startFinishOverride",
     predecessorY = 10,
-    successorY = 50
+    successorY = 50,
+    treatZeroDurationAsMilestone = false
 ) {
     return getConnectorRenderGeometry({
         relationship: relationship(type),
@@ -69,6 +70,7 @@ function geometry(
         xScale,
         currentBarDateMode: mode,
         dataDate: utcDate(5),
+        treatZeroDurationAsMilestone,
         taskHeight: 20,
         milestoneSize: 10,
         elbowOffset: 15,
@@ -185,5 +187,21 @@ describe("ConnectorGeometry", () => {
         expect(milestonePredecessor?.sourceAnchor.isMilestone).toBe(true);
         expect(milestonePredecessor?.sourceAnchor.baseX).toBe(50);
         expect(milestonePredecessor?.startX).toBe(55);
+    });
+
+    it("uses milestone anchors for zero-duration visualiser tasks", () => {
+        const result = geometry(
+            "FS",
+            task("P", { duration: 0, manualStartDate: null, manualFinishDate: null, startDate: utcDate(5), finishDate: utcDate(5) }),
+            task("S", { manualStartDate: utcDate(20), manualFinishDate: utcDate(24) }),
+            "startFinishOverride",
+            10,
+            50,
+            true
+        );
+
+        expect(result?.sourceAnchor.isMilestone).toBe(true);
+        expect(result?.sourceAnchor.baseX).toBe(50);
+        expect(result?.startX).toBe(55);
     });
 });

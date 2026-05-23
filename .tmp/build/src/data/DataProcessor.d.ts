@@ -41,6 +41,8 @@ export declare class DataProcessor {
     processData(dataView: DataView, settings: VisualSettings, wbsExpandedState: Map<string, boolean>, _wbsManuallyToggledGroups: Set<string>, lastExpandCollapseAllState: boolean | null, highContrastMode: boolean, highContrastForeground: string): ProcessedData;
     private extractTaskId;
     private extractPredecessorId;
+    private getCalculationMode;
+    private calculateElapsedCalendarDuration;
     private createTaskFromRow;
     private extractTooltipData;
     private processLegendData;

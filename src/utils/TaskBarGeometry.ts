@@ -31,8 +31,10 @@ export function normalizeCurrentBarDateMode(value: unknown): CurrentBarDateMode 
     return value === "hybridActualEarly" ? "hybridActualEarly" : "startFinishOverride";
 }
 
-export function isTaskMilestone(task: Pick<Task, "type">): boolean {
-    return task.type === "TT_Mile" || task.type === "TT_FinMile";
+export function isTaskMilestone(task: Pick<Task, "type" | "duration">, treatZeroDurationAsMilestone: boolean = false): boolean {
+    return task.type === "TT_Mile" ||
+        task.type === "TT_FinMile" ||
+        (treatZeroDurationAsMilestone && task.duration === 0);
 }
 
 export function shouldApplyCriticalFormatToTaskBarSegment(segment: Pick<TaskBarSegment, "kind">): boolean {
@@ -102,9 +104,10 @@ function getDateMax(dates: Date[]): Date | null {
 export function getCurrentTaskBarGeometry(
     task: Task,
     mode: CurrentBarDateMode,
-    dataDate: Date | null | undefined
+    dataDate: Date | null | undefined,
+    treatZeroDurationAsMilestone: boolean = false
 ): TaskBarGeometry {
-    const isMilestone = isTaskMilestone(task);
+    const isMilestone = isTaskMilestone(task, treatZeroDurationAsMilestone);
     const normalizedMode = normalizeCurrentBarDateMode(mode);
 
     if (isMilestone) {

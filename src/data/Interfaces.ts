@@ -73,6 +73,7 @@ export interface WBSGroup {
     summaryPreviousUpdateStartDate?: Date | null;
     summaryPreviousUpdateFinishDate?: Date | null;
     summaryTotalFloat?: number | null;
+    isUnassignedWbsGroup?: boolean;
 }
 
 export interface Relationship {

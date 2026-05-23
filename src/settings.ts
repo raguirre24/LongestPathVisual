@@ -282,10 +282,11 @@ class CriticalPathCard extends Card {
     calculationMode = new ItemDropdown({
         name: "calculationMode",
         displayName: "Calculation Mode",
-        description: "Choose between Longest Path (CPM) or Float-Based criticality",
+        description: "Choose Longest Path, Float-Based, or No Calculation visualiser behaviour",
         items: [
             { value: "longestPath", displayName: "Longest Path (CPM)" },
-            { value: "floatBased", displayName: "Float-Based" }
+            { value: "floatBased", displayName: "Float-Based" },
+            { value: "none", displayName: "No Calculation (Visualiser)" }
         ],
         value: { value: "floatBased", displayName: "Float-Based" }
     });

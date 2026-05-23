@@ -43,6 +43,7 @@ export type ConnectorGeometryOptions = {
     xScale: (date: Date) => number;
     currentBarDateMode: CurrentBarDateMode;
     dataDate: Date | null | undefined;
+    treatZeroDurationAsMilestone?: boolean;
     taskHeight: number;
     milestoneSize: number;
     elbowOffset: number;
@@ -66,6 +67,7 @@ export function getConnectorRenderGeometry(options: ConnectorGeometryOptions): C
         xScale: options.xScale,
         currentBarDateMode: options.currentBarDateMode,
         dataDate: options.dataDate,
+        treatZeroDurationAsMilestone: options.treatZeroDurationAsMilestone,
         milestoneSize: options.milestoneSize,
         clearance: SOURCE_ENDPOINT_CLEARANCE
     });
@@ -76,6 +78,7 @@ export function getConnectorRenderGeometry(options: ConnectorGeometryOptions): C
         xScale: options.xScale,
         currentBarDateMode: options.currentBarDateMode,
         dataDate: options.dataDate,
+        treatZeroDurationAsMilestone: options.treatZeroDurationAsMilestone,
         milestoneSize: options.milestoneSize,
         clearance: targetClearance
     });
@@ -134,10 +137,16 @@ function getConnectorAnchor(input: {
     xScale: (date: Date) => number;
     currentBarDateMode: CurrentBarDateMode;
     dataDate: Date | null | undefined;
+    treatZeroDurationAsMilestone?: boolean;
     milestoneSize: number;
     clearance: number;
 }): ConnectorAnchor | null {
-    const geometry = getCurrentTaskBarGeometry(input.task, input.currentBarDateMode, input.dataDate);
+    const geometry = getCurrentTaskBarGeometry(
+        input.task,
+        input.currentBarDateMode,
+        input.dataDate,
+        input.treatZeroDurationAsMilestone
+    );
     const sideDirection = getSideDirection(input.side);
     let anchorDate: Date | null = null;
     let isMilestone = geometry.isMilestone;

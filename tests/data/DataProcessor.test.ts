@@ -229,6 +229,71 @@ describe('DataProcessor', () => {
             expect(result.allTasksData[0].duration).toBe(0);
         });
 
+        it('calculates missing duration from start and finish dates in no calculation mode', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const columns: ColumnDef[] = [
+                { displayName: 'Task ID', queryName: 'Table[TaskID]', roles: { taskId: true } },
+                { displayName: 'Task Name', queryName: 'Table[TaskName]', roles: { taskName: true } },
+                { displayName: 'Start Date', queryName: 'Table[StartDate]', roles: { startDate: true } },
+                { displayName: 'Finish Date', queryName: 'Table[FinishDate]', roles: { finishDate: true } },
+            ];
+            const dv = buildDataView(columns, [
+                ['T1', 'Task A', new Date('2025-01-01'), new Date('2025-01-06')],
+            ]);
+
+            const result = processor.processData(dv, visualiserSettings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.allTasksData[0].duration).toBe(5);
+        });
+
+        it('treats blank duration as missing in no calculation mode', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const rows = [['T1', 'Task A', '', new Date('2025-01-01'), new Date('2025-01-04')]];
+            const dv = buildDataView(STANDARD_COLUMNS, rows);
+
+            const result = processor.processData(dv, visualiserSettings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.allTasksData[0].duration).toBe(3);
+        });
+
+        it('keeps supplied finite duration in no calculation mode', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const rows = [['T1', 'Task A', 7, new Date('2025-01-01'), new Date('2025-01-04')]];
+            const dv = buildDataView(STANDARD_COLUMNS, rows);
+
+            const result = processor.processData(dv, visualiserSettings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.allTasksData[0].duration).toBe(7);
+        });
+
+        it('calculates same-day visualiser tasks as zero-duration milestones', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const columns: ColumnDef[] = [
+                { displayName: 'Task ID', queryName: 'Table[TaskID]', roles: { taskId: true } },
+                { displayName: 'Start Date', queryName: 'Table[StartDate]', roles: { startDate: true } },
+                { displayName: 'Finish Date', queryName: 'Table[FinishDate]', roles: { finishDate: true } },
+            ];
+            const date = new Date('2025-01-01');
+            const dv = buildDataView(columns, [['T1', date, date]]);
+
+            const result = processor.processData(dv, visualiserSettings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.allTasksData[0].duration).toBe(0);
+            expect(result.allTasksData[0].type).toBe('TT_Task');
+        });
+
         it('normalizes legend values so padded categories still match', () => {
             const columns: ColumnDef[] = [
                 ...STANDARD_COLUMNS,
@@ -279,6 +344,22 @@ describe('DataProcessor', () => {
             ];
             const dv = buildDataView(COLUMNS_WITH_PRED, rows);
             const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.relationships[0].type).toBe('FS');
+        });
+
+        it('defaults missing relationship type to FS in no calculation mode', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const rows = [
+                ['T1', 'Task A', null, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null],
+                ['T2', 'Task B', null, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', '', null],
+            ];
+            const dv = buildDataView(COLUMNS_WITH_PRED, rows);
+
+            const result = processor.processData(dv, visualiserSettings, new Map(), new Set(), null, false, '#000');
 
             expect(result.relationships[0].type).toBe('FS');
         });
@@ -477,6 +558,47 @@ describe('DataProcessor', () => {
             expect(task.wbsLevels).toEqual(['Phase 1', 'Subphase A']);
             expect(task.wbsGroupId).toBe('L1:Phase 1|L2:Subphase A');
             expect(task.wbsIndentLevel).toBe(1);
+        });
+
+        it('stops WBS paths at the first blank lower level', () => {
+            const columns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'WBS L1', queryName: 'Table[WBS1]', roles: { wbsLevels: true } },
+                { displayName: 'WBS L2', queryName: 'Table[WBS2]', roles: { wbsLevels: true } },
+                { displayName: 'WBS L3', queryName: 'Table[WBS3]', roles: { wbsLevels: true } },
+            ];
+            const rows = [
+                ['T1', 'Direct parent task', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'Bid Handover', '', 'Ignored Lower Level'],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            const task = result.allTasksData[0];
+            expect(task.wbsLevels).toEqual(['Bid Handover']);
+            expect(task.wbsGroupId).toBe('L1:Bid Handover');
+            expect(task.wbsIndentLevel).toBe(0);
+            expect(result.wbsGroupMap.has('L1:Bid Handover|L2:Ignored Lower Level')).toBe(false);
+        });
+
+        it('keeps all-blank WBS rows unassigned when other rows have WBS data', () => {
+            const columns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'WBS L1', queryName: 'Table[WBS1]', roles: { wbsLevels: true } },
+                { displayName: 'WBS L2', queryName: 'Table[WBS2]', roles: { wbsLevels: true } },
+                { displayName: 'WBS L3', queryName: 'Table[WBS3]', roles: { wbsLevels: true } },
+            ];
+            const rows = [
+                ['T1', 'Grouped task', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'Bid Handover', 'Meetings', 'Workshops'],
+                ['T2', 'Unassigned task', 5, new Date('2025-01-07'), new Date('2025-01-12'), '', '', 'Ignored Orphan Level'],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            const unassignedTask = result.allTasksData.find(task => task.internalId === 'T2');
+            expect(result.wbsDataExists).toBe(true);
+            expect(unassignedTask?.wbsLevels).toBeUndefined();
+            expect(unassignedTask?.wbsGroupId).toBeUndefined();
+            expect(unassignedTask?.wbsIndentLevel).toBe(0);
         });
 
         it('sets wbsDataExists when tasks have WBS data', () => {
@@ -808,6 +930,38 @@ describe('DataProcessor', () => {
             ];
             const dv = buildDataView(columns, [['T1', new Date(), new Date(), 0]]);
             expect(processor.validateDataView(dv, floatSettings)).toBe(true);
+        });
+
+        it('allows no calculation mode with only task ID and dates', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const columns: ColumnDef[] = [
+                { displayName: 'ID', queryName: 'T[ID]', roles: { taskId: true } },
+                { displayName: 'Start', queryName: 'T[S]', roles: { startDate: true } },
+                { displayName: 'Finish', queryName: 'T[F]', roles: { finishDate: true } },
+            ];
+            const dv = buildDataView(columns, [['T1', new Date(), new Date()]]);
+
+            expect(processor.validateDataView(dv, visualiserSettings)).toBe(true);
+        });
+
+        it('does not require duration or total float in no calculation mode', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const columns: ColumnDef[] = [
+                { displayName: 'ID', queryName: 'T[ID]', roles: { taskId: true } },
+                { displayName: 'Start', queryName: 'T[S]', roles: { startDate: true } },
+                { displayName: 'Finish', queryName: 'T[F]', roles: { finishDate: true } },
+            ];
+            const dv = buildDataView(columns, [['T1', new Date(), new Date()]]);
+
+            expect(processor.validateDataView(dv, visualiserSettings)).toBe(true);
+            expect(processor.hasDataRole(dv, 'duration')).toBe(false);
+            expect(processor.hasDataRole(dv, 'taskTotalFloat')).toBe(false);
         });
     });
 

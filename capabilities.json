@@ -15,8 +15,8 @@
         {
             "name": "duration",
             "kind": "Measure",
-            "displayName": "Duration (Work Days)",
-            "description": "Task duration in work days for CPM calc"
+            "displayName": "Duration (Days)",
+            "description": "Task duration; optional in No Calculation mode because it can be calculated from start and finish dates"
         },
         {
             "name": "taskTotalFloat",
@@ -627,6 +627,10 @@
                             {
                                 "value": "floatBased",
                                 "displayName": "Float-Based"
+                            },
+                            {
+                                "value": "none",
+                                "displayName": "No Calculation (Visualiser)"
                             }
                         ]
                     }

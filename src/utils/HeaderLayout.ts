@@ -171,6 +171,7 @@ function getTopRightControlWidthBudget(input: HeaderLayoutInput): { maxWidth: nu
 export function computeHeaderButtonLayout(input: HeaderLayoutInput): HeaderButtonLayout {
     const { viewportWidth, desiredControls } = input;
     const mode = getExtendedHeaderLayoutMode(viewportWidth);
+    const isNoCalculationMode = input.currentMode === "none";
     const baseRightReserved = getBaseHeaderRightReserved(mode);
     const topRightBudget = getTopRightControlWidthBudget(input);
     const rightReserved = Math.max(baseRightReserved, topRightBudget.maxWidth + 24);
@@ -189,8 +190,8 @@ export function computeHeaderButtonLayout(input: HeaderLayoutInput): HeaderButto
     const wbsEnableWidth = iconButtonSize;
 
     let visibleButtons = {
-        showAll: true,
-        modeToggle: true,
+        showAll: !isNoCalculationMode,
+        modeToggle: !isNoCalculationMode,
         lookAhead: desiredControls.lookAhead,
         baseline: desiredControls.baseline,
         previousUpdate: desiredControls.previousUpdate,
@@ -239,7 +240,7 @@ export function computeHeaderButtonLayout(input: HeaderLayoutInput): HeaderButto
     const getHiddenControls = (): HeaderMenuAction[] => {
         const controls: HeaderMenuAction[] = [];
         if (desiredControls.lookAhead && !visibleButtons.lookAhead) controls.push("lookAhead");
-        if (desiredControls.floatThreshold && !shouldInlineHeaderFloatThreshold(viewportWidth, input.currentMode, input.showNearCritical)) controls.push("floatThreshold");
+        if (!isNoCalculationMode && desiredControls.floatThreshold && !shouldInlineHeaderFloatThreshold(viewportWidth, input.currentMode, input.showNearCritical)) controls.push("floatThreshold");
         if (desiredControls.baseline && !visibleButtons.baseline) controls.push("baseline");
         if (desiredControls.previousUpdate && !visibleButtons.previousUpdate) controls.push("previousUpdate");
         if (desiredControls.progressLine) controls.push("progressLine");

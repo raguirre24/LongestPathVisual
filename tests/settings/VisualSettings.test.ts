@@ -99,6 +99,43 @@ describe("VisualSettings", () => {
         expect(visualSource).toContain("normalizeCriticalBarStyle(this.settings?.criticalPath?.criticalBarStyle?.value?.value)");
     });
 
+    it("exposes No Calculation visualiser mode without changing the default mode", () => {
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const headerSource = readFileSync("src/components/Header.ts", "utf8");
+        const headerLayoutSource = readFileSync("src/utils/HeaderLayout.ts", "utf8");
+        const dataProcessorSource = readFileSync("src/data/DataProcessor.ts", "utf8");
+        const taskBarGeometrySource = readFileSync("src/utils/TaskBarGeometry.ts", "utf8");
+        const calculationModeValues = capabilities.objects.criticalPath.properties.calculationMode.type.enumeration.map((item: { value: string }) => item.value);
+
+        expect(calculationModeValues).toEqual(["longestPath", "floatBased", "none"]);
+        expect(settingsSource).toContain('{ value: "none", displayName: "No Calculation (Visualiser)" }');
+        expect(settingsSource).toContain('value: { value: "floatBased", displayName: "Float-Based" }');
+        expect(dataProcessorSource).toContain("if (mode === 'none')");
+        expect(dataProcessorSource).toContain("calculateElapsedCalendarDuration");
+        expect(visualSource).toContain("private isNoCalculationMode(): boolean");
+        expect(visualSource).toContain("const noCalculationMode = mode === 'none';");
+        expect(visualSource).toContain("this.clearCriticalPathState();");
+        expect(visualSource).toContain("successorTaskSet = this.identifySuccessorTasksFloatBased(this.selectedTaskId);");
+        expect(visualSource).toContain("predecessorTaskSet = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);");
+        expect(visualSource).toContain("if (noCalculationMode || longestPathUnavailable || this.showAllTasksInternal)");
+        expect(visualSource).toContain("tasksToConsider = relevantPlottableTasks.length > 0 ? relevantPlottableTasks : [];");
+        expect(visualSource).toContain('this.getLocalizedString("tooltip.mode.visualiser", "Visualiser")');
+        expect(visualSource).toContain('this.getLocalizedString("tooltip.status.inSelectedPath", "In selected path")');
+        expect(visualSource).toContain("if (this.isNoCalculationMode() && task.duration === 0)");
+        expect(visualSource).toContain('task.duration?.toString() || "0"');
+        expect(visualSource).toContain("private getExportCriticalValue(task: Task): boolean");
+        expect(visualSource).toContain("return false;");
+        expect(visualSource).toContain("if (cols.showTotalFloat.value && !this.isNoCalculationMode())");
+        expect(headerSource).toContain('if (currentMode === "none")');
+        expect(headerSource).toContain('if (this.currentState.currentMode === "none")');
+        expect(headerLayoutSource).toContain('const isNoCalculationMode = input.currentMode === "none";');
+        expect(headerLayoutSource).toContain("showAll: !isNoCalculationMode");
+        expect(headerLayoutSource).toContain("modeToggle: !isNoCalculationMode");
+        expect(taskBarGeometrySource).toContain("treatZeroDurationAsMilestone && task.duration === 0");
+    });
+
     it("blocks cyclic Longest Path scopes without using cycles as a global CPM kill switch", () => {
         const visualSource = readFileSync("src/visual.ts", "utf8");
         const dataProcessorSource = readFileSync("src/data/DataProcessor.ts", "utf8");
@@ -244,6 +281,11 @@ describe("VisualSettings", () => {
         expect(taskDropdownSource).not.toContain("HEADER_DOCK_TOKENS.menuActive");
         expect(legendSource).toContain('const selectedBackground = this.highContrastMode ? "transparent" : controlBackground;');
         expect(legendSource).toContain('const unselectedBackground = this.highContrastMode ? "transparent" : controlBackground;');
+        expect(legendSource).toContain("const visibleChipReservedWidth = Math.ceil");
+        expect(legendSource).toContain('.style("width", `${visibleChipReservedWidth}px`)');
+        expect(legendSource).toContain("const hiddenChipReservedWidth = Math.ceil");
+        expect(legendSource).toContain('.style("visibility", isFiltered ? "visible" : "hidden")');
+        expect(legendSource).toContain('.style("width", `${hiddenChipReservedWidth}px`)');
     });
 
     it("routes header and legend chrome borders through the General border colour", () => {
@@ -655,11 +697,77 @@ describe("VisualSettings", () => {
     it("keeps task and WBS wrapped label rows anchored consistently", () => {
         const visualSource = readFileSync("src/visual.ts", "utf8").replace(/\r\n/g, "\n");
 
-        expect(visualSource).toContain('anchorMode: "centerBlock" | "firstLineAtCenter" = "firstLineAtCenter"');
+        expect(visualSource).toContain('anchorMode: "centerBlock" | "compactBlock" | "firstLineAtCenter" = "firstLineAtCenter"');
         expect(visualSource).toContain("const wbsRowBandHeight = taskHeight + taskPadding;");
+        expect(visualSource).toContain("const lineAdvancePx = Math.max(fontSizePx * 1.02, fontSizePx + 0.5);");
+        expect(visualSource).toContain("centerY - ((lines.length - 1) * lineAdvancePx * 0.28)");
+        expect(visualSource).toContain('maxLines > 1 ? "compactBlock" : "firstLineAtCenter"');
+        expect(visualSource).toContain("const toggleY = maxLines > 1");
         expect(visualSource).toContain(".paddingOuter(taskPadding / (taskHeight + taskPadding) / 2)\n            .align(0);");
         expect(visualSource).toContain("WBS top-row anchor restoration");
         expect(visualSource).toContain("availableWidth,\n                    wbsRowBandHeight,\n                    groupNameFontSizePx");
+    });
+
+    it("scopes WBS finish lines and groups tasks without WBS at the bottom", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8").replace(/\r\n/g, "\n");
+        const interfacesSource = readFileSync("src/data/Interfaces.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        expect(interfacesSource).toContain("isUnassignedWbsGroup?: boolean;");
+        expect(visualSource).toContain('private readonly UNASSIGNED_WBS_GROUP_ID = "__UNASSIGNED_WBS__";');
+        expect(visualSource).toContain('private readonly UNASSIGNED_WBS_GROUP_NAME = "Unassigned WBS";');
+        expect(visualSource).toContain("this.syncUnassignedWbsGroup(tasksAfterLegendFilter);");
+
+        const finishLineSource = slice(visualSource, "private getTasksForFinishLines(): Task[]", "private getLatestFinishDate(");
+        expect(finishLineSource).toContain("this._lastFilteredTasksForFinishLines");
+        expect(finishLineSource).toContain("this.getWbsScopedFinishLineTasks(tasks)");
+        expect(finishLineSource).toContain("const realWbsTasks = sourceTasks.filter(task => this.isTaskInRealWbsGroup(task));");
+        expect(finishLineSource).toContain("return realWbsTasks.length > 0 ? realWbsTasks : sourceTasks;");
+
+        const orderingSource = slice(visualSource, "private applyWbsOrdering(tasks: Task[]): Task[]", "private updateWbsFilteredCounts(filteredTasks: Task[]): void");
+        expect(orderingSource).toContain("if (rootGroup.isUnassignedWbsGroup) continue;");
+        expect(orderingSource).toContain("const unassignedGroup = this.getUnassignedWbsGroup();");
+        expect(orderingSource).toContain("name: this.UNASSIGNED_WBS_GROUP_NAME");
+        expect(orderingSource).not.toContain("tasksWithoutWbs");
+        const orderedDirectTaskLoopIndex = orderingSource.indexOf("for (const task of this.getSortedVisibleWbsGroupTasks(group, taskSet))");
+        const orderedChildGroupLoopIndex = orderingSource.indexOf("for (const child of group.children)");
+        const orderedRealRootLoopIndex = orderingSource.indexOf("for (const rootGroup of this.wbsRootGroups)");
+        const orderedUnassignedGroupIndex = orderingSource.indexOf("const unassignedGroup = this.getUnassignedWbsGroup();");
+        expect(orderedDirectTaskLoopIndex).toBeGreaterThan(-1);
+        expect(orderedChildGroupLoopIndex).toBeGreaterThan(-1);
+        expect(orderedDirectTaskLoopIndex).toBeLessThan(orderedChildGroupLoopIndex);
+        expect(orderedUnassignedGroupIndex).toBeGreaterThan(orderedRealRootLoopIndex);
+
+        const yOrderSource = slice(visualSource, "private assignWbsYOrder(tasksToShow: Task[]): void", "private drawWbsGroupHeaders(");
+        expect(yOrderSource).toContain("if (rootGroup.isUnassignedWbsGroup) continue;");
+        expect(yOrderSource).toContain("const unassignedGroup = this.getUnassignedWbsGroup();");
+        expect(yOrderSource).not.toContain("tasksWithoutWbs");
+        const yOrderDirectTaskLoopIndex = yOrderSource.indexOf("for (const task of this.getSortedVisibleWbsGroupTasks(group, visibleTaskIds))");
+        const yOrderChildGroupLoopIndex = yOrderSource.indexOf("for (const child of group.children)");
+        const yOrderRealRootLoopIndex = yOrderSource.indexOf("for (const rootGroup of this.wbsRootGroups)");
+        const yOrderUnassignedGroupIndex = yOrderSource.indexOf("const unassignedGroup = this.getUnassignedWbsGroup();");
+        expect(yOrderDirectTaskLoopIndex).toBeGreaterThan(-1);
+        expect(yOrderChildGroupLoopIndex).toBeGreaterThan(-1);
+        expect(yOrderDirectTaskLoopIndex).toBeLessThan(yOrderChildGroupLoopIndex);
+        expect(yOrderUnassignedGroupIndex).toBeGreaterThan(yOrderRealRootLoopIndex);
+
+        const exportSource = slice(visualSource, "private generateWbsHierarchicalHtml(", "private async copyVisibleDataToClipboard()");
+        expect(exportSource).toContain("appendGroupRow(unassignedGroup, 0, this.UNASSIGNED_WBS_GROUP_NAME);");
+        expect(exportSource).toContain("previousLevels = unassignedGroup ? [this.UNASSIGNED_WBS_GROUP_ID] : currentLevels;");
+        expect(exportSource).toContain("const taskIndentPx = unassignedGroup ? indentPerLevel : currentLevels.length * indentPerLevel;");
+
+        const exportTableSource = slice(visualSource, "private generateVisibleExportTableHtml(): string", "private generateVisibleExportTableText(): string");
+        const exportTasksIndex = exportTableSource.indexOf("const tasks = this.getExportTableTasks();");
+        const exportHierarchicalIndex = exportTableSource.indexOf("return this.generateWbsHierarchicalHtml(exportDateFormatter, tasks);");
+        expect(exportTasksIndex).toBeGreaterThan(-1);
+        expect(exportHierarchicalIndex).toBeGreaterThan(-1);
+        expect(exportTasksIndex).toBeLessThan(exportHierarchicalIndex);
     });
 
     it("uses one WBS text colour setting with restrained level accents", () => {
@@ -877,7 +985,8 @@ describe("VisualSettings", () => {
         expect(visualSource).toContain('.relationship-arrowhead, .connection-dot-start, .connection-dot-end');
         expect(visualSource).toContain('this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship }>(".relationship-arrowhead")');
         expect(visualSource).toContain('.style("fill-opacity", d => this.getConnectorOpacity(d.relationship));');
-        expect(connectorGeometrySource).toContain("getCurrentTaskBarGeometry(input.task, input.currentBarDateMode, input.dataDate)");
+        expect(connectorGeometrySource).toContain("getCurrentTaskBarGeometry(");
+        expect(connectorGeometrySource).toContain("input.treatZeroDurationAsMilestone");
         expect(connectorGeometrySource).toContain('if (mode === "hybridActualEarly")');
         expect(connectorGeometrySource).toContain('segments.find(segment => segment.kind === "scheduled")');
         expect(connectorGeometrySource).toContain("clearance: SOURCE_ENDPOINT_CLEARANCE");

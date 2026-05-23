@@ -340,7 +340,7 @@ export class DataProcessor {
         for (const [taskId, taskData] of taskDataMap) {
 
             if (taskData.rows.length > 0 && !taskData.task) {
-                taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex, result.wbsLevelColumnIndices, dataView);
+                taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex, result.wbsLevelColumnIndices, dataView, settings);
             }
             if (!taskData.task) continue;
 
@@ -494,7 +494,23 @@ export class DataProcessor {
         return predIdStr === '' ? null : predIdStr;
     }
 
-    private createTaskFromRow(row: any[], rowIndex: number, wbsLevelColumnIndices: number[], dataView: DataView): Task | null {
+    private getCalculationMode(settings: VisualSettings): string {
+        const value = settings?.criticalPath?.calculationMode?.value?.value;
+        return typeof value === "string" ? value : "longestPath";
+    }
+
+    private calculateElapsedCalendarDuration(startDate: Date | null, finishDate: Date | null): number {
+        if (!(startDate instanceof Date) || !(finishDate instanceof Date) ||
+            !Number.isFinite(startDate.getTime()) || !Number.isFinite(finishDate.getTime()) ||
+            finishDate < startDate) {
+            return 0;
+        }
+
+        const millisecondsPerDay = 24 * 60 * 60 * 1000;
+        return Math.max(0, Math.round((finishDate.getTime() - startDate.getTime()) / millisecondsPerDay));
+    }
+
+    private createTaskFromRow(row: any[], rowIndex: number, wbsLevelColumnIndices: number[], dataView: DataView, settings: VisualSettings): Task | null {
         if (!dataView) return null;
 
         const taskId = this.extractTaskId(row, dataView);
@@ -522,12 +538,29 @@ export class DataProcessor {
             ? String(row[typeIdx]).trim()
             : 'TT_Task';
 
+        const startDate = (startDateIdx !== -1 && row[startDateIdx] != null)
+            ? this.parseDate(row[startDateIdx])
+            : null;
+        const finishDate = (finishDateIdx !== -1 && row[finishDateIdx] != null)
+            ? this.parseDate(row[finishDateIdx])
+            : null;
+
+        const mode = this.getCalculationMode(settings);
         let duration = 0;
+        let hasFiniteDuration = false;
         if (durationIdx !== -1 && row[durationIdx] != null) {
-            const parsedDuration = Number(row[durationIdx]);
-            if (!isNaN(parsedDuration) && isFinite(parsedDuration)) {
-                duration = parsedDuration;
+            const rawDuration = row[durationIdx];
+            const durationIsBlank = typeof rawDuration === "string" && rawDuration.trim() === "";
+            if (!durationIsBlank) {
+                const parsedDuration = Number(rawDuration);
+                if (!isNaN(parsedDuration) && isFinite(parsedDuration)) {
+                    duration = parsedDuration;
+                    hasFiniteDuration = true;
+                }
             }
+        }
+        if (mode === "none" && !hasFiniteDuration) {
+            duration = this.calculateElapsedCalendarDuration(startDate, finishDate);
         }
         if (taskType === 'TT_Mile' || taskType === 'TT_FinMile') {
             duration = 0;
@@ -549,13 +582,6 @@ export class DataProcessor {
                 taskFreeFloat = parsedFloat;
             }
         }
-
-        const startDate = (startDateIdx !== -1 && row[startDateIdx] != null)
-            ? this.parseDate(row[startDateIdx])
-            : null;
-        const finishDate = (finishDateIdx !== -1 && row[finishDateIdx] != null)
-            ? this.parseDate(row[finishDateIdx])
-            : null;
 
         const baselineStartDate = (baselineStartDateIdx !== -1 && row[baselineStartDateIdx] != null)
             ? this.parseDate(row[baselineStartDateIdx])
@@ -596,12 +622,15 @@ export class DataProcessor {
 
         const wbsLevels: string[] = [];
         for (const colIdx of wbsLevelColumnIndices) {
-            if (colIdx !== -1 && row[colIdx] != null) {
-                const value = String(row[colIdx]).trim();
-                if (value) {
-                    wbsLevels.push(value);
-                }
+            const value = colIdx !== -1 && row[colIdx] != null
+                ? String(row[colIdx]).trim()
+                : "";
+
+            if (!value) {
+                break;
             }
+
+            wbsLevels.push(value);
         }
 
         const tooltipData = this.extractTooltipData(row, dataView);
@@ -1353,13 +1382,15 @@ export class DataProcessor {
         const hasStartDate = this.hasDataRole(dataView, 'startDate');
         const hasFinishDate = this.hasDataRole(dataView, 'finishDate');
 
-        const mode = settings?.criticalPath?.calculationMode?.value?.value || 'longestPath';
+        const mode = this.getCalculationMode(settings);
         const hasDuration = this.hasDataRole(dataView, 'duration');
         const hasTotalFloat = this.hasDataRole(dataView, 'taskTotalFloat');
 
         let isValid = true;
         if (!hasId) isValid = false;
-        if (mode === 'floatBased') {
+        if (mode === 'none') {
+            // Basic visualiser mode only needs task identity and dates.
+        } else if (mode === 'floatBased') {
             if (!hasTotalFloat) isValid = false;
         } else {
             if (!hasDuration) isValid = false;

@@ -761,6 +761,11 @@ export class Header {
     }
 
     private createOrUpdateToggleButton(): void {
+        if (this.currentState.currentMode === "none") {
+            this.hideControl("toggle-button-group");
+            return;
+        }
+
         const layout = this.getHeaderButtonLayout(this.currentViewportWidth, this.currentSettings, this.currentState);
         const buttonWidth = layout.showAllCritical.width;
         const buttonHeight = UI_TOKENS.height.standard;
@@ -1799,6 +1804,11 @@ export class Header {
 
     private createModeToggleButton(): void {
         const currentMode = this.currentState.currentMode;
+        if (currentMode === "none") {
+            this.hideControl("mode-toggle-group");
+            return;
+        }
+
         const isFloatBased = currentMode === 'floatBased';
         const modeStatusMessage = this.currentState.modeStatusMessage?.trim() || "";
         const modeWarningMessage = this.currentState.modeWarningMessage?.trim() || "";

@@ -33,6 +33,7 @@ export type ConnectorGeometryOptions = {
     xScale: (date: Date) => number;
     currentBarDateMode: CurrentBarDateMode;
     dataDate: Date | null | undefined;
+    treatZeroDurationAsMilestone?: boolean;
     taskHeight: number;
     milestoneSize: number;
     elbowOffset: number;

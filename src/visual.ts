@@ -323,6 +323,8 @@ export class Visual implements IVisual {
     private readonly WBS_LEVEL_ACCENT_WIDTH = 5;
     private readonly WBS_TOGGLE_BOX_SIZE = 18;
     private readonly WBS_TASK_LABEL_INSET = 22;
+    private readonly UNASSIGNED_WBS_GROUP_ID = "__UNASSIGNED_WBS__";
+    private readonly UNASSIGNED_WBS_GROUP_NAME = "Unassigned WBS";
     private legendFooterHeight = 52;
     private dateLabelOffset = 8;
     private floatTolerance = 0.001;
@@ -896,7 +898,7 @@ export class Visual implements IVisual {
         maxWidth: number,
         maxLines: number,
         fontSizePx: number,
-        anchorMode: "centerBlock" | "firstLineAtCenter" = "firstLineAtCenter"
+        anchorMode: "centerBlock" | "compactBlock" | "firstLineAtCenter" = "firstLineAtCenter"
     ): void {
         const lines = this.getWrappedSvgTextLines(textElement, value, maxWidth, maxLines);
         textElement.text(null);
@@ -905,10 +907,12 @@ export class Visual implements IVisual {
             return;
         }
 
-        const lineAdvancePx = Math.max(fontSizePx * 1.08, fontSizePx + 1);
-        const firstLineY = anchorMode === "firstLineAtCenter"
-            ? centerY
-            : centerY - ((lines.length - 1) * lineAdvancePx) / 2;
+        const lineAdvancePx = Math.max(fontSizePx * 1.02, fontSizePx + 0.5);
+        const firstLineY = anchorMode === "centerBlock"
+            ? centerY - ((lines.length - 1) * lineAdvancePx) / 2
+            : anchorMode === "compactBlock"
+                ? centerY - ((lines.length - 1) * lineAdvancePx * 0.28)
+                : centerY;
 
         lines.forEach((line, index) => {
             textElement.append("tspan")
@@ -1824,7 +1828,14 @@ export class Visual implements IVisual {
     }
 
     private getTaskBarGeometry(task: Task): TaskBarGeometry {
-        return getCurrentTaskBarGeometry(task, this.getCurrentBarDateMode(), this.dataDate);
+        return getCurrentTaskBarGeometry(task, this.getCurrentBarDateMode(), this.dataDate, this.isNoCalculationMode());
+    }
+
+    private isVisualMilestoneTask(task: Task): boolean {
+        const isP6Milestone = task.type === "TT_Mile" || task.type === "TT_FinMile";
+        return this.isNoCalculationMode()
+            ? this.getTaskBarGeometry(task).isMilestone
+            : isP6Milestone;
     }
 
     private getTaskBarSortDate(task: Task): Date | null {
@@ -1889,6 +1900,10 @@ export class Visual implements IVisual {
 
     private isLongestPathMode(): boolean {
         return (this.settings?.criticalPath?.calculationMode?.value?.value ?? "floatBased") === "longestPath";
+    }
+
+    private isNoCalculationMode(): boolean {
+        return (this.settings?.criticalPath?.calculationMode?.value?.value ?? "floatBased") === "none";
     }
 
     private isCpmSafe(): boolean {
@@ -2188,6 +2203,10 @@ export class Visual implements IVisual {
 
     private toggleTaskDisplayInternal(): void {
         try {
+            if (this.isNoCalculationMode()) {
+                return;
+            }
+
             this.debugLog("Internal Toggle method called!");
             this.showAllTasksInternal = !this.showAllTasksInternal;
             this.debugLog("New showAllTasksInternal value:", this.showAllTasksInternal);
@@ -2802,6 +2821,10 @@ export class Visual implements IVisual {
     private togglecriticalPath(): void {
         try {
             const currentMode = this.settings?.criticalPath?.calculationMode?.value?.value || 'floatBased';
+            if (currentMode === "none") {
+                return;
+            }
+
             const newMode = currentMode === 'longestPath' ? 'floatBased' : 'longestPath';
 
             this.debugLog(`Toggling criticality mode from ${currentMode} to ${newMode}`);
@@ -4741,12 +4764,24 @@ export class Visual implements IVisual {
 
             const enableTaskSelection = this.settings.pathSelection.enableTaskSelection.value;
             const mode = this.settings.criticalPath.calculationMode.value.value;
+            const noCalculationMode = mode === 'none';
             const longestPathUnavailable = mode === 'longestPath' && !this.isCpmSafe();
 
             let predecessorTaskSet = new Set<string>();
             let successorTaskSet = new Set<string>();
 
-            if (longestPathUnavailable) {
+            if (noCalculationMode) {
+                this.clearCriticalPathState();
+                if (enableTaskSelection && this.selectedTaskId) {
+                    const traceModeSetting = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
+                    const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
+                    if (effectiveTraceMode === 'forward') {
+                        successorTaskSet = this.identifySuccessorTasksFloatBased(this.selectedTaskId);
+                    } else {
+                        predecessorTaskSet = this.identifyPredecessorTasksFloatBased(this.selectedTaskId);
+                    }
+                }
+            } else if (longestPathUnavailable) {
                 this.clearCriticalPathState();
             } else if (enableTaskSelection && this.selectedTaskId) {
                 const traceModeSetting = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
@@ -4807,7 +4842,9 @@ export class Visual implements IVisual {
                 const relevantTaskSet = effectiveTraceMode === 'forward' ? successorTaskSet : predecessorTaskSet;
                 const relevantPlottableTasks = plottableTasksSorted.filter(task => relevantTaskSet.has(task.internalId));
 
-                if (longestPathUnavailable) {
+                if (noCalculationMode) {
+                    tasksToConsider = relevantPlottableTasks.length > 0 ? relevantPlottableTasks : [];
+                } else if (longestPathUnavailable) {
                     tasksToConsider = plottableTasksSorted;
                 } else if (this.showAllTasksInternal) {
                     tasksToConsider = relevantPlottableTasks.length > 0 ? relevantPlottableTasks : plottableTasksSorted;
@@ -4835,7 +4872,7 @@ export class Visual implements IVisual {
             } else {
 
                 let baseTasks: Task[];
-                if (longestPathUnavailable || this.showAllTasksInternal) {
+                if (noCalculationMode || longestPathUnavailable || this.showAllTasksInternal) {
                     baseTasks = plottableTasksSorted;
                 } else {
                     baseTasks = criticalAndNearCriticalTasks;
@@ -4901,6 +4938,7 @@ export class Visual implements IVisual {
                     this.applyWbsExpandLevel(this.wbsExpandToLevel);
                 }
                 this.updateWbsFilteredCounts(tasksAfterLegendFilter);
+                this.syncUnassignedWbsGroup(tasksAfterLegendFilter);
             }
 
             // Save the fully-filtered tasks BEFORE WBS ordering strips collapsed ones.
@@ -6292,7 +6330,7 @@ export class Visual implements IVisual {
         const clampWidth = (value: number | undefined, fallback: number): number => Math.max(30, value ?? fallback);
         const specs: LabelColumnSpec[] = [];
 
-        if (cols.showTotalFloat.value) {
+        if (cols.showTotalFloat.value && !this.isNoCalculationMode()) {
             specs.push({
                 id: "totalFloat",
                 text: "Total Float",
@@ -7513,8 +7551,7 @@ export class Visual implements IVisual {
             if (!reduceLabelDensity) return true;
             return d.internalId === this.selectedTaskId ||
                 d.isCritical ||
-                d.type === 'TT_Mile' ||
-                d.type === 'TT_FinMile';
+                this.isVisualMilestoneTask(d);
         };
         const dateBgPaddingH = this.dateBackgroundPadding.horizontal;
         const dateBgPaddingV = this.dateBackgroundPadding.vertical;
@@ -7599,7 +7636,7 @@ export class Visual implements IVisual {
             );
 
             // Draw bars for non-milestone tasks
-            previousUpdateData.filter((d: Task) => d.type !== 'TT_Mile' && d.type !== 'TT_FinMile')
+            previousUpdateData.filter((d: Task) => !self.isVisualMilestoneTask(d))
                 .append("rect")
                 .attr("class", "previous-update-bar")
                 .attr("x", (d: Task) => self.snapRectCoord(xScale(d.previousUpdateStartDate!)))
@@ -7618,7 +7655,7 @@ export class Visual implements IVisual {
                 .style("stroke-width", 1);
 
             // Draw icons for milestone tasks
-            previousUpdateData.filter((d: Task) => d.type === 'TT_Mile' || d.type === 'TT_FinMile')
+            previousUpdateData.filter((d: Task) => self.isVisualMilestoneTask(d))
                 .append("path")
                 .attr("class", "previous-update-bar")
                 .attr("d", () => getMilestonePath(milestoneShape, Math.max(previousUpdateHeight + 2, 6)))
@@ -7661,7 +7698,7 @@ export class Visual implements IVisual {
             );
 
             // Draw bars for non-milestone tasks
-            baselineData.filter((d: Task) => d.type !== 'TT_Mile' && d.type !== 'TT_FinMile')
+            baselineData.filter((d: Task) => !self.isVisualMilestoneTask(d))
                 .append("rect")
                 .attr("class", "baseline-bar")
                 .attr("x", (d: Task) => self.snapRectCoord(xScale(d.baselineStartDate!)))
@@ -7680,7 +7717,7 @@ export class Visual implements IVisual {
                 .style("stroke-width", 1);
 
             // Draw icons for milestone tasks
-            baselineData.filter((d: Task) => d.type === 'TT_Mile' || d.type === 'TT_FinMile')
+            baselineData.filter((d: Task) => self.isVisualMilestoneTask(d))
                 .append("path")
                 .attr("class", "baseline-bar")
                 .attr("d", () => getMilestonePath(milestoneShape, Math.max(baselineHeight + 2, 6)))
@@ -7699,9 +7736,7 @@ export class Visual implements IVisual {
 
         allTaskGroups.selectAll(".task-bar, .milestone, .task-bar-before-data-date, .task-bar-data-date-divider, .critical-status-marker, .critical-status-ring").remove();
 
-        allTaskGroups.filter((d: Task) =>
-            (d.type !== 'TT_Mile' && d.type !== 'TT_FinMile')
-        )
+        allTaskGroups.filter((d: Task) => !self.isVisualMilestoneTask(d))
             .each(function (d: Task) {
                 const geometry = self.getTaskBarGeometry(d);
                 const labelStart = geometry.labelStartDate;
@@ -7815,9 +7850,7 @@ export class Visual implements IVisual {
                 }
             });
 
-        allTaskGroups.filter((d: Task) =>
-            (d.type === 'TT_Mile' || d.type === 'TT_FinMile')
-        )
+        allTaskGroups.filter((d: Task) => self.isVisualMilestoneTask(d))
             .each(function (d: Task) {
                 const mDate = self.getVisualMilestoneDate(d);
                 if (mDate instanceof Date && !isNaN(mDate.getTime())) {
@@ -7932,7 +7965,7 @@ export class Visual implements IVisual {
                     const dateToUse = self.getTaskBarLabelFinish(d);
                     if (!(dateToUse instanceof Date && !isNaN(dateToUse.getTime()))) return null;
 
-                    if (d.type === 'TT_Mile' || d.type === 'TT_FinMile') {
+                    if (self.isVisualMilestoneTask(d)) {
                         const milestoneMarkerDate = self.getVisualMilestoneDate(d) ?? dateToUse;
                         const milestoneX = (milestoneMarkerDate instanceof Date && !isNaN(milestoneMarkerDate.getTime())) ? xScale(milestoneMarkerDate) : NaN;
                         if (!isNaN(milestoneX)) {
@@ -7992,7 +8025,7 @@ export class Visual implements IVisual {
             const durationFontSize = Math.max(7, generalFontSize * 0.8);
             const durationFontSizePx = this.pointsToCssPx(durationFontSize);
             allTaskGroups.filter((d: Task) =>
-                d.type !== 'TT_Mile' && d.type !== 'TT_FinMile' &&
+                !self.isVisualMilestoneTask(d) &&
                 self.hasValidVisualDates(d) &&
                 (d.duration || 0) > 0
             )
@@ -8245,7 +8278,8 @@ export class Visual implements IVisual {
                         taskHeight / 2,
                         adjustedLabelWidth,
                         maxLines,
-                        taskNameFontSizePx
+                        taskNameFontSizePx,
+                        maxLines > 1 ? "compactBlock" : "firstLineAtCenter"
                     );
                     textElement.append("title").text(d.name || "");
                 });
@@ -8858,7 +8892,7 @@ export class Visual implements IVisual {
                 baselineBatch.push({ x, y, w, h, r });
             }
 
-            if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+            if (this.isVisualMilestoneTask(task)) {
                 const mDate = this.getVisualMilestoneDate(task);
                 if (mDate) {
                     const milestoneSize = Math.round(this.getRenderedMilestoneSize(milestoneSizeSetting, taskHeight));
@@ -9187,7 +9221,7 @@ export class Visual implements IVisual {
             ctx.textBaseline = 'middle';
 
             for (const task of tasks) {
-                if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') continue;
+                if (this.isVisualMilestoneTask(task)) continue;
                 const segment = this.getTaskBarDurationSegment(task);
                 if (!segment) continue;
                 if (!task.duration || task.duration <= 0) continue;
@@ -9232,7 +9266,7 @@ export class Visual implements IVisual {
                 // In narrow mode, only show labels for selected/critical/milestone tasks
                 if (reduceLabelDensity) {
                     if (task.internalId !== this.selectedTaskId && !task.isCritical &&
-                        task.type !== 'TT_Mile' && task.type !== 'TT_FinMile') continue;
+                        !this.isVisualMilestoneTask(task)) continue;
                 }
 
                 const dateToUse = this.getTaskBarLabelFinish(task);
@@ -9243,7 +9277,7 @@ export class Visual implements IVisual {
                 if (yPosition === undefined || isNaN(yPosition)) continue;
 
                 let xPos: number | null = null;
-                if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+                if (this.isVisualMilestoneTask(task)) {
                     const milestoneMarkerDate = this.getVisualMilestoneDate(task) ?? dateToUse;
                     if (milestoneMarkerDate instanceof Date && !isNaN(milestoneMarkerDate.getTime())) {
                         const milestoneX = xScale(milestoneMarkerDate);
@@ -9375,7 +9409,7 @@ export class Visual implements IVisual {
             .attr("aria-label", (d: Task) => {
                 const statusText = d.isCritical ? "Critical" : d.isNearCritical ? "Near Critical" : "Normal";
                 const selectedText = d.internalId === this.selectedTaskId ? " (Selected)" : "";
-                if (d.type === 'TT_Mile' || d.type === 'TT_FinMile') {
+                if (this.isVisualMilestoneTask(d)) {
                     const milestoneDate = this.getVisualMilestoneDate(d);
                     return `${d.name}, ${statusText} milestone, Date: ${this.formatDate(milestoneDate)}${selectedText}. Press Enter or Space to select.`;
                 } else {
@@ -9675,6 +9709,7 @@ export class Visual implements IVisual {
                     xScale: (date: Date) => xScale(date),
                     currentBarDateMode: this.getCurrentBarDateMode(),
                     dataDate: this.dataDate,
+                    treatZeroDurationAsMilestone: this.isNoCalculationMode(),
                     taskHeight,
                     milestoneSize: milestoneDrawSize,
                     elbowOffset,
@@ -10931,30 +10966,52 @@ export class Visual implements IVisual {
 
     /**
      * Gets the appropriate task set for finish line calculations.
-     * Prefers `allFilteredTasks` which respects all filters (LP, Search, Legend).
-     * Falls back to `allTasksToShow` when `allFilteredTasks` is unavailable
-     * (e.g., during a settings-only update cycle from persistProperties).
+     * In WBS mode, prefer the durable pre-collapse filtered scope and exclude
+     * unassigned tasks when real WBS tasks exist in that same filtered scope.
      */
     private getTasksForFinishLines(): Task[] {
         const aft = this.allFilteredTasks?.length ?? 0;
         const dur = this._lastFilteredTasksForFinishLines?.length ?? 0;
         const ats = this.allTasksToShow?.length ?? 0;
         this.debugLog(`[DIAG-FINISH] allFilteredTasks=${aft}, durable=${dur}, allTasksToShow=${ats}`);
-        // Primary: current filtered tasks (set by full updateInternal)
-        if (this.allFilteredTasks && this.allFilteredTasks.length > 0) {
-            return this.allFilteredTasks;
+
+        const wbsGroupingEnabled = this.wbsDataExists &&
+            this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+        const sourceTasks = wbsGroupingEnabled
+            ? [
+                this._lastFilteredTasksForFinishLines,
+                this.allFilteredTasks,
+                this.allTasksToShow,
+                this.allTasksData
+            ]
+            : [
+                this.allFilteredTasks,
+                this._lastFilteredTasksForFinishLines,
+                this.allTasksToShow,
+                this.allTasksData
+            ];
+
+        for (const tasks of sourceTasks) {
+            if (!tasks || tasks.length === 0) {
+                continue;
+            }
+
+            return wbsGroupingEnabled
+                ? this.getWbsScopedFinishLineTasks(tasks)
+                : tasks;
         }
-        // Durable fallback: last known good filtered tasks (survives settings-only updates)
-        if (this._lastFilteredTasksForFinishLines && this._lastFilteredTasksForFinishLines.length > 0) {
-            return this._lastFilteredTasksForFinishLines;
-        }
-        // Last resort
-        if (this.allTasksToShow && this.allTasksToShow.length > 0) {
-            return this.allTasksToShow;
-        }
-        return this.allTasksData || [];
+
+        return [];
     }
 
+    private getWbsScopedFinishLineTasks(sourceTasks: Task[]): Task[] {
+        const realWbsTasks = sourceTasks.filter(task => this.isTaskInRealWbsGroup(task));
+        return realWbsTasks.length > 0 ? realWbsTasks : sourceTasks;
+    }
+
+    private isTaskInRealWbsGroup(task: Task): boolean {
+        return !!task.wbsGroupId && this.wbsGroupMap.has(task.wbsGroupId);
+    }
 
     private getLatestFinishDate(allTasks: Task[], selector: (task: Task) => Date | null | undefined): Date | null {
         let latestFinishTimestamp: number | null = null;
@@ -13751,42 +13808,221 @@ export class Visual implements IVisual {
         const processGroup = (group: WBSGroup): void => {
             if (group.isExpanded) {
 
-                for (const child of group.children) {
-                    processGroup(child);
+                for (const task of this.getSortedVisibleWbsGroupTasks(group, taskSet)) {
+                    orderedTasks.push(task);
                 }
 
-                const directTasks = group.tasks
-                    .filter(t => taskSet.has(t.internalId))
-                    .sort((a, b) => {
-                        const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
-                        const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
-                        return aStart - bStart;
-                    });
-
-                for (const task of directTasks) {
-                    orderedTasks.push(task);
+                for (const child of group.children) {
+                    processGroup(child);
                 }
             }
 
         };
 
         for (const rootGroup of this.wbsRootGroups) {
+            if (rootGroup.isUnassignedWbsGroup) continue;
             processGroup(rootGroup);
         }
 
-        const tasksWithoutWbs = tasks
-            .filter(t => !t.wbsGroupId)
-            .sort((a, b) => {
-                const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
-                const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
-                return aStart - bStart;
-            });
-
-        for (const task of tasksWithoutWbs) {
-            orderedTasks.push(task);
+        const unassignedGroup = this.getUnassignedWbsGroup();
+        if (unassignedGroup?.isExpanded) {
+            for (const task of this.getSortedVisibleWbsGroupTasks(unassignedGroup, taskSet)) {
+                orderedTasks.push(task);
+            }
         }
 
         return orderedTasks;
+    }
+
+    private getUnassignedWbsGroup(): WBSGroup | undefined {
+        return this.wbsGroupMap.get(this.UNASSIGNED_WBS_GROUP_ID);
+    }
+
+    private removeUnassignedWbsGroup(): void {
+        if (!this.wbsGroupMap.has(this.UNASSIGNED_WBS_GROUP_ID)) {
+            return;
+        }
+
+        this.wbsGroupMap.delete(this.UNASSIGNED_WBS_GROUP_ID);
+        this.wbsGroups = this.wbsGroups.filter(group => group.id !== this.UNASSIGNED_WBS_GROUP_ID);
+        this.wbsRootGroups = this.wbsRootGroups.filter(group => group.id !== this.UNASSIGNED_WBS_GROUP_ID);
+    }
+
+    private getUnassignedWbsExpandedState(): boolean {
+        const persistedState = this.wbsExpandedState.get(this.UNASSIGNED_WBS_GROUP_ID);
+        if (persistedState !== undefined) {
+            return persistedState;
+        }
+
+        if (this.wbsExpandToLevel === null) {
+            return true;
+        }
+
+        if (this.wbsExpandToLevel === undefined) {
+            return this.wbsExpandedInternal;
+        }
+
+        return this.wbsExpandToLevel >= 1;
+    }
+
+    private syncUnassignedWbsGroup(filteredTasks: Task[]): void {
+        this.removeUnassignedWbsGroup();
+
+        const unassignedTasks = this.sortTasksByBarStart(filteredTasks.filter(task => !task.wbsGroupId));
+        if (unassignedTasks.length === 0) {
+            return;
+        }
+
+        const group: WBSGroup = {
+            id: this.UNASSIGNED_WBS_GROUP_ID,
+            level: 1,
+            name: this.UNASSIGNED_WBS_GROUP_NAME,
+            fullPath: this.UNASSIGNED_WBS_GROUP_NAME,
+            parentId: null,
+            children: [],
+            tasks: unassignedTasks,
+            allTasks: unassignedTasks,
+            isExpanded: this.getUnassignedWbsExpandedState(),
+            yOrder: undefined,
+            visibleTaskCount: unassignedTasks.length,
+            summaryStartDate: null,
+            summaryFinishDate: null,
+            summaryEarlyStartDate: null,
+            summaryEarlyFinishDate: null,
+            hasCriticalTasks: false,
+            taskCount: unassignedTasks.length,
+            criticalStartDate: null,
+            criticalFinishDate: null,
+            hasNearCriticalTasks: false,
+            nearCriticalStartDate: null,
+            nearCriticalFinishDate: null,
+            summaryBaselineStartDate: null,
+            summaryBaselineFinishDate: null,
+            summaryPreviousUpdateStartDate: null,
+            summaryPreviousUpdateFinishDate: null,
+            summaryTotalFloat: null,
+            isUnassignedWbsGroup: true
+        };
+
+        this.updateUnassignedWbsGroupSummary(group);
+        this.wbsGroups.push(group);
+        this.wbsRootGroups.push(group);
+        this.wbsGroupMap.set(group.id, group);
+        this.wbsExpandedState.set(group.id, group.isExpanded);
+    }
+
+    private sortTasksByBarStart(tasks: Task[]): Task[] {
+        return [...tasks].sort((a, b) => {
+            const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
+            const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
+            return aStart - bStart;
+        });
+    }
+
+    private getSortedVisibleWbsGroupTasks(group: WBSGroup, taskSet: Set<string>): Task[] {
+        return this.sortTasksByBarStart(group.tasks.filter(task => taskSet.has(task.internalId)));
+    }
+
+    private updateUnassignedWbsGroupSummary(group: WBSGroup): void {
+        let minStart: Date | null = null;
+        let maxFinish: Date | null = null;
+        let minEarlyStart: Date | null = null;
+        let maxEarlyFinish: Date | null = null;
+        let hasCritical = false;
+        let criticalMinStart: Date | null = null;
+        let criticalMaxFinish: Date | null = null;
+        let hasNearCritical = false;
+        let nearCriticalMinStart: Date | null = null;
+        let nearCriticalMaxFinish: Date | null = null;
+        let baselineMinStart: Date | null = null;
+        let baselineMaxFinish: Date | null = null;
+        let prevUpdateMinStart: Date | null = null;
+        let prevUpdateMaxFinish: Date | null = null;
+        let minTotalFloat: number | null = null;
+
+        for (const task of group.tasks) {
+            const taskGeometry = this.getTaskBarGeometry(task);
+            const visualStart = taskGeometry.extentStart;
+            const visualFinish = taskGeometry.extentFinish;
+            const criticalFormattingExtent = getCriticalFormattingExtentFromTaskBarGeometry(taskGeometry);
+
+            const isValidStart = visualStart && visualStart.getFullYear() > 1980;
+            const isValidFinish = visualFinish && visualFinish.getFullYear() > 1980;
+
+            if (isValidStart && (!minStart || visualStart! < minStart)) {
+                minStart = visualStart;
+            }
+            if (isValidFinish && (!maxFinish || visualFinish! > maxFinish)) {
+                maxFinish = visualFinish;
+            }
+
+            if (task.startDate && task.startDate.getFullYear() > 1980 && (!minEarlyStart || task.startDate < minEarlyStart)) {
+                minEarlyStart = task.startDate;
+            }
+            if (task.finishDate && task.finishDate.getFullYear() > 1980 && (!maxEarlyFinish || task.finishDate > maxEarlyFinish)) {
+                maxEarlyFinish = task.finishDate;
+            }
+
+            if (task.isCritical) {
+                hasCritical = true;
+                if (criticalFormattingExtent.start && criticalFormattingExtent.start.getFullYear() > 1980 &&
+                    (!criticalMinStart || criticalFormattingExtent.start < criticalMinStart)) {
+                    criticalMinStart = criticalFormattingExtent.start;
+                }
+                if (criticalFormattingExtent.finish && criticalFormattingExtent.finish.getFullYear() > 1980 &&
+                    (!criticalMaxFinish || criticalFormattingExtent.finish > criticalMaxFinish)) {
+                    criticalMaxFinish = criticalFormattingExtent.finish;
+                }
+            }
+
+            if (task.isNearCritical) {
+                hasNearCritical = true;
+                if (criticalFormattingExtent.start && criticalFormattingExtent.start.getFullYear() > 1980 &&
+                    (!nearCriticalMinStart || criticalFormattingExtent.start < nearCriticalMinStart)) {
+                    nearCriticalMinStart = criticalFormattingExtent.start;
+                }
+                if (criticalFormattingExtent.finish && criticalFormattingExtent.finish.getFullYear() > 1980 &&
+                    (!nearCriticalMaxFinish || criticalFormattingExtent.finish > nearCriticalMaxFinish)) {
+                    nearCriticalMaxFinish = criticalFormattingExtent.finish;
+                }
+            }
+
+            if (task.baselineStartDate && (!baselineMinStart || task.baselineStartDate < baselineMinStart)) {
+                baselineMinStart = task.baselineStartDate;
+            }
+            if (task.baselineFinishDate && (!baselineMaxFinish || task.baselineFinishDate > baselineMaxFinish)) {
+                baselineMaxFinish = task.baselineFinishDate;
+            }
+            if (task.previousUpdateStartDate && (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart)) {
+                prevUpdateMinStart = task.previousUpdateStartDate;
+            }
+            if (task.previousUpdateFinishDate && (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish)) {
+                prevUpdateMaxFinish = task.previousUpdateFinishDate;
+            }
+
+            const taskFloat = task.userProvidedTotalFloat ?? task.totalFloat;
+            if (isFinite(taskFloat)) {
+                minTotalFloat = minTotalFloat === null
+                    ? taskFloat
+                    : Math.min(minTotalFloat, taskFloat);
+            }
+        }
+
+        group.summaryStartDate = minStart;
+        group.summaryFinishDate = maxFinish;
+        group.summaryEarlyStartDate = minEarlyStart;
+        group.summaryEarlyFinishDate = maxEarlyFinish;
+        group.hasCriticalTasks = hasCritical;
+        group.criticalStartDate = criticalMinStart;
+        group.criticalFinishDate = criticalMaxFinish;
+        group.hasNearCriticalTasks = hasNearCritical;
+        group.nearCriticalStartDate = nearCriticalMinStart;
+        group.nearCriticalFinishDate = nearCriticalMaxFinish;
+        group.summaryBaselineStartDate = baselineMinStart;
+        group.summaryBaselineFinishDate = baselineMaxFinish;
+        group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
+        group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
+        group.summaryTotalFloat = minTotalFloat;
     }
 
     /**
@@ -13796,6 +14032,7 @@ export class Visual implements IVisual {
      * @param filteredTasks - Tasks after filtering (legend, etc.) but before collapse/expand ordering
      */
     private updateWbsFilteredCounts(filteredTasks: Task[]): void {
+        this.removeUnassignedWbsGroup();
 
         for (const group of this.wbsGroups) {
             group.visibleTaskCount = 0;
@@ -14066,39 +14303,25 @@ export class Visual implements IVisual {
 
             if (group.isExpanded) {
 
-                for (const child of group.children) {
-                    assignYOrderRecursive(child);
+                for (const task of this.getSortedVisibleWbsGroupTasks(group, visibleTaskIds)) {
+                    task.yOrder = currentYOrder++;
                 }
 
-                const directVisibleTasks = group.tasks
-                    .filter(t => visibleTaskIds.has(t.internalId))
-                    .sort((a, b) => {
-                        const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
-                        const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
-                        return aStart - bStart;
-                    });
-
-                for (const task of directVisibleTasks) {
-                    task.yOrder = currentYOrder++;
+                for (const child of group.children) {
+                    assignYOrderRecursive(child);
                 }
             }
 
         };
 
         for (const rootGroup of this.wbsRootGroups) {
+            if (rootGroup.isUnassignedWbsGroup) continue;
             assignYOrderRecursive(rootGroup);
         }
 
-        const tasksWithoutWbs = tasksToShow
-            .filter(t => !t.wbsGroupId)
-            .sort((a, b) => {
-                const aStart = this.getTaskBarSortDate(a)?.getTime() ?? 0;
-                const bStart = this.getTaskBarSortDate(b)?.getTime() ?? 0;
-                return aStart - bStart;
-            });
-
-        for (const task of tasksWithoutWbs) {
-            task.yOrder = currentYOrder++;
+        const unassignedGroup = this.getUnassignedWbsGroup();
+        if (unassignedGroup) {
+            assignYOrderRecursive(unassignedGroup);
         }
 
         this.debugLog(`Assigned yOrder to ${currentYOrder} items (groups + tasks)`);
@@ -14613,7 +14836,22 @@ export class Visual implements IVisual {
             const minToggleX = taskCellLeftX + 2;
             const maxToggleX = Math.max(minToggleX, nameRightX - self.WBS_TOGGLE_BOX_SIZE - 4);
             const toggleX = Math.max(minToggleX, Math.min(toggleBaseX, maxToggleX));
-            const toggleY = Math.round(bandCenter - self.WBS_TOGGLE_BOX_SIZE / 2);
+            const textX = hasRoomForToggle
+                ? Math.max(toggleX + self.WBS_TOGGLE_BOX_SIZE + 8, Math.max(taskCellLeftX + 12, displayedAccentX + 12))
+                : taskCellLeftX + 4;
+            const textY = bandCenter;
+            const availableWidth = nameRightX - textX;
+            const showGroupName = availableWidth > 36;
+            const maxLines = showGroupName
+                ? self.getMaxWrappedLabelLines(
+                    availableWidth,
+                    wbsRowBandHeight,
+                    groupNameFontSizePx
+                )
+                : 1;
+            const toggleY = maxLines > 1
+                ? Math.round(bgY + Math.max(3, Math.min(6, (taskHeight - self.WBS_TOGGLE_BOX_SIZE) / 3)))
+                : Math.round(bandCenter - self.WBS_TOGGLE_BOX_SIZE / 2);
             const toggleGroup = g.select<SVGGElement>('.wbs-expand-toggle')
                 .style('display', hasRoomForToggle ? null : 'none')
                 .attr('transform', `translate(${toggleX}, ${toggleY})`);
@@ -14680,13 +14918,6 @@ export class Visual implements IVisual {
                     .text(countText);
             }
 
-            const textX = hasRoomForToggle
-                ? Math.max(toggleX + self.WBS_TOGGLE_BOX_SIZE + 8, Math.max(taskCellLeftX + 12, displayedAccentX + 12))
-                : taskCellLeftX + 4;
-            const textY = bandCenter;
-            const availableWidth = nameRightX - textX;
-            const showGroupName = availableWidth > 36;
-
             const textElement = g.select<SVGTextElement>('.wbs-group-name');
             const displayName = self.getWbsDisplayName(group);
 
@@ -14707,12 +14938,6 @@ export class Visual implements IVisual {
                     .style('opacity', textOpacity)
                     .style('letter-spacing', '0.1px');
 
-                const maxLines = self.getMaxWrappedLabelLines(
-                    availableWidth,
-                    wbsRowBandHeight,
-                    groupNameFontSizePx
-                );
-
                 self.renderWrappedSvgText(
                     textElement as Selection<SVGTextElement, unknown, null, undefined>,
                     displayName,
@@ -14720,7 +14945,8 @@ export class Visual implements IVisual {
                     textY,
                     availableWidth,
                     maxLines,
-                    groupNameFontSizePx
+                    groupNameFontSizePx,
+                    maxLines > 1 ? "compactBlock" : "firstLineAtCenter"
                 );
                 textElement.append('title').text(displayName);
             }
@@ -14891,7 +15117,7 @@ export class Visual implements IVisual {
         if (slotsAvailable > 0) {
             const milestones = remainingTasks.filter(task =>
                 !shownTaskIds.has(task.internalId) &&
-                (task.type === 'TT_Mile' || task.type === 'TT_FinMile')
+                this.isVisualMilestoneTask(task)
             );
             const milestonesToAdd = milestones.slice(0, slotsAvailable);
             milestonesToAdd.forEach(milestone => {
@@ -16182,7 +16408,7 @@ export class Visual implements IVisual {
         }
 
         const createStatusChip = (text: string, bg: string, border: string, color: string) => {
-            metaBlock.append("div")
+            return metaBlock.append("div")
                 .attr("class", "legend-status-chip")
                 .style("display", "inline-flex")
                 .style("align-items", "center")
@@ -16199,21 +16425,27 @@ export class Visual implements IVisual {
                 .text(text);
         };
 
+        const visibleChipReservedWidth = Math.ceil((`${totalCount} / ${totalCount} visible`.length * statusFontSizePx * 0.62) + 16);
         createStatusChip(
             `${selectedCount} / ${totalCount} visible`,
             this.highContrastMode ? "transparent" : controlBackground,
             this.highContrastMode ? shellText : borderColor,
             shellText
-        );
+        )
+            .style("width", `${visibleChipReservedWidth}px`)
+            .style("justify-content", "center");
 
-        if (isFiltered) {
-            createStatusChip(
-                `${hiddenCount} hidden`,
-                this.highContrastMode ? "transparent" : controlBackground,
-                this.highContrastMode ? shellText : borderColor,
-                this.highContrastMode ? shellText : HEADER_DOCK_TOKENS.warningText
-            );
-        }
+        const hiddenChipReservedWidth = Math.ceil((`${totalCount} hidden`.length * statusFontSizePx * 0.62) + 16);
+        createStatusChip(
+            `${hiddenCount} hidden`,
+            this.highContrastMode ? "transparent" : controlBackground,
+            this.highContrastMode ? shellText : borderColor,
+            this.highContrastMode ? shellText : HEADER_DOCK_TOKENS.warningText
+        )
+            .attr("aria-hidden", isFiltered ? "false" : "true")
+            .style("visibility", isFiltered ? "visible" : "hidden")
+            .style("width", `${hiddenChipReservedWidth}px`)
+            .style("justify-content", "center");
 
         const rail = mainContainer.append("div")
             .attr("class", "legend-rail")
@@ -16722,7 +16954,7 @@ export class Visual implements IVisual {
             return false;
         }
 
-        if (task.type === 'TT_Mile' || task.type === 'TT_FinMile') {
+        if (this.isVisualMilestoneTask(task)) {
             const milestoneDate = this.getVisualMilestoneDate(task);
             if (!(milestoneDate instanceof Date) || isNaN(milestoneDate.getTime())) {
                 return false;
@@ -17300,13 +17532,20 @@ export class Visual implements IVisual {
         const nearCriticalLabel = this.getLocalizedString("tooltip.nearCriticalThreshold", "Near Critical Threshold");
         const lookAheadLabel = this.getLocalizedString("tooltip.lookAhead", "Look-Ahead Window");
 
-        const modeValue = mode === "floatBased"
-            ? this.getLocalizedString("tooltip.mode.floatBased", "Float-Based")
-            : this.getLocalizedString("tooltip.mode.longestPath", "Longest Path");
+        const isNoCalculationMode = mode === "none";
+        const modeValue = isNoCalculationMode
+            ? this.getLocalizedString("tooltip.mode.visualiser", "Visualiser")
+            : mode === "floatBased"
+                ? this.getLocalizedString("tooltip.mode.floatBased", "Float-Based")
+                : this.getLocalizedString("tooltip.mode.longestPath", "Longest Path");
 
         let statusValue = "";
         if (task.internalId === this.selectedTaskId) {
             statusValue = this.getLocalizedString("tooltip.status.selected", "Selected");
+        } else if (isNoCalculationMode && this.selectedTaskId) {
+            statusValue = this.getLocalizedString("tooltip.status.inSelectedPath", "In selected path");
+        } else if (isNoCalculationMode) {
+            statusValue = "";
         } else if (task.isCritical) {
             statusValue = mode === "floatBased"
                 ? this.getLocalizedString("tooltip.status.criticalFloat", "Critical (Float = 0)")
@@ -17338,7 +17577,9 @@ export class Visual implements IVisual {
         }
 
         items.push({ displayName: modeLabel, value: modeValue });
-        items.push({ displayName: statusLabel, value: statusValue });
+        if (statusValue) {
+            items.push({ displayName: statusLabel, value: statusValue });
+        }
 
         if (mode === "floatBased") {
             if (task.userProvidedTotalFloat !== undefined) {
@@ -17347,7 +17588,7 @@ export class Visual implements IVisual {
             if (task.taskFreeFloat !== undefined) {
                 items.push({ displayName: taskFreeFloatLabel, value: `${task.taskFreeFloat.toFixed(2)} days` });
             }
-        } else if (mode === "longestPath") {
+        } else if (mode === "longestPath" || isNoCalculationMode) {
             items.push({ displayName: durationLabel, value: `${task.duration} days` });
         }
 
@@ -17360,7 +17601,7 @@ export class Visual implements IVisual {
             }
         }
 
-        if (this.showNearCritical && this.floatThreshold > 0) {
+        if (mode === "floatBased" && this.showNearCritical && this.floatThreshold > 0) {
             items.push({ displayName: nearCriticalLabel, value: `${this.floatThreshold}` });
         }
 
@@ -17473,7 +17714,7 @@ export class Visual implements IVisual {
             case "taskType":
                 return this.getLocalizedString("role.taskType", "Task Type");
             case "duration":
-                return this.getLocalizedString("role.duration", "Duration (Work Days)");
+                return this.getLocalizedString("role.duration", "Duration (Days)");
             case "taskTotalFloat":
                 return this.getLocalizedString("role.taskTotalFloat", "Task Total Float");
             case "taskFreeFloat":
@@ -17514,7 +17755,11 @@ export class Visual implements IVisual {
     private getMissingRequiredRoles(dataView: DataView): string[] {
         const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "floatBased";
         const requiredRoles = ["taskId", "startDate", "finishDate"];
-        requiredRoles.push(mode === "floatBased" ? "taskTotalFloat" : "duration");
+        if (mode === "floatBased") {
+            requiredRoles.push("taskTotalFloat");
+        } else if (mode !== "none") {
+            requiredRoles.push("duration");
+        }
         return requiredRoles.filter(role => !this.dataProcessor.hasDataRole(dataView, role));
     }
 
@@ -17532,7 +17777,12 @@ export class Visual implements IVisual {
         const missingSuffix = this.getLocalizedString("landing.missingSuffix", "(missing)");
 
         const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "floatBased";
-        const requiredRoles = ["taskId", "startDate", "finishDate", mode === "floatBased" ? "taskTotalFloat" : "duration"];
+        const requiredRoles = ["taskId", "startDate", "finishDate"];
+        if (mode === "floatBased") {
+            requiredRoles.push("taskTotalFloat");
+        } else if (mode !== "none") {
+            requiredRoles.push("duration");
+        }
         const optionalRoles = [
             "taskName",
             "taskType",
@@ -18175,14 +18425,23 @@ export class Visual implements IVisual {
     }
 
     private getExportTaskTypeLabel(task: Task): string {
+        if (this.isNoCalculationMode() && task.duration === 0) {
+            return "Milestone";
+        }
         return getExportTaskType(task);
     }
 
     private getExportFloatLabel(task: Task): string {
+        if (this.isNoCalculationMode()) {
+            return "";
+        }
         return getExportFloatText(task, "");
     }
 
     private getExportCriticalValue(task: Task): boolean {
+        if (this.isNoCalculationMode()) {
+            return false;
+        }
         return Number.isFinite(task.userProvidedTotalFloat)
             ? (task.userProvidedTotalFloat as number) <= 0
             : task.isCritical;
@@ -18609,6 +18868,37 @@ ${tableHtml}
         let rowIndex = 0;
         let previousLevels: string[] = [];
 
+        const appendGroupRow = (group: WBSGroup | undefined, levelIndex: number, fallbackName: string): void => {
+            const groupLevel = group?.level ?? (levelIndex + 1);
+            const rowBgColor = this.getWbsExportRowBackgroundColor(groupLevel, defaultGroupHeaderColor);
+            const textColor = this.getWbsExportRowTextColor(rowBgColor, defaultGroupNameColor);
+            const indentPx = Math.max(0, levelIndex * indentPerLevel);
+            const groupName = this.sanitizeExportCell(group ? this.getWbsDisplayName(group) : fallbackName);
+            const groupFloat = typeof group?.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat)
+                ? group.summaryTotalFloat.toFixed(0)
+                : "";
+
+            html += `<tr style="background-color: ${rowBgColor}; color: ${textColor}; font-weight: bold;">`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, `padding: 2px ${indentPx}px; white-space: nowrap; padding-left: ${indentPx + 8}px;`)}">${this.escapeHtml(groupName)}</td>`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
+            if (this.showBaselineInternal) {
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : ""}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : ""}</td>`;
+            }
+            if (this.showPreviousUpdateInternal) {
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryPreviousUpdateStartDate ? exportDateFormatter(group.summaryPreviousUpdateStartDate) : ""}</td>`;
+                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryPreviousUpdateFinishDate ? exportDateFormatter(group.summaryPreviousUpdateFinishDate) : ""}</td>`;
+            }
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : ""}</td>`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : ""}</td>`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${groupFloat}</td>`;
+            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
+            html += `</tr>`;
+        };
+
         for (const task of tasks) {
             rowIndex++;
             const taskType = this.getExportTaskTypeLabel(task);
@@ -18617,6 +18907,11 @@ ${tableHtml}
             const visualStartDate = this.getTaskBarLabelStart(task);
             const visualFinishDate = this.getTaskBarLabelFinish(task);
             const currentLevels = task.wbsLevels || [];
+            const unassignedGroup = !task.wbsGroupId ? this.getUnassignedWbsGroup() : undefined;
+
+            if (unassignedGroup && previousLevels[0] !== this.UNASSIGNED_WBS_GROUP_ID) {
+                appendGroupRow(unassignedGroup, 0, this.UNASSIGNED_WBS_GROUP_NAME);
+            }
 
             let divergenceIndex = 0;
             while (
@@ -18633,38 +18928,11 @@ ${tableHtml}
                     .map((levelName, index) => `L${index + 1}:${levelName}`)
                     .join("|");
                 const group = this.wbsGroupMap.get(pathId);
-                const groupLevel = group?.level ?? (levelIndex + 1);
-                const rowBgColor = this.getWbsExportRowBackgroundColor(groupLevel, defaultGroupHeaderColor);
-                const textColor = this.getWbsExportRowTextColor(rowBgColor, defaultGroupNameColor);
-                const indentPx = Math.max(0, levelIndex * indentPerLevel);
-                const groupName = this.sanitizeExportCell(group ? this.getWbsDisplayName(group) : (currentLevels[levelIndex] || ""));
-                const groupFloat = typeof group?.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat)
-                    ? group.summaryTotalFloat.toFixed(0)
-                    : "";
-
-                html += `<tr style="background-color: ${rowBgColor}; color: ${textColor}; font-weight: bold;">`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, `padding: 2px ${indentPx}px; white-space: nowrap; padding-left: ${indentPx + 8}px;`)}">${this.escapeHtml(groupName)}</td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
-                if (this.showBaselineInternal) {
-                    html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : ""}</td>`;
-                    html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : ""}</td>`;
-                }
-                if (this.showPreviousUpdateInternal) {
-                    html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryPreviousUpdateStartDate ? exportDateFormatter(group.summaryPreviousUpdateStartDate) : ""}</td>`;
-                    html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryPreviousUpdateFinishDate ? exportDateFormatter(group.summaryPreviousUpdateFinishDate) : ""}</td>`;
-                }
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : ""}</td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : ""}</td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${groupFloat}</td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
-                html += `</tr>`;
+                appendGroupRow(group, levelIndex, currentLevels[levelIndex] || "");
             }
 
-            previousLevels = currentLevels;
-            const taskIndentPx = currentLevels.length * indentPerLevel;
+            previousLevels = unassignedGroup ? [this.UNASSIGNED_WBS_GROUP_ID] : currentLevels;
+            const taskIndentPx = unassignedGroup ? indentPerLevel : currentLevels.length * indentPerLevel;
             const taskId = this.sanitizeExportCell(task.id?.toString() || "");
             const taskName = this.sanitizeExportCell(task.name || "");
 
