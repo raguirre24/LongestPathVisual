@@ -23,6 +23,11 @@ describe("VisualSettings", () => {
         const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
         const visualSource = readFileSync("src/visual.ts", "utf8");
         const headerSource = readFileSync("src/components/Header.ts", "utf8");
+        const themeSource = readFileSync("src/utils/Theme.ts", "utf8");
+        const headerBackgroundSettingSource = settingsSource.slice(
+            settingsSource.indexOf("headerLegendBackgroundColor = new ColorPicker"),
+            settingsSource.indexOf("headerLegendControlBackgroundColor = new ColorPicker")
+        );
 
         expect(capabilities.objects.generalSettings.properties.headerLegendBackgroundColor.type.fill.solid.color).toBe(true);
         expect(capabilities.objects.generalSettings.properties.headerLegendControlBackgroundColor.type.fill.solid.color).toBe(true);
@@ -39,6 +44,8 @@ describe("VisualSettings", () => {
         expect(settingsSource).toContain('displayName: "Header and Legend Text Color"');
         expect(settingsSource).toContain('displayName: "Header and Legend Border Color"');
         expect(settingsSource).toContain('displayName: "Header and Legend Active Color"');
+        expect(headerBackgroundSettingSource).toContain('value: { value: "#FFFFFF" }');
+        expect(themeSource).toContain("shell: '#FFFFFF'");
         expect(visualSource).toContain("getHeaderLegendBackgroundColor");
         expect(visualSource).toContain("getHeaderLegendControlBackgroundColor");
         expect(visualSource).toContain("getHeaderLegendTextColor");
@@ -313,12 +320,30 @@ describe("VisualSettings", () => {
         expect(initialLoadHelpersSource).toContain('this.loadingAccent?.style("background", activeColor)');
         expect(initialLoadHelpersSource).toContain('this.loadingOverlay.style("display", "block")');
         expect(indicatorGateSource).toContain("!this.hasCompletedInitialDataRender");
-        expect(indicatorGateSource).toContain("shouldTransform");
+        expect(indicatorGateSource).toContain("const hasRenderedTaskData = this.allTasksData.length > 0;");
+        expect(indicatorGateSource).toContain("const includesDataUpdate = (options.type & VisualUpdateType.Data) !== 0;");
+        expect(indicatorGateSource).toContain("!!dataView");
         expect(indicatorGateSource).toContain("updateType !== UpdateType.SettingsOnly");
         expect(indicatorGateSource).toContain("updateType !== UpdateType.ViewportOnly");
-        expect(updateSource).toContain("const shouldShowInitialLoadIndicator = this.shouldShowInitialLoadIndicator(updateType, shouldTransform);");
+        expect(updateSource).toContain("const shouldShowInitialLoadIndicator = this.shouldShowInitialLoadIndicator(updateType, options, dataView);");
         expect(updateSource).toContain("await this.yieldInitialLoadFrame();");
         expect(updateSource).toContain("this.completeInitialDataRender();");
+
+        const settingsIndex = updateSource.indexOf("this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);");
+        const colourIndex = updateSource.indexOf("this.applyInitialLoadChromeColors();", settingsIndex);
+        const yieldIndex = updateSource.indexOf("await this.yieldInitialLoadFrame();", colourIndex);
+        const signatureIndex = updateSource.indexOf("const dataSignature = this.getDataSignature(dataView);");
+        const processIndex = updateSource.indexOf("const processedData = this.dataProcessor.processData(");
+        expect(settingsIndex).toBeGreaterThan(-1);
+        expect(colourIndex).toBeGreaterThan(settingsIndex);
+        expect(yieldIndex).toBeGreaterThan(colourIndex);
+        expect(signatureIndex).toBeGreaterThan(yieldIndex);
+        expect(processIndex).toBeGreaterThan(signatureIndex);
+
+        const noDataViewSource = slice(updateSource, "if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport)", "const dataView = options.dataViews[0];");
+        expect(noDataViewSource).toContain("this.hideInitialLoadIndicator();");
+        expect(noDataViewSource).not.toContain("this.completeInitialDataRender();");
+
         expect(visualSource).not.toContain("loadingText");
         expect(visualSource).not.toContain("loadingRowsText");
         expect(visualSource).not.toContain("loadingProgressText");

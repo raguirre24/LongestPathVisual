@@ -4204,12 +4204,16 @@ export class Visual implements IVisual {
         this.loadingAccent?.style("background", activeColor);
     }
 
-    private shouldShowInitialLoadIndicator(updateType: UpdateType, shouldTransform: boolean): boolean {
+    private shouldShowInitialLoadIndicator(updateType: UpdateType, options: VisualUpdateOptions, dataView?: DataView): boolean {
+        const hasRenderedTaskData = this.allTasksData.length > 0;
+        const includesDataUpdate = (options.type & VisualUpdateType.Data) !== 0;
+
         return !this.hasCompletedInitialDataRender &&
-            shouldTransform &&
-            this.allTasksData.length === 0 &&
+            !!dataView &&
+            !hasRenderedTaskData &&
             updateType !== UpdateType.SettingsOnly &&
-            updateType !== UpdateType.ViewportOnly;
+            updateType !== UpdateType.ViewportOnly &&
+            (includesDataUpdate || !hasRenderedTaskData);
     }
 
     private showInitialLoadIndicator(): void {
@@ -4416,7 +4420,7 @@ export class Visual implements IVisual {
             this.clearLandingPage();
 
             if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
-                this.completeInitialDataRender();
+                this.hideInitialLoadIndicator();
                 this.displayLandingPage();
                 return;
             }
@@ -4436,9 +4440,28 @@ export class Visual implements IVisual {
             const renderedViewport: IViewport = { width: viewportWidth, height: viewportHeight };
             this.lastViewport = renderedViewport;
             this.lastUpdateOptions = { ...options, viewport: renderedViewport };
-            const dataSignature = this.getDataSignature(dataView);
             const hadWbsInPreviousUpdate = this.wbsDataExistsInMetadata || this.wbsDataExists;
             const previousWbsEnabled = this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+            this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+            this.applyHeaderHeight();
+            this.applyInitialLoadChromeColors();
+
+            if (!this.dataProcessor.validateDataView(dataView, this.settings)) {
+                const missingRoles = this.getMissingRequiredRoles(dataView);
+                this.completeInitialDataRender();
+                this.displayLandingPage(missingRoles);
+                return;
+            }
+            this.debugLog("Data roles validated.");
+
+            const shouldShowInitialLoadIndicator = this.shouldShowInitialLoadIndicator(updateType, options, dataView);
+            if (shouldShowInitialLoadIndicator) {
+                this.showInitialLoadIndicator();
+                await this.yieldInitialLoadFrame();
+            }
+
+            const dataSignature = this.getDataSignature(dataView);
             if (hadWbsInPreviousUpdate && previousWbsEnabled !== undefined && previousWbsEnabled !== null) {
                 this.rememberedWbsGroupingEnabled = previousWbsEnabled;
             }
@@ -4467,8 +4490,6 @@ export class Visual implements IVisual {
                 const layout = this.dataProcessor.getRoleColumnLayout(dataView, 'wbsLevels');
                 this.wbsLevelColumnNames = layout.names;
             }
-
-            this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
 
             if (this.settings?.wbsGrouping?.enableWbsGrouping) {
                 if (this.wbsEnableOverride !== null) {
@@ -4624,21 +4645,7 @@ export class Visual implements IVisual {
             this.createpathSelectionDropdown();
             this.createTraceModeToggle();
 
-            if (!this.dataProcessor.validateDataView(dataView, this.settings)) {
-                const missingRoles = this.getMissingRequiredRoles(dataView);
-                this.completeInitialDataRender();
-                this.displayLandingPage(missingRoles);
-                return;
-            }
-            this.debugLog("Data roles validated.");
-
             const shouldTransform = dataChanged || this.allTasksData.length === 0;
-            const shouldShowInitialLoadIndicator = this.shouldShowInitialLoadIndicator(updateType, shouldTransform);
-            if (shouldShowInitialLoadIndicator) {
-                this.showInitialLoadIndicator();
-                await this.yieldInitialLoadFrame();
-            }
-
             if (shouldTransform) {
                 const processedData = this.dataProcessor.processData(
                     dataView,

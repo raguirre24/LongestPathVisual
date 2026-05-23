@@ -122,7 +122,7 @@ export const LAYOUT_BREAKPOINTS = {
 };
 
 export const HEADER_DOCK_TOKENS = {
-    shell: '#151B24',
+    shell: '#FFFFFF',
     commandBg: '#1B2330',
     commandStroke: '#2E394A',
     contextBg: '#202937',

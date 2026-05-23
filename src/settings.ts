@@ -78,7 +78,7 @@ class GeneralSettingsCard extends Card {
         name: "headerLegendBackgroundColor",
         displayName: "Header and Legend Background Color",
         description: "Background colour of the header and legend containers",
-        value: { value: "#151B24" }
+        value: { value: "#FFFFFF" }
     });
 
     headerLegendControlBackgroundColor = new ColorPicker({
