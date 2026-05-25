@@ -1,4 +1,4 @@
-export type LabelColumnId = "totalFloat" | "duration" | "finish" | "start" | "previousFinish" | "previousStart" | "baselineFinish" | "baselineStart";
+export type LabelColumnId = "totalFloat" | "duration" | "finish" | "start" | "previousFinish" | "previousStart" | "baselineFinish" | "baselineStart" | `extra_${number}`;
 export type LabelColumnSpec = {
     id: LabelColumnId;
     text: string;
@@ -39,6 +39,7 @@ export declare function packLabelColumns(input: {
     autoFitColumns: boolean;
     columnPadding?: number;
     columns: LabelColumnSpec[];
+    hidePriority?: LabelColumnId[];
 }): PackedLabelColumns;
 export declare function buildLabelColumnLayout(input: {
     leftPaneWidth: number;

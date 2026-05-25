@@ -6,7 +6,8 @@ export type LabelColumnId =
     | "previousFinish"
     | "previousStart"
     | "baselineFinish"
-    | "baselineStart";
+    | "baselineStart"
+    | `extra_${number}`;
 
 export type LabelColumnSpec = {
     id: LabelColumnId;
@@ -70,6 +71,7 @@ export function packLabelColumns(input: {
     autoFitColumns: boolean;
     columnPadding?: number;
     columns: LabelColumnSpec[];
+    hidePriority?: LabelColumnId[];
 }): PackedLabelColumns {
     const columnPadding = input.columnPadding ?? DEFAULT_LABEL_COLUMN_PADDING;
     const minTimelineWidth = input.minTimelineWidth ?? DEFAULT_MIN_TIMELINE_WIDTH;
@@ -90,9 +92,11 @@ export function packLabelColumns(input: {
         ? Math.max(0, viewportWidth - rightMargin - minTimelineWidth)
         : Number.POSITIVE_INFINITY;
 
+    const hidePriority = input.hidePriority ?? COLUMN_HIDE_PRIORITY;
+
     if (input.autoFitColumns && isFinite(maxLeftPaneWidth)) {
         const columnBudget = Math.max(0, maxLeftPaneWidth - nameLaneWidth);
-        for (const id of COLUMN_HIDE_PRIORITY) {
+        for (const id of hidePriority) {
             if (getOccupiedWidth(columns, columnPadding) <= columnBudget) {
                 break;
             }
@@ -101,7 +105,7 @@ export function packLabelColumns(input: {
     }
 
     const visibleIds = new Set(columns.map(column => column.id));
-    const hiddenColumnIds = COLUMN_HIDE_PRIORITY.filter(id => requestedIds.has(id) && !visibleIds.has(id));
+    const hiddenColumnIds = hidePriority.filter(id => requestedIds.has(id) && !visibleIds.has(id));
     for (const column of input.columns) {
         if (!requestedIds.has(column.id) || visibleIds.has(column.id) || hiddenColumnIds.includes(column.id)) {
             continue;

@@ -1,4 +1,4 @@
-import { Task, WBSGroup, Relationship, BoundFieldState, DataQualityInfo } from "./Interfaces";
+import { Task, WBSGroup, Relationship, BoundFieldState, DataQualityInfo, ExtraColumnInfo } from "./Interfaces";
 import { VisualSettings } from "../settings";
 import powerbi from "powerbi-visuals-api";
 import DataView = powerbi.DataView;
@@ -26,6 +26,7 @@ export interface ProcessedData {
     taskIdColumn: string | null;
     wbsLevelColumnIndices: number[];
     wbsLevelColumnNames: string[];
+    extraColumnInfos: ExtraColumnInfo[];
     hasTaskTotalFloat: boolean;
     hasRelationshipFreeFloat: boolean;
     dataQuality: DataQualityInfo;

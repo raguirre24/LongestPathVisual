@@ -26,7 +26,7 @@ import { VisualSettings } from "./settings";
 import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 import { DataProcessor } from "./data/DataProcessor";
 import { Header, HeaderPalette, HeaderState } from "./components/Header";
-import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState, DataQualityInfo } from "./data/Interfaces";
+import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState, DataQualityInfo, ExtraColumnInfo } from "./data/Interfaces";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "./utils/Theme";
 import {
     buildDrivingEventGraph,
@@ -75,6 +75,7 @@ import type { CriticalBarStyle, CriticalStatusMarkerDescriptor, CriticalTaskLike
 import { buildDataSignature } from "./utils/DataSignature";
 import {
     buildLabelColumnLayout,
+    COLUMN_HIDE_PRIORITY,
     DEFAULT_LABEL_COLUMN_PADDING,
     DEFAULT_MIN_TIMELINE_WIDTH,
     LabelColumnId,
@@ -287,6 +288,9 @@ export class Visual implements IVisual {
     private allTasksData: Task[] = [];
     private relationships: Relationship[] = [];
     private taskIdToTask: Map<string, Task> = new Map();
+    /** Last update received from the host, including transient incomplete dataViews. */
+    private lastHostUpdateOptions: VisualUpdateOptions | null = null;
+    /** Last update that passed data validation and is safe to replay for local refreshes. */
     private lastUpdateOptions: VisualUpdateOptions | null = null;
     private dataQuality: DataQualityInfo;
 
@@ -304,8 +308,11 @@ export class Visual implements IVisual {
     private boundFields: BoundFieldState = {
         baselineStartBound: false, baselineFinishBound: false,
         previousUpdateStartBound: false, previousUpdateFinishBound: false,
-        baselineAvailable: false, previousUpdateAvailable: false
+        baselineAvailable: false, previousUpdateAvailable: false,
+        extraColumnsBound: false
     };
+
+    private extraColumnInfos: ExtraColumnInfo[] = [];
 
     private debug: boolean = false;
 
@@ -1470,7 +1477,12 @@ export class Visual implements IVisual {
             const coords = this.getCanvasMouseCoordinates(event);
             const clickedTask = this.getTaskAtCanvasPoint(coords.x, coords.y);
             if (clickedTask) {
-                this.showContextMenu(event, clickedTask);
+                const wbsGroup = this.resolveWbsGroupForTask(clickedTask);
+                if (wbsGroup) {
+                    this.showWbsHeaderContextMenu(event, wbsGroup);
+                } else {
+                    this.showContextMenu(event, clickedTask);
+                }
             }
         });
 
@@ -1654,6 +1666,23 @@ export class Visual implements IVisual {
         };
     }
 
+    private preserveRenderedVisualForTransientInvalidUpdate(reason: string, viewport?: IViewport): boolean {
+        if (!this.lastUpdateOptions || this.allTasksData.length === 0) {
+            return false;
+        }
+
+        this.debugLog(`Preserving existing render during transient invalid update: ${reason}`);
+        this.hideInitialLoadIndicator();
+        this.clearLandingPage();
+
+        if (viewport) {
+            const replayOptions = this.createResizeUpdateOptions(this.lastUpdateOptions, viewport);
+            this.handleViewportOnlyUpdate(replayOptions);
+        }
+
+        return true;
+    }
+
     private queueSettledResizeUpdate(options: VisualUpdateOptions): void {
         this.settledResizeViewportKey = this.getViewportKey(options.viewport);
         this.forceFullUpdate = true;
@@ -1697,7 +1726,7 @@ export class Visual implements IVisual {
 
     private requestUpdate(forceFullUpdate: boolean = false, viewport?: IViewport): void {
         if (!this.lastUpdateOptions) {
-            console.error("Cannot trigger update - lastUpdateOptions is null.");
+            console.error("Cannot trigger update - no renderable update options are cached.");
             return;
         }
 
@@ -1993,7 +2022,9 @@ export class Visual implements IVisual {
                 return UpdateType.Full;
             }
 
-            if (!this.lastUpdateOptions) {
+            const previousOptions = this.lastHostUpdateOptions ?? this.lastUpdateOptions;
+
+            if (!previousOptions) {
                 return UpdateType.Full;
             }
 
@@ -2015,7 +2046,7 @@ export class Visual implements IVisual {
 
             if (!dataChanged) {
                 const currentDataView = options.dataViews?.[0];
-                const lastDataView = this.lastUpdateOptions.dataViews?.[0];
+                const lastDataView = previousOptions.dataViews?.[0];
 
                 if (currentDataView && lastDataView) {
                     const currentRowCount = currentDataView.table?.rows?.length || 0;
@@ -4373,13 +4404,9 @@ export class Visual implements IVisual {
         let renderingFailed = false;
         eventService?.renderingStarted(options);
 
-        // Update lastUpdateOptions early to ensure viewport data is current for rendering
-        // Update lastUpdateOptions early to ensure viewport data is current for rendering (MOVED)
-
         try {
             const updateType = this.determineUpdateType(options);
-            // Update lastUpdateOptions after determining update type so we compare against previous state
-            this.lastUpdateOptions = options;
+            this.lastHostUpdateOptions = options;
             this.debugLog(`Update type detected: ${updateType}`);
 
             // Hide content during significant viewport changes (e.g. Focus Mode)
@@ -4392,8 +4419,50 @@ export class Visual implements IVisual {
                 }
             }
 
-            // ... (rest of logic) ...
+            this.clearLandingPage();
 
+            if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
+                if (this.preserveRenderedVisualForTransientInvalidUpdate("missing dataView", options?.viewport)) {
+                    return;
+                }
+                this.hideInitialLoadIndicator();
+                this.displayLandingPage();
+                return;
+            }
+
+            const dataView = options.dataViews[0];
+            const viewport = options.viewport;
+            // Use the larger of options.viewport and the actual container size,
+            // UNLESS we are in a resize cooldown (exiting/entering Focus Mode) where
+            // the container hasn't settled yet but PBI's viewport is authoritative.
+            const inCooldown = Date.now() < this.viewportResizeCooldownUntil;
+            const viewportWidth = inCooldown
+                ? viewport.width
+                : Math.max(viewport.width, this.target?.clientWidth ?? viewport.width);
+            const viewportHeight = inCooldown
+                ? viewport.height
+                : Math.max(viewport.height, this.target?.clientHeight ?? viewport.height);
+            const renderedViewport: IViewport = { width: viewportWidth, height: viewportHeight };
+            const renderedOptions: VisualUpdateOptions = { ...options, viewport: renderedViewport };
+            this.lastViewport = renderedViewport;
+            const hadWbsInPreviousUpdate = this.wbsDataExistsInMetadata || this.wbsDataExists;
+            const previousWbsEnabled = this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+
+            this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+            this.applyHeaderHeight();
+            this.applyInitialLoadChromeColors();
+
+            if (!this.dataProcessor.validateDataView(dataView, this.settings)) {
+                if (this.preserveRenderedVisualForTransientInvalidUpdate("invalid dataView", renderedViewport)) {
+                    return;
+                }
+                const missingRoles = this.getMissingRequiredRoles(dataView);
+                this.hideInitialLoadIndicator();
+                this.displayLandingPage(missingRoles);
+                return;
+            }
+            this.debugLog("Data roles validated.");
+            this.lastUpdateOptions = renderedOptions;
 
             if (updateType === UpdateType.Full && this.scrollableContainer?.node()) {
                 const node = this.scrollableContainer.node();
@@ -4427,56 +4496,15 @@ export class Visual implements IVisual {
                 }
             }
 
-            this.lastViewport = options.viewport;
-
             if (updateType === UpdateType.ViewportOnly && this.allTasksData.length > 0) {
-                this.handleViewportOnlyUpdate(options);
+                this.handleViewportOnlyUpdate(renderedOptions);
                 return;
             }
 
             if (updateType === UpdateType.SettingsOnly && this.allTasksData.length > 0) {
-                this.handleSettingsOnlyUpdate(options);
+                this.handleSettingsOnlyUpdate(renderedOptions);
                 return;
             }
-
-            this.lastUpdateOptions = options;
-            this.clearLandingPage();
-
-            if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport) {
-                this.hideInitialLoadIndicator();
-                this.displayLandingPage();
-                return;
-            }
-
-            const dataView = options.dataViews[0];
-            const viewport = options.viewport;
-            // Use the larger of options.viewport and the actual container size,
-            // UNLESS we are in a resize cooldown (exiting/entering Focus Mode) where
-            // the container hasn't settled yet but PBI's viewport is authoritative.
-            const inCooldown = Date.now() < this.viewportResizeCooldownUntil;
-            const viewportWidth = inCooldown
-                ? viewport.width
-                : Math.max(viewport.width, this.target?.clientWidth ?? viewport.width);
-            const viewportHeight = inCooldown
-                ? viewport.height
-                : Math.max(viewport.height, this.target?.clientHeight ?? viewport.height);
-            const renderedViewport: IViewport = { width: viewportWidth, height: viewportHeight };
-            this.lastViewport = renderedViewport;
-            this.lastUpdateOptions = { ...options, viewport: renderedViewport };
-            const hadWbsInPreviousUpdate = this.wbsDataExistsInMetadata || this.wbsDataExists;
-            const previousWbsEnabled = this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-
-            this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
-            this.applyHeaderHeight();
-            this.applyInitialLoadChromeColors();
-
-            if (!this.dataProcessor.validateDataView(dataView, this.settings)) {
-                const missingRoles = this.getMissingRequiredRoles(dataView);
-                this.completeInitialDataRender();
-                this.displayLandingPage(missingRoles);
-                return;
-            }
-            this.debugLog("Data roles validated.");
 
             const shouldShowInitialLoadIndicator = this.shouldShowInitialLoadIndicator(updateType, options, dataView);
             if (shouldShowInitialLoadIndicator) {
@@ -4700,6 +4728,7 @@ export class Visual implements IVisual {
                 this.wbsRootGroups = processedData.wbsRootGroups;
                 this.wbsAvailableLevels = processedData.wbsAvailableLevels;
                 this.wbsLevelColumnNames = processedData.wbsLevelColumnNames;
+                this.extraColumnInfos = processedData.extraColumnInfos;
                 this.dataQuality = processedData.dataQuality;
 
                 this.lastDataSignature = dataSignature;
@@ -5163,7 +5192,9 @@ export class Visual implements IVisual {
         }
         const renderedViewport: IViewport = { width: viewportWidth, height: viewportHeight };
         this.lastViewport = renderedViewport;
-        this.lastUpdateOptions = { ...options, viewport: renderedViewport };
+        this.lastUpdateOptions = this.lastUpdateOptions
+            ? this.createResizeUpdateOptions(this.lastUpdateOptions, renderedViewport)
+            : { ...options, viewport: renderedViewport };
 
         this.updateHeaderElements(viewportWidth);
 
@@ -5249,6 +5280,7 @@ export class Visual implements IVisual {
 
     private handleSettingsOnlyUpdate(options: VisualUpdateOptions): void {
         this.debugLog("Performing settings-only update");
+        this.lastUpdateOptions = options;
 
         const oldSelectedPathIndex = this.settings?.pathSelection?.selectedPathIndex?.value;
         const oldMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
@@ -6391,10 +6423,33 @@ export class Visual implements IVisual {
             });
         }
 
+        // Extra columns: pushed LAST so they render LEFTMOST in the data-column block
+        // (immediately to the right of the task name lane, before all date columns).
+        // Iterate field-well order in reverse so the topmost extra ends up leftmost on screen.
+        if (cols.showExtraColumns?.value && this.extraColumnInfos.length > 0) {
+            const extraWidth = clampWidth(cols.extraColumnsWidth?.value, 72);
+            for (let i = this.extraColumnInfos.length - 1; i >= 0; i--) {
+                const info = this.extraColumnInfos[i];
+                const candidates = [info.displayName];
+                if (info.displayName.length > 8) {
+                    candidates.push(info.displayName.slice(0, 8));
+                }
+                specs.push({
+                    id: `extra_${i}` as LabelColumnId,
+                    text: info.displayName,
+                    headerCandidates: candidates,
+                    width: extraWidth
+                });
+            }
+        }
+
         return specs;
     }
 
     private getPackedLabelColumns() {
+        // Extra columns are placed at the front of the hide-priority list so that
+        // auto-fit drops them BEFORE any built-in column when space is tight.
+        const extraIds = this.extraColumnInfos.map((_, i) => `extra_${i}` as LabelColumnId);
         return packLabelColumns({
             preferredNameLaneWidth: this.settings?.layoutSettings?.leftMargin?.value ?? this.margin.left,
             minimumNameLaneWidth: this.getMinimumNameLaneWidth(),
@@ -6403,7 +6458,8 @@ export class Visual implements IVisual {
             minTimelineWidth: DEFAULT_MIN_TIMELINE_WIDTH,
             autoFitColumns: this.settings?.columns?.autoFitColumns?.value ?? true,
             columnPadding: DEFAULT_LABEL_COLUMN_PADDING,
-            columns: this.getConfiguredLabelColumnSpecs()
+            columns: this.getConfiguredLabelColumnSpecs(),
+            hidePriority: [...extraIds, ...COLUMN_HIDE_PRIORITY]
         });
     }
 
@@ -8108,7 +8164,12 @@ export class Visual implements IVisual {
                     }
                 })
                 .on("contextmenu", (event: MouseEvent, d: Task) => {
-                    self.showContextMenu(event, d);
+                    const wbsGroup = self.resolveWbsGroupForTask(d);
+                    if (wbsGroup) {
+                        self.showWbsHeaderContextMenu(event, wbsGroup);
+                    } else {
+                        self.showContextMenu(event, d);
+                    }
                 })
                 .on("click", (event: MouseEvent, d: Task) => {
 
@@ -8290,6 +8351,15 @@ export class Visual implements IVisual {
                 else this.selectTask(d.internalId, d.name);
                 event.stopPropagation();
             });
+
+            taskLabels.on("contextmenu", (event: MouseEvent, d: Task) => {
+                const wbsGroup = this.resolveWbsGroupForTask(d);
+                if (wbsGroup) {
+                    this.showWbsHeaderContextMenu(event, wbsGroup);
+                } else {
+                    this.showContextMenu(event, d);
+                }
+            });
         }
 
         // 2. Render Columns (Right-to-Left stacking, coords are negative from 0)
@@ -8299,6 +8369,19 @@ export class Visual implements IVisual {
             const colY = this.snapTextCoord(taskHeight / 2);
 
             const getColumnText = (columnId: LabelColumnId, task: Task): string => {
+                if (typeof columnId === "string" && columnId.startsWith("extra_")) {
+                    const idx = Number(columnId.slice("extra_".length));
+                    const info = this.extraColumnInfos[idx];
+                    const value = task.extraColumnValues?.[idx];
+                    if (value == null) return "";
+                    if (info?.isDate && value instanceof Date) {
+                        return this.formatColumnDate(value);
+                    }
+                    if (info?.isNumeric && typeof value === "number" && isFinite(value)) {
+                        return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(2);
+                    }
+                    return String(value);
+                }
                 switch (columnId) {
                     case "start": {
                         const date = this.getTaskBarLabelStart(task);
@@ -8323,6 +8406,7 @@ export class Visual implements IVisual {
                     case "baselineStart":
                         return task.baselineStartDate ? this.formatColumnDate(task.baselineStartDate) : "";
                 }
+                return "";
             };
 
             const appendColumnText = (
@@ -11011,6 +11095,15 @@ export class Visual implements IVisual {
 
     private isTaskInRealWbsGroup(task: Task): boolean {
         return !!task.wbsGroupId && this.wbsGroupMap.has(task.wbsGroupId);
+    }
+
+    private resolveWbsGroupForTask(task: Task | null | undefined): WBSGroup | null {
+        if (!task) return null;
+        if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
+            return null;
+        }
+        if (!task.wbsGroupId) return null;
+        return this.wbsGroupMap.get(task.wbsGroupId) ?? null;
     }
 
     private getLatestFinishDate(allTasks: Task[], selector: (task: Task) => Date | null | undefined): Date | null {
@@ -17705,6 +17798,26 @@ export class Visual implements IVisual {
         }
     }
 
+    private resetLandingPageSurface(): void {
+        const containerNode = this.scrollableContainer?.node();
+        if (!containerNode) return;
+
+        containerNode.scrollTop = 0;
+        this.viewportStartIndex = 0;
+        this.viewportEndIndex = 0;
+        this.visibleTaskCount = 0;
+
+        const width = containerNode.clientWidth || this.target?.clientWidth || 300;
+        const height = containerNode.clientHeight || Math.max(100, (this.target?.clientHeight ?? 100) - this.headerHeight);
+        this.syncSvgPixelSize(this.mainSvg, width, height);
+        this.syncSvgPixelSize(this.headerSvg, width, this.headerHeight);
+
+        if (this.canvasElement && this.canvasContext) {
+            this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+            this.canvasElement.style.display = "none";
+        }
+    }
+
     private getRoleDisplayName(roleName: string): string {
         switch (roleName) {
             case "taskId":
@@ -17768,6 +17881,7 @@ export class Visual implements IVisual {
 
         this.clearLandingPage();
         this.clearVisual();
+        this.resetLandingPageSurface();
         this.legendContainer?.style("display", "none");
 
         const titleText = this.getLocalizedString("landing.title", "Build your longest path view");
@@ -17804,6 +17918,11 @@ export class Visual implements IVisual {
         const missingSet = new Set(missingRoles);
         const container = this.scrollableContainer.append("div")
             .attr("class", "landing-page")
+            .style("position", "absolute")
+            .style("top", "0")
+            .style("left", "0")
+            .style("z-index", "40")
+            .style("background", this.getVisualBackgroundColor())
             .style("height", "100%")
             .style("width", "100%")
             .style("display", "flex")

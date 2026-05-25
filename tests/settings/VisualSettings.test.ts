@@ -398,6 +398,68 @@ describe("VisualSettings", () => {
         expect(loadingStyleSource).not.toContain("box-shadow");
     });
 
+    it("keeps transient invalid dataViews out of the renderable update cache", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const updateSource = slice(visualSource, "private async updateInternal(options: VisualUpdateOptions)", "private handleViewportOnlyUpdate(");
+        const beforeValidationSource = slice(updateSource, "const updateType = this.determineUpdateType(options);", "if (!this.dataProcessor.validateDataView(dataView, this.settings))");
+        const validationFailureSource = slice(updateSource, "if (!this.dataProcessor.validateDataView(dataView, this.settings))", "this.debugLog(\"Data roles validated.\");");
+        const renderableCacheSource = slice(updateSource, "this.debugLog(\"Data roles validated.\");", "const shouldShowInitialLoadIndicator");
+        const requestUpdateSource = slice(visualSource, "private requestUpdate(forceFullUpdate: boolean = false, viewport?: IViewport): void", "private applyPublishModeOptimizations()");
+        const updateTypeSource = slice(visualSource, "private determineUpdateType(options: VisualUpdateOptions): UpdateType", "public destroy(): void");
+
+        expect(visualSource).toContain("private lastHostUpdateOptions: VisualUpdateOptions | null = null;");
+        expect(visualSource).toContain("private preserveRenderedVisualForTransientInvalidUpdate(reason: string, viewport?: IViewport): boolean");
+        expect(beforeValidationSource).toContain("this.lastHostUpdateOptions = options;");
+        expect(beforeValidationSource).not.toContain("this.lastUpdateOptions = options;");
+        expect(beforeValidationSource).not.toContain("this.lastUpdateOptions = { ...options, viewport: renderedViewport };");
+        expect(validationFailureSource).toContain('this.preserveRenderedVisualForTransientInvalidUpdate("invalid dataView", renderedViewport)');
+        expect(validationFailureSource).not.toContain("this.completeInitialDataRender();");
+        expect(renderableCacheSource).toContain("this.lastUpdateOptions = renderedOptions;");
+        expect(requestUpdateSource).toContain("this.lastUpdateOptions");
+        expect(requestUpdateSource).not.toContain("this.lastHostUpdateOptions");
+        expect(updateTypeSource).toContain("const previousOptions = this.lastHostUpdateOptions ?? this.lastUpdateOptions;");
+    });
+
+    it("preserves rendered content for missing transient dataViews and still shows true landing state", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const updateSource = slice(visualSource, "private async updateInternal(options: VisualUpdateOptions)", "private handleViewportOnlyUpdate(");
+        const noDataViewSource = slice(updateSource, "if (!options || !options.dataViews || !options.dataViews[0] || !options.viewport)", "const dataView = options.dataViews[0];");
+        const validationFailureSource = slice(updateSource, "if (!this.dataProcessor.validateDataView(dataView, this.settings))", "this.debugLog(\"Data roles validated.\");");
+        const preserveSource = slice(visualSource, "private preserveRenderedVisualForTransientInvalidUpdate", "private queueSettledResizeUpdate");
+        const landingResetSource = slice(visualSource, "private resetLandingPageSurface()", "private getRoleDisplayName(");
+        const displayLandingSource = slice(visualSource, "private displayLandingPage(missingRoles: string[] = [])", "// ============================================================================");
+
+        expect(noDataViewSource).toContain('this.preserveRenderedVisualForTransientInvalidUpdate("missing dataView", options?.viewport)');
+        expect(noDataViewSource).toContain("this.displayLandingPage();");
+        expect(validationFailureSource).toContain("this.displayLandingPage(missingRoles);");
+        expect(preserveSource).toContain("if (!this.lastUpdateOptions || this.allTasksData.length === 0)");
+        expect(preserveSource).toContain("this.hideInitialLoadIndicator();");
+        expect(preserveSource).toContain("this.clearLandingPage();");
+        expect(preserveSource).toContain("this.handleViewportOnlyUpdate(replayOptions);");
+        expect(landingResetSource).toContain("containerNode.scrollTop = 0;");
+        expect(landingResetSource).toContain("this.syncSvgPixelSize(this.mainSvg, width, height);");
+        expect(landingResetSource).toContain("this.syncSvgPixelSize(this.headerSvg, width, this.headerHeight);");
+        expect(displayLandingSource).toContain("this.resetLandingPageSurface();");
+        expect(displayLandingSource).toContain('.style("position", "absolute")');
+        expect(displayLandingSource).toContain('.style("top", "0")');
+    });
+
     it("keeps path, task dropdown, look-ahead, and float threshold controls free of drop shadows", () => {
         const headerSource = readFileSync("src/components/Header.ts", "utf8");
         const visualSource = readFileSync("src/visual.ts", "utf8");

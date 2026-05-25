@@ -8,7 +8,9 @@
       "Bash(pbiviz package:*)",
       "Bash(npx --no-install tsc --noEmit -p tsconfig.json)",
       "Bash(npx vitest *)",
-      "Bash(npm test *)"
+      "Bash(npm test *)",
+      "Bash(xargs wc *)",
+      "Bash(echo \"EXIT=$?\")"
     ],
     "deny": [],
     "ask": []

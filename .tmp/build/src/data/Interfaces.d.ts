@@ -45,6 +45,14 @@ export interface Task {
     wbsLevels?: string[];
     wbsGroupId?: string;
     wbsIndentLevel?: number;
+    extraColumnValues?: PrimitiveValue[];
+}
+export interface ExtraColumnInfo {
+    displayName: string;
+    queryName?: string;
+    isDate: boolean;
+    isNumeric: boolean;
+    tableIndex: number;
 }
 export interface WBSGroup {
     id: string;
@@ -133,4 +141,6 @@ export interface BoundFieldState {
     baselineAvailable: boolean;
     /** Both previous update roles are bound AND at least one task has a non-null previous update date */
     previousUpdateAvailable: boolean;
+    /** At least one field is bound to the extraColumns role */
+    extraColumnsBound: boolean;
 }

@@ -1,5 +1,5 @@
 
-import { Task, WBSGroup, Relationship, BoundFieldState, DataQualityInfo } from "./Interfaces";
+import { Task, WBSGroup, Relationship, BoundFieldState, DataQualityInfo, ExtraColumnInfo } from "./Interfaces";
 import { VisualSettings } from "../settings";
 import { normalizeRelationshipType } from "../utils/RelationshipLogic";
 import { normalizeLegendCategory } from "../utils/VisualState";
@@ -36,6 +36,7 @@ export interface ProcessedData {
     taskIdColumn: string | null;
     wbsLevelColumnIndices: number[];
     wbsLevelColumnNames: string[];
+    extraColumnInfos: ExtraColumnInfo[];
 
     // Calculation Flags
     hasTaskTotalFloat: boolean;
@@ -186,6 +187,7 @@ export class DataProcessor {
             taskIdColumn: null,
             wbsLevelColumnIndices: [],
             wbsLevelColumnNames: [],
+            extraColumnInfos: [],
             hasTaskTotalFloat: false,
             hasRelationshipFreeFloat: false,
             dataQuality: this.createEmptyDataQuality()
@@ -222,6 +224,20 @@ export class DataProcessor {
         const wbsColumnInfos = this.getRoleColumnInfos(dataView, "wbsLevels");
         result.wbsLevelColumnIndices = wbsColumnInfos.map(info => info.index);
         result.wbsLevelColumnNames = wbsColumnInfos.map((info, index) => info.column.displayName || `Level ${index + 1}`);
+
+        const extraColumnInfos = this.getRoleColumnInfos(dataView, "extraColumns");
+        result.extraColumnInfos = extraColumnInfos.map((info, index) => {
+            const metadataCol = dataView.metadata.columns.find(c => c.queryName === info.column.queryName)
+                ?? (info.column as powerbi.DataViewMetadataColumn);
+            const type = metadataCol?.type;
+            return {
+                displayName: info.column.displayName || `Extra ${index + 1}`,
+                queryName: info.column.queryName,
+                isDate: !!type?.dateTime,
+                isNumeric: !!(type?.numeric || type?.integer),
+                tableIndex: info.index
+            };
+        });
 
 
         const predIdIdx = this.getColumnIndex(dataView, "predecessorId");
@@ -340,7 +356,7 @@ export class DataProcessor {
         for (const [taskId, taskData] of taskDataMap) {
 
             if (taskData.rows.length > 0 && !taskData.task) {
-                taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex, result.wbsLevelColumnIndices, dataView, settings);
+                taskData.task = this.createTaskFromRow(taskData.rows[0], taskData.rowIndex, result.wbsLevelColumnIndices, result.extraColumnInfos, dataView, settings);
             }
             if (!taskData.task) continue;
 
@@ -432,6 +448,7 @@ export class DataProcessor {
                 previousUpdateFinishDate: null,
                 tooltipData: undefined,
                 legendValue: undefined,
+                extraColumnValues: undefined,
             };
 
             result.allTasksData[taskIndex++] = syntheticTask;
@@ -510,7 +527,7 @@ export class DataProcessor {
         return Math.max(0, Math.round((finishDate.getTime() - startDate.getTime()) / millisecondsPerDay));
     }
 
-    private createTaskFromRow(row: any[], rowIndex: number, wbsLevelColumnIndices: number[], dataView: DataView, settings: VisualSettings): Task | null {
+    private createTaskFromRow(row: any[], rowIndex: number, wbsLevelColumnIndices: number[], extraColumnInfos: ExtraColumnInfo[], dataView: DataView, settings: VisualSettings): Task | null {
         if (!dataView) return null;
 
         const taskId = this.extractTaskId(row, dataView);
@@ -635,6 +652,16 @@ export class DataProcessor {
 
         const tooltipData = this.extractTooltipData(row, dataView);
 
+        const extraColumnValues: PrimitiveValue[] = extraColumnInfos.map(info => {
+            const raw = info.tableIndex >= 0 ? row[info.tableIndex] : null;
+            if (raw == null) return null;
+            if (info.isDate) {
+                const parsed = this.parseDate(raw);
+                return parsed ?? raw;
+            }
+            return raw;
+        });
+
         const safeRowIndex = rowIndex >= 0 ? rowIndex : 0;
         const selectionId = dataView.table
             ? this.host.createSelectionIdBuilder().withTable(dataView.table, safeRowIndex).createSelectionId()
@@ -672,7 +699,8 @@ export class DataProcessor {
             tooltipData: tooltipData,
             selectionId: selectionId,
             legendValue: legendValue,
-            wbsLevels: wbsLevels.length > 0 ? wbsLevels : undefined
+            wbsLevels: wbsLevels.length > 0 ? wbsLevels : undefined,
+            extraColumnValues: extraColumnInfos.length > 0 ? extraColumnValues : undefined
         };
 
         return task;
@@ -1461,6 +1489,7 @@ export class DataProcessor {
         const baselineFinishBound = this.hasDataRole(dataView, 'baselineFinishDate');
         const previousUpdateStartBound = this.hasDataRole(dataView, 'previousUpdateStartDate');
         const previousUpdateFinishBound = this.hasDataRole(dataView, 'previousUpdateFinishDate');
+        const extraColumnsBound = this.hasDataRole(dataView, 'extraColumns');
 
         // Both roles must be bound AND at least one task must have a non-null value
         let baselineHasData = false;
@@ -1491,7 +1520,8 @@ export class DataProcessor {
             previousUpdateStartBound,
             previousUpdateFinishBound,
             baselineAvailable: baselineStartBound && baselineFinishBound && baselineHasData,
-            previousUpdateAvailable: previousUpdateStartBound && previousUpdateFinishBound && previousUpdateHasData
+            previousUpdateAvailable: previousUpdateStartBound && previousUpdateFinishBound && previousUpdateHasData,
+            extraColumnsBound
         };
     }
 }

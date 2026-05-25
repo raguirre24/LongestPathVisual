@@ -137,6 +137,12 @@
             "kind": "Grouping",
             "displayName": "WBS Levels",
             "description": "Work Breakdown Structure hierarchy levels"
+        },
+        {
+            "name": "extraColumns",
+            "kind": "Grouping",
+            "displayName": "Extra Columns",
+            "description": "Additional fields rendered as label columns between the task name and date columns"
         }
     ],
     "objects": {
@@ -1036,6 +1042,18 @@
                 },
                 "previousUpdateFinishDateWidth": {
                     "displayName": "Previous Finish Width (px)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showExtraColumns": {
+                    "displayName": "Show Extra Columns",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "extraColumnsWidth": {
+                    "displayName": "Extra Column Width (px)",
                     "type": {
                         "numeric": true
                     }
@@ -2504,6 +2522,11 @@
                         {
                             "for": {
                                 "in": "wbsLevels"
+                            }
+                        },
+                        {
+                            "for": {
+                                "in": "extraColumns"
                             }
                         }
                     ],

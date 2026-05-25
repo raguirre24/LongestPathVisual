@@ -64,6 +64,9 @@ export declare class Visual implements IVisual {
     private allTasksData;
     private relationships;
     private taskIdToTask;
+    /** Last update received from the host, including transient incomplete dataViews. */
+    private lastHostUpdateOptions;
+    /** Last update that passed data validation and is safe to replay for local refreshes. */
     private lastUpdateOptions;
     private dataQuality;
     private showConnectorLinesInternal;
@@ -75,6 +78,7 @@ export declare class Visual implements IVisual {
     private isInitialLoad;
     /** Tracks which optional date-pair fields are bound and contain data */
     private boundFields;
+    private extraColumnInfos;
     private debug;
     private margin;
     private headerHeight;
@@ -292,6 +296,7 @@ export declare class Visual implements IVisual {
     private getViewportKey;
     private getCurrentTargetViewport;
     private createResizeUpdateOptions;
+    private preserveRenderedVisualForTransientInvalidUpdate;
     private queueSettledResizeUpdate;
     private scheduleSettledResizeUpdate;
     private requestUpdate;
@@ -680,6 +685,7 @@ export declare class Visual implements IVisual {
     private getTasksForFinishLines;
     private getWbsScopedFinishLineTasks;
     private isTaskInRealWbsGroup;
+    private resolveWbsGroupForTask;
     private getLatestFinishDate;
     private drawFinishLine;
     private drawProjectEndLine;
@@ -1008,6 +1014,7 @@ export declare class Visual implements IVisual {
     private moveTaskTooltip;
     private showContextMenu;
     private clearLandingPage;
+    private resetLandingPageSurface;
     private getRoleDisplayName;
     private getMissingRequiredRoles;
     private displayLandingPage;

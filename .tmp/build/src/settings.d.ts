@@ -108,6 +108,8 @@ declare class ColumnsCard extends Card {
     showPreviousUpdateDateColumns: formattingSettings.ToggleSwitch;
     previousUpdateStartDateWidth: formattingSettings.NumUpDown;
     previousUpdateFinishDateWidth: formattingSettings.NumUpDown;
+    showExtraColumns: formattingSettings.ToggleSwitch;
+    extraColumnsWidth: formattingSettings.NumUpDown;
     slices: Slice[];
 }
 declare class LayoutSettingsCard extends Card {

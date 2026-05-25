@@ -674,6 +674,9 @@ class ColumnsCard extends Card {
     previousUpdateStartDateWidth = new NumUpDown({ name: "previousUpdateStartDateWidth", displayName: "Previous Start Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
     previousUpdateFinishDateWidth = new NumUpDown({ name: "previousUpdateFinishDateWidth", displayName: "Previous Finish Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
+    showExtraColumns = new ToggleSwitch({ name: "showExtraColumns", displayName: "Show Extra Columns", value: true });
+    extraColumnsWidth = new NumUpDown({ name: "extraColumnsWidth", displayName: "Extra Column Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+
     slices: Slice[] = [
         this.showColumnToggleButton,
         this.enableColumnDisplay,
@@ -687,7 +690,9 @@ class ColumnsCard extends Card {
         this.baselineFinishDateWidth,
         this.showPreviousUpdateDateColumns,
         this.previousUpdateStartDateWidth,
-        this.previousUpdateFinishDateWidth
+        this.previousUpdateFinishDateWidth,
+        this.showExtraColumns,
+        this.extraColumnsWidth
     ];
 }
 
