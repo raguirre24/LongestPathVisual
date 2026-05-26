@@ -160,7 +160,8 @@ export class DataProcessor {
         _wbsManuallyToggledGroups: Set<string>,
         lastExpandCollapseAllState: boolean | null,
         highContrastMode: boolean,
-        highContrastForeground: string
+        highContrastForeground: string,
+        dataFetchLimitReached: boolean = false
     ): ProcessedData {
         this.debugLog("DataProcessor: Transforming data...");
         // const startTime = performance.now(); // performance not available in strict mode sometimes, safe to skip or use Date
@@ -476,7 +477,7 @@ export class DataProcessor {
             relationshipCount: relationshipRowCount,
             relationshipFreeFloatMissingCount,
             hasRelationshipFreeFloat: result.hasRelationshipFreeFloat
-        });
+        }, dataFetchLimitReached);
 
         this.debugLog(`DataProcessor: Transformation complete. ${result.allTasksData.length} tasks.`);
 
@@ -1136,6 +1137,7 @@ export class DataProcessor {
         return {
             rowCount: 0,
             possibleTruncation: false,
+            dataFetchLimitReached: false,
             duplicateTaskIds: [],
             conflictingTaskRows: [],
             missingPredecessorIds: [],
@@ -1247,7 +1249,13 @@ export class DataProcessor {
         return String(value).trim();
     }
 
-    private validateDataQuality(rowCount: number, allTasksData: Task[], taskIdToTask: Map<string, Task>, context: DataQualityContext): DataQualityInfo {
+    private validateDataQuality(
+        rowCount: number,
+        allTasksData: Task[],
+        taskIdToTask: Map<string, Task>,
+        context: DataQualityContext,
+        dataFetchLimitReached: boolean = false
+    ): DataQualityInfo {
         const seenIds = new Map<string, number>();
         for (const task of allTasksData) {
             const count = seenIds.get(task.id as string) || 0;
@@ -1258,7 +1266,7 @@ export class DataProcessor {
             .filter(([_id, count]) => count > 1)
             .map(([id, count]) => `${id} (${count}x)`);
 
-        const possibleTruncation = rowCount >= 30000;
+        const possibleTruncation = dataFetchLimitReached;
         const circularPaths = this.detectCircularDependencies(allTasksData, taskIdToTask);
         const invalidRawDateRangeTaskIds = allTasksData
             .filter(task => this.isEarlier(this.getRawFinish(task), this.getRawStart(task)))
@@ -1269,7 +1277,7 @@ export class DataProcessor {
 
         const warnings: string[] = [];
         if (possibleTruncation) {
-            warnings.push("Critical path disabled: dataset may be truncated at 30,000 rows.");
+            warnings.push("Power BI data limit reached; results may be incomplete.");
         }
         if (duplicates.length > 0) {
             warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
@@ -1293,6 +1301,7 @@ export class DataProcessor {
         const dataQuality: DataQualityInfo = {
             rowCount,
             possibleTruncation,
+            dataFetchLimitReached,
             duplicateTaskIds: duplicates,
             conflictingTaskRows: context.conflictingTaskRows,
             missingPredecessorIds: context.missingPredecessorIds,

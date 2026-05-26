@@ -169,8 +169,8 @@ Key behaviour:
 
 Safety gates:
 
-- Longest Path is disabled globally when CPM is unsafe because of possible
-  30,000-row truncation or invalid raw date ranges.
+- Longest Path is disabled globally when CPM is unsafe because Power BI reports
+  more data than the visual can fetch, or because of invalid raw date ranges.
 - Circular dependencies are reported globally, but only block Longest Path
   when the active latest-finish or selected-task driving scope is cyclic.
 - Duplicate relationship rows are allowed when only relationship-level fields
@@ -297,7 +297,7 @@ When editing export:
 Important warning classes:
 
 - Missing required roles.
-- Possible row truncation at 30,000 rows.
+- Possible incomplete data when Power BI reaches the fetch-more limit.
 - Circular dependencies.
 - Invalid raw start/finish ranges.
 - Invalid visual/manual start/finish ranges.

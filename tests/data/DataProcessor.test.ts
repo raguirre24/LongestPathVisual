@@ -886,6 +886,44 @@ describe('DataProcessor', () => {
     });
 
     // -----------------------------------------------------------------------
+    // Segmented Power BI data loading
+    // -----------------------------------------------------------------------
+    describe('segmented data loading quality state', () => {
+        it('does not mark a complete 30,000-row data view unsafe by row count alone', () => {
+            const start = new Date('2025-01-01');
+            const finish = new Date('2025-01-02');
+            const rows = Array.from({ length: 30000 }, (_value, index) => [
+                `T${index + 1}`,
+                `Task ${index + 1}`,
+                1,
+                start,
+                finish
+            ]);
+            const dv = buildDataView(STANDARD_COLUMNS, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.dataQuality.rowCount).toBe(30000);
+            expect(result.dataQuality.possibleTruncation).toBe(false);
+            expect(result.dataQuality.dataFetchLimitReached).toBe(false);
+            expect(result.dataQuality.cpmSafe).toBe(true);
+            expect(result.dataQuality.warnings.some(warning => warning.includes('Power BI data limit reached'))).toBe(false);
+        });
+
+        it('marks Longest Path unsafe when Power BI cannot fetch the next data segment', () => {
+            const dv = buildDataView(STANDARD_COLUMNS, [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06')],
+            ]);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000', true);
+
+            expect(result.dataQuality.rowCount).toBe(1);
+            expect(result.dataQuality.possibleTruncation).toBe(true);
+            expect(result.dataQuality.dataFetchLimitReached).toBe(true);
+            expect(result.dataQuality.cpmSafe).toBe(false);
+            expect(result.dataQuality.warnings).toContain('Power BI data limit reached; results may be incomplete.');
+        });
+    });
+
+    // -----------------------------------------------------------------------
     // Data validation
     // -----------------------------------------------------------------------
     describe('validateDataView', () => {

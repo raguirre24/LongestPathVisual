@@ -284,6 +284,11 @@ export class Visual implements IVisual {
     private loadingOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingAccent: Selection<HTMLDivElement, unknown, null, undefined>;
     private hasCompletedInitialDataRender: boolean = false;
+    private isFetchingDataSegments: boolean = false;
+    private loadedSegmentRowCount: number = 0;
+    private hasMoreDataSegments: boolean = false;
+    private dataFetchLimitReached: boolean = false;
+    private dataSegmentStatusMessage: string = "";
 
     private allTasksData: Task[] = [];
     private relationships: Relationship[] = [];
@@ -1043,6 +1048,7 @@ export class Visual implements IVisual {
         return {
             rowCount: 0,
             possibleTruncation: false,
+            dataFetchLimitReached: false,
             duplicateTaskIds: [],
             conflictingTaskRows: [],
             missingPredecessorIds: [],
@@ -1946,7 +1952,7 @@ export class Visual implements IVisual {
 
         const reasons: string[] = [];
         if (this.dataQuality.possibleTruncation) {
-            reasons.push("dataset may be truncated at 30,000 rows");
+            reasons.push("Power BI data limit reached; results may be incomplete");
         }
         if (this.dataQuality.invalidRawDateRangeTaskIds.length > 0) {
             reasons.push("invalid start/finish date ranges found");
@@ -4227,23 +4233,82 @@ export class Visual implements IVisual {
     }
 
     /**
-     * Log data loading info. With 'top' algorithm, data arrives in one batch.
+     * Log data loading info. With the window algorithm, the host may provide
+     * further rows through fetchMoreData before the final render.
      */
     private logDataLoadInfo(dataView: DataView): void {
         const rowCount = dataView.table?.rows?.length || 0;
         const hasTotalFloat = this.dataProcessor.hasDataRole(dataView, 'taskTotalFloat');
+        const hasMoreSegments = this.dataViewHasMoreSegments(dataView);
 
         this.debugLog(
             `[WBS] Data loaded: ${rowCount.toLocaleString()} rows`,
-            `| Sorted by: ${hasTotalFloat ? 'Total Float (critical first)' : 'Start Date'}`
+            `| Sorted by: ${hasTotalFloat ? 'Total Float (critical first)' : 'Start Date'}`,
+            `| More segments: ${hasMoreSegments ? "yes" : "no"}`
         );
 
-        if (rowCount >= 30000) {
+        if (rowCount >= 30000 && hasMoreSegments) {
             console.warn(
-                `[WBS] Dataset at 30,000 row limit. ` +
-                `Critical tasks prioritized via ${hasTotalFloat ? 'Total Float' : 'Start Date'} sort.`
+                `[WBS] Dataset has reached the current 30,000-row window and more rows are available.`
             );
         }
+    }
+
+    private dataViewHasMoreSegments(dataView: DataView): boolean {
+        return !!dataView.metadata?.segment;
+    }
+
+    private getDataViewRowCount(dataView: DataView): number {
+        return dataView.table?.rows?.length ?? 0;
+    }
+
+    private getSegmentLoadingMessage(rowCount: number): string {
+        return `Loading schedule rows... Loaded ${rowCount.toLocaleString()} rows`;
+    }
+
+    private deferForPendingDataSegments(dataView: DataView): boolean {
+        const rowCount = this.getDataViewRowCount(dataView);
+        const hasMoreSegments = this.dataViewHasMoreSegments(dataView);
+        const wasFetchingSegments = this.isFetchingDataSegments;
+
+        this.loadedSegmentRowCount = rowCount;
+        this.hasMoreDataSegments = hasMoreSegments;
+        this.debugLog("Data segment state", {
+            loadedRows: this.loadedSegmentRowCount,
+            hasMoreSegments: this.hasMoreDataSegments,
+            isFetching: this.isFetchingDataSegments
+        });
+
+        if (!hasMoreSegments) {
+            this.isFetchingDataSegments = false;
+            this.dataFetchLimitReached = false;
+            this.dataSegmentStatusMessage = rowCount > 0 ? `Loaded ${rowCount.toLocaleString()} rows` : "";
+            if (wasFetchingSegments && this.dataSegmentStatusMessage) {
+                this.showDataSegmentLoadingStatus(this.dataSegmentStatusMessage);
+            }
+            return false;
+        }
+
+        const loadingMessage = this.getSegmentLoadingMessage(rowCount);
+        let requestAccepted = false;
+        try {
+            requestAccepted = !!this.host.fetchMoreData(true);
+        } catch (error) {
+            console.warn("Power BI fetchMoreData failed.", error);
+        }
+
+        if (requestAccepted) {
+            this.isFetchingDataSegments = true;
+            this.dataFetchLimitReached = false;
+            this.showDataSegmentLoadingStatus(loadingMessage);
+            return true;
+        }
+
+        this.isFetchingDataSegments = false;
+        this.dataFetchLimitReached = true;
+        this.dataSegmentStatusMessage = "Power BI data limit reached; results may be incomplete";
+        this.showDataSegmentLoadingStatus(this.dataSegmentStatusMessage);
+        return false;
     }
 
     private applyInitialLoadChromeColors(): void {
@@ -4283,8 +4348,45 @@ export class Visual implements IVisual {
         if (!this.loadingOverlay) return;
 
         this.loadingOverlay.style("display", "none");
+        this.loadingOverlay.attr("aria-busy", null);
+        this.loadingOverlay.selectAll(".data-segment-status").remove();
         this.mainSvg?.style("visibility", "visible");
         this.canvasLayer?.style("visibility", "visible");
+    }
+
+    private showDataSegmentLoadingStatus(message: string): void {
+        this.dataSegmentStatusMessage = message;
+
+        if (!this.loadingOverlay) return;
+
+        this.applyInitialLoadChromeColors();
+        this.loadingOverlay
+            .style("display", "block")
+            .attr("aria-live", "polite")
+            .attr("aria-busy", "true");
+
+        let status = this.loadingOverlay.select<HTMLDivElement>(".data-segment-status");
+        if (status.empty()) {
+            status = this.loadingOverlay.append("div")
+                .attr("class", "data-segment-status")
+                .style("position", "absolute")
+                .style("top", "50%")
+                .style("left", "50%")
+                .style("transform", "translate(-50%, -50%)")
+                .style("padding", "8px 12px")
+                .style("border-radius", `${UI_TOKENS.radius.small}px`)
+                .style("background", this.getHeaderLegendBackgroundColor())
+                .style("color", this.getHeaderLegendTextColor())
+                .style("border", `1px solid ${this.getHeaderLegendBorderColor()}`)
+                .style("font-size", "12px")
+                .style("font-weight", "600")
+                .style("white-space", "nowrap")
+                .style("box-sizing", "border-box");
+        }
+
+        status.text(this.dataSegmentStatusMessage);
+        this.mainSvg?.style("visibility", "hidden");
+        this.canvasLayer?.style("visibility", "hidden");
     }
 
     private completeInitialDataRender(): void {
@@ -4462,6 +4564,11 @@ export class Visual implements IVisual {
                 return;
             }
             this.debugLog("Data roles validated.");
+
+            if (this.deferForPendingDataSegments(dataView)) {
+                return;
+            }
+
             this.lastUpdateOptions = renderedOptions;
 
             if (updateType === UpdateType.Full && this.scrollableContainer?.node()) {
@@ -4705,7 +4812,8 @@ export class Visual implements IVisual {
                     this.wbsManuallyToggledGroups,
                     this.lastExpandCollapseAllState,
                     this.highContrastMode,
-                    this.highContrastForeground
+                    this.highContrastForeground,
+                    this.dataFetchLimitReached
                 );
 
                 // Update local state from processed data

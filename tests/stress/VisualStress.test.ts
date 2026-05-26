@@ -113,6 +113,21 @@ describe("visual stress coverage", () => {
         expect(result.allTasksData.some(task => task.type === "TT_FinMile")).toBe(true);
     });
 
+    it("processes accumulated segment rows above 30,000 without treating the row count as truncation", () => {
+        const generated = buildStressDataView(24000);
+        const rowCount = generated.dataView.table?.rows.length ?? 0;
+        const result = processStressDataView(generated.dataView);
+
+        expect(rowCount).toBeGreaterThan(30000);
+        expect(result.dataQuality.rowCount).toBe(rowCount);
+        expect(result.allTasksData).toHaveLength(24000);
+        expect(result.taskIdToTask.size).toBe(24000);
+        expect(result.relationships).toHaveLength(generated.expectedUniqueRelationshipCount);
+        expect(result.dataQuality.possibleTruncation).toBe(false);
+        expect(result.dataQuality.dataFetchLimitReached).toBe(false);
+        expect(result.dataQuality.cpmSafe).toBe(true);
+    });
+
     it("scores a large generated driving chain while ignoring higher-float alternate relationships", () => {
         const generated = buildStressDataView(STRESS_TASK_COUNT);
         const result = processStressDataView(generated.dataView);

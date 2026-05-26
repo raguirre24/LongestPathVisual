@@ -3,6 +3,17 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("VisualSettings", () => {
+    it("requests the maximum standard row window for segmented table loading", () => {
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+        const rows = capabilities.dataViewMappings[0].table.rows;
+
+        expect(rows.dataReductionAlgorithm).toEqual({
+            window: {
+                count: 30000
+            }
+        });
+    });
+
     it("keeps the look-ahead window disabled by default", () => {
         const settingsSource = readFileSync("src/settings.ts", "utf8");
 
@@ -426,6 +437,46 @@ describe("VisualSettings", () => {
         expect(requestUpdateSource).toContain("this.lastUpdateOptions");
         expect(requestUpdateSource).not.toContain("this.lastHostUpdateOptions");
         expect(updateTypeSource).toContain("const previousOptions = this.lastHostUpdateOptions ?? this.lastUpdateOptions;");
+    });
+
+    it("defers rendering while Power BI provides additional data segments", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const dataProcessorSource = readFileSync("src/data/DataProcessor.ts", "utf8");
+        const interfacesSource = readFileSync("src/data/Interfaces.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const updateSource = slice(visualSource, "private async updateInternal(options: VisualUpdateOptions)", "private handleViewportOnlyUpdate(");
+        const segmentSource = slice(visualSource, "private dataViewHasMoreSegments(dataView: DataView): boolean", "private applyInitialLoadChromeColors()");
+        const loadingStatusSource = slice(visualSource, "private showDataSegmentLoadingStatus(message: string): void", "private completeInitialDataRender(): void");
+        const processDataCallSource = slice(updateSource, "const processedData = this.dataProcessor.processData(", ");");
+        const dataQualitySource = slice(dataProcessorSource, "private validateDataQuality(", "private detectCircularDependencies(");
+
+        expect(visualSource).toContain("private isFetchingDataSegments: boolean = false;");
+        expect(visualSource).toContain("private loadedSegmentRowCount: number = 0;");
+        expect(visualSource).toContain("private hasMoreDataSegments: boolean = false;");
+        expect(visualSource).toContain("private dataFetchLimitReached: boolean = false;");
+        expect(visualSource).toContain('private dataSegmentStatusMessage: string = "";');
+        expect(segmentSource).toContain("return !!dataView.metadata?.segment;");
+        expect(segmentSource).toContain("this.host.fetchMoreData(true)");
+        expect(segmentSource).toContain("this.showDataSegmentLoadingStatus(loadingMessage);");
+        expect(segmentSource).toContain("Power BI data limit reached; results may be incomplete");
+        expect(updateSource.indexOf("if (this.deferForPendingDataSegments(dataView))")).toBeGreaterThan(-1);
+        expect(updateSource.indexOf("this.lastUpdateOptions = renderedOptions;")).toBeGreaterThan(
+            updateSource.indexOf("if (this.deferForPendingDataSegments(dataView))")
+        );
+        expect(processDataCallSource).toContain("this.dataFetchLimitReached");
+        expect(loadingStatusSource).toContain(".data-segment-status");
+        expect(loadingStatusSource).toContain('attr("aria-live", "polite")');
+        expect(dataProcessorSource).toContain("dataFetchLimitReached: boolean = false");
+        expect(interfacesSource).toContain("dataFetchLimitReached: boolean;");
+        expect(dataQualitySource).toContain("const possibleTruncation = dataFetchLimitReached;");
+        expect(dataQualitySource).not.toContain("rowCount >= 30000");
     });
 
     it("preserves rendered content for missing transient dataViews and still shows true landing state", () => {

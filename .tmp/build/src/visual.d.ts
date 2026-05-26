@@ -61,6 +61,11 @@ export declare class Visual implements IVisual {
     private loadingOverlay;
     private loadingAccent;
     private hasCompletedInitialDataRender;
+    private isFetchingDataSegments;
+    private loadedSegmentRowCount;
+    private hasMoreDataSegments;
+    private dataFetchLimitReached;
+    private dataSegmentStatusMessage;
     private allTasksData;
     private relationships;
     private taskIdToTask;
@@ -498,13 +503,19 @@ export declare class Visual implements IVisual {
      */
     private svgToCanvas;
     /**
-     * Log data loading info. With 'top' algorithm, data arrives in one batch.
+     * Log data loading info. With the window algorithm, the host may provide
+     * further rows through fetchMoreData before the final render.
      */
     private logDataLoadInfo;
+    private dataViewHasMoreSegments;
+    private getDataViewRowCount;
+    private getSegmentLoadingMessage;
+    private deferForPendingDataSegments;
     private applyInitialLoadChromeColors;
     private shouldShowInitialLoadIndicator;
     private showInitialLoadIndicator;
     private hideInitialLoadIndicator;
+    private showDataSegmentLoadingStatus;
     private completeInitialDataRender;
     private yieldInitialLoadFrame;
     update(options: VisualUpdateOptions): void;

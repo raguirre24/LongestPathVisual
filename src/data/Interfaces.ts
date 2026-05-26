@@ -100,6 +100,7 @@ export interface Relationship {
 export interface DataQualityInfo {
     rowCount: number;
     possibleTruncation: boolean;
+    dataFetchLimitReached: boolean;
     duplicateTaskIds: string[];
     conflictingTaskRows: string[];
     missingPredecessorIds: string[];
