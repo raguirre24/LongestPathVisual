@@ -94,8 +94,8 @@ Core roles:
 | `relationshipType` | Optional relationship type. `PR_FS`, `PR_SS`, `PR_FF`, `PR_SF` are normalised to `FS`, `SS`, `FF`, `SF`. Invalid/missing values default to `FS`. |
 | `relationshipLag` | Optional lag/lead in days. |
 | `relationshipFreeFloat` | Optional P6 relationship free float. When any finite relationship free float exists, blank values are non-driving. |
-| `baselineStartDate`, `baselineFinishDate` | Optional baseline comparison bars and export columns. Both roles need to be bound and contain data for full availability. |
-| `previousUpdateStartDate`, `previousUpdateFinishDate` | Optional previous-update comparison bars and export columns. Both roles need to be bound and contain data for full availability. |
+| `baselineStartDate`, `baselineFinishDate` | Optional baseline comparison bars and export columns. Calculated modes require both roles; No Calculation mode can use `baselineFinishDate` alone as a finish marker. |
+| `previousUpdateStartDate`, `previousUpdateFinishDate` | Optional previous-update comparison bars and export columns. Calculated modes require both roles; No Calculation mode can use `previousUpdateFinishDate` alone as a finish marker. |
 | `dataDate` | Optional status/data date. Latest valid value across rows is used. |
 | `legend` | Optional category colour and filtering. Values are normalised for stable selection. |
 | `wbsLevels` | Optional ordered WBS hierarchy. Field-well order matters. |
@@ -126,6 +126,10 @@ When WBS grouping is active, `visual.ts` adds an internal bottom-level
 path. This group is visual-only, participates in expand/collapse, visible
 exports, and WBS summary display, and is removed when no unassigned tasks are
 in the filtered scope.
+
+The WBS Grouping format card controls summary row visibility, summary colour,
+summary bar height, and finish-only summary milestone size. A size/height value
+of `0` keeps the automatic scaling from the task row height.
 
 Project, baseline, and previous-update finish lines use the filtered task scope
 captured before WBS collapse. If that scope contains real WBS tasks, finish
@@ -206,7 +210,7 @@ Key behaviour:
 ### No Calculation (Visualiser)
 
 No Calculation mode is selected by `criticalPath.calculationMode = none`.
-It requires only `taskId`, `startDate`, and `finishDate`; `duration`,
+It requires only `taskId` and `finishDate`. `startDate`, `duration`,
 `taskTotalFloat`, `taskFreeFloat`, and relationship type are optional.
 
 Key behaviour:
@@ -220,19 +224,35 @@ Key behaviour:
 - Relationship parsing stays active. Missing, blank, or invalid relationship
   types default to `FS`, so connector arrows still have deterministic
   semantics.
-- If `duration` is bound and finite, that value is used. If it is missing or
-  blank, duration is calculated as elapsed calendar days from Start Date to
-  Finish Date. Invalid or negative calculated duration is clamped to `0`.
+- If `duration` is bound and finite, that value is used when Start Date is
+  present. If it is missing or blank, duration is calculated as elapsed
+  calendar days from Start Date to Finish Date. Invalid or negative calculated
+  duration is clamped to `0`.
+- If Start Date is not bound or is blank, a row with Finish Date is treated as
+  a finish-only visualiser milestone. Any supplied duration is ignored for
+  plotting and the milestone is drawn at Finish Date.
+- In a finish-only visualiser dataset, the left-pane Start column is suppressed
+  even if the column setting is enabled; the Finish column remains visible.
+- Baseline and Previous Update comparison layers follow the same finish-only
+  contract in No Calculation mode: a bound comparison Finish Date renders as a
+  marker when the matching comparison Start Date is absent. Their Start label
+  columns are suppressed unless start data is present.
 - Manual Start/Finish override roles remain visual override fields; they do not
   replace the Start/Finish duration fallback.
 - A calculated or supplied duration of `0` is treated as a visual milestone in
-  rendering and export classification, in addition to `TT_Mile` and
-  `TT_FinMile`.
+  rendering, in addition to `TT_Mile` and `TT_FinMile`.
+- WBS summary rows keep their earliest/latest child finish summary dates for
+  sorting, zoom extents, labels, exports, and progress-line logic. In
+  finish-only visualiser data, the timeline row renders the filtered descendant
+  finish milestones as compact dots instead of drawing the summary range bar.
 - The header hides the Longest Path/Float-Based toggle, Show Critical/Show All
   toggle, and near-critical threshold controls. Other timeline, WBS, connector,
   column, copy/export, and help controls remain available.
 - The left-pane Total Float column is suppressed in No Calculation mode even
   when the column setting is enabled.
+- Built-in left-pane column headers can be overridden from the Columns format
+  card. Blank header overrides preserve the default labels and abbreviated
+  fallbacks used by the responsive column packing logic.
 
 ## Rendering and Interaction Structure
 
@@ -261,8 +281,8 @@ visible in both.
 |---|---|
 | `src/utils/RelationshipLogic.ts` | Relationship type normalisation, relationship identity keys, minimum-float driving selection. |
 | `src/utils/DrivingPathScoring.ts` | Event graph construction, longest-path distance calculation, tied sink selection, path expansion and truncation. |
-| `src/utils/ClipboardExporter.ts` | Copy-to-clipboard TSV/HTML generation and clipboard fallbacks. |
-| `src/utils/VisualState.ts` | Small state/export helpers: legend serialisation, export text sanitising, task type export labels, float text. |
+| `src/utils/ClipboardExporter.ts` | Legacy copy-to-clipboard TSV/HTML generation and clipboard fallbacks used by stress coverage. |
+| `src/utils/VisualState.ts` | Small state/export helpers: legend serialisation, export text sanitising, legacy task type export labels, float text. |
 | `src/utils/HeaderLayout.ts` | Header control placement and overflow decisions. |
 | `src/utils/ColumnLayout.ts` | Left label column packing and auto-fit behaviour. |
 | `src/utils/DataSignature.ts` | Data signature for update detection. |
@@ -273,22 +293,22 @@ visible in both.
 There are two export/copy paths:
 
 - Visual-level export in `src/visual.ts` for visible table/HTML/PDF flows.
-- `ClipboardExporter` utility for clipboard TSV/HTML payloads.
+- `ClipboardExporter` utility for legacy clipboard TSV/HTML payload coverage.
 
-Export task type labels should use `task.type` first:
-
-- `TT_Mile` and `TT_FinMile` -> `Milestone`
-- other nonblank task types, including zero-duration `TT_Task` -> `Activity`
-- duration `0` is only a fallback when task type is missing or blank
-- In No Calculation mode, supplied or calculated zero-duration tasks export as
-  `Milestone` even when their task type is `TT_Task`.
+The visual-level export/copy path mirrors the visible left-pane table columns
+and visible WBS/task row structure. Hidden/internal fields such as Task ID,
+Task Type, Index, Is Critical, Start, Duration, and Float are not exported
+unless they are visible on screen, for example as configured built-in or extra
+columns. When WBS grouping is off, export appends WBS Level columns after the
+visible columns so the hierarchy remains available.
 
 When editing export:
 
 - Keep TSV and HTML output aligned.
 - Sanitise user text for tabs/newlines and HTML where appropriate.
-- Preserve WBS-only export behaviour when no tasks are visible.
-- Re-test copy-to-Excel behaviour for zero-duration tasks.
+- Preserve visible WBS group rows when tasks are collapsed.
+- Re-test copy-to-Excel and HTML export with WBS on, WBS off, and finish-only
+  Visualiser data.
 
 ## Data Quality and Warnings
 

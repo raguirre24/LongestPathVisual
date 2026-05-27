@@ -294,6 +294,44 @@ describe('DataProcessor', () => {
             expect(result.allTasksData[0].type).toBe('TT_Task');
         });
 
+        it('parses finish-only visualiser rows as zero-duration milestones', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const finishDate = new Date('2025-01-12');
+            const columns: ColumnDef[] = [
+                { displayName: 'Task ID', queryName: 'Table[TaskID]', roles: { taskId: true } },
+                { displayName: 'Task Name', queryName: 'Table[TaskName]', roles: { taskName: true } },
+                { displayName: 'Finish Date', queryName: 'Table[FinishDate]', roles: { finishDate: true } },
+            ];
+            const dv = buildDataView(columns, [['T1', 'Finish-only task', finishDate]]);
+
+            const result = processor.processData(dv, visualiserSettings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.allTasksData[0].startDate).toBeNull();
+            expect(result.allTasksData[0].finishDate?.toISOString()).toBe(finishDate.toISOString());
+            expect(result.allTasksData[0].duration).toBe(0);
+        });
+
+        it('ignores supplied duration for finish-only visualiser rows', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const columns: ColumnDef[] = [
+                { displayName: 'Task ID', queryName: 'Table[TaskID]', roles: { taskId: true } },
+                { displayName: 'Task Name', queryName: 'Table[TaskName]', roles: { taskName: true } },
+                { displayName: 'Duration', queryName: 'Table[Duration]', roles: { duration: true } },
+                { displayName: 'Finish Date', queryName: 'Table[FinishDate]', roles: { finishDate: true } },
+            ];
+            const dv = buildDataView(columns, [['T1', 'Finish-only task', 7, new Date('2025-01-12')]]);
+
+            const result = processor.processData(dv, visualiserSettings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.allTasksData[0].duration).toBe(0);
+        });
+
         it('normalizes legend values so padded categories still match', () => {
             const columns: ColumnDef[] = [
                 ...STANDARD_COLUMNS,
@@ -614,6 +652,41 @@ describe('DataProcessor', () => {
 
             expect(result.wbsDataExists).toBe(true);
             expect(result.wbsGroups.length).toBeGreaterThan(0);
+        });
+
+        it('builds WBS summary ranges from finish-only visualiser milestones', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const firstFinish = new Date('2025-01-10');
+            const lastFinish = new Date('2025-01-20');
+            const firstBaselineFinish = new Date('2025-01-08');
+            const lastBaselineFinish = new Date('2025-01-18');
+            const firstPreviousFinish = new Date('2025-01-09');
+            const lastPreviousFinish = new Date('2025-01-19');
+            const columns: ColumnDef[] = [
+                { displayName: 'Task ID', queryName: 'Table[TaskID]', roles: { taskId: true } },
+                { displayName: 'Task Name', queryName: 'Table[TaskName]', roles: { taskName: true } },
+                { displayName: 'Finish Date', queryName: 'Table[FinishDate]', roles: { finishDate: true } },
+                { displayName: 'Baseline Finish Date', queryName: 'Table[BaselineFinishDate]', roles: { baselineFinishDate: true } },
+                { displayName: 'Previous Update Finish Date', queryName: 'Table[PreviousUpdateFinishDate]', roles: { previousUpdateFinishDate: true } },
+                { displayName: 'WBS L1', queryName: 'Table[WBS1]', roles: { wbsLevels: true } },
+            ];
+            const dv = buildDataView(columns, [
+                ['M1', 'First finish', firstFinish, firstBaselineFinish, firstPreviousFinish, 'Phase 1'],
+                ['M2', 'Last finish', lastFinish, lastBaselineFinish, lastPreviousFinish, 'Phase 1'],
+            ]);
+
+            const result = processor.processData(dv, visualiserSettings, new Map(), new Set(), null, false, '#000');
+            const group = result.wbsGroupMap.get('L1:Phase 1');
+
+            expect(group?.summaryStartDate?.toISOString()).toBe(firstFinish.toISOString());
+            expect(group?.summaryFinishDate?.toISOString()).toBe(lastFinish.toISOString());
+            expect(group?.summaryBaselineStartDate?.toISOString()).toBe(firstBaselineFinish.toISOString());
+            expect(group?.summaryBaselineFinishDate?.toISOString()).toBe(lastBaselineFinish.toISOString());
+            expect(group?.summaryPreviousUpdateStartDate?.toISOString()).toBe(firstPreviousFinish.toISOString());
+            expect(group?.summaryPreviousUpdateFinishDate?.toISOString()).toBe(lastPreviousFinish.toISOString());
         });
 
         it('reads WBS columns from table column positions when metadata and table columns drift', () => {
@@ -985,6 +1058,44 @@ describe('DataProcessor', () => {
             expect(processor.validateDataView(dv, visualiserSettings)).toBe(true);
         });
 
+        it('allows no calculation mode with only task ID and finish date', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const columns: ColumnDef[] = [
+                { displayName: 'ID', queryName: 'T[ID]', roles: { taskId: true } },
+                { displayName: 'Finish', queryName: 'T[F]', roles: { finishDate: true } },
+            ];
+            const dv = buildDataView(columns, [['T1', new Date()]]);
+
+            expect(processor.validateDataView(dv, visualiserSettings)).toBe(true);
+        });
+
+        it('still requires finish date in no calculation mode', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const columns: ColumnDef[] = [
+                { displayName: 'ID', queryName: 'T[ID]', roles: { taskId: true } },
+            ];
+            const dv = buildDataView(columns, [['T1']]);
+
+            expect(processor.validateDataView(dv, visualiserSettings)).toBe(false);
+        });
+
+        it('still requires start date outside no calculation mode', () => {
+            const columns: ColumnDef[] = [
+                { displayName: 'ID', queryName: 'T[ID]', roles: { taskId: true } },
+                { displayName: 'Duration', queryName: 'T[D]', roles: { duration: true } },
+                { displayName: 'Finish', queryName: 'T[F]', roles: { finishDate: true } },
+            ];
+            const dv = buildDataView(columns, [['T1', 1, new Date()]]);
+
+            expect(processor.validateDataView(dv, settings)).toBe(false);
+        });
+
         it('does not require duration or total float in no calculation mode', () => {
             const visualiserSettings = {
                 ...settings,
@@ -1000,6 +1111,53 @@ describe('DataProcessor', () => {
             expect(processor.validateDataView(dv, visualiserSettings)).toBe(true);
             expect(processor.hasDataRole(dv, 'duration')).toBe(false);
             expect(processor.hasDataRole(dv, 'taskTotalFloat')).toBe(false);
+        });
+    });
+
+    describe('detectBoundFields', () => {
+        it('allows Baseline and Previous Update finish-only roles in no calculation mode', () => {
+            const visualiserSettings = {
+                ...settings,
+                criticalPath: { calculationMode: { value: { value: 'none' } } },
+            };
+            const columns: ColumnDef[] = [
+                { displayName: 'ID', queryName: 'T[ID]', roles: { taskId: true } },
+                { displayName: 'Finish', queryName: 'T[F]', roles: { finishDate: true } },
+                { displayName: 'Baseline Finish', queryName: 'T[BF]', roles: { baselineFinishDate: true } },
+                { displayName: 'Previous Finish', queryName: 'T[PF]', roles: { previousUpdateFinishDate: true } },
+            ];
+            const dv = buildDataView(columns, [
+                ['T1', new Date('2025-01-10'), new Date('2025-01-09'), new Date('2025-01-08')],
+            ]);
+
+            const result = processor.processData(dv, visualiserSettings, new Map(), new Set(), null, false, '#000');
+            const boundFields = processor.detectBoundFields(dv, result.allTasksData, visualiserSettings);
+
+            expect(boundFields.baselineStartBound).toBe(false);
+            expect(boundFields.baselineFinishBound).toBe(true);
+            expect(boundFields.baselineAvailable).toBe(true);
+            expect(boundFields.previousUpdateStartBound).toBe(false);
+            expect(boundFields.previousUpdateFinishBound).toBe(true);
+            expect(boundFields.previousUpdateAvailable).toBe(true);
+        });
+
+        it('still requires Baseline and Previous Update start roles outside no calculation mode', () => {
+            const columns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'Baseline Finish', queryName: 'T[BF]', roles: { baselineFinishDate: true } },
+                { displayName: 'Previous Finish', queryName: 'T[PF]', roles: { previousUpdateFinishDate: true } },
+            ];
+            const dv = buildDataView(columns, [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), new Date('2025-01-05'), new Date('2025-01-04')],
+            ]);
+
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+            const boundFields = processor.detectBoundFields(dv, result.allTasksData, settings);
+
+            expect(boundFields.baselineFinishBound).toBe(true);
+            expect(boundFields.baselineAvailable).toBe(false);
+            expect(boundFields.previousUpdateFinishBound).toBe(true);
+            expect(boundFields.previousUpdateAvailable).toBe(false);
         });
     });
 

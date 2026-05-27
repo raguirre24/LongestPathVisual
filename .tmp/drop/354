@@ -1,7 +1,7 @@
 (self["webpackChunkLongestPathVisual"] = self["webpackChunkLongestPathVisual"] || []).push([[354],{
 
-/***/ 354:
-/***/ (function(module) {
+/***/ 354
+(module) {
 
 /*!
  * html2canvas 1.4.1 <https://html2canvas.hertzen.com>
@@ -7834,6 +7834,6 @@
 //# sourceMappingURL=html2canvas.js.map
 
 
-/***/ })
+/***/ }
 
 }]);

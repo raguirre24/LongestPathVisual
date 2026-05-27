@@ -137,4 +137,21 @@ describe("TaskBarGeometry", () => {
         expect(visualiserGeometry.isMilestone).toBe(true);
         expect(visualiserGeometry.milestoneDate?.toISOString()).toBe("2026-05-10T00:00:00.000Z");
     });
+
+    it("plots finish-only zero-duration visualiser tasks at the finish date", () => {
+        const finishOnlyTask = task({
+            duration: 0,
+            startDate: null,
+            finishDate: utcDate(18),
+            manualStartDate: null,
+            manualFinishDate: null
+        });
+
+        const geometry = getCurrentTaskBarGeometry(finishOnlyTask, "startFinishOverride", utcDate(5), true);
+
+        expect(geometry.isMilestone).toBe(true);
+        expect(geometry.milestoneDate?.toISOString()).toBe("2026-05-18T00:00:00.000Z");
+        expect(geometry.extentStart?.toISOString()).toBe("2026-05-18T00:00:00.000Z");
+        expect(geometry.extentFinish?.toISOString()).toBe("2026-05-18T00:00:00.000Z");
+    });
 });

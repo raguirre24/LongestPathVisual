@@ -134,10 +134,9 @@ describe("VisualSettings", () => {
         expect(visualSource).toContain("tasksToConsider = relevantPlottableTasks.length > 0 ? relevantPlottableTasks : [];");
         expect(visualSource).toContain('this.getLocalizedString("tooltip.mode.visualiser", "Visualiser")');
         expect(visualSource).toContain('this.getLocalizedString("tooltip.status.inSelectedPath", "In selected path")');
-        expect(visualSource).toContain("if (this.isNoCalculationMode() && task.duration === 0)");
-        expect(visualSource).toContain('task.duration?.toString() || "0"');
-        expect(visualSource).toContain("private getExportCriticalValue(task: Task): boolean");
-        expect(visualSource).toContain("return false;");
+        expect(visualSource).toContain("private getTaskVisibleExportColumnText(columnId: LabelColumnId, task: Task, exportDateFormatter: (date: Date) => string): string");
+        expect(visualSource).toContain('case "finish": {');
+        expect(visualSource).toContain("const date = this.getTaskBarLabelFinish(task);");
         expect(visualSource).toContain("if (cols.showTotalFloat.value && !this.isNoCalculationMode())");
         expect(headerSource).toContain('if (currentMode === "none")');
         expect(headerSource).toContain('if (this.currentState.currentMode === "none")');
@@ -794,17 +793,105 @@ describe("VisualSettings", () => {
         const properties = capabilities.objects.columns.properties;
 
         expect(settingsSource).toContain('autoFitColumns = new ToggleSwitch({ name: "autoFitColumns"');
+        expect(settingsSource).toContain('taskNameHeader = new TextInput({ name: "taskNameHeader", displayName: "Task Name Header"');
         expect(settingsSource).toContain('showStartDate = new ToggleSwitch({ name: "showStartDate", displayName: "Show Start Date", value: true })');
+        expect(settingsSource).toContain('startDateHeader = new TextInput({ name: "startDateHeader", displayName: "Start Date Header"');
         expect(settingsSource).toContain('showFinishDate = new ToggleSwitch({ name: "showFinishDate", displayName: "Show Finish Date", value: true })');
+        expect(settingsSource).toContain('finishDateHeader = new TextInput({ name: "finishDateHeader", displayName: "Finish Date Header"');
         expect(settingsSource).toContain('showDuration = new ToggleSwitch({ name: "showDuration", displayName: "Show Duration", value: true })');
+        expect(settingsSource).toContain('durationHeader = new TextInput({ name: "durationHeader", displayName: "Duration Header"');
         expect(settingsSource).toContain('showTotalFloat = new ToggleSwitch({ name: "showTotalFloat", displayName: "Show Total Float", value: true })');
+        expect(settingsSource).toContain('totalFloatHeader = new TextInput({ name: "totalFloatHeader", displayName: "Total Float Header"');
         expect(settingsSource).toContain('showBaselineDateColumns = new ToggleSwitch({ name: "showBaselineDateColumns"');
         expect(settingsSource).toContain('value: false');
         expect(settingsSource).toContain('showPreviousUpdateDateColumns = new ToggleSwitch({ name: "showPreviousUpdateDateColumns"');
 
         expect(properties.autoFitColumns.type.bool).toBe(true);
+        expect(properties.taskNameHeader.type.text).toBe(true);
+        expect(properties.startDateHeader.type.text).toBe(true);
+        expect(properties.finishDateHeader.type.text).toBe(true);
+        expect(properties.durationHeader.type.text).toBe(true);
+        expect(properties.totalFloatHeader.type.text).toBe(true);
+        expect(properties.baselineStartDateHeader.type.text).toBe(true);
+        expect(properties.baselineFinishDateHeader.type.text).toBe(true);
+        expect(properties.previousUpdateStartDateHeader.type.text).toBe(true);
+        expect(properties.previousUpdateFinishDateHeader.type.text).toBe(true);
         expect(properties.showBaselineDateColumns.type.bool).toBe(true);
         expect(properties.showPreviousUpdateDateColumns.type.bool).toBe(true);
+    });
+
+    it("uses manual column header text for rendered and exported headers", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+
+        expect(visualSource).toContain("private getColumnHeaderText(value: string | null | undefined, fallback: string): string");
+        expect(visualSource).toContain("private getColumnHeaderCandidates(value: string | null | undefined, fallbackCandidates: string[]): string[]");
+        expect(visualSource).toContain('this.getColumnHeaderText(cols.startDateHeader.value, "Start")');
+        expect(visualSource).toContain('this.getColumnHeaderText(cols.finishDateHeader.value, "Finish")');
+        expect(visualSource).toContain('this.getColumnHeaderText(cols.durationHeader.value, "Rem Dur")');
+        expect(visualSource).toContain('this.getColumnHeaderText(cols.totalFloatHeader.value, "Total Float")');
+        expect(visualSource).toContain("this.settings?.columns?.taskNameHeader?.value");
+        expect(visualSource).toContain("private getExportTaskNameHeader(): string");
+        expect(visualSource).toContain("private getVisibleExportColumns(tasks: Task[], includeWbsLevelColumns: boolean): VisibleExportColumn[]");
+        expect(visualSource).toContain("this.settings?.columns?.taskNameHeader?.value");
+        expect(visualSource).toContain("header: column.text");
+        expect(visualSource).toContain("const maxHeaderLines = bandMetrics.height >= fontSizePx * 2.35 ? 2 : 1;");
+        expect(visualSource).toContain("this.renderWrappedSvgText(");
+        expect(visualSource).toContain('"centerBlock"');
+    });
+
+    it("hides the Start column for finish-only visualiser data", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+
+        expect(visualSource).toContain("private hasCurrentStartDateData(): boolean");
+        expect(visualSource).toContain("return this.allTasksData.some(task => getScheduleStart(task) !== null);");
+        expect(visualSource).toContain("private isFinishOnlyVisualiserMode(): boolean");
+        expect(visualSource).toContain("return this.isNoCalculationMode() && !this.hasCurrentStartDateData();");
+        expect(visualSource).toContain("private shouldShowStartDateColumn(): boolean");
+        expect(visualSource).toContain("if (this.shouldShowStartDateColumn())");
+    });
+
+    it("keeps a small gutter between the table divider and timeline marks", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+
+        expect(visualSource).toContain("private readonly TIMELINE_LEFT_GUTTER_PX = 12;");
+        expect(visualSource).toContain("private getTimelineLeftGutter(chartWidth: number): number");
+        expect(visualSource).toContain("return Math.min(this.TIMELINE_LEFT_GUTTER_PX, Math.max(0, chartWidth * 0.2));");
+        expect(visualSource).toContain("private setTimelineScaleRange(xScale: ScaleTime<number, number>, chartWidth: number): void");
+        expect(visualSource).toContain("xScale.range([this.getTimelineLeftGutter(width), width]);");
+        expect(visualSource).toContain("this.setTimelineScaleRange(xScale, chartWidth);");
+        expect(visualSource).toContain("this.setTimelineScaleRange(this.xScale, chartWidth);");
+        expect(visualSource).not.toContain(".range([0, chartWidth])");
+        expect(visualSource).not.toContain("this.xScale.range([0, chartWidth])");
+    });
+
+    it("renders finish-only visualiser WBS summaries as descendant milestone dot rows", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8").replace(/\r\n/g, "\n");
+        const interfacesSource = readFileSync("src/data/Interfaces.ts", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThanOrEqual(0);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+        const drawWbsSource = slice(visualSource, "private drawWbsGroupHeaders(", "private refreshDateFormatters()");
+        const filteredSummarySource = slice(visualSource, "private updateWbsFilteredCounts(", "private assignWbsYOrder(");
+
+        expect(interfacesSource).toContain("export interface WbsSummaryMilestoneMarker");
+        expect(interfacesSource).toContain("summaryMilestoneMarkers?: WbsSummaryMilestoneMarker[];");
+        expect(drawWbsSource).toContain("const renderWbsSummaryMilestoneRows = this.isFinishOnlyVisualiserMode();");
+        expect(drawWbsSource).toContain("if (renderWbsSummaryMilestoneRows)");
+        expect(drawWbsSource).toContain("const autoMarkerDiameter = Math.max(4, Math.min(8, taskHeight * 0.32));");
+        expect(drawWbsSource).toContain("const markerDiameter = configuredSummaryMilestoneSize > 0");
+        expect(drawWbsSource).toContain("const markerRadius = markerDiameter / 2;");
+        expect(drawWbsSource).toContain("wbs-summary-milestone-current");
+        expect(drawWbsSource).toContain("wbs-summary-milestone-previous-update");
+        expect(drawWbsSource).toContain("wbs-summary-milestone-baseline");
+        expect(drawWbsSource).toContain("} else if (group.summaryStartDate && group.summaryFinishDate) {");
+        expect(filteredSummarySource).toContain("const summaryMilestoneMarkers: WbsSummaryMilestoneMarker[] = [];");
+        expect(filteredSummarySource).toContain("summaryMilestoneMarkers.push(...(child.summaryMilestoneMarkers ?? []));");
+        expect(filteredSummarySource).toContain("summaryBaselineMilestoneMarkers.push(...(child.summaryBaselineMilestoneMarkers ?? []));");
+        expect(filteredSummarySource).toContain("summaryPreviousUpdateMilestoneMarkers.push(...(child.summaryPreviousUpdateMilestoneMarkers ?? []));");
     });
 
     it("keeps task and WBS wrapped label rows anchored consistently", () => {
@@ -816,6 +903,9 @@ describe("VisualSettings", () => {
         expect(visualSource).toContain("centerY - ((lines.length - 1) * lineAdvancePx * 0.28)");
         expect(visualSource).toContain('maxLines > 1 ? "compactBlock" : "firstLineAtCenter"');
         expect(visualSource).toContain("const toggleY = maxLines > 1");
+        expect(visualSource).toContain("const badgeCenterY = Math.round(bgY + bgHeight / 2);");
+        expect(visualSource).toContain("const badgeY = Math.round(badgeCenterY - badgeHeight / 2);");
+        expect(visualSource).toContain(".attr('y', badgeCenterY)");
         expect(visualSource).toContain(".paddingOuter(taskPadding / (taskHeight + taskPadding) / 2)\n            .align(0);");
         expect(visualSource).toContain("WBS top-row anchor restoration");
         expect(visualSource).toContain("availableWidth,\n                    wbsRowBandHeight,\n                    groupNameFontSizePx");
@@ -870,14 +960,14 @@ describe("VisualSettings", () => {
         expect(yOrderDirectTaskLoopIndex).toBeLessThan(yOrderChildGroupLoopIndex);
         expect(yOrderUnassignedGroupIndex).toBeGreaterThan(yOrderRealRootLoopIndex);
 
-        const exportSource = slice(visualSource, "private generateWbsHierarchicalHtml(", "private async copyVisibleDataToClipboard()");
-        expect(exportSource).toContain("appendGroupRow(unassignedGroup, 0, this.UNASSIGNED_WBS_GROUP_NAME);");
-        expect(exportSource).toContain("previousLevels = unassignedGroup ? [this.UNASSIGNED_WBS_GROUP_ID] : currentLevels;");
-        expect(exportSource).toContain("const taskIndentPx = unassignedGroup ? indentPerLevel : currentLevels.length * indentPerLevel;");
-
+        const exportRowsSource = slice(visualSource, "private getVisibleWbsExportRows(", "private getExportTableHeaderHtml(");
+        expect(exportRowsSource).toContain("visibleWbsGroups.forEach(group =>");
+        expect(exportRowsSource).toContain("tasks.forEach(task =>");
+        expect(exportRowsSource).toContain("rows.sort((a, b) => a.yOrder - b.yOrder);");
+        expect(exportRowsSource).toContain("return tasks.map((task, index) => ({ kind: \"task\", yOrder: index, task }));");
         const exportTableSource = slice(visualSource, "private generateVisibleExportTableHtml(): string", "private generateVisibleExportTableText(): string");
         const exportTasksIndex = exportTableSource.indexOf("const tasks = this.getExportTableTasks();");
-        const exportHierarchicalIndex = exportTableSource.indexOf("return this.generateWbsHierarchicalHtml(exportDateFormatter, tasks);");
+        const exportHierarchicalIndex = exportTableSource.indexOf("return this.generateWbsVisibleExportTableHtml(exportDateFormatter, tasks, visibleWbsGroups);");
         expect(exportTasksIndex).toBeGreaterThan(-1);
         expect(exportHierarchicalIndex).toBeGreaterThan(-1);
         expect(exportTasksIndex).toBeLessThan(exportHierarchicalIndex);
@@ -896,7 +986,11 @@ describe("VisualSettings", () => {
         };
 
         expect(capabilities.objects.wbsGrouping.properties.groupNameColor.type.fill.solid.color).toBe(true);
+        expect(capabilities.objects.wbsGrouping.properties.summaryBarHeight.type.numeric).toBe(true);
+        expect(capabilities.objects.wbsGrouping.properties.summaryMilestoneSize.type.numeric).toBe(true);
         expect(settingsSource).toContain('groupNameColor = new ColorPicker({ name: "groupNameColor", displayName: "WBS Text Color"');
+        expect(settingsSource).toContain('summaryBarHeight = new NumUpDown({ name: "summaryBarHeight", displayName: "Summary Bar Height (0 = Auto)", value: 0');
+        expect(settingsSource).toContain('summaryMilestoneSize = new NumUpDown({ name: "summaryMilestoneSize", displayName: "Summary Milestone Size (0 = Auto)", value: 0');
         expect(visualSource).toContain("private readonly WBS_LEVEL_ACCENT_WIDTH = 5;");
 
         const wbsLevelStylesSource = slice(settingsSource, "class WbsLevelStylesCard extends Card", "class LegendCard extends Card");
@@ -935,8 +1029,12 @@ describe("VisualSettings", () => {
         expect(drawWbsSource).toContain("const badgeTextColor = wbsTextColor;");
         expect(drawWbsSource).toContain("fill: string = summaryTextColor");
         expect(drawWbsSource).toContain("const summaryFillColor = self.blendColors(groupSummaryColor, accentColor, 0.9);");
+        expect(drawWbsSource).toContain("const configuredSummaryBarHeight = Math.max(0, Number(this.settings.wbsGrouping.summaryBarHeight?.value ?? 0));");
+        expect(drawWbsSource).toContain("const configuredSummaryMilestoneSize = Math.max(0, Number(this.settings.wbsGrouping.summaryMilestoneSize?.value ?? 0));");
         expect(drawWbsSource).toContain("const collapsedBarHeight = Math.max(2, taskHeight * 0.42);");
         expect(drawWbsSource).toContain("const expandedBarHeight = Math.max(3, Math.min(4, taskBarHeight * 0.3));");
+        expect(drawWbsSource).toContain("const configuredBarHeight = configuredSummaryBarHeight > 0");
+        expect(drawWbsSource).toContain("const barHeight = configuredBarHeight ?? (isCollapsed ? collapsedBarHeight : expandedBarHeight);");
         expect(drawWbsSource).toContain("const expandedSummaryLineColor = self.highContrastMode");
         expect(drawWbsSource).toContain("const mainSummaryFillColor = isCollapsed ? summaryFillColor : expandedSummaryLineColor;");
         expect(drawWbsSource).toContain("const baseOpacity = self.highContrastMode ? 1 : (isCollapsed ? 0.66 : 0.94);");
@@ -964,20 +1062,13 @@ describe("VisualSettings", () => {
         expect(readableTextSource).toContain('this.getColorContrastRatio("#FFFFFF", backgroundColor)');
         expect(readableTextSource).toContain('return whiteContrast >= blackContrast ? "#FFFFFF" : "#000000";');
 
-        const visibleWbsExportSource = slice(visualSource, "private generateVisibleWbsOnlyExportTableHtml(", "private generateVisibleWbsOnlyExportTableText(");
-        expect(visibleWbsExportSource).toContain('const textColor = this.getWbsExportRowTextColor(rowBgColor, "#333333");');
+        const visibleWbsExportSource = slice(visualSource, "private generateWbsVisibleExportTableHtml(", "private generateWbsVisibleExportTableText(");
+        expect(visibleWbsExportSource).toContain('const fallbackGroupTextColor = this.getWbsTextColor("#333333");');
+        expect(visibleWbsExportSource).toContain("const textColor = this.getWbsExportRowTextColor(rowBgColor, fallbackGroupTextColor);");
         expect(visibleWbsExportSource).toContain("this.getWbsExportCellStyle(rowBgColor, textColor");
         expect(visibleWbsExportSource).toContain("const rowBgColor = this.getWbsExportRowBackgroundColor(group.level");
         expect(visibleWbsExportSource).not.toContain("levelStyle.text");
         expect(visibleWbsExportSource).not.toContain("border-left: 4px solid");
-
-        const hierarchicalWbsExportSource = slice(visualSource, "private generateWbsHierarchicalHtml(", "private async copyVisibleDataToClipboard()");
-        expect(hierarchicalWbsExportSource).toContain('const defaultGroupNameColor = this.getWbsTextColor("#333333");');
-        expect(hierarchicalWbsExportSource).toContain("const rowBgColor = this.getWbsExportRowBackgroundColor(groupLevel");
-        expect(hierarchicalWbsExportSource).toContain("const textColor = this.getWbsExportRowTextColor(rowBgColor, defaultGroupNameColor);");
-        expect(hierarchicalWbsExportSource).toContain("this.getWbsExportCellStyle(rowBgColor, textColor");
-        expect(hierarchicalWbsExportSource).not.toContain("levelStyle.text");
-        expect(hierarchicalWbsExportSource).not.toContain("border-left: 4px solid");
     });
 
     it("shows comparison date columns when bars are on or when the keep-visible toggle is enabled", () => {
@@ -985,6 +1076,11 @@ describe("VisualSettings", () => {
 
         expect(visualSource).toContain("this.boundFields.baselineAvailable && (this.showBaselineInternal || cols.showBaselineDateColumns?.value)");
         expect(visualSource).toContain("this.boundFields.previousUpdateAvailable && (this.showPreviousUpdateInternal || cols.showPreviousUpdateDateColumns?.value)");
+        expect(visualSource).toContain("private shouldShowBaselineStartDateColumn(): boolean");
+        expect(visualSource).toContain("private shouldShowPreviousUpdateStartDateColumn(): boolean");
+        expect(visualSource).toContain("if (this.shouldShowBaselineStartDateColumn())");
+        expect(visualSource).toContain("if (this.shouldShowPreviousUpdateStartDateColumn())");
+        expect(visualSource).toContain("this.dataProcessor.detectBoundFields(dataView, this.allTasksData || [], this.settings)");
     });
 
     it("places copy-to-clipboard export metadata after the copied table", () => {
@@ -1000,7 +1096,7 @@ describe("VisualSettings", () => {
         expect(visualSource).not.toContain("injectClipboardExportTimestampCell");
     });
 
-    it("uses task bar label dates for flat and hierarchical task exports", () => {
+    it("uses the visible-column model for HTML and plain-text exports", () => {
         const visualSource = readFileSync("src/visual.ts", "utf8");
         const slice = (source: string, startMarker: string, endMarker: string) => {
             const start = source.indexOf(startMarker);
@@ -1010,16 +1106,31 @@ describe("VisualSettings", () => {
             return source.slice(start, end);
         };
 
+        const visibleExportSource = slice(visualSource, "private getVisibleExportColumns(", "private getClipboardExportTimestamp()");
+        const exportColumnSource = slice(visualSource, "private getVisibleExportColumns(", "private formatExportExtraColumnValue(");
+        const taskColumnSource = slice(visualSource, "private getTaskVisibleExportColumnText(", "private getWbsSummaryDurationLabel(");
         const flatHtmlExportSource = slice(visualSource, "private generateFlatExportTableHtml(", "private generateFlatExportTableText(");
-        const flatTextExportSource = slice(visualSource, "private generateFlatExportTableText(", "private generateVisibleWbsOnlyExportTableHtml(");
-        const hierarchicalWbsExportSource = slice(visualSource, "private generateWbsHierarchicalHtml(", "private async copyVisibleDataToClipboard()");
+        const flatTextExportSource = slice(visualSource, "private generateFlatExportTableText(", "private generateWbsVisibleExportTableHtml(");
+        const wbsHtmlExportSource = slice(visualSource, "private generateWbsVisibleExportTableHtml(", "private generateWbsVisibleExportTableText(");
+        const visibleHtmlExportSource = slice(visualSource, "private generateVisibleExportTableHtml(): string", "private generateVisibleExportTableText(): string");
+        const visibleTextExportSource = slice(visualSource, "private generateVisibleExportTableText(): string", "private getClipboardExportTimestamp()");
         const clipboardSource = slice(visualSource, "private async copyVisibleDataToClipboard()", "private showCopySuccess");
 
-        expect(flatHtmlExportSource).toContain("const visualStartDate = this.getTaskBarLabelStart(task);");
-        expect(flatTextExportSource).toContain("const visualStartDate = this.getTaskBarLabelStart(task);");
-        expect(hierarchicalWbsExportSource).toContain("const visualStartDate = this.getTaskBarLabelStart(task);");
+        expect(exportColumnSource).toContain("const visibleLabelColumns = this.getLabelColumnLayout(this.getEffectiveLeftMargin()).items;");
+        expect(exportColumnSource).toContain("if (includeWbsLevelColumns)");
+        expect(taskColumnSource).toContain("const date = this.getTaskBarLabelStart(task);");
+        expect(taskColumnSource).toContain("const date = this.getTaskBarLabelFinish(task);");
+        expect(flatHtmlExportSource).toContain("const columns = this.getVisibleExportColumns(tasks, true);");
+        expect(flatTextExportSource).toContain("const columns = this.getVisibleExportColumns(tasks, true);");
+        expect(wbsHtmlExportSource).toContain("const columns = this.getVisibleExportColumns(tasks, false);");
+        expect(wbsHtmlExportSource).toContain("const rows = this.getVisibleWbsExportRows(tasks, visibleWbsGroups);");
+        expect(visibleHtmlExportSource).toContain("return this.generateWbsVisibleExportTableHtml(exportDateFormatter, tasks, visibleWbsGroups);");
+        expect(visibleTextExportSource).toContain("return this.generateWbsVisibleExportTableText(exportDateFormatter, tasks, visibleWbsGroups);");
         expect(clipboardSource).toContain("const tableHtml = this.generateVisibleExportTableHtml();");
         expect(clipboardSource).toContain("const plainText = this.generateVisibleExportTableText();");
+        expect(visibleExportSource).not.toContain('"Task ID"');
+        expect(visibleExportSource).not.toContain('"Task Type"');
+        expect(visibleExportSource).not.toContain('"Is Critical"');
     });
 
     it("draws critical status markers after task overlays in SVG and canvas render paths", () => {

@@ -43,6 +43,8 @@ export declare class DataProcessor {
     private extractTaskId;
     private extractPredecessorId;
     private getCalculationMode;
+    private isValidDateValue;
+    private getComparisonStartDateForSummary;
     private calculateElapsedCalendarDuration;
     private createTaskFromRow;
     private extractTooltipData;
@@ -68,9 +70,9 @@ export declare class DataProcessor {
     parseDate(dateValue: PrimitiveValue): Date | null;
     mightBeDate(value: PrimitiveValue): boolean;
     /**
-     * Detects which optional date-pair fields are actually bound in the field wells
+     * Detects which optional comparison date fields are actually bound in the field wells
      * AND contain at least one non-null value across the processed tasks.
      * This enables the visual to conditionally hide columns, bars, and toggle buttons.
      */
-    detectBoundFields(dataView: DataView, tasks: Task[]): BoundFieldState;
+    detectBoundFields(dataView: DataView, tasks: Task[], settings?: VisualSettings): BoundFieldState;
 }

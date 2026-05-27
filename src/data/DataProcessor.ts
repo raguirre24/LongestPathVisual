@@ -517,6 +517,22 @@ export class DataProcessor {
         return typeof value === "string" ? value : "longestPath";
     }
 
+    private isValidDateValue(value: Date | null | undefined): value is Date {
+        return value instanceof Date && !isNaN(value.getTime());
+    }
+
+    private getComparisonStartDateForSummary(startDate: Date | null | undefined, finishDate: Date | null | undefined, mode: string): Date | null {
+        if (this.isValidDateValue(startDate)) {
+            return startDate;
+        }
+
+        if (mode === "none" && this.isValidDateValue(finishDate)) {
+            return finishDate;
+        }
+
+        return null;
+    }
+
     private calculateElapsedCalendarDuration(startDate: Date | null, finishDate: Date | null): number {
         if (!(startDate instanceof Date) || !(finishDate instanceof Date) ||
             !Number.isFinite(startDate.getTime()) || !Number.isFinite(finishDate.getTime()) ||
@@ -577,8 +593,12 @@ export class DataProcessor {
                 }
             }
         }
-        if (mode === "none" && !hasFiniteDuration) {
-            duration = this.calculateElapsedCalendarDuration(startDate, finishDate);
+        if (mode === "none") {
+            if (!startDate) {
+                duration = 0;
+            } else if (!hasFiniteDuration) {
+                duration = this.calculateElapsedCalendarDuration(startDate, finishDate);
+            }
         }
         if (taskType === 'TT_Mile' || taskType === 'TT_FinMile') {
             duration = 0;
@@ -946,6 +966,9 @@ export class DataProcessor {
                 summaryBaselineFinishDate: null,
                 summaryPreviousUpdateStartDate: null,
                 summaryPreviousUpdateFinishDate: null,
+                summaryMilestoneMarkers: [],
+                summaryBaselineMilestoneMarkers: [],
+                summaryPreviousUpdateMilestoneMarkers: [],
                 summaryTotalFloat: null
             };
 
@@ -996,13 +1019,15 @@ export class DataProcessor {
             let hasCritical = false;
             let hasNearCritical = false;
 
+            const mode = this.getCalculationMode(settings);
+
             // Process direct tasks
             for (const task of group.tasks) {
                 if (task.isCritical) hasCritical = true;
                 if (task.isNearCritical) hasNearCritical = true;
 
-                const visualStart = task.manualStartDate ?? task.startDate;
                 const visualFinish = task.manualFinishDate ?? task.finishDate;
+                const visualStart = task.manualStartDate ?? task.startDate ?? (mode === "none" ? visualFinish : null);
 
                 if (visualStart) {
                     if (!minStart || visualStart < minStart) minStart = visualStart;
@@ -1017,14 +1042,16 @@ export class DataProcessor {
                     if (!maxEarlyFinish || task.finishDate > maxEarlyFinish) maxEarlyFinish = task.finishDate;
                 }
 
-                if (task.baselineStartDate) {
-                    if (!baselineMinStart || task.baselineStartDate < baselineMinStart) baselineMinStart = task.baselineStartDate;
+                const baselineStartDate = this.getComparisonStartDateForSummary(task.baselineStartDate, task.baselineFinishDate, mode);
+                if (baselineStartDate) {
+                    if (!baselineMinStart || baselineStartDate < baselineMinStart) baselineMinStart = baselineStartDate;
                 }
                 if (task.baselineFinishDate) {
                     if (!baselineMaxFinish || task.baselineFinishDate > baselineMaxFinish) baselineMaxFinish = task.baselineFinishDate;
                 }
-                if (task.previousUpdateStartDate) {
-                    if (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart) prevUpdateMinStart = task.previousUpdateStartDate;
+                const previousUpdateStartDate = this.getComparisonStartDateForSummary(task.previousUpdateStartDate, task.previousUpdateFinishDate, mode);
+                if (previousUpdateStartDate) {
+                    if (!prevUpdateMinStart || previousUpdateStartDate < prevUpdateMinStart) prevUpdateMinStart = previousUpdateStartDate;
                 }
                 if (task.previousUpdateFinishDate) {
                     if (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish) prevUpdateMaxFinish = task.previousUpdateFinishDate;
@@ -1426,13 +1453,14 @@ export class DataProcessor {
         let isValid = true;
         if (!hasId) isValid = false;
         if (mode === 'none') {
-            // Basic visualiser mode only needs task identity and dates.
+            if (!hasFinishDate) isValid = false;
         } else if (mode === 'floatBased') {
             if (!hasTotalFloat) isValid = false;
+            if (!hasStartDate || !hasFinishDate) isValid = false;
         } else {
             if (!hasDuration) isValid = false;
+            if (!hasStartDate || !hasFinishDate) isValid = false;
         }
-        if (!hasStartDate || !hasFinishDate) isValid = false;
 
         return isValid;
     }
@@ -1489,32 +1517,35 @@ export class DataProcessor {
     }
 
     /**
-     * Detects which optional date-pair fields are actually bound in the field wells
+     * Detects which optional comparison date fields are actually bound in the field wells
      * AND contain at least one non-null value across the processed tasks.
      * This enables the visual to conditionally hide columns, bars, and toggle buttons.
      */
-    public detectBoundFields(dataView: DataView, tasks: Task[]): BoundFieldState {
+    public detectBoundFields(dataView: DataView, tasks: Task[], settings?: VisualSettings): BoundFieldState {
         const baselineStartBound = this.hasDataRole(dataView, 'baselineStartDate');
         const baselineFinishBound = this.hasDataRole(dataView, 'baselineFinishDate');
         const previousUpdateStartBound = this.hasDataRole(dataView, 'previousUpdateStartDate');
         const previousUpdateFinishBound = this.hasDataRole(dataView, 'previousUpdateFinishDate');
         const extraColumnsBound = this.hasDataRole(dataView, 'extraColumns');
+        const mode = settings ? this.getCalculationMode(settings) : "longestPath";
+        const baselineRoleSetAvailable = baselineFinishBound && (mode === "none" || baselineStartBound);
+        const previousUpdateRoleSetAvailable = previousUpdateFinishBound && (mode === "none" || previousUpdateStartBound);
 
-        // Both roles must be bound AND at least one task must have a non-null value
+        // Calculated modes still require both roles. No Calculation can use finish-only markers.
         let baselineHasData = false;
         let previousUpdateHasData = false;
 
-        if ((baselineStartBound && baselineFinishBound) || (previousUpdateStartBound && previousUpdateFinishBound)) {
+        if (baselineRoleSetAvailable || previousUpdateRoleSetAvailable) {
             for (const task of tasks) {
-                if (!baselineHasData && baselineStartBound && baselineFinishBound) {
-                    if (task.baselineStartDate instanceof Date && !isNaN(task.baselineStartDate.getTime()) ||
-                        task.baselineFinishDate instanceof Date && !isNaN(task.baselineFinishDate.getTime())) {
+                if (!baselineHasData && baselineRoleSetAvailable) {
+                    if ((baselineStartBound && this.isValidDateValue(task.baselineStartDate)) ||
+                        this.isValidDateValue(task.baselineFinishDate)) {
                         baselineHasData = true;
                     }
                 }
-                if (!previousUpdateHasData && previousUpdateStartBound && previousUpdateFinishBound) {
-                    if (task.previousUpdateStartDate instanceof Date && !isNaN(task.previousUpdateStartDate.getTime()) ||
-                        task.previousUpdateFinishDate instanceof Date && !isNaN(task.previousUpdateFinishDate.getTime())) {
+                if (!previousUpdateHasData && previousUpdateRoleSetAvailable) {
+                    if ((previousUpdateStartBound && this.isValidDateValue(task.previousUpdateStartDate)) ||
+                        this.isValidDateValue(task.previousUpdateFinishDate)) {
                         previousUpdateHasData = true;
                     }
                 }
@@ -1528,8 +1559,8 @@ export class DataProcessor {
             baselineFinishBound,
             previousUpdateStartBound,
             previousUpdateFinishBound,
-            baselineAvailable: baselineStartBound && baselineFinishBound && baselineHasData,
-            previousUpdateAvailable: previousUpdateStartBound && previousUpdateFinishBound && previousUpdateHasData,
+            baselineAvailable: baselineRoleSetAvailable && baselineHasData,
+            previousUpdateAvailable: previousUpdateRoleSetAvailable && previousUpdateHasData,
             extraColumnsBound
         };
     }

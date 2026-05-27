@@ -99,6 +99,7 @@ export declare class Visual implements IVisual {
     private readonly WBS_LEVEL_ACCENT_WIDTH;
     private readonly WBS_TOGGLE_BOX_SIZE;
     private readonly WBS_TASK_LABEL_INSET;
+    private readonly TIMELINE_LEFT_GUTTER_PX;
     private readonly UNASSIGNED_WBS_GROUP_ID;
     private readonly UNASSIGNED_WBS_GROUP_NAME;
     private legendFooterHeight;
@@ -313,6 +314,28 @@ export declare class Visual implements IVisual {
     private getCurrentBarDateMode;
     private getCriticalBarStyle;
     private getTaskBarGeometry;
+    private hasCurrentStartDateData;
+    private isFinishOnlyVisualiserMode;
+    private shouldShowStartDateColumn;
+    private hasBaselineStartDateData;
+    private hasPreviousUpdateStartDateData;
+    private isBaselineFinishOnlyVisualiserMode;
+    private isPreviousUpdateFinishOnlyVisualiserMode;
+    private shouldShowBaselineStartDateColumn;
+    private shouldShowPreviousUpdateStartDateColumn;
+    private getCustomColumnHeaderText;
+    private getColumnHeaderText;
+    private getColumnHeaderCandidates;
+    private getBaselineComparisonFinish;
+    private getPreviousUpdateComparisonFinish;
+    private getBaselineComparisonStart;
+    private getPreviousUpdateComparisonStart;
+    private getBaselineComparisonExtent;
+    private getPreviousUpdateComparisonExtent;
+    private createWbsSummaryMilestoneMarker;
+    private getCurrentWbsSummaryMilestoneMarker;
+    private getBaselineWbsSummaryMilestoneMarker;
+    private getPreviousUpdateWbsSummaryMilestoneMarker;
     private isVisualMilestoneTask;
     private getTaskBarSortDate;
     private getTaskBarLabelStart;
@@ -566,6 +589,8 @@ export declare class Visual implements IVisual {
     private hideTooltip;
     private getMinimumNameLaneWidth;
     private getViewportWidthForColumnLayout;
+    private getTimelineLeftGutter;
+    private setTimelineScaleRange;
     private getConfiguredLabelColumnSpecs;
     private getPackedLabelColumns;
     /**
@@ -1048,18 +1073,29 @@ export declare class Visual implements IVisual {
     private getHelpOverlayFocusableElements;
     private escapeHtml;
     private sanitizeExportCell;
-    private getExportTaskTypeLabel;
-    private getExportFloatLabel;
-    private getExportCriticalValue;
     private getWbsExportRowBackgroundColor;
     private getWbsExportRowTextColor;
     private getWbsExportCellStyle;
     private getExportTableTasks;
     private getVisibleExportWbsGroups;
+    private getExportTaskNameHeader;
+    private getVisibleExportColumns;
+    private formatExportExtraColumnValue;
+    private getTaskVisibleExportColumnText;
+    private getWbsSummaryDurationLabel;
+    private getWbsGroupVisibleExportColumnText;
+    private getTaskExportColumnText;
+    private getWbsGroupExportColumnText;
+    private getVisibleWbsExportRows;
+    private getExportTableHeaderHtml;
+    private getExportTableHeadersText;
+    private getExportCellHtml;
+    private getTaskNameExportIndentPx;
+    private getPlainTextIndent;
     private generateFlatExportTableHtml;
     private generateFlatExportTableText;
-    private generateVisibleWbsOnlyExportTableHtml;
-    private generateVisibleWbsOnlyExportTableText;
+    private generateWbsVisibleExportTableHtml;
+    private generateWbsVisibleExportTableText;
     private generateVisibleExportTableHtml;
     private generateVisibleExportTableText;
     private getClipboardExportTimestamp;
@@ -1068,16 +1104,8 @@ export declare class Visual implements IVisual {
     private generateClipboardHtmlExportFragment;
     private copyHtmlExportToClipboard;
     /**
-     * Generates hierarchical HTML content for WBS export with colored group headers
-     * and indented task names, matching the visual display layout.
-     */
-    private generateWbsHierarchicalHtml;
-    /**
      * Copies the currently visible data to the clipboard in a format suitable for Excel.
-     * Delegates to ClipboardExporter module for the actual export logic.
-     *
-     * When WBS is enabled but no tasks are visible (WBS groups are collapsed),
-     * exports the visible WBS groups "as-is" on the screen.
+     * Uses the same visible-column model as the HTML export.
      */
     private copyVisibleDataToClipboard;
     /**

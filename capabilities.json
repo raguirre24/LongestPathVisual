@@ -962,10 +962,22 @@
                         "bool": true
                     }
                 },
+                "taskNameHeader": {
+                    "displayName": "Task Name Header",
+                    "type": {
+                        "text": true
+                    }
+                },
                 "showStartDate": {
                     "displayName": "Show Start Date",
                     "type": {
                         "bool": true
+                    }
+                },
+                "startDateHeader": {
+                    "displayName": "Start Date Header",
+                    "type": {
+                        "text": true
                     }
                 },
                 "startDateWidth": {
@@ -980,6 +992,12 @@
                         "bool": true
                     }
                 },
+                "finishDateHeader": {
+                    "displayName": "Finish Date Header",
+                    "type": {
+                        "text": true
+                    }
+                },
                 "finishDateWidth": {
                     "displayName": "Finish Date Width (px)",
                     "type": {
@@ -990,6 +1008,12 @@
                     "displayName": "Show Duration",
                     "type": {
                         "bool": true
+                    }
+                },
+                "durationHeader": {
+                    "displayName": "Duration Header",
+                    "type": {
+                        "text": true
                     }
                 },
                 "durationWidth": {
@@ -1004,6 +1028,12 @@
                         "bool": true
                     }
                 },
+                "totalFloatHeader": {
+                    "displayName": "Total Float Header",
+                    "type": {
+                        "text": true
+                    }
+                },
                 "totalFloatWidth": {
                     "displayName": "Total Float Width (px)",
                     "type": {
@@ -1016,10 +1046,22 @@
                         "bool": true
                     }
                 },
+                "baselineStartDateHeader": {
+                    "displayName": "Baseline Start Header",
+                    "type": {
+                        "text": true
+                    }
+                },
                 "baselineStartDateWidth": {
                     "displayName": "Baseline Start Width (px)",
                     "type": {
                         "numeric": true
+                    }
+                },
+                "baselineFinishDateHeader": {
+                    "displayName": "Baseline Finish Header",
+                    "type": {
+                        "text": true
                     }
                 },
                 "baselineFinishDateWidth": {
@@ -1034,10 +1076,22 @@
                         "bool": true
                     }
                 },
+                "previousUpdateStartDateHeader": {
+                    "displayName": "Previous Start Header",
+                    "type": {
+                        "text": true
+                    }
+                },
                 "previousUpdateStartDateWidth": {
                     "displayName": "Previous Start Width (px)",
                     "type": {
                         "numeric": true
+                    }
+                },
+                "previousUpdateFinishDateHeader": {
+                    "displayName": "Previous Finish Header",
+                    "type": {
+                        "text": true
                     }
                 },
                 "previousUpdateFinishDateWidth": {
@@ -1736,6 +1790,18 @@
                                 "color": true
                             }
                         }
+                    }
+                },
+                "summaryBarHeight": {
+                    "displayName": "Summary Bar Height (0 = Auto)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "summaryMilestoneSize": {
+                    "displayName": "Summary Milestone Size (0 = Auto)",
+                    "type": {
+                        "numeric": true
                     }
                 },
                 "groupNameFontSize": {

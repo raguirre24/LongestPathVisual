@@ -936,10 +936,13 @@ export class Header {
 
         let tooltipText = showBaseline ? 'Hide baseline task bars' : 'Show baseline task bars';
         if (!isAvailable) {
-            const hasRoles = this.currentState.boundFields.baselineStartBound && this.currentState.boundFields.baselineFinishBound;
-            tooltipText = hasRoles 
-                ? "All Baseline data values are empty" 
-                : "Add Baseline Start Date and Baseline Finish Date data to enable";
+            const hasStartRole = this.currentState.boundFields.baselineStartBound;
+            const hasFinishRole = this.currentState.boundFields.baselineFinishBound;
+            tooltipText = hasStartRole && hasFinishRole
+                ? "All Baseline data values are empty"
+                : hasFinishRole
+                    ? "Baseline data values are empty, or Baseline Start Date is required outside No Calculation mode"
+                    : "Add Baseline Finish Date data to enable";
         }
 
         const btn = this.upsertButton("baseline-toggle-group")
@@ -1045,10 +1048,13 @@ export class Header {
 
         let tooltipTextSvg = showBaseline ? "Hide baseline task bars" : "Show baseline task bars";
         if (!isAvailable) {
-            const hasRoles = this.currentState.boundFields.baselineStartBound && this.currentState.boundFields.baselineFinishBound;
-            tooltipTextSvg = hasRoles 
-                ? "All Baseline data values are empty" 
-                : "Add Baseline Start Date and Baseline Finish Date data to enable";
+            const hasStartRole = this.currentState.boundFields.baselineStartBound;
+            const hasFinishRole = this.currentState.boundFields.baselineFinishBound;
+            tooltipTextSvg = hasStartRole && hasFinishRole
+                ? "All Baseline data values are empty"
+                : hasFinishRole
+                    ? "Baseline data values are empty, or Baseline Start Date is required outside No Calculation mode"
+                    : "Add Baseline Finish Date data to enable";
         }
 
         btn.append("title")
@@ -1099,10 +1105,13 @@ export class Header {
 
         let tooltipText = showPreviousUpdate ? 'Hide previous update task bars' : 'Show previous update task bars';
         if (!isAvailable) {
-            const hasRoles = this.currentState.boundFields.previousUpdateStartBound && this.currentState.boundFields.previousUpdateFinishBound;
-            tooltipText = hasRoles 
-                ? "All Previous Update data values are empty" 
-                : "Add Previous Update Start and Finish Date data to enable";
+            const hasStartRole = this.currentState.boundFields.previousUpdateStartBound;
+            const hasFinishRole = this.currentState.boundFields.previousUpdateFinishBound;
+            tooltipText = hasStartRole && hasFinishRole
+                ? "All Previous Update data values are empty"
+                : hasFinishRole
+                    ? "Previous Update data values are empty, or Previous Update Start Date is required outside No Calculation mode"
+                    : "Add Previous Update Finish Date data to enable";
         }
 
         const btn = this.upsertButton("previous-update-toggle-group")
@@ -1207,10 +1216,13 @@ export class Header {
 
         let tooltipTextSvg = showPreviousUpdate ? "Hide previous update task bars" : "Show previous update task bars";
         if (!isAvailable) {
-            const hasRoles = this.currentState.boundFields.previousUpdateStartBound && this.currentState.boundFields.previousUpdateFinishBound;
-            tooltipTextSvg = hasRoles 
-                ? "All Previous Update data values are empty" 
-                : "Add Previous Update Start and Finish Date data to enable";
+            const hasStartRole = this.currentState.boundFields.previousUpdateStartBound;
+            const hasFinishRole = this.currentState.boundFields.previousUpdateFinishBound;
+            tooltipTextSvg = hasStartRole && hasFinishRole
+                ? "All Previous Update data values are empty"
+                : hasFinishRole
+                    ? "Previous Update data values are empty, or Previous Update Start Date is required outside No Calculation mode"
+                    : "Add Previous Update Finish Date data to enable";
         }
 
         btn.append("title")
@@ -3166,7 +3178,7 @@ export class Header {
                 section: "Timeline Layers",
                 label: "Baseline",
                 status: state.showBaseline ? "On" : "Off",
-                title: state.baselineAvailable ? "Show or hide baseline comparison bars." : "Baseline Start and Finish are not available.",
+                title: state.baselineAvailable ? "Show or hide baseline comparison bars." : "Baseline comparison data is not available.",
                 disabled: !state.baselineAvailable,
                 callback: this.callbacks.onToggleBaseline
             },
@@ -3175,7 +3187,7 @@ export class Header {
                 section: "Timeline Layers",
                 label: "Previous update",
                 status: state.showPreviousUpdate ? "On" : "Off",
-                title: state.previousUpdateAvailable ? "Show or hide previous update comparison bars." : "Previous Update Start and Finish are not available.",
+                title: state.previousUpdateAvailable ? "Show or hide previous update comparison bars." : "Previous Update comparison data is not available.",
                 disabled: !state.previousUpdateAvailable,
                 callback: this.callbacks.onTogglePreviousUpdate
             },

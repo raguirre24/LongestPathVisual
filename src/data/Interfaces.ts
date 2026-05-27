@@ -53,6 +53,12 @@ export interface ExtraColumnInfo {
     tableIndex: number;
 }
 
+export interface WbsSummaryMilestoneMarker {
+    taskInternalId: string;
+    taskName: string;
+    date: Date;
+}
+
 export interface WBSGroup {
     id: string;
     level: number;
@@ -82,6 +88,9 @@ export interface WBSGroup {
     summaryBaselineFinishDate?: Date | null;
     summaryPreviousUpdateStartDate?: Date | null;
     summaryPreviousUpdateFinishDate?: Date | null;
+    summaryMilestoneMarkers?: WbsSummaryMilestoneMarker[];
+    summaryBaselineMilestoneMarkers?: WbsSummaryMilestoneMarker[];
+    summaryPreviousUpdateMilestoneMarkers?: WbsSummaryMilestoneMarker[];
     summaryTotalFloat?: number | null;
     isUnassignedWbsGroup?: boolean;
 }
@@ -131,7 +140,7 @@ export enum UpdateType {
 }
 
 /**
- * Tracks which optional date-pair fields are actually bound in the visual's field wells
+ * Tracks which optional comparison date fields are actually bound in the visual's field wells
  * AND contain at least one non-null value across all tasks.
  * Used to conditionally hide columns, bars, and toggle buttons.
  */
@@ -144,9 +153,9 @@ export interface BoundFieldState {
     previousUpdateStartBound: boolean;
     /** The previousUpdateFinishDate role is mapped in the field well */
     previousUpdateFinishBound: boolean;
-    /** Both baseline roles are bound AND at least one task has a non-null baseline date */
+    /** Baseline roles satisfy the active calculation mode AND at least one task has a non-null baseline date */
     baselineAvailable: boolean;
-    /** Both previous update roles are bound AND at least one task has a non-null previous update date */
+    /** Previous Update roles satisfy the active calculation mode AND at least one task has a non-null previous update date */
     previousUpdateAvailable: boolean;
     /** At least one field is bound to the extraColumns role */
     extraColumnsBound: boolean;

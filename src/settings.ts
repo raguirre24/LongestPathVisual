@@ -655,23 +655,32 @@ class ColumnsCard extends Card {
     showColumnToggleButton = new ToggleSwitch({ name: "showColumnToggleButton", displayName: "Show Column Toggle Button", value: true });
     enableColumnDisplay = new ToggleSwitch({ name: "enableColumnDisplay", displayName: "Enable Columns", value: true });
     autoFitColumns = new ToggleSwitch({ name: "autoFitColumns", displayName: "Auto-fit Columns", value: true });
+    taskNameHeader = new TextInput({ name: "taskNameHeader", displayName: "Task Name Header", value: "", placeholder: "Task Name" });
     showStartDate = new ToggleSwitch({ name: "showStartDate", displayName: "Show Start Date", value: true });
+    startDateHeader = new TextInput({ name: "startDateHeader", displayName: "Start Date Header", value: "", placeholder: "Start" });
     startDateWidth = new NumUpDown({ name: "startDateWidth", displayName: "Start Date Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
     showFinishDate = new ToggleSwitch({ name: "showFinishDate", displayName: "Show Finish Date", value: true });
+    finishDateHeader = new TextInput({ name: "finishDateHeader", displayName: "Finish Date Header", value: "", placeholder: "Finish" });
     finishDateWidth = new NumUpDown({ name: "finishDateWidth", displayName: "Finish Date Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
     showDuration = new ToggleSwitch({ name: "showDuration", displayName: "Show Duration", value: true });
+    durationHeader = new TextInput({ name: "durationHeader", displayName: "Duration Header", value: "", placeholder: "Rem Dur" });
     durationWidth = new NumUpDown({ name: "durationWidth", displayName: "Duration Width (px)", value: 58, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
     showTotalFloat = new ToggleSwitch({ name: "showTotalFloat", displayName: "Show Total Float", value: true });
+    totalFloatHeader = new TextInput({ name: "totalFloatHeader", displayName: "Total Float Header", value: "", placeholder: "Total Float" });
     totalFloatWidth = new NumUpDown({ name: "totalFloatWidth", displayName: "Total Float Width (px)", value: 58, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
     showBaselineDateColumns = new ToggleSwitch({ name: "showBaselineDateColumns", displayName: "Show Baseline Columns When Bars Are Off", value: false });
+    baselineStartDateHeader = new TextInput({ name: "baselineStartDateHeader", displayName: "Baseline Start Header", value: "", placeholder: "BL Start" });
     baselineStartDateWidth = new NumUpDown({ name: "baselineStartDateWidth", displayName: "Baseline Start Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    baselineFinishDateHeader = new TextInput({ name: "baselineFinishDateHeader", displayName: "Baseline Finish Header", value: "", placeholder: "BL Finish" });
     baselineFinishDateWidth = new NumUpDown({ name: "baselineFinishDateWidth", displayName: "Baseline Finish Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
     showPreviousUpdateDateColumns = new ToggleSwitch({ name: "showPreviousUpdateDateColumns", displayName: "Show Previous Columns When Bars Are Off", value: false });
+    previousUpdateStartDateHeader = new TextInput({ name: "previousUpdateStartDateHeader", displayName: "Previous Start Header", value: "", placeholder: "Prev Start" });
     previousUpdateStartDateWidth = new NumUpDown({ name: "previousUpdateStartDateWidth", displayName: "Previous Start Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
+    previousUpdateFinishDateHeader = new TextInput({ name: "previousUpdateFinishDateHeader", displayName: "Previous Finish Header", value: "", placeholder: "Prev Finish" });
     previousUpdateFinishDateWidth = new NumUpDown({ name: "previousUpdateFinishDateWidth", displayName: "Previous Finish Width (px)", value: 72, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 30 } } });
 
     showExtraColumns = new ToggleSwitch({ name: "showExtraColumns", displayName: "Show Extra Columns", value: true });
@@ -681,15 +690,20 @@ class ColumnsCard extends Card {
         this.showColumnToggleButton,
         this.enableColumnDisplay,
         this.autoFitColumns,
-        this.showStartDate, this.startDateWidth,
-        this.showFinishDate, this.finishDateWidth,
-        this.showDuration, this.durationWidth,
-        this.showTotalFloat, this.totalFloatWidth,
+        this.taskNameHeader,
+        this.showStartDate, this.startDateHeader, this.startDateWidth,
+        this.showFinishDate, this.finishDateHeader, this.finishDateWidth,
+        this.showDuration, this.durationHeader, this.durationWidth,
+        this.showTotalFloat, this.totalFloatHeader, this.totalFloatWidth,
         this.showBaselineDateColumns,
+        this.baselineStartDateHeader,
         this.baselineStartDateWidth,
+        this.baselineFinishDateHeader,
         this.baselineFinishDateWidth,
         this.showPreviousUpdateDateColumns,
+        this.previousUpdateStartDateHeader,
         this.previousUpdateStartDateWidth,
+        this.previousUpdateFinishDateHeader,
         this.previousUpdateFinishDateWidth,
         this.showExtraColumns,
         this.extraColumnsWidth
@@ -1334,11 +1348,13 @@ class WBSGroupingCard extends Card {
     showGroupSummary = new ToggleSwitch({ name: "showGroupSummary", displayName: "Show Group Summary Bar", value: true });
     groupHeaderColor = new ColorPicker({ name: "groupHeaderColor", displayName: "Group Header Background", value: { value: "#F7F8FA" } });
     groupSummaryColor = new ColorPicker({ name: "groupSummaryColor", displayName: "Group Summary Bar Color", value: { value: "#DACEEF" } });
+    summaryBarHeight = new NumUpDown({ name: "summaryBarHeight", displayName: "Summary Bar Height (0 = Auto)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 24 } } });
+    summaryMilestoneSize = new NumUpDown({ name: "summaryMilestoneSize", displayName: "Summary Milestone Size (0 = Auto)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 24 } } });
     groupNameFontSize = new NumUpDown({ name: "groupNameFontSize", displayName: "Group Name Font Size (pt)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 24 } } });
     groupNameColor = new ColorPicker({ name: "groupNameColor", displayName: "WBS Text Color", value: { value: "#2A3240" } });
     indentPerLevel = new NumUpDown({ name: "indentPerLevel", displayName: "Indent Per Level (px)", value: 22, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 } } });
 
-    slices: Slice[] = [this.enableWbsGrouping, this.defaultExpanded, this.expandCollapseAll, this.showWbsToggle, this.hideEmptyGroups, this.showGroupSummary, this.groupHeaderColor, this.groupSummaryColor, this.groupNameFontSize, this.groupNameColor, this.indentPerLevel];
+    slices: Slice[] = [this.enableWbsGrouping, this.defaultExpanded, this.expandCollapseAll, this.showWbsToggle, this.hideEmptyGroups, this.showGroupSummary, this.groupHeaderColor, this.groupSummaryColor, this.summaryBarHeight, this.summaryMilestoneSize, this.groupNameFontSize, this.groupNameColor, this.indentPerLevel];
 }
 
 // ============================================================================

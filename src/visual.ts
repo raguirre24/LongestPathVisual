@@ -26,7 +26,7 @@ import { VisualSettings } from "./settings";
 import { FormattingSettingsService, formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 import { DataProcessor } from "./data/DataProcessor";
 import { Header, HeaderPalette, HeaderState } from "./components/Header";
-import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState, DataQualityInfo, ExtraColumnInfo } from "./data/Interfaces";
+import { Task, WBSGroup, Relationship, DropdownItem, UpdateType, BoundFieldState, DataQualityInfo, ExtraColumnInfo, WbsSummaryMilestoneMarker } from "./data/Interfaces";
 import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "./utils/Theme";
 import {
     buildDrivingEventGraph,
@@ -38,8 +38,6 @@ import {
 } from "./utils/DrivingPathScoring";
 import { getRelationshipIdentityKey, markMinimumFloatDrivingRelationships } from "./utils/RelationshipLogic";
 import {
-    getExportFloatText,
-    getExportTaskType,
     normalizeLegendCategory,
     parsePersistedLegendSelection,
     sanitizeExportTextField,
@@ -60,11 +58,17 @@ import {
     getCurrentTaskBarGeometry,
     getScheduleFinish,
     getScheduleStart,
+    isValidTaskDate,
     normalizeCurrentBarDateMode,
     shouldApplyCriticalFormatToTaskBarSegment
 } from "./utils/TaskBarGeometry";
 import type { CurrentBarDateMode, TaskBarGeometry, TaskBarSegment } from "./utils/TaskBarGeometry";
-import { getCriticalFormattingExtentFromTaskBarGeometry } from "./utils/WbsSummaryMetrics";
+import {
+    createWbsSummaryMilestoneMarker,
+    getCriticalFormattingExtentFromTaskBarGeometry,
+    getTaskBarGeometryExtent,
+    sortWbsSummaryMilestoneMarkers
+} from "./utils/WbsSummaryMetrics";
 import {
     getCriticalStatusMarkerDescriptor,
     getSemanticTaskFillColorForStyle,
@@ -80,6 +84,7 @@ import {
     DEFAULT_MIN_TIMELINE_WIDTH,
     LabelColumnId,
     LabelColumnLayout,
+    LabelColumnLayoutItem,
     LabelColumnSpec,
     MIN_TASK_NAME_WIDTH,
     MIN_WBS_TASK_NAME_WIDTH,
@@ -222,6 +227,15 @@ type WbsHeaderContextMenuAction = {
     announcement: string;
 };
 
+type VisibleExportColumn =
+    | { kind: "taskName"; header: string }
+    | { kind: "label"; header: string; column: LabelColumnLayoutItem }
+    | { kind: "wbsLevel"; header: string; levelIndex: number };
+
+type VisibleWbsExportRow =
+    | { kind: "group"; yOrder: number; group: WBSGroup }
+    | { kind: "task"; yOrder: number; task: Task };
+
 export class Visual implements IVisual {
     private static nextInstanceOrdinal: number = 0;
     /**
@@ -335,6 +349,7 @@ export class Visual implements IVisual {
     private readonly WBS_LEVEL_ACCENT_WIDTH = 5;
     private readonly WBS_TOGGLE_BOX_SIZE = 18;
     private readonly WBS_TASK_LABEL_INSET = 22;
+    private readonly TIMELINE_LEFT_GUTTER_PX = 12;
     private readonly UNASSIGNED_WBS_GROUP_ID = "__UNASSIGNED_WBS__";
     private readonly UNASSIGNED_WBS_GROUP_NAME = "Unassigned WBS";
     private legendFooterHeight = 52;
@@ -1864,6 +1879,130 @@ export class Visual implements IVisual {
 
     private getTaskBarGeometry(task: Task): TaskBarGeometry {
         return getCurrentTaskBarGeometry(task, this.getCurrentBarDateMode(), this.dataDate, this.isNoCalculationMode());
+    }
+
+    private hasCurrentStartDateData(): boolean {
+        return this.allTasksData.some(task => getScheduleStart(task) !== null);
+    }
+
+    private isFinishOnlyVisualiserMode(): boolean {
+        return this.isNoCalculationMode() && !this.hasCurrentStartDateData();
+    }
+
+    private shouldShowStartDateColumn(): boolean {
+        return !!this.settings?.columns?.showStartDate?.value && !this.isFinishOnlyVisualiserMode();
+    }
+
+    private hasBaselineStartDateData(): boolean {
+        return this.allTasksData.some(task => isValidTaskDate(task.baselineStartDate));
+    }
+
+    private hasPreviousUpdateStartDateData(): boolean {
+        return this.allTasksData.some(task => isValidTaskDate(task.previousUpdateStartDate));
+    }
+
+    private isBaselineFinishOnlyVisualiserMode(): boolean {
+        return this.isNoCalculationMode() && this.boundFields.baselineFinishBound && !this.hasBaselineStartDateData();
+    }
+
+    private isPreviousUpdateFinishOnlyVisualiserMode(): boolean {
+        return this.isNoCalculationMode() && this.boundFields.previousUpdateFinishBound && !this.hasPreviousUpdateStartDateData();
+    }
+
+    private shouldShowBaselineStartDateColumn(): boolean {
+        return this.boundFields.baselineAvailable && !this.isBaselineFinishOnlyVisualiserMode();
+    }
+
+    private shouldShowPreviousUpdateStartDateColumn(): boolean {
+        return this.boundFields.previousUpdateAvailable && !this.isPreviousUpdateFinishOnlyVisualiserMode();
+    }
+
+    private getCustomColumnHeaderText(value: string | null | undefined): string | null {
+        if (typeof value !== "string") {
+            return null;
+        }
+
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : null;
+    }
+
+    private getColumnHeaderText(value: string | null | undefined, fallback: string): string {
+        return this.getCustomColumnHeaderText(value) ?? fallback;
+    }
+
+    private getColumnHeaderCandidates(value: string | null | undefined, fallbackCandidates: string[]): string[] {
+        const customText = this.getCustomColumnHeaderText(value);
+        return customText ? [customText] : fallbackCandidates;
+    }
+
+    private getBaselineComparisonFinish(task: Task): Date | null {
+        return isValidTaskDate(task.baselineFinishDate) ? task.baselineFinishDate : null;
+    }
+
+    private getPreviousUpdateComparisonFinish(task: Task): Date | null {
+        return isValidTaskDate(task.previousUpdateFinishDate) ? task.previousUpdateFinishDate : null;
+    }
+
+    private getBaselineComparisonStart(task: Task): Date | null {
+        if (isValidTaskDate(task.baselineStartDate)) {
+            return task.baselineStartDate;
+        }
+
+        return this.isNoCalculationMode() ? this.getBaselineComparisonFinish(task) : null;
+    }
+
+    private getPreviousUpdateComparisonStart(task: Task): Date | null {
+        if (isValidTaskDate(task.previousUpdateStartDate)) {
+            return task.previousUpdateStartDate;
+        }
+
+        return this.isNoCalculationMode() ? this.getPreviousUpdateComparisonFinish(task) : null;
+    }
+
+    private getBaselineComparisonExtent(task: Task): { start: Date; finish: Date } | null {
+        const start = this.getBaselineComparisonStart(task);
+        const finish = this.getBaselineComparisonFinish(task);
+
+        return start && finish && finish >= start ? { start, finish } : null;
+    }
+
+    private getPreviousUpdateComparisonExtent(task: Task): { start: Date; finish: Date } | null {
+        const start = this.getPreviousUpdateComparisonStart(task);
+        const finish = this.getPreviousUpdateComparisonFinish(task);
+
+        return start && finish && finish >= start ? { start, finish } : null;
+    }
+
+    private createWbsSummaryMilestoneMarker(task: Task, date: Date | null | undefined): WbsSummaryMilestoneMarker | null {
+        if (!isValidTaskDate(date) || date.getFullYear() <= 1980) {
+            return null;
+        }
+
+        return createWbsSummaryMilestoneMarker(task, date);
+    }
+
+    private getCurrentWbsSummaryMilestoneMarker(task: Task): WbsSummaryMilestoneMarker | null {
+        if (!this.isFinishOnlyVisualiserMode()) {
+            return null;
+        }
+
+        return this.createWbsSummaryMilestoneMarker(task, this.getVisualMilestoneDate(task));
+    }
+
+    private getBaselineWbsSummaryMilestoneMarker(task: Task): WbsSummaryMilestoneMarker | null {
+        if (!this.isBaselineFinishOnlyVisualiserMode()) {
+            return null;
+        }
+
+        return this.createWbsSummaryMilestoneMarker(task, this.getBaselineComparisonFinish(task));
+    }
+
+    private getPreviousUpdateWbsSummaryMilestoneMarker(task: Task): WbsSummaryMilestoneMarker | null {
+        if (!this.isPreviousUpdateFinishOnlyVisualiserMode()) {
+            return null;
+        }
+
+        return this.createWbsSummaryMilestoneMarker(task, this.getPreviousUpdateComparisonFinish(task));
     }
 
     private isVisualMilestoneTask(task: Task): boolean {
@@ -3595,10 +3734,13 @@ export class Visual implements IVisual {
         ctx.globalAlpha = 0.5;
 
         tasksToShow.forEach((task, index) => {
-            if (!task.startDate || !task.finishDate) return;
+            const geometry = this.getTaskBarGeometry(task);
+            const extentStart = geometry.extentStart;
+            const extentFinish = geometry.extentFinish;
+            if (!extentStart || !extentFinish) return;
 
-            const startPercent = (task.startDate.getTime() - minDate.getTime()) / timeRange;
-            const endPercent = (task.finishDate.getTime() - minDate.getTime()) / timeRange;
+            const startPercent = (extentStart.getTime() - minDate.getTime()) / timeRange;
+            const endPercent = (extentFinish.getTime() - minDate.getTime()) / timeRange;
 
             const x = startPercent * rect.width;
             const width = Math.max(1, (endPercent - startPercent) * rect.width);
@@ -4849,7 +4991,7 @@ export class Visual implements IVisual {
             // Detect which optional fields are bound and have data,
             // then override internal toggle flags to force-hide when unavailable.
             // Must run AFTER data processing so allTasksData is populated.
-            this.boundFields = this.dataProcessor.detectBoundFields(dataView, this.allTasksData || []);
+            this.boundFields = this.dataProcessor.detectBoundFields(dataView, this.allTasksData || [], this.settings);
             if (!this.boundFields.baselineAvailable) {
                 this.showBaselineInternal = false;
             }
@@ -5320,8 +5462,8 @@ export class Visual implements IVisual {
         this.syncSvgPixelSize(this.headerSvg, viewportWidth, this.headerHeight);
 
         if (this.xScale) {
-            this.xScale.range([0, chartWidth]);
-            this.debugLog(`Updated X scale range to [0, ${chartWidth}]`);
+            this.setTimelineScaleRange(this.xScale, chartWidth);
+            this.debugLog(`Updated X scale range to [${this.xScale.range()[0]}, ${this.xScale.range()[1]}]`);
 
 
         }
@@ -5805,7 +5947,7 @@ export class Visual implements IVisual {
         const viewportWidth = this.lastViewport?.width || 0;
         const chartWidth = Math.max(10, viewportWidth - effectiveMargin - this.margin.right);
         const chartHeight = this.yScale.range()[1] || 0;
-        this.xScale.range([0, chartWidth]);
+        this.setTimelineScaleRange(this.xScale, chartWidth);
 
         // 3. Update clip rects
         this.updateChartClipRect(chartWidth, chartHeight);
@@ -6461,6 +6603,19 @@ export class Visual implements IVisual {
             ?? (this.target instanceof HTMLElement ? this.target.clientWidth : null);
     }
 
+    private getTimelineLeftGutter(chartWidth: number): number {
+        if (!Number.isFinite(chartWidth) || chartWidth <= 0) {
+            return 0;
+        }
+
+        return Math.min(this.TIMELINE_LEFT_GUTTER_PX, Math.max(0, chartWidth * 0.2));
+    }
+
+    private setTimelineScaleRange(xScale: ScaleTime<number, number>, chartWidth: number): void {
+        const width = Math.max(0, chartWidth);
+        xScale.range([this.getTimelineLeftGutter(width), width]);
+    }
+
     private getConfiguredLabelColumnSpecs(): LabelColumnSpec[] {
         if (!this.settings || !this.showExtraColumnsInternal) {
             return [];
@@ -6473,62 +6628,66 @@ export class Visual implements IVisual {
         if (cols.showTotalFloat.value && !this.isNoCalculationMode()) {
             specs.push({
                 id: "totalFloat",
-                text: "Total Float",
-                headerCandidates: ["Total Float", "Float", "TF"],
+                text: this.getColumnHeaderText(cols.totalFloatHeader.value, "Total Float"),
+                headerCandidates: this.getColumnHeaderCandidates(cols.totalFloatHeader.value, ["Total Float", "Float", "TF"]),
                 width: clampWidth(cols.totalFloatWidth.value, 58)
             });
         }
         if (cols.showDuration.value) {
             specs.push({
                 id: "duration",
-                text: "Rem Dur",
-                headerCandidates: ["Rem Dur", "Dur"],
+                text: this.getColumnHeaderText(cols.durationHeader.value, "Rem Dur"),
+                headerCandidates: this.getColumnHeaderCandidates(cols.durationHeader.value, ["Rem Dur", "Dur"]),
                 width: clampWidth(cols.durationWidth.value, 58)
             });
         }
         if (cols.showFinishDate.value) {
             specs.push({
                 id: "finish",
-                text: "Finish",
-                headerCandidates: ["Finish", "Fin"],
+                text: this.getColumnHeaderText(cols.finishDateHeader.value, "Finish"),
+                headerCandidates: this.getColumnHeaderCandidates(cols.finishDateHeader.value, ["Finish", "Fin"]),
                 width: clampWidth(cols.finishDateWidth.value, 72)
             });
         }
-        if (cols.showStartDate.value) {
+        if (this.shouldShowStartDateColumn()) {
             specs.push({
                 id: "start",
-                text: "Start",
-                headerCandidates: ["Start", "St"],
+                text: this.getColumnHeaderText(cols.startDateHeader.value, "Start"),
+                headerCandidates: this.getColumnHeaderCandidates(cols.startDateHeader.value, ["Start", "St"]),
                 width: clampWidth(cols.startDateWidth.value, 72)
             });
         }
         if (this.boundFields.previousUpdateAvailable && (this.showPreviousUpdateInternal || cols.showPreviousUpdateDateColumns?.value)) {
             specs.push({
                 id: "previousFinish",
-                text: "Prev Finish",
-                headerCandidates: ["Prev Finish", "Prev Fin", "PF"],
+                text: this.getColumnHeaderText(cols.previousUpdateFinishDateHeader.value, "Prev Finish"),
+                headerCandidates: this.getColumnHeaderCandidates(cols.previousUpdateFinishDateHeader.value, ["Prev Finish", "Prev Fin", "PF"]),
                 width: clampWidth(cols.previousUpdateFinishDateWidth.value, 72)
             });
-            specs.push({
-                id: "previousStart",
-                text: "Prev Start",
-                headerCandidates: ["Prev Start", "Prev St", "PS"],
-                width: clampWidth(cols.previousUpdateStartDateWidth.value, 72)
-            });
+            if (this.shouldShowPreviousUpdateStartDateColumn()) {
+                specs.push({
+                    id: "previousStart",
+                    text: this.getColumnHeaderText(cols.previousUpdateStartDateHeader.value, "Prev Start"),
+                    headerCandidates: this.getColumnHeaderCandidates(cols.previousUpdateStartDateHeader.value, ["Prev Start", "Prev St", "PS"]),
+                    width: clampWidth(cols.previousUpdateStartDateWidth.value, 72)
+                });
+            }
         }
         if (this.boundFields.baselineAvailable && (this.showBaselineInternal || cols.showBaselineDateColumns?.value)) {
             specs.push({
                 id: "baselineFinish",
-                text: "BL Finish",
-                headerCandidates: ["BL Finish", "BL Fin", "BF"],
+                text: this.getColumnHeaderText(cols.baselineFinishDateHeader.value, "BL Finish"),
+                headerCandidates: this.getColumnHeaderCandidates(cols.baselineFinishDateHeader.value, ["BL Finish", "BL Fin", "BF"]),
                 width: clampWidth(cols.baselineFinishDateWidth.value, 72)
             });
-            specs.push({
-                id: "baselineStart",
-                text: "BL Start",
-                headerCandidates: ["BL Start", "BL St", "BS"],
-                width: clampWidth(cols.baselineStartDateWidth.value, 72)
-            });
+            if (this.shouldShowBaselineStartDateColumn()) {
+                specs.push({
+                    id: "baselineStart",
+                    text: this.getColumnHeaderText(cols.baselineStartDateHeader.value, "BL Start"),
+                    headerCandidates: this.getColumnHeaderCandidates(cols.baselineStartDateHeader.value, ["BL Start", "BL St", "BS"]),
+                    width: clampWidth(cols.baselineStartDateWidth.value, 72)
+                });
+            }
         }
 
         // Extra columns: pushed LAST so they render LEFTMOST in the data-column block
@@ -7048,8 +7207,8 @@ export class Visual implements IVisual {
         }
 
         const xScale = d3.scaleTime()
-            .domain([domainMin, domainMax])
-            .range([0, chartWidth]);
+            .domain([domainMin, domainMax]);
+        this.setTimelineScaleRange(xScale, chartWidth);
 
         const yDomainSet = new Set<string>();
 
@@ -7794,20 +7953,19 @@ export class Visual implements IVisual {
             allTaskGroups.selectAll(".previous-update-bar").remove();
 
             const previousUpdateData = allTaskGroups.filter((d: Task) =>
-                d.previousUpdateStartDate instanceof Date && !isNaN(d.previousUpdateStartDate.getTime()) &&
-                d.previousUpdateFinishDate instanceof Date && !isNaN(d.previousUpdateFinishDate.getTime()) &&
-                d.previousUpdateFinishDate >= d.previousUpdateStartDate
+                self.getPreviousUpdateComparisonExtent(d) !== null
             );
 
             // Draw bars for non-milestone tasks
             previousUpdateData.filter((d: Task) => !self.isVisualMilestoneTask(d))
                 .append("rect")
                 .attr("class", "previous-update-bar")
-                .attr("x", (d: Task) => self.snapRectCoord(xScale(d.previousUpdateStartDate!)))
+                .attr("x", (d: Task) => self.snapRectCoord(xScale(self.getPreviousUpdateComparisonExtent(d)!.start)))
                 .attr("y", self.snapRectCoord(taskHeight + previousUpdateOffset))
                 .attr("width", (d: Task) => {
-                    const startPos = self.snapRectCoord(xScale(d.previousUpdateStartDate!));
-                    const finishPos = self.snapRectCoord(xScale(d.previousUpdateFinishDate!));
+                    const extent = self.getPreviousUpdateComparisonExtent(d)!;
+                    const startPos = self.snapRectCoord(xScale(extent.start));
+                    const finishPos = self.snapRectCoord(xScale(extent.finish));
                     return Math.max(this.minTaskWidthPixels, finishPos - startPos);
                 })
                 .attr("height", self.snapRectCoord(previousUpdateHeight))
@@ -7824,7 +7982,7 @@ export class Visual implements IVisual {
                 .attr("class", "previous-update-bar")
                 .attr("d", () => getMilestonePath(milestoneShape, Math.max(previousUpdateHeight + 2, 6)))
                 .attr("transform", (d: Task) => {
-                    const x = self.snapRectCoord(xScale(d.previousUpdateStartDate!));
+                    const x = self.snapRectCoord(xScale(self.getPreviousUpdateComparisonExtent(d)!.start));
                     const y = self.snapRectCoord(taskHeight + previousUpdateOffset + previousUpdateHeight / 2);
                     return `translate(${x}, ${y})`;
                 })
@@ -7856,20 +8014,19 @@ export class Visual implements IVisual {
             allTaskGroups.selectAll(".baseline-bar").remove();
 
             const baselineData = allTaskGroups.filter((d: Task) =>
-                d.baselineStartDate instanceof Date && !isNaN(d.baselineStartDate.getTime()) &&
-                d.baselineFinishDate instanceof Date && !isNaN(d.baselineFinishDate.getTime()) &&
-                d.baselineFinishDate >= d.baselineStartDate
+                self.getBaselineComparisonExtent(d) !== null
             );
 
             // Draw bars for non-milestone tasks
             baselineData.filter((d: Task) => !self.isVisualMilestoneTask(d))
                 .append("rect")
                 .attr("class", "baseline-bar")
-                .attr("x", (d: Task) => self.snapRectCoord(xScale(d.baselineStartDate!)))
+                .attr("x", (d: Task) => self.snapRectCoord(xScale(self.getBaselineComparisonExtent(d)!.start)))
                 .attr("y", self.snapRectCoord(baselineY))
                 .attr("width", (d: Task) => {
-                    const startPos = self.snapRectCoord(xScale(d.baselineStartDate!));
-                    const finishPos = self.snapRectCoord(xScale(d.baselineFinishDate!));
+                    const extent = self.getBaselineComparisonExtent(d)!;
+                    const startPos = self.snapRectCoord(xScale(extent.start));
+                    const finishPos = self.snapRectCoord(xScale(extent.finish));
                     return Math.max(this.minTaskWidthPixels, finishPos - startPos);
                 })
                 .attr("height", self.snapRectCoord(baselineHeight))
@@ -7886,7 +8043,7 @@ export class Visual implements IVisual {
                 .attr("class", "baseline-bar")
                 .attr("d", () => getMilestonePath(milestoneShape, Math.max(baselineHeight + 2, 6)))
                 .attr("transform", (d: Task) => {
-                    const x = self.snapRectCoord(xScale(d.baselineStartDate!));
+                    const x = self.snapRectCoord(xScale(self.getBaselineComparisonExtent(d)!.start));
                     const y = self.snapRectCoord(baselineY + baselineHeight / 2);
                     return `translate(${x}, ${y})`;
                 })
@@ -8818,15 +8975,21 @@ export class Visual implements IVisual {
         headerClipEnter.append("rect");
 
         const fontSize = this.settings.textAndLabels.taskNameFontSize.value;
+        const fontSizePx = this.pointsToCssPx(fontSize + 0.5);
+        const maxHeaderLines = bandMetrics.height >= fontSizePx * 2.35 ? 2 : 1;
         const yPos = bandMetrics.columnY;
         const lineY1 = bandMetrics.dividerTop;
         const lineY2 = bandMetrics.dividerBottom;
 
         const fontFamily = this.getFontFamily();
         const showWbsTaskHeader = this.wbsDataExists || this.settings?.wbsGrouping?.enableWbsGrouping?.value;
-        const taskHeaderCandidates = showWbsTaskHeader
+        const defaultTaskHeaderCandidates = showWbsTaskHeader
             ? ["WBS / Task Name", "WBS / Task", "Task Name", "Task"]
             : ["Task Name", "Task"];
+        const taskHeaderCandidates = this.getColumnHeaderCandidates(
+            this.settings?.columns?.taskNameHeader?.value,
+            defaultTaskHeaderCandidates
+        );
         const headerTextData: Array<{
             key: string;
             x: number;
@@ -8881,7 +9044,7 @@ export class Visual implements IVisual {
             .attr("text-anchor", d => d.anchor)
             .attr("dominant-baseline", "central")
             .style("font-family", fontFamily)
-            .style("font-size", this.fontPxFromPtSetting(fontSize + 0.5))
+            .style("font-size", `${fontSizePx}px`)
             .style("font-weight", "600")
             .style("letter-spacing", "0.15px")
             .style("fill", headerPalette.label);
@@ -8910,7 +9073,16 @@ export class Visual implements IVisual {
                 }
 
                 if (appliedText === null) {
-                    textElement.text(this.fitSvgTextToWidth(textElement, d.text, d.maxWidth));
+                    this.renderWrappedSvgText(
+                        textElement,
+                        d.text,
+                        d.x,
+                        yPos,
+                        d.maxWidth,
+                        maxHeaderLines,
+                        fontSizePx,
+                        "centerBlock"
+                    );
                 }
             });
 
@@ -9050,12 +9222,10 @@ export class Visual implements IVisual {
 
             const yPos = this.snapRectCoord(yPosition);
 
-            if (showPreviousUpdate &&
-                task.previousUpdateStartDate instanceof Date && !isNaN(task.previousUpdateStartDate.getTime()) &&
-                task.previousUpdateFinishDate instanceof Date && !isNaN(task.previousUpdateFinishDate.getTime()) &&
-                task.previousUpdateFinishDate >= task.previousUpdateStartDate) {
-                const startX = this.snapRectCoord(xScale(task.previousUpdateStartDate));
-                const finishX = this.snapRectCoord(xScale(task.previousUpdateFinishDate));
+            const previousUpdateExtent = showPreviousUpdate ? this.getPreviousUpdateComparisonExtent(task) : null;
+            if (previousUpdateExtent) {
+                const startX = this.snapRectCoord(xScale(previousUpdateExtent.start));
+                const finishX = this.snapRectCoord(xScale(previousUpdateExtent.finish));
                 const x = startX;
                 const w = Math.max(this.minTaskWidthPixels, finishX - startX);
                 const h = Math.max(1, this.snapRectCoord(this.settings.comparisonBars.previousUpdateHeight.value));
@@ -9064,18 +9234,16 @@ export class Visual implements IVisual {
                 prevUpdateBatch.push({ x, y, w, h, r });
             }
 
-            if (showBaseline &&
-                task.baselineStartDate instanceof Date && !isNaN(task.baselineStartDate.getTime()) &&
-                task.baselineFinishDate instanceof Date && !isNaN(task.baselineFinishDate.getTime()) &&
-                task.baselineFinishDate >= task.baselineStartDate) {
+            const baselineExtent = showBaseline ? this.getBaselineComparisonExtent(task) : null;
+            if (baselineExtent) {
                 let yBase: number;
                 if (showPreviousUpdate) {
                     yBase = yPos + taskHeight + this.settings.comparisonBars.previousUpdateOffset.value + this.settings.comparisonBars.previousUpdateHeight.value + this.settings.comparisonBars.baselineOffset.value;
                 } else {
                     yBase = yPos + taskHeight + this.settings.comparisonBars.baselineOffset.value;
                 }
-                const startX = this.snapRectCoord(xScale(task.baselineStartDate));
-                const finishX = this.snapRectCoord(xScale(task.baselineFinishDate));
+                const startX = this.snapRectCoord(xScale(baselineExtent.start));
+                const finishX = this.snapRectCoord(xScale(baselineExtent.finish));
                 const x = startX;
                 const w = Math.max(this.minTaskWidthPixels, finishX - startX);
                 const h = Math.max(1, this.snapRectCoord(this.settings.comparisonBars.baselineHeight.value));
@@ -14101,6 +14269,9 @@ export class Visual implements IVisual {
             summaryBaselineFinishDate: null,
             summaryPreviousUpdateStartDate: null,
             summaryPreviousUpdateFinishDate: null,
+            summaryMilestoneMarkers: [],
+            summaryBaselineMilestoneMarkers: [],
+            summaryPreviousUpdateMilestoneMarkers: [],
             summaryTotalFloat: null,
             isUnassignedWbsGroup: true
         };
@@ -14140,11 +14311,15 @@ export class Visual implements IVisual {
         let prevUpdateMinStart: Date | null = null;
         let prevUpdateMaxFinish: Date | null = null;
         let minTotalFloat: number | null = null;
+        const summaryMilestoneMarkers: WbsSummaryMilestoneMarker[] = [];
+        const summaryBaselineMilestoneMarkers: WbsSummaryMilestoneMarker[] = [];
+        const summaryPreviousUpdateMilestoneMarkers: WbsSummaryMilestoneMarker[] = [];
 
         for (const task of group.tasks) {
             const taskGeometry = this.getTaskBarGeometry(task);
-            const visualStart = taskGeometry.extentStart;
-            const visualFinish = taskGeometry.extentFinish;
+            const taskGeometryExtent = getTaskBarGeometryExtent(taskGeometry);
+            const visualStart = taskGeometryExtent.start;
+            const visualFinish = taskGeometryExtent.finish;
             const criticalFormattingExtent = getCriticalFormattingExtentFromTaskBarGeometry(taskGeometry);
 
             const isValidStart = visualStart && visualStart.getFullYear() > 1980;
@@ -14155,6 +14330,10 @@ export class Visual implements IVisual {
             }
             if (isValidFinish && (!maxFinish || visualFinish! > maxFinish)) {
                 maxFinish = visualFinish;
+            }
+            const currentMarker = this.getCurrentWbsSummaryMilestoneMarker(task);
+            if (currentMarker) {
+                summaryMilestoneMarkers.push(currentMarker);
             }
 
             if (task.startDate && task.startDate.getFullYear() > 1980 && (!minEarlyStart || task.startDate < minEarlyStart)) {
@@ -14188,17 +14367,27 @@ export class Visual implements IVisual {
                 }
             }
 
-            if (task.baselineStartDate && (!baselineMinStart || task.baselineStartDate < baselineMinStart)) {
-                baselineMinStart = task.baselineStartDate;
+            const baselineStartDate = this.getBaselineComparisonStart(task);
+            if (baselineStartDate && (!baselineMinStart || baselineStartDate < baselineMinStart)) {
+                baselineMinStart = baselineStartDate;
             }
             if (task.baselineFinishDate && (!baselineMaxFinish || task.baselineFinishDate > baselineMaxFinish)) {
                 baselineMaxFinish = task.baselineFinishDate;
             }
-            if (task.previousUpdateStartDate && (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart)) {
-                prevUpdateMinStart = task.previousUpdateStartDate;
+            const baselineMarker = this.getBaselineWbsSummaryMilestoneMarker(task);
+            if (baselineMarker) {
+                summaryBaselineMilestoneMarkers.push(baselineMarker);
+            }
+            const previousUpdateStartDate = this.getPreviousUpdateComparisonStart(task);
+            if (previousUpdateStartDate && (!prevUpdateMinStart || previousUpdateStartDate < prevUpdateMinStart)) {
+                prevUpdateMinStart = previousUpdateStartDate;
             }
             if (task.previousUpdateFinishDate && (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish)) {
                 prevUpdateMaxFinish = task.previousUpdateFinishDate;
+            }
+            const previousUpdateMarker = this.getPreviousUpdateWbsSummaryMilestoneMarker(task);
+            if (previousUpdateMarker) {
+                summaryPreviousUpdateMilestoneMarkers.push(previousUpdateMarker);
             }
 
             const taskFloat = task.userProvidedTotalFloat ?? task.totalFloat;
@@ -14223,6 +14412,9 @@ export class Visual implements IVisual {
         group.summaryBaselineFinishDate = baselineMaxFinish;
         group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
         group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
+        group.summaryMilestoneMarkers = sortWbsSummaryMilestoneMarkers(summaryMilestoneMarkers);
+        group.summaryBaselineMilestoneMarkers = sortWbsSummaryMilestoneMarkers(summaryBaselineMilestoneMarkers);
+        group.summaryPreviousUpdateMilestoneMarkers = sortWbsSummaryMilestoneMarkers(summaryPreviousUpdateMilestoneMarkers);
         group.summaryTotalFloat = minTotalFloat;
     }
 
@@ -14251,6 +14443,9 @@ export class Visual implements IVisual {
             group.summaryBaselineFinishDate = null;
             group.summaryPreviousUpdateStartDate = null;
             group.summaryPreviousUpdateFinishDate = null;
+            group.summaryMilestoneMarkers = [];
+            group.summaryBaselineMilestoneMarkers = [];
+            group.summaryPreviousUpdateMilestoneMarkers = [];
             group.summaryTotalFloat = null;
         }
 
@@ -14281,14 +14476,18 @@ export class Visual implements IVisual {
             let prevUpdateMinStart: Date | null = null;
             let prevUpdateMaxFinish: Date | null = null;
             let minTotalFloat: number | null = null;
+            const summaryMilestoneMarkers: WbsSummaryMilestoneMarker[] = [];
+            const summaryBaselineMilestoneMarkers: WbsSummaryMilestoneMarker[] = [];
+            const summaryPreviousUpdateMilestoneMarkers: WbsSummaryMilestoneMarker[] = [];
 
             for (const task of group.tasks) {
 
                 if (!filteredTaskIds.has(task.internalId)) continue;
 
                 const taskGeometry = this.getTaskBarGeometry(task);
-                const visualStart = taskGeometry.extentStart;
-                const visualFinish = taskGeometry.extentFinish;
+                const taskGeometryExtent = getTaskBarGeometryExtent(taskGeometry);
+                const visualStart = taskGeometryExtent.start;
+                const visualFinish = taskGeometryExtent.finish;
                 const criticalFormattingExtent = getCriticalFormattingExtentFromTaskBarGeometry(taskGeometry);
 
                 // Filter out invalid or extremely old dates (likely placeholders)
@@ -14300,6 +14499,10 @@ export class Visual implements IVisual {
                 }
                 if (isValidFinish && (!maxFinish || visualFinish! > maxFinish)) {
                     maxFinish = visualFinish;
+                }
+                const currentMarker = this.getCurrentWbsSummaryMilestoneMarker(task);
+                if (currentMarker) {
+                    summaryMilestoneMarkers.push(currentMarker);
                 }
 
                 // Track Early Start / Early Finish (task.startDate/finishDate) for duration calc
@@ -14336,9 +14539,10 @@ export class Visual implements IVisual {
                     }
                 }
 
-                if (task.baselineStartDate) {
-                    if (!baselineMinStart || task.baselineStartDate < baselineMinStart) {
-                        baselineMinStart = task.baselineStartDate;
+                const baselineStartDate = this.getBaselineComparisonStart(task);
+                if (baselineStartDate) {
+                    if (!baselineMinStart || baselineStartDate < baselineMinStart) {
+                        baselineMinStart = baselineStartDate;
                     }
                 }
                 if (task.baselineFinishDate) {
@@ -14346,16 +14550,25 @@ export class Visual implements IVisual {
                         baselineMaxFinish = task.baselineFinishDate;
                     }
                 }
+                const baselineMarker = this.getBaselineWbsSummaryMilestoneMarker(task);
+                if (baselineMarker) {
+                    summaryBaselineMilestoneMarkers.push(baselineMarker);
+                }
 
-                if (task.previousUpdateStartDate) {
-                    if (!prevUpdateMinStart || task.previousUpdateStartDate < prevUpdateMinStart) {
-                        prevUpdateMinStart = task.previousUpdateStartDate;
+                const previousUpdateStartDate = this.getPreviousUpdateComparisonStart(task);
+                if (previousUpdateStartDate) {
+                    if (!prevUpdateMinStart || previousUpdateStartDate < prevUpdateMinStart) {
+                        prevUpdateMinStart = previousUpdateStartDate;
                     }
                 }
                 if (task.previousUpdateFinishDate) {
                     if (!prevUpdateMaxFinish || task.previousUpdateFinishDate > prevUpdateMaxFinish) {
                         prevUpdateMaxFinish = task.previousUpdateFinishDate;
                     }
+                }
+                const previousUpdateMarker = this.getPreviousUpdateWbsSummaryMilestoneMarker(task);
+                if (previousUpdateMarker) {
+                    summaryPreviousUpdateMilestoneMarkers.push(previousUpdateMarker);
                 }
 
                 const taskFloat = task.userProvidedTotalFloat ?? task.totalFloat;
@@ -14411,6 +14624,10 @@ export class Visual implements IVisual {
                     prevUpdateMaxFinish = child.summaryPreviousUpdateFinishDate;
                 }
 
+                summaryMilestoneMarkers.push(...(child.summaryMilestoneMarkers ?? []));
+                summaryBaselineMilestoneMarkers.push(...(child.summaryBaselineMilestoneMarkers ?? []));
+                summaryPreviousUpdateMilestoneMarkers.push(...(child.summaryPreviousUpdateMilestoneMarkers ?? []));
+
                 if (typeof child.summaryTotalFloat === "number" && isFinite(child.summaryTotalFloat)) {
                     minTotalFloat = minTotalFloat === null
                         ? child.summaryTotalFloat
@@ -14432,6 +14649,9 @@ export class Visual implements IVisual {
             group.summaryBaselineFinishDate = baselineMaxFinish;
             group.summaryPreviousUpdateStartDate = prevUpdateMinStart;
             group.summaryPreviousUpdateFinishDate = prevUpdateMaxFinish;
+            group.summaryMilestoneMarkers = sortWbsSummaryMilestoneMarkers(summaryMilestoneMarkers);
+            group.summaryBaselineMilestoneMarkers = sortWbsSummaryMilestoneMarkers(summaryBaselineMilestoneMarkers);
+            group.summaryPreviousUpdateMilestoneMarkers = sortWbsSummaryMilestoneMarkers(summaryPreviousUpdateMilestoneMarkers);
             group.summaryTotalFloat = minTotalFloat;
         };
 
@@ -14571,6 +14791,9 @@ export class Visual implements IVisual {
         const showNearCriticalSummary = this.showNearCritical && this.floatThreshold > 0 && mode === 'floatBased';
         const showBaseline = this.showBaselineInternal;
         const showPreviousUpdate = this.showPreviousUpdateInternal;
+        const renderWbsSummaryMilestoneRows = this.isFinishOnlyVisualiserMode();
+        const configuredSummaryBarHeight = Math.max(0, Number(this.settings.wbsGrouping.summaryBarHeight?.value ?? 0));
+        const configuredSummaryMilestoneSize = Math.max(0, Number(this.settings.wbsGrouping.summaryMilestoneSize?.value ?? 0));
         const baselineColor = this.resolveColor(this.settings.comparisonBars.baselineColor.value.value, "foreground");
         const baselineHeight = this.settings.comparisonBars.baselineHeight.value;
         const baselineOffset = this.settings.comparisonBars.baselineOffset.value;
@@ -14693,14 +14916,98 @@ export class Visual implements IVisual {
             const barsGroup = g.select('.wbs-summary-bars');
             barsGroup.selectAll('*').remove();
 
-            if (showGroupSummary && group.taskCount > 0 && group.summaryStartDate && group.summaryFinishDate) {
+            if (showGroupSummary && group.taskCount > 0) {
+                if (renderWbsSummaryMilestoneRows) {
+                    const autoMarkerDiameter = Math.max(4, Math.min(8, taskHeight * 0.32));
+                    const markerDiameter = configuredSummaryMilestoneSize > 0
+                        ? Math.min(24, configuredSummaryMilestoneSize)
+                        : autoMarkerDiameter;
+                    const markerRadius = markerDiameter / 2;
+                    const comparisonMarkerRadius = Math.max(1.75, markerRadius * 0.86);
+                    const comparisonLaneOffset = Math.max(markerRadius + 2, Math.min(9, taskHeight * 0.28));
+                    const markerOpacity = self.highContrastMode
+                        ? 1
+                        : (group.visibleTaskCount === 0 ? 0.45 : 0.88);
+                    const comparisonMarkerOpacity = self.highContrastMode
+                        ? 1
+                        : Math.min(0.82, markerOpacity);
+
+                    const drawSummaryMilestoneMarkers = (
+                        markers: WbsSummaryMilestoneMarker[] | undefined,
+                        className: string,
+                        fillColor: string,
+                        y: number,
+                        radius: number,
+                        opacity: number
+                    ) => {
+                        if (!markers || markers.length === 0) {
+                            return;
+                        }
+
+                        const markerStrokeColor = self.highContrastMode
+                            ? self.resolveColor("#FFFFFF", "foreground")
+                            : self.toRgba(self.getSoftOutlineColor(fillColor), 0.72);
+
+                        const markerNodes = barsGroup
+                            .selectAll(`circle.${className}`)
+                            .data(markers)
+                            .enter()
+                            .append('circle')
+                            .attr('class', `wbs-summary-milestone-dot ${className}`)
+                            .attr('cx', marker => Math.round(xScale(marker.date)))
+                            .attr('cy', Math.round(y))
+                            .attr('r', radius)
+                            .style('fill', fillColor)
+                            .style('stroke', markerStrokeColor)
+                            .style('stroke-width', self.highContrastMode ? 1.2 : 0.75)
+                            .style('opacity', opacity)
+                            .style('pointer-events', 'none');
+
+                        markerNodes.append('title')
+                            .text(marker => `${marker.taskName} - ${self.formatColumnDate(marker.date)}`);
+                    };
+
+                    drawSummaryMilestoneMarkers(
+                        group.summaryMilestoneMarkers,
+                        "wbs-summary-milestone-current",
+                        summaryFillColor,
+                        bandCenter,
+                        markerRadius,
+                        markerOpacity
+                    );
+
+                    if (showPreviousUpdate && self.isPreviousUpdateFinishOnlyVisualiserMode()) {
+                        drawSummaryMilestoneMarkers(
+                            group.summaryPreviousUpdateMilestoneMarkers,
+                            "wbs-summary-milestone-previous-update",
+                            previousUpdateColor,
+                            bandCenter - comparisonLaneOffset,
+                            comparisonMarkerRadius,
+                            comparisonMarkerOpacity
+                        );
+                    }
+
+                    if (showBaseline && self.isBaselineFinishOnlyVisualiserMode()) {
+                        drawSummaryMilestoneMarkers(
+                            group.summaryBaselineMilestoneMarkers,
+                            "wbs-summary-milestone-baseline",
+                            baselineColor,
+                            bandCenter + comparisonLaneOffset,
+                            comparisonMarkerRadius,
+                            comparisonMarkerOpacity
+                        );
+                    }
+                } else if (group.summaryStartDate && group.summaryFinishDate) {
                 const isCollapsed = !group.isExpanded;
                 const startX = Math.round(xScale(group.summaryStartDate));
                 const finishX = Math.round(xScale(group.summaryFinishDate));
                 const barWidth = Math.round(Math.max(2, finishX - startX));
                 const collapsedBarHeight = Math.max(2, taskHeight * 0.42);
                 const expandedBarHeight = Math.max(3, Math.min(4, taskBarHeight * 0.3));
-                const barHeight = isCollapsed ? collapsedBarHeight : expandedBarHeight;
+                const configuredBarHeight = configuredSummaryBarHeight > 0
+                    ? Math.min(configuredSummaryBarHeight, Math.max(2, taskHeight))
+                    : null;
+                const barHeight = configuredBarHeight ?? (isCollapsed ? collapsedBarHeight : expandedBarHeight);
                 const barY = Math.round(bandCenter - barHeight / 2);
                 const barRadius = isCollapsed ? Math.min(5, Math.max(2, barHeight / 2)) : 0;
 
@@ -14908,6 +15215,7 @@ export class Visual implements IVisual {
                             .style('fill', criticalPathColor).style('opacity', summarySemanticOpacity);
                     }
                 }
+                }
             }
 
             const labelLayout = self.getLabelColumnLayout(currentLeftMargin);
@@ -15091,7 +15399,8 @@ export class Visual implements IVisual {
                 badgeGroup.style('display', 'none');
             } else {
                 const badgeX = taskCellRightX - visibleBadgeWidth;
-                const badgeY = Math.round(bandCenter - badgeHeight / 2);
+                const badgeCenterY = Math.round(bgY + bgHeight / 2);
+                const badgeY = Math.round(badgeCenterY - badgeHeight / 2);
                 badgeGroup.style('display', null);
                 badgeGroup.select<SVGRectElement>('.wbs-count-badge-bg')
                     .attr('x', badgeX)
@@ -15107,7 +15416,7 @@ export class Visual implements IVisual {
 
                 badgeGroup.select<SVGTextElement>('.wbs-count-badge-text')
                     .attr('x', badgeX + visibleBadgeWidth / 2)
-                    .attr('y', Math.round(bandCenter))
+                    .attr('y', badgeCenterY)
                     .attr('text-anchor', 'middle')
                     .attr('dominant-baseline', 'central')
                     .style('font-size', `${badgeFontSize}px`)
@@ -17975,7 +18284,9 @@ export class Visual implements IVisual {
 
     private getMissingRequiredRoles(dataView: DataView): string[] {
         const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "floatBased";
-        const requiredRoles = ["taskId", "startDate", "finishDate"];
+        const requiredRoles = mode === "none"
+            ? ["taskId", "finishDate"]
+            : ["taskId", "startDate", "finishDate"];
         if (mode === "floatBased") {
             requiredRoles.push("taskTotalFloat");
         } else if (mode !== "none") {
@@ -17999,7 +18310,9 @@ export class Visual implements IVisual {
         const missingSuffix = this.getLocalizedString("landing.missingSuffix", "(missing)");
 
         const mode = this.settings?.criticalPath?.calculationMode?.value?.value || "floatBased";
-        const requiredRoles = ["taskId", "startDate", "finishDate"];
+        const requiredRoles = mode === "none"
+            ? ["taskId", "finishDate"]
+            : ["taskId", "startDate", "finishDate"];
         if (mode === "floatBased") {
             requiredRoles.push("taskTotalFloat");
         } else if (mode !== "none") {
@@ -18555,7 +18868,7 @@ export class Visual implements IVisual {
             .style('font-size', '13px')
             .style('margin-bottom', '8px');
         exportNote.append('strong').text('Included data: ');
-        exportNote.append('span').text('Exports use the currently visible schedule, preserve WBS structure when applicable, and include displayed float values and task types when those fields are available.');
+        exportNote.append('span').text('Exports mirror the visible table columns and row structure. When WBS grouping is off, WBS levels are appended as columns so the hierarchy remains available.');
 
         // ========== Warnings ==========
         const warningSection = createSection('🛡️', 'Warnings & Data Quality');
@@ -18651,29 +18964,6 @@ export class Visual implements IVisual {
         return sanitizeExportTextField(value);
     }
 
-    private getExportTaskTypeLabel(task: Task): string {
-        if (this.isNoCalculationMode() && task.duration === 0) {
-            return "Milestone";
-        }
-        return getExportTaskType(task);
-    }
-
-    private getExportFloatLabel(task: Task): string {
-        if (this.isNoCalculationMode()) {
-            return "";
-        }
-        return getExportFloatText(task, "");
-    }
-
-    private getExportCriticalValue(task: Task): boolean {
-        if (this.isNoCalculationMode()) {
-            return false;
-        }
-        return Number.isFinite(task.userProvidedTotalFloat)
-            ? (task.userProvidedTotalFloat as number) <= 0
-            : task.isCritical;
-    }
-
     private getWbsExportRowBackgroundColor(level: number, fallbackBackground: string): string {
         const levelStyle = this.getWbsLevelStyle(level, fallbackBackground);
         return this.highContrastMode
@@ -18716,54 +19006,240 @@ export class Visual implements IVisual {
             .sort((a, b) => (a.yOrder ?? 0) - (b.yOrder ?? 0));
     }
 
+    private getExportTaskNameHeader(): string {
+        const showWbsTaskHeader = this.wbsDataExists ||
+            this.wbsDataExistsInMetadata ||
+            !!this.settings?.wbsGrouping?.enableWbsGrouping?.value;
+        const defaultTaskHeaderCandidates = showWbsTaskHeader
+            ? ["WBS / Task Name", "WBS / Task", "Task Name", "Task"]
+            : ["Task Name", "Task"];
+        return this.getColumnHeaderCandidates(
+            this.settings?.columns?.taskNameHeader?.value,
+            defaultTaskHeaderCandidates
+        )[0];
+    }
+
+    private getVisibleExportColumns(tasks: Task[], includeWbsLevelColumns: boolean): VisibleExportColumn[] {
+        const columns: VisibleExportColumn[] = [
+            { kind: "taskName", header: this.getExportTaskNameHeader() }
+        ];
+
+        const visibleLabelColumns = this.getLabelColumnLayout(this.getEffectiveLeftMargin()).items;
+        visibleLabelColumns.forEach(column => {
+            columns.push({
+                kind: "label",
+                header: column.text,
+                column
+            });
+        });
+
+        if (includeWbsLevelColumns) {
+            const maxWbsDepth = tasks.reduce((max, task) => Math.max(max, task.wbsLevels?.length || 0), 0);
+            for (let i = 0; i < maxWbsDepth; i++) {
+                columns.push({
+                    kind: "wbsLevel",
+                    header: `WBS Level ${i + 1}`,
+                    levelIndex: i
+                });
+            }
+        }
+
+        return columns;
+    }
+
+    private formatExportExtraColumnValue(columnId: LabelColumnId, task: Task, exportDateFormatter: (date: Date) => string): string | null {
+        if (typeof columnId !== "string" || !columnId.startsWith("extra_")) {
+            return null;
+        }
+
+        const idx = Number(columnId.slice("extra_".length));
+        const info = this.extraColumnInfos[idx];
+        const value = task.extraColumnValues?.[idx];
+        if (value == null) return "";
+        if (info?.isDate && value instanceof Date) {
+            return exportDateFormatter(value);
+        }
+        if (info?.isNumeric && typeof value === "number" && isFinite(value)) {
+            return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(2);
+        }
+        return String(value);
+    }
+
+    private getTaskVisibleExportColumnText(columnId: LabelColumnId, task: Task, exportDateFormatter: (date: Date) => string): string {
+        const extraColumnValue = this.formatExportExtraColumnValue(columnId, task, exportDateFormatter);
+        if (extraColumnValue !== null) {
+            return extraColumnValue;
+        }
+
+        switch (columnId) {
+            case "start": {
+                const date = this.getTaskBarLabelStart(task);
+                return date ? exportDateFormatter(date) : "";
+            }
+            case "finish": {
+                const date = this.getTaskBarLabelFinish(task);
+                return date ? exportDateFormatter(date) : "";
+            }
+            case "duration":
+                return typeof task.duration === "number" && isFinite(task.duration) ? task.duration.toFixed(0) : "";
+            case "totalFloat": {
+                const val = task.userProvidedTotalFloat ?? task.totalFloat;
+                return typeof val === "number" && isFinite(val) ? val.toFixed(0) : "-";
+            }
+            case "previousFinish":
+                return task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : "";
+            case "previousStart":
+                return task.previousUpdateStartDate ? exportDateFormatter(task.previousUpdateStartDate) : "";
+            case "baselineFinish":
+                return task.baselineFinishDate ? exportDateFormatter(task.baselineFinishDate) : "";
+            case "baselineStart":
+                return task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : "";
+        }
+
+        return "";
+    }
+
+    private getWbsSummaryDurationLabel(group: WBSGroup): string {
+        if (!group.summaryEarlyStartDate || !group.summaryEarlyFinishDate || group.summaryEarlyFinishDate < group.summaryEarlyStartDate) {
+            return "";
+        }
+
+        let workingDays = 0;
+        const cur = new Date(group.summaryEarlyStartDate);
+        cur.setHours(0, 0, 0, 0);
+        const end = new Date(group.summaryEarlyFinishDate);
+        end.setHours(0, 0, 0, 0);
+
+        while (cur < end) {
+            const day = cur.getDay();
+            if (day !== 0 && day !== 6) {
+                workingDays++;
+            }
+            cur.setDate(cur.getDate() + 1);
+        }
+
+        return workingDays > 0 ? workingDays.toString() : "";
+    }
+
+    private getWbsGroupVisibleExportColumnText(columnId: LabelColumnId, group: WBSGroup, exportDateFormatter: (date: Date) => string): string {
+        if (typeof columnId === "string" && columnId.startsWith("extra_")) {
+            return "";
+        }
+
+        switch (columnId) {
+            case "start":
+                return group.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : "";
+            case "finish":
+                return group.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : "";
+            case "duration":
+                return this.getWbsSummaryDurationLabel(group);
+            case "totalFloat":
+                return typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat)
+                    ? group.summaryTotalFloat.toFixed(0)
+                    : "";
+            case "previousFinish":
+                return group.summaryPreviousUpdateFinishDate ? exportDateFormatter(group.summaryPreviousUpdateFinishDate) : "";
+            case "previousStart":
+                return group.summaryPreviousUpdateStartDate ? exportDateFormatter(group.summaryPreviousUpdateStartDate) : "";
+            case "baselineFinish":
+                return group.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : "";
+            case "baselineStart":
+                return group.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : "";
+        }
+
+        return "";
+    }
+
+    private getTaskExportColumnText(column: VisibleExportColumn, task: Task, exportDateFormatter: (date: Date) => string): string {
+        switch (column.kind) {
+            case "taskName":
+                return task.name || "";
+            case "label":
+                return this.getTaskVisibleExportColumnText(column.column.id, task, exportDateFormatter);
+            case "wbsLevel":
+                return task.wbsLevels?.[column.levelIndex] || "";
+        }
+    }
+
+    private getWbsGroupExportColumnText(column: VisibleExportColumn, group: WBSGroup, exportDateFormatter: (date: Date) => string): string {
+        switch (column.kind) {
+            case "taskName":
+                return this.getWbsDisplayName(group);
+            case "label":
+                return this.getWbsGroupVisibleExportColumnText(column.column.id, group, exportDateFormatter);
+            case "wbsLevel":
+                return "";
+        }
+    }
+
+    private getVisibleWbsExportRows(tasks: Task[], visibleWbsGroups: WBSGroup[]): VisibleWbsExportRow[] {
+        const rows: VisibleWbsExportRow[] = [];
+
+        visibleWbsGroups.forEach(group => {
+            if (group.yOrder !== undefined) {
+                rows.push({ kind: "group", yOrder: group.yOrder, group });
+            }
+        });
+
+        tasks.forEach(task => {
+            if (task.yOrder !== undefined) {
+                rows.push({ kind: "task", yOrder: task.yOrder, task });
+            }
+        });
+
+        rows.sort((a, b) => a.yOrder - b.yOrder);
+        if (rows.length > 0) {
+            return rows;
+        }
+
+        return tasks.map((task, index) => ({ kind: "task", yOrder: index, task }));
+    }
+
+    private getExportTableHeaderHtml(columns: VisibleExportColumn[]): string {
+        return `<tr style="font-weight: bold; background-color: #f0f0f0;">${columns
+            .map(column => `<th style="padding: 4px; white-space: nowrap;">${this.escapeHtml(this.sanitizeExportCell(column.header))}</th>`)
+            .join("")}</tr>`;
+    }
+
+    private getExportTableHeadersText(columns: VisibleExportColumn[]): string {
+        return columns.map(column => this.sanitizeExportCell(column.header)).join("\t");
+    }
+
+    private getExportCellHtml(value: string, style: string): string {
+        return `<td style="${style}">${this.escapeHtml(this.sanitizeExportCell(value))}</td>`;
+    }
+
+    private getTaskNameExportIndentPx(task: Task): number {
+        const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
+        if (!showWbs) {
+            return 0;
+        }
+
+        const indentPerLevel = this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20;
+        const indentLevel = task.wbsIndentLevel ?? task.wbsLevels?.length ?? 0;
+        return Math.max(0, indentLevel * indentPerLevel);
+    }
+
+    private getPlainTextIndent(level: number): string {
+        return "  ".repeat(Math.max(0, level));
+    }
+
     private generateFlatExportTableHtml(
         exportDateFormatter: (date: Date) => string,
         tasks: Task[]
     ): string {
-        const maxWbsDepth = tasks.reduce((max, task) => Math.max(max, task.wbsLevels?.length || 0), 0);
-        const headers = ["Index", "Task ID", "Task Name", "Task Type"];
-        if (this.showBaselineInternal) headers.push("Baseline Start", "Baseline Finish");
-        if (this.showPreviousUpdateInternal) headers.push("Previous Start", "Previous Finish");
-        headers.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
-        for (let i = 0; i < maxWbsDepth; i++) headers.push(`WBS Level ${i + 1}`);
-
+        const columns = this.getVisibleExportColumns(tasks, true);
         let html = `<table border="1" cellspacing="0" cellpadding="2" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
-        html += `<tr style="font-weight: bold; background-color: #f0f0f0;">${headers.map(header => `<th style="padding: 4px; white-space: nowrap;">${this.escapeHtml(header)}</th>`).join("")}</tr>`;
+        html += this.getExportTableHeaderHtml(columns);
 
-        tasks.forEach((task, index) => {
-            const taskType = this.getExportTaskTypeLabel(task);
-            const totalFloat = this.getExportFloatLabel(task);
-            const isCritical = this.getExportCriticalValue(task);
-            const visualStartDate = this.getTaskBarLabelStart(task);
-            const visualFinishDate = this.getTaskBarLabelFinish(task);
-            const taskId = this.sanitizeExportCell(task.id?.toString() || "");
-            const taskName = this.sanitizeExportCell(task.name || "");
-
+        tasks.forEach(task => {
             html += `<tr>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${index + 1}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(taskId)}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(taskName)}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(taskType)}</td>`;
-
-            if (this.showBaselineInternal) {
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : ""}</td>`;
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineFinishDate ? exportDateFormatter(task.baselineFinishDate) : ""}</td>`;
-            }
-            if (this.showPreviousUpdateInternal) {
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateStartDate ? exportDateFormatter(task.previousUpdateStartDate) : ""}</td>`;
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""}</td>`;
-            }
-
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${visualStartDate ? exportDateFormatter(visualStartDate) : ""}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${visualFinishDate ? exportDateFormatter(visualFinishDate) : ""}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${this.escapeHtml(totalFloat)}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${isCritical ? "Yes" : "No"}</td>`;
-
-            for (let i = 0; i < maxWbsDepth; i++) {
-                html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(this.sanitizeExportCell(task.wbsLevels?.[i] || ""))}</td>`;
-            }
-
+            columns.forEach(column => {
+                const style = column.kind === "taskName" || column.kind === "wbsLevel"
+                    ? "padding: 2px; white-space: nowrap;"
+                    : "text-align: center; padding: 2px; white-space: nowrap;";
+                html += this.getExportCellHtml(this.getTaskExportColumnText(column, task, exportDateFormatter), style);
+            });
             html += `</tr>`;
         });
 
@@ -18775,106 +19251,55 @@ export class Visual implements IVisual {
         exportDateFormatter: (date: Date) => string,
         tasks: Task[]
     ): string {
-        const maxWbsDepth = tasks.reduce((max, task) => Math.max(max, task.wbsLevels?.length || 0), 0);
-        const headers = ["Index", "Task ID", "Task Name", "Task Type"];
-        if (this.showBaselineInternal) headers.push("Baseline Start", "Baseline Finish");
-        if (this.showPreviousUpdateInternal) headers.push("Previous Start", "Previous Finish");
-        headers.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
-        for (let i = 0; i < maxWbsDepth; i++) headers.push(`WBS Level ${i + 1}`);
-
-        const rows = tasks.map((task, index) => {
-            const taskType = this.getExportTaskTypeLabel(task);
-            const totalFloat = this.getExportFloatLabel(task);
-            const isCritical = this.getExportCriticalValue(task);
-            const visualStartDate = this.getTaskBarLabelStart(task);
-            const visualFinishDate = this.getTaskBarLabelFinish(task);
-
-            const row = [
-                String(index + 1),
-                this.sanitizeExportCell(task.id?.toString() || ""),
-                this.sanitizeExportCell(task.name || ""),
-                this.sanitizeExportCell(taskType)
-            ];
-
-            if (this.showBaselineInternal) {
-                row.push(
-                    task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : "",
-                    task.baselineFinishDate ? exportDateFormatter(task.baselineFinishDate) : ""
-                );
-            }
-            if (this.showPreviousUpdateInternal) {
-                row.push(
-                    task.previousUpdateStartDate ? exportDateFormatter(task.previousUpdateStartDate) : "",
-                    task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""
-                );
-            }
-
-            row.push(
-                visualStartDate ? exportDateFormatter(visualStartDate) : "",
-                visualFinishDate ? exportDateFormatter(visualFinishDate) : "",
-                task.duration?.toString() || "0",
-                totalFloat,
-                isCritical ? "Yes" : "No"
-            );
-
-            for (let i = 0; i < maxWbsDepth; i++) {
-                row.push(this.sanitizeExportCell(task.wbsLevels?.[i] || ""));
-            }
-
-            return row.map(value => this.sanitizeExportCell(value)).join('\t');
+        const columns = this.getVisibleExportColumns(tasks, true);
+        const rows = tasks.map(task => {
+            return columns
+                .map(column => this.sanitizeExportCell(this.getTaskExportColumnText(column, task, exportDateFormatter)))
+                .join('\t');
         });
 
-        return [headers.join('\t'), ...rows].join('\n');
+        return [this.getExportTableHeadersText(columns), ...rows].join('\n');
     }
 
-    private generateVisibleWbsOnlyExportTableHtml(
+    private generateWbsVisibleExportTableHtml(
         exportDateFormatter: (date: Date) => string,
+        tasks: Task[],
         visibleWbsGroups: WBSGroup[]
     ): string {
-        const hasBaseline = this.showBaselineInternal && visibleWbsGroups.some(group => group.summaryBaselineStartDate || group.summaryBaselineFinishDate);
-        const hasPrevious = this.showPreviousUpdateInternal && visibleWbsGroups.some(group => group.summaryPreviousUpdateStartDate || group.summaryPreviousUpdateFinishDate);
-        const hasFloat = visibleWbsGroups.some(group => typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat));
+        const columns = this.getVisibleExportColumns(tasks, false);
+        const rows = this.getVisibleWbsExportRows(tasks, visibleWbsGroups);
+        const fallbackGroupHeaderColor = this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F7F8FA";
+        const fallbackGroupTextColor = this.getWbsTextColor("#333333");
+        const indentPerLevel = this.settings?.wbsGrouping?.indentPerLevel?.value || 20;
 
         let html = `<table border="1" cellspacing="0" cellpadding="2" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
-        html += `<tr style="font-weight: bold; background-color: #f0f0f0;">`;
-        html += `<th style="padding: 4px; white-space: nowrap;">Index</th>`;
-        html += `<th style="padding: 4px; white-space: nowrap;">WBS Name</th>`;
-        if (hasBaseline) {
-            html += `<th style="padding: 4px; white-space: nowrap;">Baseline Start</th>`;
-            html += `<th style="padding: 4px; white-space: nowrap;">Baseline Finish</th>`;
-        }
-        if (hasPrevious) {
-            html += `<th style="padding: 4px; white-space: nowrap;">Previous Start</th>`;
-            html += `<th style="padding: 4px; white-space: nowrap;">Previous Finish</th>`;
-        }
-        html += `<th style="padding: 4px; white-space: nowrap;">Start Date</th>`;
-        html += `<th style="padding: 4px; white-space: nowrap;">Finish Date</th>`;
-        if (hasFloat) {
-            html += `<th style="padding: 4px; white-space: nowrap;">Total Float</th>`;
-        }
-        html += `</tr>`;
+        html += this.getExportTableHeaderHtml(columns);
 
-        const fallbackGroupHeaderColor = this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F7F8FA";
-        visibleWbsGroups.forEach((group, index) => {
-            const indent = Math.max(0, (group.level - 1) * (this.settings?.wbsGrouping?.indentPerLevel?.value || 20));
-            const rowBgColor = this.getWbsExportRowBackgroundColor(group.level, fallbackGroupHeaderColor);
-            const textColor = this.getWbsExportRowTextColor(rowBgColor, "#333333");
-
-            html += `<tr style="background-color: ${rowBgColor}; color: ${textColor}; font-weight: bold;">`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${index + 1}</td>`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, `padding: 2px; padding-left: ${indent + 8}px; white-space: nowrap;`)}">${this.escapeHtml(this.sanitizeExportCell(this.getWbsDisplayName(group)))}</td>`;
-            if (hasBaseline) {
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : ""}</td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : ""}</td>`;
-            }
-            if (hasPrevious) {
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryPreviousUpdateStartDate ? exportDateFormatter(group.summaryPreviousUpdateStartDate) : ""}</td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryPreviousUpdateFinishDate ? exportDateFormatter(group.summaryPreviousUpdateFinishDate) : ""}</td>`;
-            }
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : ""}</td>`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : ""}</td>`;
-            if (hasFloat) {
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat) ? group.summaryTotalFloat.toFixed(0) : ""}</td>`;
+        rows.forEach(row => {
+            if (row.kind === "group") {
+                const group = row.group;
+                const indent = Math.max(0, (group.level - 1) * indentPerLevel);
+                const rowBgColor = this.getWbsExportRowBackgroundColor(group.level, fallbackGroupHeaderColor);
+                const textColor = this.getWbsExportRowTextColor(rowBgColor, fallbackGroupTextColor);
+                html += `<tr style="background-color: ${rowBgColor}; color: ${textColor}; font-weight: bold;">`;
+                columns.forEach(column => {
+                    const baseStyle = column.kind === "taskName"
+                        ? `padding: 2px; padding-left: ${indent + 8}px; white-space: nowrap;`
+                        : "text-align: center; padding: 2px; white-space: nowrap;";
+                    html += this.getExportCellHtml(
+                        this.getWbsGroupExportColumnText(column, group, exportDateFormatter),
+                        this.getWbsExportCellStyle(rowBgColor, textColor, baseStyle)
+                    );
+                });
+            } else {
+                const task = row.task;
+                html += `<tr>`;
+                columns.forEach(column => {
+                    const style = column.kind === "taskName"
+                        ? `padding: 2px; padding-left: ${this.getTaskNameExportIndentPx(task) + 2}px; white-space: nowrap;`
+                        : "text-align: center; padding: 2px; white-space: nowrap;";
+                    html += this.getExportCellHtml(this.getTaskExportColumnText(column, task, exportDateFormatter), style);
+                });
             }
             html += `</tr>`;
         });
@@ -18883,47 +19308,28 @@ export class Visual implements IVisual {
         return html;
     }
 
-    private generateVisibleWbsOnlyExportTableText(
+    private generateWbsVisibleExportTableText(
         exportDateFormatter: (date: Date) => string,
+        tasks: Task[],
         visibleWbsGroups: WBSGroup[]
     ): string {
-        const hasBaseline = this.showBaselineInternal && visibleWbsGroups.some(group => group.summaryBaselineStartDate || group.summaryBaselineFinishDate);
-        const hasPrevious = this.showPreviousUpdateInternal && visibleWbsGroups.some(group => group.summaryPreviousUpdateStartDate || group.summaryPreviousUpdateFinishDate);
-        const hasFloat = visibleWbsGroups.some(group => typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat));
-        const headers = ["Index", "WBS Name"];
-        if (hasBaseline) headers.push("Baseline Start", "Baseline Finish");
-        if (hasPrevious) headers.push("Previous Start", "Previous Finish");
-        headers.push("Start Date", "Finish Date");
-        if (hasFloat) headers.push("Total Float");
-
-        const rows = visibleWbsGroups.map((group, index) => {
-            const row = [
-                String(index + 1),
-                this.sanitizeExportCell(this.getWbsDisplayName(group))
-            ];
-            if (hasBaseline) {
-                row.push(
-                    group.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : "",
-                    group.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : ""
-                );
-            }
-            if (hasPrevious) {
-                row.push(
-                    group.summaryPreviousUpdateStartDate ? exportDateFormatter(group.summaryPreviousUpdateStartDate) : "",
-                    group.summaryPreviousUpdateFinishDate ? exportDateFormatter(group.summaryPreviousUpdateFinishDate) : ""
-                );
-            }
-            row.push(
-                group.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : "",
-                group.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : ""
-            );
-            if (hasFloat) {
-                row.push(typeof group.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat) ? group.summaryTotalFloat.toFixed(0) : "");
-            }
-            return row.map(value => this.sanitizeExportCell(value)).join('\t');
+        const columns = this.getVisibleExportColumns(tasks, false);
+        const rows = this.getVisibleWbsExportRows(tasks, visibleWbsGroups).map(row => {
+            return columns.map(column => {
+                let value = row.kind === "group"
+                    ? this.getWbsGroupExportColumnText(column, row.group, exportDateFormatter)
+                    : this.getTaskExportColumnText(column, row.task, exportDateFormatter);
+                if (column.kind === "taskName") {
+                    const indentLevel = row.kind === "group"
+                        ? row.group.level - 1
+                        : row.task.wbsIndentLevel ?? row.task.wbsLevels?.length ?? 0;
+                    return `${this.getPlainTextIndent(indentLevel)}${this.sanitizeExportCell(value)}`;
+                }
+                return this.sanitizeExportCell(value);
+            }).join('\t');
         });
 
-        return [headers.join('\t'), ...rows].join('\n');
+        return [this.getExportTableHeadersText(columns), ...rows].join('\n');
     }
 
     private generateVisibleExportTableHtml(): string {
@@ -18931,14 +19337,9 @@ export class Visual implements IVisual {
         const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
         const tasks = this.getExportTableTasks();
         const visibleWbsGroups = this.getVisibleExportWbsGroups();
-        const areTasksVisible = tasks.some(task => task.yOrder !== undefined);
-
-        if (showWbs && !areTasksVisible && visibleWbsGroups.length > 0) {
-            return this.generateVisibleWbsOnlyExportTableHtml(exportDateFormatter, visibleWbsGroups);
-        }
 
         if (showWbs) {
-            return this.generateWbsHierarchicalHtml(exportDateFormatter, tasks);
+            return this.generateWbsVisibleExportTableHtml(exportDateFormatter, tasks, visibleWbsGroups);
         }
 
         return this.generateFlatExportTableHtml(exportDateFormatter, tasks);
@@ -18949,10 +19350,9 @@ export class Visual implements IVisual {
         const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
         const tasks = this.getExportTableTasks();
         const visibleWbsGroups = this.getVisibleExportWbsGroups();
-        const areTasksVisible = tasks.some(task => task.yOrder !== undefined);
 
-        if (showWbs && !areTasksVisible && visibleWbsGroups.length > 0) {
-            return this.generateVisibleWbsOnlyExportTableText(exportDateFormatter, visibleWbsGroups);
+        if (showWbs) {
+            return this.generateWbsVisibleExportTableText(exportDateFormatter, tasks, visibleWbsGroups);
         }
 
         return this.generateFlatExportTableText(exportDateFormatter, tasks);
@@ -19052,156 +19452,13 @@ ${tableHtml}
     }
 
     /**
-     * Generates hierarchical HTML content for WBS export with colored group headers
-     * and indented task names, matching the visual display layout.
-     */
-    private generateWbsHierarchicalHtml(
-        exportDateFormatter: (date: Date) => string,
-        tasks: Task[]
-    ): string {
-        const defaultGroupHeaderColor = this.settings?.wbsGrouping?.groupHeaderColor?.value?.value || "#F0F0F0";
-        const defaultGroupNameColor = this.getWbsTextColor("#333333");
-        const indentPerLevel = this.settings?.wbsGrouping?.indentPerLevel?.value || 20;
-
-        // Calculate total columns for spanning (no WBS level columns in hierarchical mode)
-        let totalColumns = 5; // Index, Task ID, Task Name, Task Type, Is Critical
-        totalColumns += 4; // Start Date, Finish Date, Duration, Total Float
-        if (this.showBaselineInternal) totalColumns += 2;
-        if (this.showPreviousUpdateInternal) totalColumns += 2;
-
-        let html = `<table border="1" cellspacing="0" cellpadding="2" style="border-collapse: collapse;">`;
-
-        // HTML headers
-        html += `<tr style="font-weight: bold; background-color: #f0f0f0;">`;
-        html += `<th style="padding: 2px; white-space: nowrap;">Index</th>`;
-        html += `<th style="padding: 2px; white-space: nowrap;">Task ID</th>`;
-        html += `<th style="padding: 2px; white-space: nowrap;">Task Name</th>`;
-        html += `<th style="padding: 2px; white-space: nowrap;">Task Type</th>`;
-        if (this.showBaselineInternal) {
-            html += `<th style="padding: 2px; white-space: nowrap;">Baseline Start</th>`;
-            html += `<th style="padding: 2px; white-space: nowrap;">Baseline Finish</th>`;
-        }
-        if (this.showPreviousUpdateInternal) {
-            html += `<th style="padding: 2px; white-space: nowrap;">Previous Start</th>`;
-            html += `<th style="padding: 2px; white-space: nowrap;">Previous Finish</th>`;
-        }
-        html += `<th style="padding: 2px; white-space: nowrap;">Start Date</th>`;
-        html += `<th style="padding: 2px; white-space: nowrap;">Finish Date</th>`;
-        html += `<th style="padding: 2px; white-space: nowrap;">Duration</th>`;
-        html += `<th style="padding: 2px; white-space: nowrap;">Total Float</th>`;
-        html += `<th style="padding: 2px; white-space: nowrap;">Is Critical</th>`;
-        html += `</tr>`;
-
-        let rowIndex = 0;
-        let previousLevels: string[] = [];
-
-        const appendGroupRow = (group: WBSGroup | undefined, levelIndex: number, fallbackName: string): void => {
-            const groupLevel = group?.level ?? (levelIndex + 1);
-            const rowBgColor = this.getWbsExportRowBackgroundColor(groupLevel, defaultGroupHeaderColor);
-            const textColor = this.getWbsExportRowTextColor(rowBgColor, defaultGroupNameColor);
-            const indentPx = Math.max(0, levelIndex * indentPerLevel);
-            const groupName = this.sanitizeExportCell(group ? this.getWbsDisplayName(group) : fallbackName);
-            const groupFloat = typeof group?.summaryTotalFloat === "number" && isFinite(group.summaryTotalFloat)
-                ? group.summaryTotalFloat.toFixed(0)
-                : "";
-
-            html += `<tr style="background-color: ${rowBgColor}; color: ${textColor}; font-weight: bold;">`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, `padding: 2px ${indentPx}px; white-space: nowrap; padding-left: ${indentPx + 8}px;`)}">${this.escapeHtml(groupName)}</td>`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
-            if (this.showBaselineInternal) {
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryBaselineStartDate ? exportDateFormatter(group.summaryBaselineStartDate) : ""}</td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryBaselineFinishDate ? exportDateFormatter(group.summaryBaselineFinishDate) : ""}</td>`;
-            }
-            if (this.showPreviousUpdateInternal) {
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryPreviousUpdateStartDate ? exportDateFormatter(group.summaryPreviousUpdateStartDate) : ""}</td>`;
-                html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryPreviousUpdateFinishDate ? exportDateFormatter(group.summaryPreviousUpdateFinishDate) : ""}</td>`;
-            }
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryStartDate ? exportDateFormatter(group.summaryStartDate) : ""}</td>`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${group?.summaryFinishDate ? exportDateFormatter(group.summaryFinishDate) : ""}</td>`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "text-align: center; padding: 2px; white-space: nowrap;")}">${groupFloat}</td>`;
-            html += `<td style="${this.getWbsExportCellStyle(rowBgColor, textColor, "padding: 2px;")}"></td>`;
-            html += `</tr>`;
-        };
-
-        for (const task of tasks) {
-            rowIndex++;
-            const taskType = this.getExportTaskTypeLabel(task);
-            const totalFloat = this.getExportFloatLabel(task);
-            const isCritical = this.getExportCriticalValue(task);
-            const visualStartDate = this.getTaskBarLabelStart(task);
-            const visualFinishDate = this.getTaskBarLabelFinish(task);
-            const currentLevels = task.wbsLevels || [];
-            const unassignedGroup = !task.wbsGroupId ? this.getUnassignedWbsGroup() : undefined;
-
-            if (unassignedGroup && previousLevels[0] !== this.UNASSIGNED_WBS_GROUP_ID) {
-                appendGroupRow(unassignedGroup, 0, this.UNASSIGNED_WBS_GROUP_NAME);
-            }
-
-            let divergenceIndex = 0;
-            while (
-                divergenceIndex < previousLevels.length &&
-                divergenceIndex < currentLevels.length &&
-                previousLevels[divergenceIndex] === currentLevels[divergenceIndex]
-            ) {
-                divergenceIndex++;
-            }
-
-            for (let levelIndex = divergenceIndex; levelIndex < currentLevels.length; levelIndex++) {
-                const pathId = currentLevels
-                    .slice(0, levelIndex + 1)
-                    .map((levelName, index) => `L${index + 1}:${levelName}`)
-                    .join("|");
-                const group = this.wbsGroupMap.get(pathId);
-                appendGroupRow(group, levelIndex, currentLevels[levelIndex] || "");
-            }
-
-            previousLevels = unassignedGroup ? [this.UNASSIGNED_WBS_GROUP_ID] : currentLevels;
-            const taskIndentPx = unassignedGroup ? indentPerLevel : currentLevels.length * indentPerLevel;
-            const taskId = this.sanitizeExportCell(task.id?.toString() || "");
-            const taskName = this.sanitizeExportCell(task.name || "");
-
-            html += `<tr>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${rowIndex}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(taskId)}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap; padding-left: ${taskIndentPx + 2}px;">${this.escapeHtml(taskName)}</td>`;
-            html += `<td style="padding: 2px; white-space: nowrap;">${this.escapeHtml(taskType)}</td>`;
-
-            if (this.showBaselineInternal) {
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineStartDate ? exportDateFormatter(task.baselineStartDate) : ""}</td>`;
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.baselineFinishDate ? exportDateFormatter(task.baselineFinishDate) : ""}</td>`;
-            }
-            if (this.showPreviousUpdateInternal) {
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateStartDate ? exportDateFormatter(task.previousUpdateStartDate) : ""}</td>`;
-                html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.previousUpdateFinishDate ? exportDateFormatter(task.previousUpdateFinishDate) : ""}</td>`;
-            }
-
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${visualStartDate ? exportDateFormatter(visualStartDate) : ""}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${visualFinishDate ? exportDateFormatter(visualFinishDate) : ""}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${this.escapeHtml(totalFloat)}</td>`;
-            html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${isCritical ? "Yes" : "No"}</td>`;
-            html += `</tr>`;
-        }
-
-        html += `</table>`;
-        return html;
-    }
-
-    /**
      * Copies the currently visible data to the clipboard in a format suitable for Excel.
-     * Delegates to ClipboardExporter module for the actual export logic.
-     * 
-     * When WBS is enabled but no tasks are visible (WBS groups are collapsed),
-     * exports the visible WBS groups "as-is" on the screen.
+     * Uses the same visible-column model as the HTML export.
      */
     private async copyVisibleDataToClipboard(): Promise<void> {
         const tasks = this.getExportTableTasks();
         const visibleWbsGroups = this.getVisibleExportWbsGroups();
         const showWbs = this.settings?.wbsGrouping?.enableWbsGrouping?.value ?? false;
-        const areTasksVisible = tasks.some(task => task.yOrder !== undefined);
 
         if (tasks.length === 0 && visibleWbsGroups.length === 0) {
             console.warn("No visible data to copy.");
@@ -19212,8 +19469,8 @@ ${tableHtml}
             const tableHtml = this.generateVisibleExportTableHtml();
             const plainText = this.generateVisibleExportTableText();
             const htmlContent = this.generateClipboardTableExportFragment(tableHtml);
-            const copiedRowCount = showWbs && !areTasksVisible && visibleWbsGroups.length > 0
-                ? visibleWbsGroups.length
+            const copiedRowCount = showWbs
+                ? this.getVisibleWbsExportRows(tasks, visibleWbsGroups).length
                 : tasks.length;
 
             await this.copyHtmlExportToClipboard(htmlContent, plainText);
