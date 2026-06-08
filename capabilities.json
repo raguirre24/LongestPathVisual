@@ -1767,9 +1767,24 @@
                     }
                 },
                 "showGroupSummary": {
-                    "displayName": "Show Group Summary Bar",
+                    "displayName": "Show Group Summary",
                     "type": {
                         "bool": true
+                    }
+                },
+                "summaryDisplayMode": {
+                    "displayName": "Finish-Only Summary Style",
+                    "type": {
+                        "enumeration": [
+                            {
+                                "value": "milestoneDots",
+                                "displayName": "Milestone Dots"
+                            },
+                            {
+                                "value": "summaryBar",
+                                "displayName": "Summary Bar"
+                            }
+                        ]
                     }
                 },
                 "groupHeaderColor": {
@@ -2367,6 +2382,12 @@
                     }
                 },
                 "selectedLegendCategories": {
+                    "displayName": "",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "legendCategoryOrder": {
                     "displayName": "",
                     "type": {
                         "text": true

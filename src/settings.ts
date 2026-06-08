@@ -51,6 +51,11 @@ const criticalBarStyleItems: powerbi.IEnumMember[] = [
     { value: "outline", displayName: "Outline" }
 ];
 
+const wbsSummaryDisplayModeItems: powerbi.IEnumMember[] = [
+    { value: "milestoneDots", displayName: "Milestone Dots" },
+    { value: "summaryBar", displayName: "Summary Bar" }
+];
+
 const fontFamilyItems: powerbi.IEnumMember[] = [
     { value: "Segoe UI", displayName: "Segoe UI" },
     { value: "Arial", displayName: "Arial" },
@@ -1345,7 +1350,14 @@ class WBSGroupingCard extends Card {
     expandCollapseAll = new ToggleSwitch({ name: "expandCollapseAll", displayName: "Expand All Groups", value: true });
     showWbsToggle = new ToggleSwitch({ name: "showWbsToggle", displayName: "Show WBS Toggle Button", value: true });
     hideEmptyGroups = new ToggleSwitch({ name: "hideEmptyGroups", displayName: "Hide Empty Groups", value: true });
-    showGroupSummary = new ToggleSwitch({ name: "showGroupSummary", displayName: "Show Group Summary Bar", value: true });
+    showGroupSummary = new ToggleSwitch({ name: "showGroupSummary", displayName: "Show Group Summary", value: true });
+    summaryDisplayMode = new ItemDropdown({
+        name: "summaryDisplayMode",
+        displayName: "Finish-Only Summary Style",
+        description: "Choose whether finish-only Visualiser WBS summaries render as milestone dots or the regular summary bar",
+        items: wbsSummaryDisplayModeItems,
+        value: wbsSummaryDisplayModeItems.find(item => item.value === "milestoneDots")
+    });
     groupHeaderColor = new ColorPicker({ name: "groupHeaderColor", displayName: "Group Header Background", value: { value: "#F7F8FA" } });
     groupSummaryColor = new ColorPicker({ name: "groupSummaryColor", displayName: "Group Summary Bar Color", value: { value: "#DACEEF" } });
     summaryBarHeight = new NumUpDown({ name: "summaryBarHeight", displayName: "Summary Bar Height (0 = Auto)", value: 0, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 24 } } });
@@ -1354,7 +1366,7 @@ class WBSGroupingCard extends Card {
     groupNameColor = new ColorPicker({ name: "groupNameColor", displayName: "WBS Text Color", value: { value: "#2A3240" } });
     indentPerLevel = new NumUpDown({ name: "indentPerLevel", displayName: "Indent Per Level (px)", value: 22, options: { minValue: { type: powerbi.visuals.ValidatorType.Min, value: 0 }, maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 50 } } });
 
-    slices: Slice[] = [this.enableWbsGrouping, this.defaultExpanded, this.expandCollapseAll, this.showWbsToggle, this.hideEmptyGroups, this.showGroupSummary, this.groupHeaderColor, this.groupSummaryColor, this.summaryBarHeight, this.summaryMilestoneSize, this.groupNameFontSize, this.groupNameColor, this.indentPerLevel];
+    slices: Slice[] = [this.enableWbsGrouping, this.defaultExpanded, this.expandCollapseAll, this.showWbsToggle, this.hideEmptyGroups, this.showGroupSummary, this.summaryDisplayMode, this.groupHeaderColor, this.groupSummaryColor, this.summaryBarHeight, this.summaryMilestoneSize, this.groupNameFontSize, this.groupNameColor, this.indentPerLevel];
 }
 
 // ============================================================================
@@ -1485,6 +1497,7 @@ class PersistedStateCard extends Card {
     floatThreshold = new NumUpDown({ name: "floatThreshold", displayName: "", value: 0, visible: false });
     traceMode = new TextInput({ name: "traceMode", displayName: "", value: "backward", placeholder: "", visible: false });
     selectedLegendCategories = new TextInput({ name: "selectedLegendCategories", displayName: "", value: "", placeholder: "", visible: false });
+    legendCategoryOrder = new TextInput({ name: "legendCategoryOrder", displayName: "", value: "", placeholder: "", visible: false });
     wbsExpandLevel = new NumUpDown({ name: "wbsExpandLevel", displayName: "", value: -2, visible: false });
     wbsExpandedState = new TextInput({ name: "wbsExpandedState", displayName: "", value: "", placeholder: "", visible: false });
     wbsManualToggledGroups = new TextInput({ name: "wbsManualToggledGroups", displayName: "", value: "", placeholder: "", visible: false });
@@ -1492,7 +1505,7 @@ class PersistedStateCard extends Card {
     zoomRangeEnd = new NumUpDown({ name: "zoomRangeEnd", displayName: "", value: 1, visible: false });
     lookAheadWindowDays = new NumUpDown({ name: "lookAheadWindowDays", displayName: "", value: -1, visible: false });
 
-    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories, this.wbsExpandLevel, this.wbsExpandedState, this.wbsManualToggledGroups, this.zoomRangeStart, this.zoomRangeEnd, this.lookAheadWindowDays];
+    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories, this.legendCategoryOrder, this.wbsExpandLevel, this.wbsExpandedState, this.wbsManualToggledGroups, this.zoomRangeStart, this.zoomRangeEnd, this.lookAheadWindowDays];
 }
 
 // ============================================================================

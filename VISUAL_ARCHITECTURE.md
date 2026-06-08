@@ -127,9 +127,11 @@ path. This group is visual-only, participates in expand/collapse, visible
 exports, and WBS summary display, and is removed when no unassigned tasks are
 in the filtered scope.
 
-The WBS Grouping format card controls summary row visibility, summary colour,
-summary bar height, and finish-only summary milestone size. A size/height value
-of `0` keeps the automatic scaling from the task row height.
+The WBS Grouping format card controls summary row visibility, finish-only
+summary style, summary colour, summary bar height, and finish-only summary
+milestone size. A size/height value of `0` keeps the automatic scaling from the
+task row height. Finish-only summary style defaults to milestone dots, but can
+be changed to the regular summary bar.
 
 Project, baseline, and previous-update finish lines use the filtered task scope
 captured before WBS collapse. If that scope contains real WBS tasks, finish
@@ -243,8 +245,9 @@ Key behaviour:
   rendering, in addition to `TT_Mile` and `TT_FinMile`.
 - WBS summary rows keep their earliest/latest child finish summary dates for
   sorting, zoom extents, labels, exports, and progress-line logic. In
-  finish-only visualiser data, the timeline row renders the filtered descendant
-  finish milestones as compact dots instead of drawing the summary range bar.
+  finish-only visualiser data, the WBS Grouping `Finish-Only Summary Style`
+  setting chooses whether the timeline row renders filtered descendant finish
+  milestones as compact dots or uses the regular summary range bar.
 - The header hides the Longest Path/Float-Based toggle, Show Critical/Show All
   toggle, and near-critical threshold controls. Other timeline, WBS, connector,
   column, copy/export, and help controls remain available.

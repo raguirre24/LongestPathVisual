@@ -171,6 +171,7 @@ export declare class Visual implements IVisual {
     private selectedLegendCategories;
     private legendScrollPosition;
     private lastLegendRenderSignature;
+    private lastPersistedLegendCategoryOrder;
     private wbsDataExists;
     private wbsDataExistsInMetadata;
     private wbsLevelColumnNames;
@@ -316,6 +317,8 @@ export declare class Visual implements IVisual {
     private getTaskBarGeometry;
     private hasCurrentStartDateData;
     private isFinishOnlyVisualiserMode;
+    private getWbsSummaryDisplayMode;
+    private shouldRenderWbsSummaryMilestoneRows;
     private shouldShowStartDateColumn;
     private hasBaselineStartDateData;
     private hasPreviousUpdateStartDateData;
@@ -926,6 +929,10 @@ export declare class Visual implements IVisual {
     /**
      * Keeps legend chips aligned with the currently rendered task scope.
      */
+    private getLegendSortOrder;
+    private getStableLegendCategoriesForUpdate;
+    private refreshLegendColorAssignments;
+    private persistLegendCategoryOrderState;
     private getLegendCategoriesForTaskScope;
     private updateLegendScopeForTasks;
     private getRenderableLegendCategories;

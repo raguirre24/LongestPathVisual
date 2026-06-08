@@ -45,6 +45,46 @@ export function serializeLegendSelection(categories: Iterable<string>): string {
     );
 }
 
+export type LegendSortOrder = "none" | "ascending" | "descending";
+
+function uniqueLegendCategories(categories: Iterable<string>): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+
+    for (const category of categories) {
+        const normalized = normalizeLegendCategory(category);
+        if (normalized === null || seen.has(normalized)) {
+            continue;
+        }
+
+        seen.add(normalized);
+        result.push(normalized);
+    }
+
+    return result;
+}
+
+export function buildStableLegendCategoryOrder(
+    currentCategories: Iterable<string>,
+    previousCategories: Iterable<string>,
+    sortOrder: LegendSortOrder = "none"
+): string[] {
+    const merged = uniqueLegendCategories([
+        ...uniqueLegendCategories(previousCategories),
+        ...uniqueLegendCategories(currentCategories)
+    ]);
+
+    if (sortOrder === "ascending") {
+        return [...merged].sort((a, b) => a.localeCompare(b));
+    }
+
+    if (sortOrder === "descending") {
+        return [...merged].sort((a, b) => b.localeCompare(a));
+    }
+
+    return merged;
+}
+
 export function sanitizeExportTextField(value: unknown): string {
     return String(value ?? "")
         .replace(/[\t\r\n]+/g, " ")

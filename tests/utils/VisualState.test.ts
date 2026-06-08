@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    buildStableLegendCategoryOrder,
     getExportFloatText,
     getExportTaskType,
     normalizeLegendCategory,
@@ -35,6 +36,30 @@ describe("VisualState helpers", () => {
         expect(normalizeLegendCategory("  Ahead  ")).toBe("  Ahead  ");
         expect(normalizeLegendCategory("   ")).toBeNull();
         expect(normalizeLegendCategory(null)).toBeNull();
+    });
+
+    it("keeps previously seen legend categories ahead of filtered row order", () => {
+        expect(buildStableLegendCategoryOrder(
+            ["Closed", "In Progress", "Open"],
+            ["Open", "Closed", "In Progress"],
+            "none"
+        )).toEqual(["Open", "Closed", "In Progress"]);
+    });
+
+    it("appends newly seen legend categories without duplicating existing slots", () => {
+        expect(buildStableLegendCategoryOrder(
+            ["Future", "Closed"],
+            ["Open", "Closed"],
+            "none"
+        )).toEqual(["Open", "Closed", "Future"]);
+    });
+
+    it("honours explicit legend sort order when building stable category order", () => {
+        expect(buildStableLegendCategoryOrder(
+            ["Open", "Closed"],
+            ["In Progress"],
+            "ascending"
+        )).toEqual(["Closed", "In Progress", "Open"]);
     });
 
     it("normalizes tabs and line breaks for export-safe text", () => {

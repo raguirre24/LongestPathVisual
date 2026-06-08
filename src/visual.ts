@@ -38,6 +38,7 @@ import {
 } from "./utils/DrivingPathScoring";
 import { getRelationshipIdentityKey, markMinimumFloatDrivingRelationships } from "./utils/RelationshipLogic";
 import {
+    buildStableLegendCategoryOrder,
     normalizeLegendCategory,
     parsePersistedLegendSelection,
     sanitizeExportTextField,
@@ -445,6 +446,7 @@ export class Visual implements IVisual {
     private selectedLegendCategories: Set<string> = new Set();
     private legendScrollPosition: number = 0;
     private lastLegendRenderSignature: string | null = null;
+    private lastPersistedLegendCategoryOrder: string | null = null;
 
     private wbsDataExists: boolean = false;
     private wbsDataExistsInMetadata: boolean = false;
@@ -1887,6 +1889,15 @@ export class Visual implements IVisual {
 
     private isFinishOnlyVisualiserMode(): boolean {
         return this.isNoCalculationMode() && !this.hasCurrentStartDateData();
+    }
+
+    private getWbsSummaryDisplayMode(): "milestoneDots" | "summaryBar" {
+        const rawValue = this.settings?.wbsGrouping?.summaryDisplayMode?.value?.value;
+        return rawValue === "summaryBar" ? "summaryBar" : "milestoneDots";
+    }
+
+    private shouldRenderWbsSummaryMilestoneRows(): boolean {
+        return this.isFinishOnlyVisualiserMode() && this.getWbsSummaryDisplayMode() === "milestoneDots";
     }
 
     private shouldShowStartDateColumn(): boolean {
@@ -4858,6 +4869,12 @@ export class Visual implements IVisual {
                     this.selectedLegendCategories = new Set(parsePersistedLegendSelection(savedCategories));
                     this.debugLog(`Restored legend selection: ${savedCategories ?? ""}`);
                 }
+                if (this.settings?.persistedState?.legendCategoryOrder !== undefined) {
+                    const savedCategoryOrder = this.settings.persistedState.legendCategoryOrder.value;
+                    this.legendCategories = parsePersistedLegendSelection(savedCategoryOrder);
+                    this.lastPersistedLegendCategoryOrder = serializeLegendSelection(this.legendCategories);
+                    this.debugLog(`Restored legend category order: ${savedCategoryOrder ?? ""}`);
+                }
                 if (this.settings?.persistedState?.wbsExpandedState !== undefined) {
                     const savedState = this.settings.persistedState.wbsExpandedState.value;
                     this.wbsExpandedState.clear();
@@ -4967,10 +4984,12 @@ export class Visual implements IVisual {
                 this.relationshipByPredecessor = processedData.relationshipByPredecessor;
                 this.dataDate = processedData.dataDate;
                 this.hasRelationshipFreeFloat = processedData.hasRelationshipFreeFloat;
-                this.legendDataExists = processedData.legendDataExists;
-                this.legendCategories = processedData.legendCategories;
-                this.legendColorMap = processedData.legendColorMap;
+                const stableLegendCategories = this.getStableLegendCategoriesForUpdate(processedData.legendCategories, processedData.legendFieldName);
+                this.legendDataExists = processedData.legendDataExists || stableLegendCategories.length > 0;
+                this.legendCategories = stableLegendCategories;
+                this.legendColorMap = new Map();
                 this.legendFieldName = processedData.legendFieldName;
+                this.refreshLegendColorAssignments(dataView);
                 this.sanitizeLegendSelectionState(true);
                 this.wbsDataExists = processedData.wbsDataExists;
                 this.wbsGroups = processedData.wbsGroups;
@@ -4985,6 +5004,7 @@ export class Visual implements IVisual {
                 this.cachedSortedTasksSignature = null;
                 this.dropdownNeedsRefresh = true;
             } else {
+                this.refreshLegendColorAssignments(dataView);
                 this.debugLog("Skipping data transform; using cached task data");
             }
 
@@ -14791,7 +14811,7 @@ export class Visual implements IVisual {
         const showNearCriticalSummary = this.showNearCritical && this.floatThreshold > 0 && mode === 'floatBased';
         const showBaseline = this.showBaselineInternal;
         const showPreviousUpdate = this.showPreviousUpdateInternal;
-        const renderWbsSummaryMilestoneRows = this.isFinishOnlyVisualiserMode();
+        const renderWbsSummaryMilestoneRows = this.shouldRenderWbsSummaryMilestoneRows();
         const configuredSummaryBarHeight = Math.max(0, Number(this.settings.wbsGrouping.summaryBarHeight?.value ?? 0));
         const configuredSummaryMilestoneSize = Math.max(0, Number(this.settings.wbsGrouping.summaryMilestoneSize?.value ?? 0));
         const baselineColor = this.resolveColor(this.settings.comparisonBars.baselineColor.value.value, "foreground");
@@ -16592,6 +16612,108 @@ export class Visual implements IVisual {
     /**
      * Keeps legend chips aligned with the currently rendered task scope.
      */
+    private getLegendSortOrder(): "none" | "ascending" | "descending" {
+        const sortOrder = this.settings?.legend?.sortOrder?.value?.value;
+        return sortOrder === "ascending" || sortOrder === "descending" ? sortOrder : "none";
+    }
+
+    private getStableLegendCategoriesForUpdate(currentCategories: string[], nextLegendFieldName: string): string[] {
+        if (!nextLegendFieldName) {
+            return [];
+        }
+
+        const normalizedCurrentCategories = currentCategories
+            .map(category => normalizeLegendCategory(category))
+            .filter((category): category is string => category !== null);
+        const currentCategorySet = new Set(normalizedCurrentCategories);
+        const hasPreviousOverlap = this.legendCategories.some(category => {
+            const normalizedCategory = normalizeLegendCategory(category);
+            return normalizedCategory !== null && currentCategorySet.has(normalizedCategory);
+        });
+        const previousCategories = (this.legendFieldName === nextLegendFieldName || this.legendFieldName === "") && hasPreviousOverlap
+            ? this.legendCategories
+            : [];
+
+        if (normalizedCurrentCategories.length === 0) {
+            return previousCategories;
+        }
+
+        return buildStableLegendCategoryOrder(
+            normalizedCurrentCategories,
+            previousCategories,
+            this.getLegendSortOrder()
+        );
+    }
+
+    private refreshLegendColorAssignments(dataView: DataView): void {
+        if (!this.legendDataExists || this.legendCategories.length === 0) {
+            this.legendColorMap.clear();
+            for (const task of this.allTasksData) {
+                task.legendColor = undefined;
+            }
+            this.lastLegendRenderSignature = null;
+            return;
+        }
+
+        this.legendCategories = buildStableLegendCategoryOrder(
+            [],
+            this.legendCategories,
+            this.getLegendSortOrder()
+        );
+
+        const legendColorsObjects = dataView.metadata?.objects?.legendColors;
+        const nextColorMap = new Map<string, string>();
+
+        for (let i = 0; i < this.legendCategories.length && i < 20; i++) {
+            const category = this.legendCategories[i];
+            const colorKey = `color${i + 1}`;
+
+            if (this.highContrastMode) {
+                nextColorMap.set(category, this.highContrastForeground);
+                continue;
+            }
+
+            const persistedColor = legendColorsObjects?.[colorKey] as { solid?: { color?: string } } | undefined;
+            const persistedSolidColor = persistedColor?.solid?.color;
+            nextColorMap.set(
+                category,
+                typeof persistedSolidColor === "string" && persistedSolidColor.trim().length > 0
+                    ? persistedSolidColor
+                    : this.host.colorPalette.getColor(category).value
+            );
+        }
+
+        this.legendColorMap = nextColorMap;
+        for (const task of this.allTasksData) {
+            const category = normalizeLegendCategory(task.legendValue);
+            task.legendColor = category ? this.legendColorMap.get(category) : undefined;
+        }
+
+        this.persistLegendCategoryOrderState();
+        this.lastLegendRenderSignature = null;
+    }
+
+    private persistLegendCategoryOrderState(): void {
+        if (!this.settings?.persistedState?.legendCategoryOrder) {
+            return;
+        }
+
+        const categoryOrder = serializeLegendSelection(this.legendCategories);
+        if (categoryOrder === this.lastPersistedLegendCategoryOrder) {
+            return;
+        }
+
+        this.lastPersistedLegendCategoryOrder = categoryOrder;
+        this.settings.persistedState.legendCategoryOrder.value = categoryOrder;
+        this.host.persistProperties({
+            merge: [{
+                objectName: "persistedState",
+                properties: { legendCategoryOrder: categoryOrder },
+                selector: null
+            }]
+        });
+    }
+
     private getLegendCategoriesForTaskScope(tasks: Task[]): string[] {
         if (!this.legendDataExists || this.legendCategories.length === 0 || tasks.length === 0) {
             return [];

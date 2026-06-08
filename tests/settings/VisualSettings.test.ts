@@ -92,6 +92,18 @@ describe("VisualSettings", () => {
         ]);
     });
 
+    it("persists stable legend category order for data colour slots", () => {
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+
+        expect(capabilities.objects.persistedState.properties.legendCategoryOrder.type.text).toBe(true);
+        expect(settingsSource).toContain('legendCategoryOrder = new TextInput');
+        expect(settingsSource).toContain("this.legendCategoryOrder");
+        expect(visualSource).toContain("properties: { legendCategoryOrder: categoryOrder }");
+        expect(visualSource).toContain("buildStableLegendCategoryOrder");
+    });
+
     it("exposes critical bar style with Status Stripe as the default", () => {
         const settingsSource = readFileSync("src/settings.ts", "utf8");
         const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
@@ -879,7 +891,9 @@ describe("VisualSettings", () => {
 
         expect(interfacesSource).toContain("export interface WbsSummaryMilestoneMarker");
         expect(interfacesSource).toContain("summaryMilestoneMarkers?: WbsSummaryMilestoneMarker[];");
-        expect(drawWbsSource).toContain("const renderWbsSummaryMilestoneRows = this.isFinishOnlyVisualiserMode();");
+        expect(visualSource).toContain("private shouldRenderWbsSummaryMilestoneRows(): boolean");
+        expect(visualSource).toContain('return this.isFinishOnlyVisualiserMode() && this.getWbsSummaryDisplayMode() === "milestoneDots";');
+        expect(drawWbsSource).toContain("const renderWbsSummaryMilestoneRows = this.shouldRenderWbsSummaryMilestoneRows();");
         expect(drawWbsSource).toContain("if (renderWbsSummaryMilestoneRows)");
         expect(drawWbsSource).toContain("const autoMarkerDiameter = Math.max(4, Math.min(8, taskHeight * 0.32));");
         expect(drawWbsSource).toContain("const markerDiameter = configuredSummaryMilestoneSize > 0");
@@ -892,6 +906,28 @@ describe("VisualSettings", () => {
         expect(filteredSummarySource).toContain("summaryMilestoneMarkers.push(...(child.summaryMilestoneMarkers ?? []));");
         expect(filteredSummarySource).toContain("summaryBaselineMilestoneMarkers.push(...(child.summaryBaselineMilestoneMarkers ?? []));");
         expect(filteredSummarySource).toContain("summaryPreviousUpdateMilestoneMarkers.push(...(child.summaryPreviousUpdateMilestoneMarkers ?? []));");
+    });
+
+    it("exposes a finish-only WBS summary style selector", () => {
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const summaryDisplayMode = capabilities.objects.wbsGrouping.properties.summaryDisplayMode;
+
+        expect(summaryDisplayMode.displayName).toBe("Finish-Only Summary Style");
+        expect(summaryDisplayMode.type.enumeration.map((item: { value: string }) => item.value)).toEqual([
+            "milestoneDots",
+            "summaryBar"
+        ]);
+        expect(settingsSource).toContain("const wbsSummaryDisplayModeItems: powerbi.IEnumMember[] = [");
+        expect(settingsSource).toContain('{ value: "milestoneDots", displayName: "Milestone Dots" }');
+        expect(settingsSource).toContain('{ value: "summaryBar", displayName: "Summary Bar" }');
+        expect(settingsSource).toContain('summaryDisplayMode = new ItemDropdown({');
+        expect(settingsSource).toContain('displayName: "Finish-Only Summary Style"');
+        expect(settingsSource).toContain('value: wbsSummaryDisplayModeItems.find(item => item.value === "milestoneDots")');
+        expect(settingsSource).toContain("this.summaryDisplayMode");
+        expect(visualSource).toContain('private getWbsSummaryDisplayMode(): "milestoneDots" | "summaryBar"');
+        expect(visualSource).toContain('return rawValue === "summaryBar" ? "summaryBar" : "milestoneDots";');
     });
 
     it("keeps task and WBS wrapped label rows anchored consistently", () => {
@@ -986,9 +1022,14 @@ describe("VisualSettings", () => {
         };
 
         expect(capabilities.objects.wbsGrouping.properties.groupNameColor.type.fill.solid.color).toBe(true);
+        expect(capabilities.objects.wbsGrouping.properties.summaryDisplayMode.type.enumeration.map((item: { value: string }) => item.value)).toEqual([
+            "milestoneDots",
+            "summaryBar"
+        ]);
         expect(capabilities.objects.wbsGrouping.properties.summaryBarHeight.type.numeric).toBe(true);
         expect(capabilities.objects.wbsGrouping.properties.summaryMilestoneSize.type.numeric).toBe(true);
         expect(settingsSource).toContain('groupNameColor = new ColorPicker({ name: "groupNameColor", displayName: "WBS Text Color"');
+        expect(settingsSource).toContain('summaryDisplayMode = new ItemDropdown({');
         expect(settingsSource).toContain('summaryBarHeight = new NumUpDown({ name: "summaryBarHeight", displayName: "Summary Bar Height (0 = Auto)", value: 0');
         expect(settingsSource).toContain('summaryMilestoneSize = new NumUpDown({ name: "summaryMilestoneSize", displayName: "Summary Milestone Size (0 = Auto)", value: 0');
         expect(visualSource).toContain("private readonly WBS_LEVEL_ACCENT_WIDTH = 5;");

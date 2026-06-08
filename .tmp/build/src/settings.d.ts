@@ -276,6 +276,7 @@ declare class WBSGroupingCard extends Card {
     showWbsToggle: formattingSettings.ToggleSwitch;
     hideEmptyGroups: formattingSettings.ToggleSwitch;
     showGroupSummary: formattingSettings.ToggleSwitch;
+    summaryDisplayMode: formattingSettings.ItemDropdown;
     groupHeaderColor: formattingSettings.ColorPicker;
     groupSummaryColor: formattingSettings.ColorPicker;
     summaryBarHeight: formattingSettings.NumUpDown;
@@ -365,6 +366,7 @@ declare class PersistedStateCard extends Card {
     floatThreshold: formattingSettings.NumUpDown;
     traceMode: formattingSettings.TextInput;
     selectedLegendCategories: formattingSettings.TextInput;
+    legendCategoryOrder: formattingSettings.TextInput;
     wbsExpandLevel: formattingSettings.NumUpDown;
     wbsExpandedState: formattingSettings.TextInput;
     wbsManualToggledGroups: formattingSettings.TextInput;
