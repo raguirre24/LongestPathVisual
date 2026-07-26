@@ -239,7 +239,7 @@ function generateHtmlContent(
     }
 
     // Start table
-    let html = `<table border="1" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
+    let html = `<table border="1" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 11px; white-space: nowrap;">`;
     html += `<tr style="background-color: #f0f0f0; font-weight: bold; text-align: center;">${headers.map(h => `<th style="padding: 4px; white-space: nowrap;">${h}</th>`).join("")}</tr>`;
 
     let previousLevels: string[] = [];
@@ -413,7 +413,7 @@ function generateWbsOnlyContent(
     const tsvRows: string[][] = [];
 
     // HTML Headers
-    let html = `<table border="1" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
+    let html = `<table border="1" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif; font-size: 11px; white-space: nowrap;">`;
     html += `<tr style="background-color: #f0f0f0; font-weight: bold; text-align: center;">`;
     html += `<th style="padding: 4px; white-space: nowrap;">Index</th>`;
     html += `<th style="padding: 4px; white-space: nowrap;">WBS Name</th>`;

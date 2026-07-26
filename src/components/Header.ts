@@ -2794,7 +2794,7 @@ export class Header {
             .attr('y', 2)
             .attr('text-anchor', 'middle')
             .attr('dominant-baseline', 'central')
-            .style('font-family', 'Segoe UI, sans-serif')
+            .style('font-family', HEADER_FONT_FAMILY)
             .style('font-size', '7px')
             .style('font-weight', '700')
             .style('fill', mutedTextColor)

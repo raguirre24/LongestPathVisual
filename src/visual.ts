@@ -1279,7 +1279,7 @@ export class Visual implements IVisual {
             .style("padding", "5px 8px")
             .style("border", `1px solid ${this.getHeaderLegendBorderColor()}`)
             .style("border-radius", "4px")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", this.getFontFamily())
             .style("font-size", "9px")
             .style("color", "#333");
 
@@ -1315,7 +1315,7 @@ export class Visual implements IVisual {
             .style("border", `1px solid ${this.getHeaderLegendBorderColor()}`)
             .style("border-radius", `${UI_TOKENS.radius.pill}px`)
             .style("box-shadow", "none")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", this.getFontFamily())
             .style("font-size", this.fontPxFromPtSetting(8.5))
             .style("color", this.getHeaderLegendTextColor())
             .style("font-weight", "600")
@@ -1339,7 +1339,7 @@ export class Visual implements IVisual {
             .style("border", `1px solid ${this.getHeaderLegendBorderColor()}`)
             .style("border-radius", "12px")
             .style("box-shadow", "none")
-            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-family", this.getFontFamily())
             .style("font-size", "11px")
             .style("color", this.getHeaderLegendTextColor())
             .style("font-weight", "600")
@@ -1788,10 +1788,10 @@ export class Visual implements IVisual {
 [data-owner="${this.instanceId}"] .criticalPathVisual {
     -webkit-font-smoothing: antialiased !important;
     -moz-osx-font-smoothing: grayscale !important;
-    text-rendering: geometricPrecision !important;
+    text-rendering: optimizeLegibility !important;
 }
 [data-owner="${this.instanceId}"] .criticalPathVisual text {
-    text-rendering: geometricPrecision !important;
+    text-rendering: optimizeLegibility !important;
     -webkit-font-smoothing: antialiased !important;
     -moz-osx-font-smoothing: grayscale !important;
 }
@@ -1825,13 +1825,13 @@ export class Visual implements IVisual {
         if (this.mainSvg) {
             this.mainSvg
                 .attr("shape-rendering", "geometricPrecision")
-                .attr("text-rendering", "geometricPrecision");
+                .attr("text-rendering", "optimizeLegibility");
         }
 
         if (this.headerSvg) {
             this.headerSvg
                 .attr("shape-rendering", "geometricPrecision")
-                .attr("text-rendering", "geometricPrecision");
+                .attr("text-rendering", "optimizeLegibility");
         }
 
         // Grid layers use crispEdges for pixel-perfect grid lines
@@ -9852,12 +9852,12 @@ export class Visual implements IVisual {
             (ctx as any).oBackingStorePixelRatio ||
             (ctx as any).backingStorePixelRatio || 1;
 
-        const ratio = canvasPixelRatio / backingStoreRatio;
+        const devicePixelRatio = canvasPixelRatio / backingStoreRatio;
 
         const displayWidth = Math.max(1, this.snapRectCoord(chartWidth));
         const displayHeight = Math.max(1, this.snapRectCoord(chartHeight));
-        const canvasWidth = Math.round(displayWidth * ratio);
-        const canvasHeight = Math.round(displayHeight * ratio);
+        const canvasWidth = Math.round(displayWidth * devicePixelRatio);
+        const canvasHeight = Math.round(displayHeight * devicePixelRatio);
 
         this.canvasElement.style.width = `${displayWidth}px`;
         this.canvasElement.style.height = `${displayHeight}px`;
@@ -9882,7 +9882,7 @@ export class Visual implements IVisual {
 
         this.canvasContext.setTransform(1, 0, 0, 1, 0, 0);
         this.canvasContext.clearRect(0, 0, canvasWidth, canvasHeight);
-        this.canvasContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+        this.canvasContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
 
         this.canvasContext.beginPath();
         this.canvasContext.rect(0, 0, displayWidth, displayHeight);
@@ -9895,7 +9895,7 @@ export class Visual implements IVisual {
 
 
 
-        this.debugLog(`Canvas setup: Ratio=${ratio}, Display=${displayWidth}x${displayHeight}, Canvas=${canvasWidth}x${canvasHeight}`);
+        this.debugLog(`Canvas setup: Ratio=${devicePixelRatio}, Display=${displayWidth}x${displayHeight}, Canvas=${canvasWidth}x${canvasHeight}`);
         return true;
     }
 

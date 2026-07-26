@@ -37,7 +37,20 @@ export declare class DataProcessor {
     private tooltipDebugLogged;
     constructor(host: IVisualHost);
     private debugLog;
-    private getRoleColumnInfos;
+    private getRoleBucketIndex;
+    getRoleColumnInfos(dataView: DataView, roleName: string): Array<{
+        column: {
+            queryName?: string;
+            displayName?: string;
+            roles?: {
+                [key: string]: boolean;
+            };
+            rolesIndex?: {
+                [key: string]: number[] | number;
+            };
+        };
+        index: number;
+    }>;
     private getRoleColumnInfo;
     processData(dataView: DataView, settings: VisualSettings, wbsExpandedState: Map<string, boolean>, _wbsManuallyToggledGroups: Set<string>, lastExpandCollapseAllState: boolean | null, highContrastMode: boolean, highContrastForeground: string, dataFetchLimitReached?: boolean): ProcessedData;
     private extractTaskId;
