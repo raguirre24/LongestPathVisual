@@ -875,6 +875,10 @@
                             {
                                 "value": "Tahoma",
                                 "displayName": "Tahoma"
+                            },
+                            {
+                                "value": "DIN",
+                                "displayName": "DIN"
                             }
                         ]
                     }

@@ -1855,11 +1855,9 @@ export class Visual implements IVisual {
     }
 
     private getWbsBindingSignature(dataView: DataView): string {
-        const columns = dataView.table?.columns ?? dataView.metadata?.columns ?? [];
-
-        return columns
-            .filter(column => column.roles?.wbsLevels)
-            .map((column, index) => `${column.queryName ?? column.displayName ?? `wbs-${index}`}`)
+        const infos = this.dataProcessor.getRoleColumnInfos(dataView, 'wbsLevels');
+        return infos
+            .map((info, index) => `${info.column.queryName ?? info.column.displayName ?? `wbs-${index}`}`)
             .join("|");
     }
 
@@ -9199,6 +9197,9 @@ export class Visual implements IVisual {
         const ctx = this.canvasContext;
 
         ctx.save();
+        if ((ctx as any).textRendering) {
+            (ctx as any).textRendering = 'optimizeLegibility';
+        }
 
         ctx.lineWidth = 1;
 
@@ -9888,6 +9889,9 @@ export class Visual implements IVisual {
         this.canvasContext.clip();
 
         this.canvasContext.imageSmoothingEnabled = false;
+        if ((this.canvasContext as any).textRendering) {
+            (this.canvasContext as any).textRendering = 'optimizeLegibility';
+        }
 
 
 
@@ -15435,7 +15439,7 @@ export class Visual implements IVisual {
                     .style('opacity', self.highContrastMode ? 1 : (group.visibleTaskCount === 0 ? 0.72 : 0.92));
 
                 badgeGroup.select<SVGTextElement>('.wbs-count-badge-text')
-                    .attr('x', badgeX + visibleBadgeWidth / 2)
+                    .attr('x', Math.round(badgeX + visibleBadgeWidth / 2))
                     .attr('y', badgeCenterY)
                     .attr('text-anchor', 'middle')
                     .attr('dominant-baseline', 'central')
@@ -15457,7 +15461,7 @@ export class Visual implements IVisual {
                 textElement.style('display', null);
 
                 textElement
-                    .attr('x', textX)
+                    .attr('x', Math.round(textX))
                     .attr('y', Math.round(textY))
                     .attr('clip-path', null)
                     .attr('dominant-baseline', 'central')
@@ -18013,8 +18017,14 @@ export class Visual implements IVisual {
      */
     private getFontFamily(): string {
         const settingFont = this.settings?.textAndLabels?.fontFamily?.value?.value;
-        const defaultFont = "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif";
-        return (typeof settingFont === "string" && settingFont) ? settingFont : defaultFont;
+        const defaultFontStack = "'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif";
+        if (typeof settingFont === "string" && settingFont.trim()) {
+            const font = settingFont.trim();
+            if (font.includes(",")) return font;
+            if (font === "DIN") return `'DIN', 'DIN Next', 'Segoe UI', sans-serif`;
+            return `'${font}', ${defaultFontStack}`;
+        }
+        return defaultFontStack;
     }
 
     private getBackgroundColor(): string {

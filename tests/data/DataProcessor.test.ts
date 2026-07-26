@@ -780,6 +780,34 @@ describe('DataProcessor', () => {
             expect(result.wbsLevelColumnNames).toEqual(['WBS A', 'WBS B', 'WBS C', 'WBS E']);
             expect(result.allTasksData[0].wbsLevels).toEqual(['Phase 1', 'Sub 2', 'Sub 3', 'Sub 4']);
         });
+
+        it('strictly respects rolesIndex field-well position when a field is inserted into the second level', () => {
+            const metadataColumns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'WBS A', queryName: 'Table[WBSA]', roles: { wbsLevels: true }, rolesIndex: { wbsLevels: [0] } } as any,
+                { displayName: 'WBS E', queryName: 'Table[WBSE]', roles: { wbsLevels: true }, rolesIndex: { wbsLevels: [1] } } as any,
+                { displayName: 'WBS C', queryName: 'Table[WBSC]', roles: { wbsLevels: true }, rolesIndex: { wbsLevels: [2] } } as any,
+                { displayName: 'WBS D', queryName: 'Table[WBSD]', roles: { wbsLevels: true }, rolesIndex: { wbsLevels: [3] } } as any,
+            ];
+
+            const tableColumns: ColumnDef[] = [
+                ...STANDARD_COLUMNS,
+                { displayName: 'WBS A', queryName: 'Table[WBSA]', roles: { wbsLevels: true }, rolesIndex: { wbsLevels: [0] } } as any,
+                { displayName: 'WBS C', queryName: 'Table[WBSC]', roles: { wbsLevels: true }, rolesIndex: { wbsLevels: [2] } } as any,
+                { displayName: 'WBS D', queryName: 'Table[WBSD]', roles: { wbsLevels: true }, rolesIndex: { wbsLevels: [3] } } as any,
+                { displayName: 'WBS E', queryName: 'Table[WBSE]', roles: { wbsLevels: true }, rolesIndex: { wbsLevels: [1] } } as any,
+            ];
+
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'Val A', 'Val C', 'Val D', 'Val E'],
+            ];
+
+            const dv = buildDataViewWithSeparateColumns(metadataColumns, tableColumns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.wbsLevelColumnNames).toEqual(['WBS A', 'WBS E', 'WBS C', 'WBS D']);
+            expect(result.allTasksData[0].wbsLevels).toEqual(['Val A', 'Val E', 'Val C', 'Val D']);
+        });
     });
 
     // -----------------------------------------------------------------------

@@ -80,10 +80,22 @@ export class DataProcessor {
         }
     }
 
-    private getRoleColumnInfos(
+    private getRoleBucketIndex(column: any, roleName: string): number | null {
+        if (!column || !column.rolesIndex) return null;
+        const roleIdx = column.rolesIndex[roleName];
+        if (Array.isArray(roleIdx) && roleIdx.length > 0 && typeof roleIdx[0] === 'number') {
+            return roleIdx[0];
+        }
+        if (typeof roleIdx === 'number') {
+            return roleIdx;
+        }
+        return null;
+    }
+
+    public getRoleColumnInfos(
         dataView: DataView,
         roleName: string
-    ): Array<{ column: { queryName?: string; displayName?: string; roles?: { [key: string]: boolean } }; index: number }> {
+    ): Array<{ column: { queryName?: string; displayName?: string; roles?: { [key: string]: boolean }; rolesIndex?: { [key: string]: number[] | number } }; index: number }> {
         const tableColumns = dataView.table?.columns ?? [];
         const metadataColumns = dataView.metadata?.columns ?? [];
 
@@ -91,14 +103,6 @@ export class DataProcessor {
             return [];
         }
 
-        // Power BI can push transient dataViews where role flags drift between
-        // metadata.columns and table.columns (e.g., after swapping a bound field).
-        // metadata.columns reflects the field well ordering (top-to-bottom),
-        // while table.columns reflects query order and may append newly-added
-        // fields regardless of their field-well position. Iterate metadata
-        // first for correct ordering, resolving each match to its position in
-        // table.columns so row access stays valid. Fall back to table-only
-        // matches for role-bound columns that metadata hasn't captured yet.
         const queryNameToTableIndex = new Map<string, number>();
         tableColumns.forEach((column, index) => {
             const key = column.queryName;
@@ -107,42 +111,82 @@ export class DataProcessor {
             }
         });
 
-        const seen = new Set<string>();
-        const results: Array<{ column: { queryName?: string; displayName?: string; roles?: { [key: string]: boolean } }; index: number }> = [];
+        interface ColumnMatch {
+            column: { queryName?: string; displayName?: string; roles?: { [key: string]: boolean }; rolesIndex?: { [key: string]: number[] | number } };
+            index: number;
+            bucketIndex: number | null;
+            metaOrder: number;
+        }
 
-        metadataColumns.forEach((column, metadataIndex) => {
-            if (!column.roles?.[roleName]) return;
-            const queryName = column.queryName;
-            const dedupeKey = queryName ?? `${roleName}-meta-${metadataIndex}`;
-            if (seen.has(dedupeKey)) return;
+        const seenKeys = new Set<string>();
+        const matches: ColumnMatch[] = [];
+
+        metadataColumns.forEach((metaCol, metaIndex) => {
+            if (!metaCol.roles?.[roleName]) return;
+
+            const queryName = metaCol.queryName;
+            const dedupeKey = queryName ?? `${roleName}-meta-${metaIndex}`;
+            if (seenKeys.has(dedupeKey)) return;
+            seenKeys.add(dedupeKey);
+
+            let tableIndex = -1;
+            let targetCol = metaCol;
 
             if (queryName && queryNameToTableIndex.has(queryName)) {
-                // Column is present in table rows; use the table position so
-                // row[index] returns the correct cell.
-                const tableIndex = queryNameToTableIndex.get(queryName)!;
-                seen.add(dedupeKey);
-                results.push({ column: tableColumns[tableIndex], index: tableIndex });
-                return;
+                tableIndex = queryNameToTableIndex.get(queryName)!;
+                targetCol = tableColumns[tableIndex];
+            } else if (tableColumns.length === 0) {
+                tableIndex = metaIndex;
+            } else {
+                const matchedIdx = tableColumns.findIndex(c => c.displayName === metaCol.displayName);
+                if (matchedIdx !== -1) {
+                    tableIndex = matchedIdx;
+                    targetCol = tableColumns[tableIndex];
+                }
             }
 
-            if (tableColumns.length === 0) {
-                // No table rows available yet; fall back to metadata index.
-                seen.add(dedupeKey);
-                results.push({ column, index: metadataIndex });
+            if (tableIndex !== -1) {
+                const bucketIdx = this.getRoleBucketIndex(metaCol, roleName) ?? this.getRoleBucketIndex(targetCol, roleName);
+                matches.push({
+                    column: targetCol,
+                    index: tableIndex,
+                    bucketIndex: bucketIdx,
+                    metaOrder: metaIndex
+                });
             }
-            // Otherwise: role-bound in metadata but absent from table rows —
-            // stale entry, skip to avoid reading the wrong cell.
         });
 
-        tableColumns.forEach((column, index) => {
-            if (!column.roles?.[roleName]) return;
-            const dedupeKey = column.queryName ?? `${roleName}-table-${index}`;
-            if (seen.has(dedupeKey)) return;
-            seen.add(dedupeKey);
-            results.push({ column, index });
+        tableColumns.forEach((tableCol, tableIndex) => {
+            if (!tableCol.roles?.[roleName]) return;
+            const queryName = tableCol.queryName;
+            const dedupeKey = queryName ?? `${roleName}-table-${tableIndex}`;
+            if (seenKeys.has(dedupeKey)) return;
+            seenKeys.add(dedupeKey);
+
+            const bucketIdx = this.getRoleBucketIndex(tableCol, roleName);
+            matches.push({
+                column: tableCol,
+                index: tableIndex,
+                bucketIndex: bucketIdx,
+                metaOrder: 9999 + tableIndex
+            });
         });
 
-        return results;
+        matches.sort((a, b) => {
+            if (a.bucketIndex !== null && b.bucketIndex !== null) {
+                return a.bucketIndex - b.bucketIndex;
+            }
+            if (a.bucketIndex !== null) return -1;
+            if (b.bucketIndex !== null) return 1;
+
+            if (a.metaOrder !== b.metaOrder) {
+                return a.metaOrder - b.metaOrder;
+            }
+
+            return a.index - b.index;
+        });
+
+        return matches.map(m => ({ column: m.column, index: m.index }));
     }
 
     private getRoleColumnInfo(
@@ -728,54 +772,20 @@ export class DataProcessor {
     }
 
     private extractTooltipData(row: any[], dataView: DataView): Array<{ key: string, value: PrimitiveValue }> | undefined {
-        const columns = dataView.table?.columns ?? dataView.metadata?.columns;
-        if (!columns) return undefined;
-
-        const tooltipColumns: Array<{ column: any, rowIndex: number }> = [];
-
-        columns.forEach((column, index) => {
-            if (column.roles?.tooltip) {
-                if (index === 0 || !this.tooltipDebugLogged) {
-                    this.debugLog(`Tooltip column: ${column.displayName}, index: ${column.index}, queryName: ${column.queryName}`);
-                }
-                tooltipColumns.push({
-                    column: column,
-                    rowIndex: index
-                });
-            }
-        });
-
-        this.tooltipDebugLogged = true;
-
-        tooltipColumns.sort((a, b) => {
-            const aQuery = a.column.queryName || '';
-            const bQuery = b.column.queryName || '';
-
-            const aMatch = aQuery.match(/\.tooltip\.(\d+)$/);
-            const bMatch = bQuery.match(/\.tooltip\.(\d+)$/);
-
-            if (aMatch && bMatch) {
-                return parseInt(aMatch[1]) - parseInt(bMatch[1]);
-            }
-
-            if (a.column.index !== undefined && b.column.index !== undefined) {
-                return a.column.index - b.column.index;
-            }
-
-            return a.rowIndex - b.rowIndex;
-        });
+        const tooltipInfos = this.getRoleColumnInfos(dataView, "tooltip");
+        if (tooltipInfos.length === 0) return undefined;
 
         const tooltipData: Array<{ key: string, value: PrimitiveValue }> = [];
 
-        for (const item of tooltipColumns) {
-            const value = row[item.rowIndex];
+        for (const item of tooltipInfos) {
+            const value = item.index >= 0 && item.index < row.length ? row[item.index] : null;
             if (value !== null && value !== undefined) {
-
-                if (item.column.type?.dateTime || this.mightBeDate(value)) {
+                const colType = (item.column as any)?.type;
+                if (colType?.dateTime || this.mightBeDate(value)) {
                     const parsedDate = this.parseDate(value);
                     if (parsedDate) {
                         tooltipData.push({
-                            key: item.column.displayName || `Field ${item.rowIndex}`,
+                            key: item.column.displayName || `Field ${item.index}`,
                             value: parsedDate
                         });
                         continue;
@@ -783,7 +793,7 @@ export class DataProcessor {
                 }
 
                 tooltipData.push({
-                    key: item.column.displayName || `Field ${item.rowIndex}`,
+                    key: item.column.displayName || `Field ${item.index}`,
                     value: value
                 });
             }

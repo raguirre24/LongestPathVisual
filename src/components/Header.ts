@@ -94,6 +94,7 @@ export type HeaderPalette = Partial<typeof HEADER_DOCK_TOKENS> & {
     usesCustomColours?: boolean;
 };
 
+const HEADER_FONT_FAMILY = "'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif";
 const LOOK_AHEAD_SELECT_FONT_SIZE = `${UI_TOKENS.fontSize.sm}px`;
 const LOOK_AHEAD_OPTION_LINE_HEIGHT = "1.2";
 const LOOK_AHEAD_OPTION_ROW_HEIGHT = 22;
@@ -511,7 +512,7 @@ export class Header {
 
         // Text
         overlay.append("div")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "14px")
             .style("font-weight", "600")
             .style("color", this.getHeaderChipTextColor())
@@ -1025,7 +1026,7 @@ export class Header {
             .attr("y", -5.8)
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "7px")
             .style("font-weight", "800")
             .style("fill", showBaseline ? baselineColor : inactiveColor)
@@ -1037,7 +1038,7 @@ export class Header {
                 .attr("x", iconX + 18)
                 .attr("y", buttonHeight / 2)
                 .attr("dominant-baseline", "central")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
                 .style("fill", labelFill)
                 .style("font-weight", showBaseline ? UI_TOKENS.fontWeight.semibold.toString() : UI_TOKENS.fontWeight.medium.toString())
@@ -1193,7 +1194,7 @@ export class Header {
             .attr("y", -5.8)
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "7px")
             .style("font-weight", "800")
             .style("fill", showPreviousUpdate ? previousUpdateColor : inactiveColor)
@@ -1205,7 +1206,7 @@ export class Header {
                 .attr("x", iconX + 18)
                 .attr("y", buttonHeight / 2)
                 .attr("dominant-baseline", "central")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
                 .style("fill", labelFill)
                 .style("font-weight", showPreviousUpdate ? UI_TOKENS.fontWeight.semibold.toString() : UI_TOKENS.fontWeight.medium.toString())
@@ -1540,7 +1541,7 @@ export class Header {
             .attr("y", buttonSize - 10)
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("fill", iconColor)
@@ -1654,7 +1655,7 @@ export class Header {
             .attr("y", buttonSize - 10)
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("fill", iconColor)
@@ -1743,7 +1744,7 @@ export class Header {
             .style("font-size", "11px")
             .style("letter-spacing", "0.1px")
             .style("color", textColor)
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-weight", UI_TOKENS.fontWeight.medium)
             .style("white-space", "nowrap")
             .text(labelText);
@@ -1761,7 +1762,7 @@ export class Header {
             .style("border", `1px solid ${this.getHeaderInputBorderColor()}`)
             .style("border-radius", "4px")
             .style("font-size", "11px")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("text-align", "center")
             .style("color", textColor)
@@ -1788,7 +1789,7 @@ export class Header {
             controlContainer.append("span")
                 .style("font-size", "11px")
                 .style("color", mutedTextColor)
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .text("days");
         }
 
@@ -1899,7 +1900,7 @@ export class Header {
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
                 .attr("y", 1)
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", "10px")
                 .style("font-weight", "bold")
                 .style("fill", activeColor)
@@ -1961,7 +1962,7 @@ export class Header {
                 .attr("y", 0)
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
                 .style("font-weight", isFloatBased ? UI_TOKENS.fontWeight.medium : UI_TOKENS.fontWeight.bold)
                 .style("fill", isFloatBased ? inactiveTextColor : activeColor)
@@ -1973,7 +1974,7 @@ export class Header {
                 .attr("y", 0)
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
                 .style("font-weight", isFloatBased ? UI_TOKENS.fontWeight.bold : UI_TOKENS.fontWeight.medium)
                 .style("fill", isFloatBased ? activeColor : inactiveTextColor)
@@ -2006,7 +2007,7 @@ export class Header {
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
                 .attr("y", 0.6)
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", buttonWidth < 80 ? "8px" : "9px")
                 .style("font-weight", "800")
                 .style("fill", activeColor)
@@ -2150,7 +2151,7 @@ export class Header {
 
         if (!isCompact) {
             wrapper.append("span")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
                 .style("font-weight", UI_TOKENS.fontWeight.semibold)
                 .style("color", labelColor)
@@ -2178,7 +2179,7 @@ export class Header {
             .style("outline", "none")
             .style("border-radius", "4px")
             .style("padding", isCompact ? "0 13px 0 3px" : "0 15px 0 4px")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("line-height", "1")
@@ -2282,7 +2283,7 @@ export class Header {
                 .style("border", `1px solid ${selected ? activeColor : this.getHeaderMenuBorderColor()}`)
                 .style("border-radius", "3px")
                 .style("box-sizing", "border-box")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
                 .style("font-weight", UI_TOKENS.fontWeight.semibold)
                 .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
@@ -2877,7 +2878,7 @@ export class Header {
             .attr('y', buttonSize / 2 + 1)
             .attr('text-anchor', 'middle')
             .attr('dominant-baseline', "central")
-            .style('font-family', "Segoe UI, sans-serif")
+            .style('font-family', HEADER_FONT_FAMILY)
             .style('font-size', `${UI_TOKENS.fontSize.md}px`)
             .style('font-weight', UI_TOKENS.fontWeight.bold)
             .style('fill', mutedTextColor)
@@ -3109,7 +3110,7 @@ export class Header {
                 .attr("y", 7.6)
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", "8px")
                 .style("font-weight", UI_TOKENS.fontWeight.bold)
                 .style("fill", UI_TOKENS.color.neutral.white)
@@ -3346,7 +3347,7 @@ export class Header {
             sectionEl.append("div")
                 .attr("class", "action-overflow-menu-section-title")
                 .style("padding", "2px 6px 1px")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", "10px")
                 .style("font-weight", UI_TOKENS.fontWeight.bold)
                 .style("letter-spacing", "0.2px")
@@ -3400,7 +3401,7 @@ export class Header {
             .style("box-sizing", "border-box")
             .style("background", "transparent")
             .style("color", itemTextColor)
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "12px")
             .style("font-weight", "600")
             .style("text-align", "left")
@@ -3488,7 +3489,7 @@ export class Header {
             .style("min-width", "0");
 
         labelStack.append("span")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "12px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("color", item.disabled ? mutedTextColor : textColor)
@@ -3498,7 +3499,7 @@ export class Header {
             .text(item.label);
 
         labelStack.append("span")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "10.5px")
             .style("font-weight", UI_TOKENS.fontWeight.normal)
             .style("color", mutedTextColor)
@@ -3527,7 +3528,7 @@ export class Header {
             .style("border", `1px solid ${toggleStroke}`)
             .style("border-radius", "4px")
             .style("box-sizing", "border-box")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "11px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("color", item.disabled ? mutedTextColor : toggleTextColor)
@@ -3582,7 +3583,7 @@ export class Header {
                 .style("border", `1px solid ${selectedStroke}`)
                 .style("border-radius", "4px")
                 .style("box-sizing", "border-box")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
                 .style("font-weight", UI_TOKENS.fontWeight.semibold)
                 .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
@@ -3639,7 +3640,7 @@ export class Header {
                 .style("border", `1px solid ${selectedStroke}`)
                 .style("border-radius", "4px")
                 .style("box-sizing", "border-box")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
                 .style("font-weight", UI_TOKENS.fontWeight.semibold)
                 .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
@@ -3703,7 +3704,7 @@ export class Header {
             .style("gap", "8px");
 
         labelsRow.append("span")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "11px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("color", item.disabled ? mutedTextColor : textColor)
@@ -3725,7 +3726,7 @@ export class Header {
             .style("border", `1px solid ${labelsStroke}`)
             .style("border-radius", "4px")
             .style("box-sizing", "border-box")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "11px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("color", item.disabled ? mutedTextColor : labelsTextColor)
@@ -3781,14 +3782,14 @@ export class Header {
             .style("gap", "8px");
 
         headerLine.append("span")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "12px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("color", item.disabled ? mutedTextColor : textColor)
             .text(item.label);
 
         headerLine.append("span")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "11px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("color", item.disabled ? mutedTextColor : (activeDays > 0 ? activeColor : textColor))
@@ -3820,7 +3821,7 @@ export class Header {
                 .style("border", `1px solid ${selected ? activeColor : this.getHeaderInputBorderColor()}`)
                 .style("border-radius", "4px")
                 .style("box-sizing", "border-box")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", LOOK_AHEAD_SELECT_FONT_SIZE)
                 .style("font-weight", UI_TOKENS.fontWeight.semibold)
                 .style("line-height", LOOK_AHEAD_OPTION_LINE_HEIGHT)
@@ -3903,7 +3904,7 @@ export class Header {
             .style("gap", "8px");
 
         row.append("span")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "12px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("color", textColor)
@@ -3920,7 +3921,7 @@ export class Header {
             .style("padding", "0 4px")
             .style("border", `1px solid ${this.getHeaderInputBorderColor()}`)
             .style("border-radius", "4px")
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", HEADER_FONT_FAMILY)
             .style("font-size", "12px")
             .style("font-weight", UI_TOKENS.fontWeight.semibold)
             .style("text-align", "center")

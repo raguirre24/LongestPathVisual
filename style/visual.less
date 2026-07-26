@@ -3,7 +3,10 @@
 
 // Base styles for the visual container
 .criticalPathVisual {
-    font-family: 'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif;
+    font-family: 'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     overflow: visible; // Allow elements like labels to go outside the main SVG bounds if needed
     max-width: none;
     flex-shrink: 0;
@@ -26,8 +29,9 @@ text {
     fill: #333; // Default text color
     dominant-baseline: middle; // Vertically center text
     text-anchor: start; // Align text to the start (left)
-    // Use geometricPrecision for sharp text across all DPI/zoom levels
-    text-rendering: geometricPrecision;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 // Specific style for task duration text inside bars
@@ -524,13 +528,42 @@ text {
     }
 
     &:focus-visible {
+
+// ============================================================================
+// PHASE 2: REFACTORED HEADER STYLES
+// ============================================================================
+
+// Base class for all header toggle buttons
+.header-toggle-button {
+    position: absolute;
+    padding: 0;
+    box-sizing: border-box; // Fixes jitter when border width changes
+    will-change: auto; // Avoid persistent compositor rasterization during host scroll
+    border-style: solid;
+    border-radius: 4px; // Matches UI_TOKENS.radius.medium typical value
+    box-shadow: 0 1.6px 3.6px 0 rgba(0, 0, 0, 0.132), 0 0.3px 0.9px 0 rgba(0, 0, 0, 0.108); // Matches UI_TOKENS.shadow[2] typical value
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center; // Default centered, can be overridden
+    transition: all 0.2s cubic-bezier(0.33, 1, 0.68, 1); // Smooth transition
+
+    &.is-disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        box-shadow: none;
+    }
+
+    &:focus-visible {
         outline: 2px solid #0078D4;
         outline-offset: 2px;
     }
 }
 
 .toggle-text {
-    font-family: 'Segoe UI', sans-serif;
+    font-family: 'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     font-size: 14px;
     fill: #323130;
     pointer-events: none;
@@ -577,15 +610,14 @@ text {
     padding: 5px 8px;
     border: 1px solid var(--lpv-header-legend-border-color, #4D5A6E);
     border-radius: 4px;
-    font-family: 'Segoe UI', sans-serif;
+    font-family: 'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     font-size: 9px;
     color: #333;
 }
 
 .task-selection-list {
-    position: absolute;
-    top: 100%;
-    left: 0;
     max-height: 150px;
     overflow-y: auto;
     width: 100%;
