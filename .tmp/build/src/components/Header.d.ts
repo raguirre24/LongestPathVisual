@@ -92,6 +92,7 @@ export declare class Header {
     private upsertDiv;
     private hideControl;
     render(viewportWidth: number, settings: VisualSettings, state: HeaderState, palette?: HeaderPalette): void;
+    private applyTextRenderingSharpness;
     destroy(): void;
     private getCurrentLayout;
     private getPaletteToken;

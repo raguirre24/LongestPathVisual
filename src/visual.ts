@@ -94,6 +94,18 @@ import {
 import { computeSecondRowLayout, formatLookAheadWindowLabel } from "./utils/HeaderLayout";
 import { getConnectorRenderGeometry } from "./utils/ConnectorGeometry";
 import type { ConnectorRenderGeometry } from "./utils/ConnectorGeometry";
+import {
+    applyCanvasTextRendering,
+    areViewportsStable,
+    DEFAULT_SYSTEM_FONT_STACK,
+    getEffectiveCanvasPixelRatio,
+    getHiDpiCanvasSize,
+    isSignificantViewportResize,
+    resolveFontFamilyStack,
+    snapCanvasTextCoordinate,
+    snapSvgCoordinateAttribute,
+    snapTextCoordinate
+} from "./utils/RenderingSharpness";
 
 type DrivingChain = {
     tasks: Set<string>;
@@ -237,6 +249,15 @@ type VisibleWbsExportRow =
     | { kind: "group"; yOrder: number; group: WBSGroup }
     | { kind: "task"; yOrder: number; task: Task };
 
+type RenderRect = {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    right: number;
+    bottom: number;
+};
+
 export class Visual implements IVisual {
     private static nextInstanceOrdinal: number = 0;
     /**
@@ -290,11 +311,13 @@ export class Visual implements IVisual {
     private tooltipDiv: Selection<HTMLDivElement, unknown, HTMLElement, any>;
     private canvasElement: HTMLCanvasElement | null = null;
     private canvasContext: CanvasRenderingContext2D | null = null;
+    private canvasScaleX: number = 1;
+    private canvasScaleY: number = 1;
+    private canvasContentValid: boolean = false;
+    private lastDisplayPixelRatio: number = 1;
     private useCanvasRendering: boolean = false;
     private CANVAS_THRESHOLD: number = 250;
     private readonly MODE_TRANSITION_DURATION: number = 150;
-    private readonly MAX_CANVAS_PIXEL_RATIO: number = 3;
-    private readonly POWER_BI_CANVAS_SHARPNESS_SCALE: number = 1.25;
     private canvasLayer: Selection<HTMLCanvasElement, unknown, null, undefined>;
     private loadingOverlay: Selection<HTMLDivElement, unknown, null, undefined>;
     private loadingAccent: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -483,10 +506,11 @@ export class Visual implements IVisual {
     private drivingPathsTruncationMessage: string | null = null;
     private scopedCycleWarningMessage: string | null = null;
 
-    private readonly VIEWPORT_CHANGE_THRESHOLD = 0.01;
+    private readonly VIEWPORT_CHANGE_THRESHOLD = 0.10;
     private forceFullUpdate: boolean = false;
     private preserveScrollOnUpdate: boolean = false;
     private preservedScrollTop: number | null = null;
+    private preservedScrollLeft: number | null = null;
     private scrollPreservationUntil: number = 0;
     private lastWbsToggleTimestamp: number = 0;
     private wbsToggleScrollAnchor: { groupId: string; visualOffset: number } | null = null;
@@ -502,9 +526,25 @@ export class Visual implements IVisual {
     private pendingUpdate: VisualUpdateOptions | null = null;
     private readonly UPDATE_DEBOUNCE_MS = 30;
     private resizeSettleTimeout: ReturnType<typeof setTimeout> | null = null;
+    private resizeMaxWaitTimeout: ReturnType<typeof setTimeout> | null = null;
+    private resizeComparisonResetTimeout: ReturnType<typeof setTimeout> | null = null;
     private resizeSettleRaf: number | null = null;
-    private settledResizeViewportKey: string | null = null;
+    private resizeRevealRaf: number | null = null;
+    private postRenderViewportCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+    private pendingSettledResizeOptions: VisualUpdateOptions | null = null;
+    private resizeScrollLock: { top: number; left: number } | null = null;
+    private resizeComparisonBaseline: IViewport | null = null;
+    private resizeGeneration: number = 0;
+    private committingResizeGeneration: number | null = null;
+    private committingResizeOptions: VisualUpdateOptions | null = null;
+    private readonly resizeCommitGenerations = new WeakMap<VisualUpdateOptions, number>();
+    private resizeSettleStartedAt: number = 0;
+    private lastCommittedViewport: IViewport | null = null;
+    private lastCommittedFocusState: boolean | undefined;
+    private devicePixelRatioMediaQuery: MediaQueryList | null = null;
+    private isDestroyed: boolean = false;
     private readonly RESIZE_SETTLE_DEBOUNCE_MS = 80;
+    private readonly RESIZE_SETTLE_MAX_WAIT_MS = 500;
 
     private zoomSliderContainer: Selection<HTMLDivElement, unknown, null, undefined>;
     private zoomSliderTrack: Selection<HTMLDivElement, unknown, null, undefined>;
@@ -973,7 +1013,7 @@ export class Visual implements IVisual {
     }
 
     private snapTextCoord(value: number): number {
-        return Math.round(value);
+        return snapTextCoordinate(value);
     }
 
     private isEmbeddedPowerBiHost(): boolean {
@@ -993,21 +1033,112 @@ export class Visual implements IVisual {
         const rect = targetNode.getBoundingClientRect();
         const widthScale = targetNode.clientWidth > 0 ? rect.width / targetNode.clientWidth : 1;
         const heightScale = targetNode.clientHeight > 0 ? rect.height / targetNode.clientHeight : 1;
-
-        return Math.max(1, widthScale, heightScale);
+        const effectiveScale = Math.max(widthScale, heightScale);
+        return Number.isFinite(effectiveScale) && effectiveScale > 0 ? effectiveScale : 1;
     }
 
     private getCanvasPixelRatio(): number {
-        const devicePixelRatio = window.devicePixelRatio || 1;
-        const hostScale = this.getLocalCssScale();
-        const sharpnessScale = this.isEmbeddedPowerBiHost()
-            ? this.POWER_BI_CANVAS_SHARPNESS_SCALE
-            : 1;
-
-        return Math.min(
-            this.MAX_CANVAS_PIXEL_RATIO,
-            Math.max(1, devicePixelRatio * hostScale * sharpnessScale)
+        return getEffectiveCanvasPixelRatio(
+            window.devicePixelRatio || 1,
+            this.getLocalCssScale()
         );
+    }
+
+    private getExportPixelRatio(requestedScale: number): number {
+        return Math.max(
+            getEffectiveCanvasPixelRatio(requestedScale, 1),
+            this.getCanvasPixelRatio()
+        );
+    }
+
+    private setupHiDpiCanvas(
+        canvas: HTMLCanvasElement,
+        displayWidth: number,
+        displayHeight: number,
+        pixelRatio: number,
+        contextOptions?: CanvasRenderingContext2DSettings
+    ): {
+        context: CanvasRenderingContext2D;
+        cssWidth: number;
+        cssHeight: number;
+        backingWidth: number;
+        backingHeight: number;
+        scaleX: number;
+        scaleY: number;
+    } | null {
+        const size = getHiDpiCanvasSize(displayWidth, displayHeight, pixelRatio);
+
+        canvas.style.width = `${size.cssWidth}px`;
+        canvas.style.height = `${size.cssHeight}px`;
+        if (canvas.width !== size.backingWidth) {
+            canvas.width = size.backingWidth;
+        }
+        if (canvas.height !== size.backingHeight) {
+            canvas.height = size.backingHeight;
+        }
+
+        const context = canvas.getContext("2d", contextOptions);
+        if (!context) {
+            return null;
+        }
+
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.clearRect(0, 0, size.backingWidth, size.backingHeight);
+        context.scale(size.scaleX, size.scaleY);
+        applyCanvasTextRendering(context);
+
+        return { context, ...size };
+    }
+
+    private snapCanvasTextX(value: number): number {
+        return snapCanvasTextCoordinate(value, this.canvasScaleX);
+    }
+
+    private snapCanvasTextY(value: number): number {
+        return snapCanvasTextCoordinate(value, this.canvasScaleY);
+    }
+
+    private readonly handleDevicePixelRatioChange = (): void => {
+        if (this.isDestroyed) {
+            return;
+        }
+
+        this.bindDevicePixelRatioListener();
+        this.handleDisplayScaleChange();
+    };
+
+    private readonly handleDisplayScaleChange = (): void => {
+        if (this.isDestroyed) {
+            return;
+        }
+
+        const nextRatio = this.getCanvasPixelRatio();
+        if (Math.abs(nextRatio - this.lastDisplayPixelRatio) <= 0.001) {
+            return;
+        }
+
+        this.lastDisplayPixelRatio = nextRatio;
+        this.canvasContentValid = false;
+
+        if (this.lastUpdateOptions) {
+            const viewport = this.getCurrentTargetViewport(this.lastUpdateOptions.viewport);
+            this.requestUpdate(false, viewport);
+        }
+    };
+
+    private bindDevicePixelRatioListener(): void {
+        if (this.devicePixelRatioMediaQuery) {
+            this.devicePixelRatioMediaQuery.removeEventListener("change", this.handleDevicePixelRatioChange);
+            this.devicePixelRatioMediaQuery = null;
+        }
+
+        if (typeof window.matchMedia !== "function") {
+            return;
+        }
+
+        const ratio = window.devicePixelRatio || 1;
+        this.devicePixelRatioMediaQuery = window.matchMedia(`(resolution: ${ratio}dppx)`);
+        this.devicePixelRatioMediaQuery.addEventListener("change", this.handleDevicePixelRatioChange);
     }
 
     private syncSvgPixelSize(
@@ -1583,12 +1714,12 @@ export class Visual implements IVisual {
                             // If difference is significant (>2px to avoid sub-pixel jitter loops), trigger update
                             if (widthDiff > 2 || heightDiff > 2) {
                                 this.debugLog(`ResizeObserver detected change: [${measuredViewport.width}x${measuredViewport.height}]. Requesting update.`);
-                                this.requestUpdate(true, measuredViewport);
+                                this.requestUpdate(false, measuredViewport);
                             }
                         } else {
                             // Initial state or lost viewport
                             this.debugLog(`ResizeObserver detected initial size: [${measuredViewport.width}x${measuredViewport.height}]. Requesting update.`);
-                            this.requestUpdate(true, measuredViewport);
+                            this.requestUpdate(false, measuredViewport);
                         }
                     }
 
@@ -1597,6 +1728,11 @@ export class Visual implements IVisual {
             this.resizeObserver.observe(this.target);
             this.debugLog("ResizeObserver initialized and monitoring target element.");
         }
+
+        this.bindDevicePixelRatioListener();
+        this.lastDisplayPixelRatio = this.getCanvasPixelRatio();
+        window.addEventListener("resize", this.handleDisplayScaleChange, { passive: true });
+        window.visualViewport?.addEventListener("resize", this.handleDisplayScaleChange, { passive: true });
     }
 
     private forceCanvasRefresh(): void {
@@ -1604,6 +1740,7 @@ export class Visual implements IVisual {
 
         if (this.canvasElement && this.canvasContext) {
             this.canvasContext.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+            this.canvasContentValid = false;
         }
 
         if (this.taskLayer) {
@@ -1628,7 +1765,9 @@ export class Visual implements IVisual {
 
             if (this.xScale && this.yScale) {
                 requestAnimationFrame(() => {
-                    this.redrawVisibleTasks();
+                    if (!this.isDestroyed) {
+                        this.redrawVisibleTasks();
+                    }
                 });
             }
         }
@@ -1640,12 +1779,12 @@ export class Visual implements IVisual {
         }
 
         this.updateDebounceTimeout = setTimeout(() => {
+            this.updateDebounceTimeout = null;
             if (this.pendingUpdate) {
                 const options = this.pendingUpdate;
                 this.pendingUpdate = null;
                 this.update(options);
             }
-            this.updateDebounceTimeout = null;
         }, this.UPDATE_DEBOUNCE_MS);
     }
 
@@ -1666,10 +1805,6 @@ export class Visual implements IVisual {
         };
     }
 
-    private getViewportKey(viewport: IViewport): string {
-        return `${this.snapRectCoord(viewport.width)}x${this.snapRectCoord(viewport.height)}`;
-    }
-
     private getCurrentTargetViewport(fallback: IViewport): IViewport {
         if (!this.target) {
             return fallback;
@@ -1681,10 +1816,14 @@ export class Visual implements IVisual {
         ) ?? fallback;
     }
 
-    private createResizeUpdateOptions(baseOptions: VisualUpdateOptions, viewport: IViewport): VisualUpdateOptions {
+    private createResizeUpdateOptions(
+        baseOptions: VisualUpdateOptions,
+        viewport: IViewport,
+        isSettled: boolean = false
+    ): VisualUpdateOptions {
         return {
             ...baseOptions,
-            type: baseOptions.type | VisualUpdateType.Resize,
+            type: isSettled ? VisualUpdateType.ResizeEnd : VisualUpdateType.Resize,
             viewport
         };
     }
@@ -1706,9 +1845,31 @@ export class Visual implements IVisual {
         return true;
     }
 
-    private queueSettledResizeUpdate(options: VisualUpdateOptions): void {
-        this.settledResizeViewportKey = this.getViewportKey(options.viewport);
+    private queueSettledResizeUpdate(options: VisualUpdateOptions, generation: number): void {
+        if (
+            this.isDestroyed ||
+            generation !== this.resizeGeneration ||
+            this.committingResizeGeneration === generation
+        ) {
+            return;
+        }
+
+        if (this.resizeMaxWaitTimeout) {
+            clearTimeout(this.resizeMaxWaitTimeout);
+            this.resizeMaxWaitTimeout = null;
+        }
+
+        this.resizeCommitGenerations.set(options, generation);
         this.forceFullUpdate = true;
+        this.committingResizeGeneration = generation;
+        this.committingResizeOptions = options;
+
+        if (this.resizeScrollLock) {
+            this.preservedScrollTop = this.resizeScrollLock.top;
+            this.preservedScrollLeft = this.resizeScrollLock.left;
+            this.preserveScrollOnUpdate = true;
+            this.scrollPreservationUntil = Date.now() + 2000;
+        }
 
         if (this.isUpdating) {
             this.pendingUpdate = options;
@@ -1719,10 +1880,97 @@ export class Visual implements IVisual {
         this.update(options);
     }
 
-    private scheduleSettledResizeUpdate(baseOptions: VisualUpdateOptions): void {
+    private cancelResizeCommitCandidate(): void {
+        if (
+            this.pendingUpdate &&
+            this.resizeCommitGenerations.has(this.pendingUpdate)
+        ) {
+            this.pendingUpdate = null;
+        }
+        this.committingResizeGeneration = null;
+        this.committingResizeOptions = null;
+    }
+
+    private scheduleResizeComparisonReset(): void {
+        if (this.resizeComparisonResetTimeout) {
+            clearTimeout(this.resizeComparisonResetTimeout);
+        }
+
+        this.resizeComparisonResetTimeout = setTimeout(() => {
+            this.resizeComparisonResetTimeout = null;
+            if (!this.isViewportTransitioning) {
+                this.resizeComparisonBaseline = null;
+            }
+        }, this.RESIZE_SETTLE_MAX_WAIT_MS);
+    }
+
+    private captureResizeScrollLock(): void {
+        if (this.resizeScrollLock || !this.scrollableContainer?.node()) {
+            return;
+        }
+
+        const scrollNode = this.scrollableContainer.node();
+        this.resizeScrollLock = {
+            top: scrollNode.scrollTop,
+            left: scrollNode.scrollLeft
+        };
+        this.preserveScrollOnUpdate = true;
+        this.scrollPreservationUntil = Date.now() + 2000;
+
+        if (this.scrollThrottleTimeout) {
+            cancelAnimationFrame(this.scrollThrottleTimeout);
+            this.scrollThrottleTimeout = null;
+        }
+    }
+
+    private forceLatestResizeCommit(): void {
+        this.resizeMaxWaitTimeout = null;
+        if (this.isDestroyed || !this.isViewportTransitioning) {
+            return;
+        }
+
         if (this.resizeSettleTimeout) {
             clearTimeout(this.resizeSettleTimeout);
             this.resizeSettleTimeout = null;
+        }
+        if (this.resizeSettleRaf !== null) {
+            cancelAnimationFrame(this.resizeSettleRaf);
+            this.resizeSettleRaf = null;
+        }
+
+        const generation = this.resizeGeneration;
+        const latestBaseOptions = this.pendingSettledResizeOptions ?? this.lastUpdateOptions;
+        if (!latestBaseOptions) {
+            return;
+        }
+
+        const settledViewport = this.getCurrentTargetViewport(latestBaseOptions.viewport);
+        const settledOptions = this.createResizeUpdateOptions(latestBaseOptions, settledViewport, true);
+        this.pendingSettledResizeOptions = null;
+        this.viewportResizeCooldownUntil = 0;
+        this.debugLog(
+            `Resize reached the ${this.RESIZE_SETTLE_MAX_WAIT_MS}ms bound at ` +
+            `[${settledViewport.width}x${settledViewport.height}]. Queuing the latest full update.`
+        );
+        this.queueSettledResizeUpdate(settledOptions, generation);
+    }
+
+    private scheduleSettledResizeUpdate(baseOptions: VisualUpdateOptions, immediate: boolean = false): void {
+        this.pendingSettledResizeOptions = baseOptions;
+
+        if (this.resizeSettleTimeout) {
+            clearTimeout(this.resizeSettleTimeout);
+            this.resizeSettleTimeout = null;
+        }
+
+        if (this.resizeMaxWaitTimeout) {
+            clearTimeout(this.resizeMaxWaitTimeout);
+            this.resizeMaxWaitTimeout = null;
+        }
+
+        if (this.resizeComparisonResetTimeout) {
+            clearTimeout(this.resizeComparisonResetTimeout);
+            this.resizeComparisonResetTimeout = null;
         }
 
         if (this.resizeSettleRaf !== null) {
@@ -1730,21 +1978,64 @@ export class Visual implements IVisual {
             this.resizeSettleRaf = null;
         }
 
+        const generation = this.resizeGeneration;
+        if (this.resizeSettleStartedAt === 0) {
+            this.resizeSettleStartedAt = Date.now();
+        }
+
+        if (!this.resizeMaxWaitTimeout) {
+            const remainingMaxWait = Math.max(
+                0,
+                this.RESIZE_SETTLE_MAX_WAIT_MS - (Date.now() - this.resizeSettleStartedAt)
+            );
+            if (remainingMaxWait === 0) {
+                this.forceLatestResizeCommit();
+                return;
+            }
+            this.resizeMaxWaitTimeout = setTimeout(
+                () => this.forceLatestResizeCommit(),
+                remainingMaxWait
+            );
+        }
+
         this.resizeSettleTimeout = setTimeout(() => {
             this.resizeSettleTimeout = null;
+            const firstBaseOptions = this.pendingSettledResizeOptions ?? baseOptions;
+            const firstViewport = this.getCurrentTargetViewport(firstBaseOptions.viewport);
+
             this.resizeSettleRaf = requestAnimationFrame(() => {
+                if (this.isDestroyed || generation !== this.resizeGeneration) {
+                    return;
+                }
+
+                const secondBaseOptions = this.pendingSettledResizeOptions ?? firstBaseOptions;
+                const secondViewport = this.getCurrentTargetViewport(secondBaseOptions.viewport);
+
                 this.resizeSettleRaf = requestAnimationFrame(() => {
                     this.resizeSettleRaf = null;
+                    if (this.isDestroyed || generation !== this.resizeGeneration) {
+                        return;
+                    }
 
-                    const settledViewport = this.getCurrentTargetViewport(baseOptions.viewport);
-                    const settledOptions = this.createResizeUpdateOptions(baseOptions, settledViewport);
+                    const latestBaseOptions = this.pendingSettledResizeOptions ?? secondBaseOptions;
+                    const settledViewport = this.getCurrentTargetViewport(latestBaseOptions.viewport);
+                    const stableAcrossFrames = areViewportsStable(firstViewport, secondViewport, 1)
+                        && areViewportsStable(secondViewport, settledViewport, 1);
+                    if (!stableAcrossFrames) {
+                        this.debugLog("Resize dimensions are still changing; continuing settle sampling.");
+                        this.scheduleSettledResizeUpdate(latestBaseOptions);
+                        return;
+                    }
+
+                    const settledOptions = this.createResizeUpdateOptions(latestBaseOptions, settledViewport, true);
 
                     this.viewportResizeCooldownUntil = 0;
+                    this.pendingSettledResizeOptions = null;
                     this.debugLog(`Resize settled at [${settledViewport.width}x${settledViewport.height}]. Queuing full update.`);
-                    this.queueSettledResizeUpdate(settledOptions);
+                    this.queueSettledResizeUpdate(settledOptions, generation);
                 });
             });
-        }, this.RESIZE_SETTLE_DEBOUNCE_MS);
+        }, immediate ? 0 : this.RESIZE_SETTLE_DEBOUNCE_MS);
     }
 
     private requestUpdate(forceFullUpdate: boolean = false, viewport?: IViewport): void {
@@ -1848,6 +2139,39 @@ export class Visual implements IVisual {
                 group.attr("shape-rendering", "geometricPrecision");
             }
         });
+
+        this.applySvgTextSharpness(this.mainSvg);
+        this.applySvgTextSharpness(this.headerSvg);
+    }
+
+    private applySvgTextSharpness(
+        svg: Selection<SVGSVGElement, unknown, null, undefined> | null | undefined
+    ): void {
+        if (!svg?.node()) {
+            return;
+        }
+
+        const fallbackFont = this.getFontFamily();
+        svg.selectAll<SVGTextElement | SVGTSpanElement, unknown>("text, tspan")
+            .each(function () {
+                const element = this as SVGTextElement | SVGTSpanElement;
+                for (const coordinate of ["x", "y"] as const) {
+                    const currentValue = element.getAttribute(coordinate);
+                    const snappedValue = snapSvgCoordinateAttribute(currentValue);
+                    if (snappedValue !== null && snappedValue !== currentValue) {
+                        element.setAttribute(coordinate, snappedValue);
+                    }
+                }
+
+                const declaredFont = element.style.getPropertyValue("font-family")
+                    || element.getAttribute("font-family")
+                    || fallbackFont;
+                element.style.setProperty("font-family", resolveFontFamilyStack(declaredFont));
+                element.style.setProperty("-webkit-font-smoothing", "antialiased");
+                element.style.setProperty("-moz-osx-font-smoothing", "grayscale");
+                element.style.setProperty("text-rendering", "optimizeLegibility");
+                element.setAttribute("text-rendering", "optimizeLegibility");
+            });
     }
 
     private getDataSignature(dataView: DataView): string {
@@ -2251,6 +2575,7 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
+        this.isDestroyed = true;
 
         // Cleanup ResizeObserver
         if (this.resizeObserver) {
@@ -2273,6 +2598,21 @@ export class Visual implements IVisual {
             this.resizeSettleRaf = null;
         }
 
+        if (this.resizeRevealRaf !== null) {
+            cancelAnimationFrame(this.resizeRevealRaf);
+            this.resizeRevealRaf = null;
+        }
+
+        if (this.postRenderViewportCheckTimeout) {
+            clearTimeout(this.postRenderViewportCheckTimeout);
+            this.postRenderViewportCheckTimeout = null;
+        }
+
+        if (this.zoomChangeTimeout) {
+            clearTimeout(this.zoomChangeTimeout);
+            this.zoomChangeTimeout = null;
+        }
+
         if (this.scrollThrottleTimeout) {
             cancelAnimationFrame(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
@@ -2293,7 +2633,18 @@ export class Visual implements IVisual {
         this.detachZoomDragListeners();
 
         this.pendingUpdate = null;
-        this.settledResizeViewportKey = null;
+        this.pendingSettledResizeOptions = null;
+        this.resizeScrollLock = null;
+        this.resizeComparisonBaseline = null;
+        this.committingResizeGeneration = null;
+        this.committingResizeOptions = null;
+
+        if (this.devicePixelRatioMediaQuery) {
+            this.devicePixelRatioMediaQuery.removeEventListener("change", this.handleDevicePixelRatioChange);
+            this.devicePixelRatioMediaQuery = null;
+        }
+        window.removeEventListener("resize", this.handleDisplayScaleChange);
+        window.visualViewport?.removeEventListener("resize", this.handleDisplayScaleChange);
 
         this.removeOwnedStyle("critical-path-publish-fixes");
 
@@ -2302,6 +2653,7 @@ export class Visual implements IVisual {
             this.canvasElement.remove();
             this.canvasElement = null;
             this.canvasContext = null;
+            this.canvasContentValid = false;
         }
 
         if (this.liveRegion) {
@@ -3714,20 +4066,22 @@ export class Visual implements IVisual {
         const canvas = this.zoomSliderMiniChart.node() as HTMLCanvasElement;
         if (!canvas) return;
 
-        const rect = canvas.parentElement?.getBoundingClientRect();
-        if (!rect) return;
+        const parent = canvas.parentElement;
+        if (!parent) return;
 
-        const dpr = this.getCanvasPixelRatio();
-        canvas.width = Math.max(1, Math.round(rect.width * dpr));
-        canvas.height = Math.max(1, Math.round(rect.height * dpr));
-        canvas.style.width = `${rect.width}px`;
-        canvas.style.height = `${rect.height}px`;
+        const logicalWidth = parent.clientWidth;
+        const logicalHeight = parent.clientHeight;
+        if (logicalWidth <= 0 || logicalHeight <= 0) return;
 
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        const setup = this.setupHiDpiCanvas(
+            canvas,
+            logicalWidth,
+            logicalHeight,
+            this.getCanvasPixelRatio()
+        );
+        if (!setup) return;
 
-        ctx.scale(dpr, dpr);
-        ctx.clearRect(0, 0, rect.width, rect.height);
+        const { context: ctx, cssWidth, cssHeight } = setup;
 
         const tasksToShow = this.allFilteredTasks.length > 0 ? this.allFilteredTasks : this.allTasksToShow;
         if (tasksToShow.length === 0 || !this.fullTimelineDomain) return;
@@ -3736,7 +4090,7 @@ export class Visual implements IVisual {
         const timeRange = maxDate.getTime() - minDate.getTime();
         if (timeRange <= 0) return;
 
-        const barHeight = Math.max(1, rect.height / Math.max(tasksToShow.length, 50));
+        const barHeight = Math.max(1, cssHeight / Math.max(tasksToShow.length, 50));
         const criticalColor = this.settings?.criticalPath?.criticalPathColor?.value?.value ?? "#E81123";
         const taskColor = this.settings?.taskBars?.taskColor?.value?.value ?? "#0078D4";
 
@@ -3751,9 +4105,9 @@ export class Visual implements IVisual {
             const startPercent = (extentStart.getTime() - minDate.getTime()) / timeRange;
             const endPercent = (extentFinish.getTime() - minDate.getTime()) / timeRange;
 
-            const x = startPercent * rect.width;
-            const width = Math.max(1, (endPercent - startPercent) * rect.width);
-            const y = (index / tasksToShow.length) * rect.height;
+            const x = startPercent * cssWidth;
+            const width = Math.max(1, (endPercent - startPercent) * cssWidth);
+            const y = (index / tasksToShow.length) * cssHeight;
 
             ctx.fillStyle = task.isCritical ? criticalColor : taskColor;
             ctx.fillRect(x, y, width, barHeight);
@@ -3945,10 +4299,37 @@ export class Visual implements IVisual {
         }
     }
 
+    private createRenderRect(left: number, top: number, width: number, height: number): RenderRect {
+        return {
+            left,
+            top,
+            width,
+            height,
+            right: left + width,
+            bottom: top + height
+        };
+    }
+
+    private toTargetLocalRect(
+        rect: DOMRect,
+        targetRect: DOMRect,
+        logicalTargetWidth: number,
+        logicalTargetHeight: number
+    ): RenderRect {
+        const scaleX = targetRect.width > 0 ? targetRect.width / logicalTargetWidth : 1;
+        const scaleY = targetRect.height > 0 ? targetRect.height / logicalTargetHeight : 1;
+        return this.createRenderRect(
+            (rect.left - targetRect.left) / scaleX,
+            (rect.top - targetRect.top) / scaleY,
+            rect.width / scaleX,
+            rect.height / scaleY
+        );
+    }
+
     private getIntersectionRect(
-        sourceRect: DOMRect,
-        clipRect: DOMRect
-    ): { left: number; top: number; width: number; height: number } | null {
+        sourceRect: RenderRect,
+        clipRect: RenderRect
+    ): RenderRect | null {
         const left = Math.max(sourceRect.left, clipRect.left);
         const top = Math.max(sourceRect.top, clipRect.top);
         const right = Math.min(sourceRect.right, clipRect.right);
@@ -3960,28 +4341,30 @@ export class Visual implements IVisual {
             return null;
         }
 
-        return { left, top, width, height };
+        return this.createRenderRect(left, top, width, height);
     }
 
     private drawRenderedCanvasRegion(
         ctx: CanvasRenderingContext2D,
         sourceCanvas: CanvasImageSource,
-        sourceRect: DOMRect,
-        targetRect: DOMRect,
-        clipRect: DOMRect,
-        sourceScale: number
+        sourceRect: RenderRect,
+        clipRect: RenderRect,
+        sourceScaleX: number,
+        sourceScaleY: number
     ): void {
         const intersection = this.getIntersectionRect(sourceRect, clipRect);
         if (!intersection) {
             return;
         }
 
-        const sx = Math.max(0, (intersection.left - sourceRect.left) * sourceScale);
-        const sy = Math.max(0, (intersection.top - sourceRect.top) * sourceScale);
-        const sw = intersection.width * sourceScale;
-        const sh = intersection.height * sourceScale;
-        const dx = intersection.left - targetRect.left;
-        const dy = intersection.top - targetRect.top;
+        const sx = Math.max(0, Math.round((intersection.left - sourceRect.left) * sourceScaleX));
+        const sy = Math.max(0, Math.round((intersection.top - sourceRect.top) * sourceScaleY));
+        const sw = Math.max(1, Math.round(intersection.width * sourceScaleX));
+        const sh = Math.max(1, Math.round(intersection.height * sourceScaleY));
+        const dx = this.snapRectCoord(intersection.left);
+        const dy = this.snapRectCoord(intersection.top);
+        const destinationWidth = Math.max(1, this.snapRectCoord(intersection.width));
+        const destinationHeight = Math.max(1, this.snapRectCoord(intersection.height));
 
         ctx.drawImage(
             sourceCanvas,
@@ -3991,8 +4374,8 @@ export class Visual implements IVisual {
             sh,
             dx,
             dy,
-            intersection.width,
-            intersection.height
+            destinationWidth,
+            destinationHeight
         );
     }
 
@@ -4001,23 +4384,58 @@ export class Visual implements IVisual {
             return this.renderFullFilteredCompositeExportCanvas(scaleFactor);
         }
 
+        // The live canvas may have been rasterised at a lower screen DPR than
+        // the export target. Re-render the visible rows as SVG for export so
+        // glyphs rasterise once, directly at the requested export resolution.
+        if (
+            this.useCanvasRendering &&
+            !this.forceSvgRenderingForExport &&
+            this.xScale &&
+            this.yScale
+        ) {
+            this.forceSvgRenderingForExport = true;
+            try {
+                const visibleTasks = this.getVisibleTasks()
+                    .filter(task => task.yOrder !== undefined);
+                this.drawVisualElements(
+                    visibleTasks,
+                    this.xScale,
+                    this.yScale,
+                    this.xScale.range()[1],
+                    this.yScale.range()[1],
+                    this.getEffectiveLeftMargin()
+                );
+                return await this.renderCompositeExportCanvas(scaleFactor, false);
+            } finally {
+                this.forceSvgRenderingForExport = false;
+                this.redrawVisibleTasks();
+            }
+        }
+
         const visualWidth = Math.max(1, this.snapRectCoord(this.target.clientWidth));
         const visualHeight = Math.max(1, this.snapRectCoord(this.target.clientHeight));
         const targetRect = this.target.getBoundingClientRect();
         const scrollNode = this.scrollableContainer?.node();
-        const scrollRect = scrollNode?.getBoundingClientRect() ?? targetRect;
+        const targetLogicalRect = this.createRenderRect(0, 0, visualWidth, visualHeight);
+        const scrollLogicalRect = scrollNode
+            ? this.toTargetLocalRect(scrollNode.getBoundingClientRect(), targetRect, visualWidth, visualHeight)
+            : targetLogicalRect;
+        const exportPixelRatio = this.getExportPixelRatio(scaleFactor);
 
         const outputCanvas = document.createElement('canvas');
-        outputCanvas.width = Math.max(1, Math.round(visualWidth * scaleFactor));
-        outputCanvas.height = Math.max(1, Math.round(visualHeight * scaleFactor));
-
-        const ctx = outputCanvas.getContext('2d');
-        if (!ctx) {
+        const outputSetup = this.setupHiDpiCanvas(
+            outputCanvas,
+            visualWidth,
+            visualHeight,
+            exportPixelRatio
+        );
+        if (!outputSetup) {
             throw new Error('Failed to get composite export canvas context');
         }
 
-        ctx.setTransform(scaleFactor, 0, 0, scaleFactor, 0, 0);
+        const ctx = outputSetup.context;
         ctx.imageSmoothingEnabled = true;
+        applyCanvasTextRendering(ctx);
 
         const bgColor = this.settings?.generalSettings?.visualBackgroundColor?.value?.value || '#FFFFFF';
         ctx.fillStyle = bgColor;
@@ -4025,14 +4443,32 @@ export class Visual implements IVisual {
 
         const headerNode = this.headerSvg?.node() as SVGSVGElement | null;
         if (headerNode) {
-            const headerCanvas = await this.svgToCanvas(headerNode, scaleFactor);
-            this.drawRenderedCanvasRegion(ctx, headerCanvas, headerNode.getBoundingClientRect(), targetRect, targetRect, scaleFactor);
+            const headerRect = this.toTargetLocalRect(
+                headerNode.getBoundingClientRect(),
+                targetRect,
+                visualWidth,
+                visualHeight
+            );
+            const headerCanvas = await this.svgToCanvas(headerNode, exportPixelRatio);
+            this.drawRenderedCanvasRegion(
+                ctx,
+                headerCanvas,
+                headerRect,
+                targetLogicalRect,
+                headerCanvas.width / Math.max(1, headerRect.width),
+                headerCanvas.height / Math.max(1, headerRect.height)
+            );
         }
 
         const mainSvgNode = this.mainSvg?.node() as SVGSVGElement | null;
         if (mainSvgNode) {
-            const mainRect = mainSvgNode.getBoundingClientRect();
-            const visibleMain = this.getIntersectionRect(mainRect, scrollRect);
+            const mainRect = this.toTargetLocalRect(
+                mainSvgNode.getBoundingClientRect(),
+                targetRect,
+                visualWidth,
+                visualHeight
+            );
+            const visibleMain = this.getIntersectionRect(mainRect, scrollLogicalRect);
             if (visibleMain) {
                 const svgCrop = {
                     x: visibleMain.left - mainRect.left,
@@ -4040,27 +4476,39 @@ export class Visual implements IVisual {
                     width: visibleMain.width,
                     height: visibleMain.height
                 };
-                const mainCanvas = await this.svgToCanvas(mainSvgNode, scaleFactor, svgCrop);
-                ctx.drawImage(
+                const mainCanvas = await this.svgToCanvas(mainSvgNode, exportPixelRatio, svgCrop);
+                this.drawRenderedCanvasRegion(
+                    ctx,
                     mainCanvas,
-                    0,
-                    0,
-                    mainCanvas.width,
-                    mainCanvas.height,
-                    visibleMain.left - targetRect.left,
-                    visibleMain.top - targetRect.top,
-                    visibleMain.width,
-                    visibleMain.height
+                    visibleMain,
+                    scrollLogicalRect,
+                    mainCanvas.width / Math.max(1, visibleMain.width),
+                    mainCanvas.height / Math.max(1, visibleMain.height)
                 );
             }
         }
 
         if (this.useCanvasRendering && this.canvasElement) {
-            const canvasRect = this.canvasElement.getBoundingClientRect();
-            const sourceScale = this.canvasElement.clientWidth > 0
+            const canvasRect = this.toTargetLocalRect(
+                this.canvasElement.getBoundingClientRect(),
+                targetRect,
+                visualWidth,
+                visualHeight
+            );
+            const sourceScaleX = this.canvasElement.clientWidth > 0
                 ? this.canvasElement.width / this.canvasElement.clientWidth
                 : 1;
-            this.drawRenderedCanvasRegion(ctx, this.canvasElement, canvasRect, targetRect, scrollRect, sourceScale);
+            const sourceScaleY = this.canvasElement.clientHeight > 0
+                ? this.canvasElement.height / this.canvasElement.clientHeight
+                : 1;
+            this.drawRenderedCanvasRegion(
+                ctx,
+                this.canvasElement,
+                canvasRect,
+                scrollLogicalRect,
+                sourceScaleX,
+                sourceScaleY
+            );
         }
 
         return outputCanvas;
@@ -4081,10 +4529,11 @@ export class Visual implements IVisual {
         const currentLeftMargin = this.getEffectiveLeftMargin();
         const scrollNode = this.scrollableContainer?.node();
         const previousScrollTop = scrollNode?.scrollTop ?? 0;
+        const previousScrollLeft = scrollNode?.scrollLeft ?? 0;
         const previousViewportStart = this.viewportStartIndex;
         const previousViewportEnd = this.viewportEndIndex;
         const previousVisibleTaskCount = this.visibleTaskCount;
-        const previousUseCanvasRendering = this.useCanvasRendering;
+        const exportPixelRatio = this.getExportPixelRatio(scaleFactor);
 
         try {
             this.forceSvgRenderingForExport = true;
@@ -4102,16 +4551,19 @@ export class Visual implements IVisual {
             );
 
             const outputCanvas = document.createElement('canvas');
-            outputCanvas.width = Math.max(1, Math.round(visualWidth * scaleFactor));
-            outputCanvas.height = Math.max(1, Math.round(exportHeight * scaleFactor));
-
-            const ctx = outputCanvas.getContext('2d');
-            if (!ctx) {
+            const outputSetup = this.setupHiDpiCanvas(
+                outputCanvas,
+                visualWidth,
+                exportHeight,
+                exportPixelRatio
+            );
+            if (!outputSetup) {
                 throw new Error('Failed to get composite export canvas context');
             }
 
-            ctx.setTransform(scaleFactor, 0, 0, scaleFactor, 0, 0);
+            const ctx = outputSetup.context;
             ctx.imageSmoothingEnabled = true;
+            applyCanvasTextRendering(ctx);
 
             const bgColor = this.settings?.generalSettings?.visualBackgroundColor?.value?.value || '#FFFFFF';
             ctx.fillStyle = bgColor;
@@ -4119,13 +4571,23 @@ export class Visual implements IVisual {
 
             const headerNode = this.headerSvg.node() as SVGSVGElement | null;
             if (headerNode) {
-                const headerCanvas = await this.svgToCanvas(headerNode, scaleFactor);
-                ctx.drawImage(headerCanvas, 0, 0, headerNode.getBoundingClientRect().width, headerNode.getBoundingClientRect().height);
+                const headerCanvas = await this.svgToCanvas(headerNode, exportPixelRatio);
+                ctx.drawImage(
+                    headerCanvas,
+                    0,
+                    0,
+                    headerCanvas.width,
+                    headerCanvas.height,
+                    0,
+                    0,
+                    visualWidth,
+                    this.headerHeight
+                );
             }
 
             const mainSvgNode = this.mainSvg.node() as SVGSVGElement | null;
             if (mainSvgNode) {
-                const mainCanvas = await this.svgToCanvas(mainSvgNode, scaleFactor);
+                const mainCanvas = await this.svgToCanvas(mainSvgNode, exportPixelRatio);
                 ctx.drawImage(
                     mainCanvas,
                     0,
@@ -4145,10 +4607,10 @@ export class Visual implements IVisual {
             this.viewportStartIndex = previousViewportStart;
             this.viewportEndIndex = previousViewportEnd;
             this.visibleTaskCount = previousVisibleTaskCount;
-            this.useCanvasRendering = previousUseCanvasRendering;
 
             if (scrollNode) {
                 scrollNode.scrollTop = previousScrollTop;
+                scrollNode.scrollLeft = previousScrollLeft;
             }
 
             this.redrawVisibleTasks();
@@ -4304,8 +4766,8 @@ export class Visual implements IVisual {
         const visualHeight = Math.max(1, this.snapRectCoord(this.target.clientHeight));
         const outputCanvas = await this.renderCompositeExportCanvas(scaleFactor);
 
-        // Use JPEG with quality 0.92 for much smaller file size (PNG would be ~32MB, JPEG ~1-2MB)
-        const imgData = outputCanvas.toDataURL('image/jpeg', 0.92);
+        // Preserve hard text and rule edges; lossy JPEG introduces visible halos around glyphs.
+        const imgData = outputCanvas.toDataURL('image/png');
         this.debugLog('[PDF Export] Image data size:', Math.round(imgData.length / 1024), 'KB');
 
         const pdf = new jsPDF({
@@ -4315,7 +4777,7 @@ export class Visual implements IVisual {
             compress: true
         });
 
-        pdf.addImage(imgData, 'JPEG', 0, 0, visualWidth, visualHeight, undefined, 'FAST');
+        pdf.addImage(imgData, 'PNG', 0, 0, visualWidth, visualHeight, undefined, 'FAST');
 
         // Return base64 without the data URI prefix
         const pdfOutput = pdf.output('datauristring');
@@ -4332,6 +4794,8 @@ export class Visual implements IVisual {
     ): Promise<HTMLCanvasElement> {
         return new Promise((resolve, reject) => {
             try {
+                this.applySvgTextSharpness(d3.select(svg));
+
                 // Clone the SVG to avoid modifying the original
                 const clonedSvg = svg.cloneNode(true) as SVGSVGElement;
 
@@ -4340,18 +4804,51 @@ export class Visual implements IVisual {
                 // eslint-disable-next-line powerbi-visuals/no-http-string
                 clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
 
-                const bbox = svg.getBoundingClientRect();
-                const renderWidth = Math.max(1, crop ? crop.width : bbox.width);
-                const renderHeight = Math.max(1, crop ? crop.height : bbox.height);
+                const widthAttribute = Number.parseFloat(svg.getAttribute('width') ?? '');
+                const heightAttribute = Number.parseFloat(svg.getAttribute('height') ?? '');
+                const logicalSvgWidth = Math.max(
+                    1,
+                    this.snapRectCoord(
+                        svg.clientWidth ||
+                        (Number.isFinite(widthAttribute) ? widthAttribute : 0) ||
+                        svg.viewBox?.baseVal?.width ||
+                        1
+                    )
+                );
+                const logicalSvgHeight = Math.max(
+                    1,
+                    this.snapRectCoord(
+                        svg.clientHeight ||
+                        (Number.isFinite(heightAttribute) ? heightAttribute : 0) ||
+                        svg.viewBox?.baseVal?.height ||
+                        1
+                    )
+                );
+                const normalisedCrop = crop
+                    ? {
+                        x: this.snapRectCoord(crop.x),
+                        y: this.snapRectCoord(crop.y),
+                        width: Math.max(1, this.snapRectCoord(crop.width)),
+                        height: Math.max(1, this.snapRectCoord(crop.height))
+                    }
+                    : null;
+                const renderWidth = normalisedCrop?.width ?? logicalSvgWidth;
+                const renderHeight = normalisedCrop?.height ?? logicalSvgHeight;
+                const renderSize = getHiDpiCanvasSize(renderWidth, renderHeight, scaleFactor);
 
-                if (crop) {
-                    clonedSvg.setAttribute('viewBox', `${crop.x} ${crop.y} ${crop.width} ${crop.height}`);
+                if (normalisedCrop) {
+                    clonedSvg.setAttribute(
+                        'viewBox',
+                        `${normalisedCrop.x} ${normalisedCrop.y} ${normalisedCrop.width} ${normalisedCrop.height}`
+                    );
                 } else if (!clonedSvg.getAttribute('viewBox')) {
-                    clonedSvg.setAttribute('viewBox', `0 0 ${bbox.width} ${bbox.height}`);
+                    clonedSvg.setAttribute('viewBox', `0 0 ${logicalSvgWidth} ${logicalSvgHeight}`);
                 }
 
-                clonedSvg.setAttribute('width', String(renderWidth));
-                clonedSvg.setAttribute('height', String(renderHeight));
+                // Give the image a HiDPI intrinsic size so SVG glyphs rasterise directly
+                // into the destination backing buffer instead of being enlarged later.
+                clonedSvg.setAttribute('width', String(renderSize.backingWidth));
+                clonedSvg.setAttribute('height', String(renderSize.backingHeight));
 
                 const svgData = new XMLSerializer().serializeToString(clonedSvg);
                 const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
@@ -4360,14 +4857,31 @@ export class Visual implements IVisual {
                 const img = new Image();
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
-                    canvas.width = Math.max(1, Math.round(renderWidth * scaleFactor));
-                    canvas.height = Math.max(1, Math.round(renderHeight * scaleFactor));
-
-                    const ctx = canvas.getContext('2d');
-                    if (ctx) {
-                        ctx.setTransform(scaleFactor, 0, 0, scaleFactor, 0, 0);
-                        ctx.drawImage(img, 0, 0, renderWidth, renderHeight);
+                    const setup = this.setupHiDpiCanvas(
+                        canvas,
+                        renderWidth,
+                        renderHeight,
+                        scaleFactor
+                    );
+                    if (!setup) {
+                        URL.revokeObjectURL(url);
+                        reject(new Error('Failed to get SVG export canvas context'));
+                        return;
                     }
+
+                    setup.context.imageSmoothingEnabled = true;
+                    applyCanvasTextRendering(setup.context);
+                    setup.context.drawImage(
+                        img,
+                        0,
+                        0,
+                        img.naturalWidth,
+                        img.naturalHeight,
+                        0,
+                        0,
+                        renderWidth,
+                        renderHeight
+                    );
 
                     URL.revokeObjectURL(url);
                     resolve(canvas);
@@ -4521,9 +5035,9 @@ export class Visual implements IVisual {
             status = this.loadingOverlay.append("div")
                 .attr("class", "data-segment-status")
                 .style("position", "absolute")
-                .style("top", "50%")
-                .style("left", "50%")
-                .style("transform", "translate(-50%, -50%)")
+                .style("top", "0")
+                .style("left", "0")
+                .style("transform", "none")
                 .style("padding", "8px 12px")
                 .style("border-radius", `${UI_TOKENS.radius.small}px`)
                 .style("background", this.getHeaderLegendBackgroundColor())
@@ -4536,6 +5050,13 @@ export class Visual implements IVisual {
         }
 
         status.text(this.dataSegmentStatusMessage);
+        const statusNode = status.node();
+        const loadingNode = this.loadingOverlay.node();
+        if (statusNode && loadingNode) {
+            status
+                .style("left", `${Math.round((loadingNode.clientWidth - statusNode.offsetWidth) / 2)}px`)
+                .style("top", `${Math.round((loadingNode.clientHeight - statusNode.offsetHeight) / 2)}px`);
+        }
         this.mainSvg?.style("visibility", "hidden");
         this.canvasLayer?.style("visibility", "hidden");
     }
@@ -4558,47 +5079,108 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions) {
-        // Fix for stale updates: Force viewport to match actual container size if larger
-        // This prevents the visual from resizing down to a cached small size when in Focus Mode
-        // Note: Create a local copy to avoid mutating the host-owned options object
-        const bypassResizeSettle = this.settledResizeViewportKey === this.getViewportKey(options.viewport);
-        if (this.target) {
-            const actualWidth = this.target.clientWidth;
-            const actualHeight = this.target.clientHeight;
+        if (this.isDestroyed) {
+            return;
+        }
 
-            // Detect significant resize (entering OR exiting Focus Mode)
-            // If dimensions change by >10%, trigger the clean re-render flow.
-            const isSignificantResize = !bypassResizeSettle && this.lastViewport && (
-                Math.abs(this.lastViewport.width - options.viewport.width) / (this.lastViewport.width || 1) > this.VIEWPORT_CHANGE_THRESHOLD ||
-                Math.abs(this.lastViewport.height - options.viewport.height) / (this.lastViewport.height || 1) > this.VIEWPORT_CHANGE_THRESHOLD
+        const currentDisplayPixelRatio = this.getCanvasPixelRatio();
+        if (Math.abs(currentDisplayPixelRatio - this.lastDisplayPixelRatio) > 0.001) {
+            this.lastDisplayPixelRatio = currentDisplayPixelRatio;
+            this.canvasContentValid = false;
+        }
+
+        // Host viewport values can lag Focus Mode and iframe layout. Reconcile
+        // both growth and shrink before transition detection, without mutating
+        // the host-owned options object.
+        const originalOptions = options;
+        const originalCommitGeneration = this.resizeCommitGenerations.get(originalOptions);
+        const effectiveViewport = this.getCurrentTargetViewport(options.viewport);
+        if (!areViewportsStable(options.viewport, effectiveViewport, 0)) {
+            this.debugLog(
+                `Reconciling host viewport [${options.viewport.width}x${options.viewport.height}] ` +
+                `to target [${effectiveViewport.width}x${effectiveViewport.height}].`
             );
-
-            // Active cooldown from a recent large resize
-            const inResizeCooldown = Date.now() < this.viewportResizeCooldownUntil;
-
-            if (isSignificantResize) {
-                this.debugLog(`Significant resize detected. Hiding content and waiting for container to settle.`);
-                // Capture scroll position so the re-render restores it
-                if (this.scrollableContainer?.node()) {
-                    this.preservedScrollTop = this.scrollableContainer.node().scrollTop;
-                    this.preserveScrollOnUpdate = true;
-                    this.scrollPreservationUntil = Date.now() + 2000;
-                    this.debugLog(`Resize: Captured scrollTop=${this.preservedScrollTop}`);
+            options = { ...options, viewport: effectiveViewport };
+            if (originalCommitGeneration !== undefined) {
+                this.resizeCommitGenerations.set(options, originalCommitGeneration);
+                if (this.committingResizeOptions === originalOptions) {
+                    this.committingResizeOptions = options;
                 }
-                this.viewportResizeCooldownUntil = Date.now() + 400;
-                this.hideContentForResize();
-                this.scheduleSettledResizeUpdate(options);
-                return;
-            } else if (inResizeCooldown && !bypassResizeSettle) {
-                this.debugLog(`In resize cooldown — skipping update`);
-                return;
-            } else if (options.viewport.width < actualWidth || options.viewport.height < actualHeight) {
-                this.debugLog(`Viewport mismatch detected. Override: [${options.viewport.width}x${options.viewport.height}] -> [${actualWidth}x${actualHeight}]`);
-                options = {
-                    ...options,
-                    viewport: { width: actualWidth, height: actualHeight }
-                };
             }
+        }
+
+        const commitGeneration = this.resizeCommitGenerations.get(options);
+        const isSettledResizeCommit = commitGeneration !== undefined
+            && commitGeneration === this.resizeGeneration
+            && this.committingResizeGeneration === commitGeneration
+            && this.committingResizeOptions === options;
+        const mostRecentViewport = this.lastCommittedViewport ?? this.lastViewport;
+        const viewportChanged = !!mostRecentViewport
+            && !areViewportsStable(mostRecentViewport, options.viewport, 0);
+
+        if (
+            !isSettledResizeCommit &&
+            viewportChanged &&
+            !this.resizeComparisonBaseline
+        ) {
+            this.resizeComparisonBaseline = { ...mostRecentViewport! };
+        }
+        if (!isSettledResizeCommit && viewportChanged && !this.isViewportTransitioning) {
+            this.scheduleResizeComparisonReset();
+        }
+
+        const comparisonViewport = this.resizeComparisonBaseline ?? mostRecentViewport;
+        const focusStateChanged = this.lastCommittedFocusState !== undefined
+            && options.isInFocus !== undefined
+            && options.isInFocus !== this.lastCommittedFocusState;
+        const isSignificantResize = !isSettledResizeCommit
+            && !!comparisonViewport
+            && isSignificantViewportResize(
+                comparisonViewport,
+                options.viewport,
+                this.VIEWPORT_CHANGE_THRESHOLD
+            );
+        const shouldSettleResize = !isSettledResizeCommit
+            && (this.isViewportTransitioning || focusStateChanged || isSignificantResize);
+
+        if (shouldSettleResize) {
+            const wasTransitioning = this.isViewportTransitioning;
+            this.cancelResizeCommitCandidate();
+            this.resizeGeneration += 1;
+            if (!wasTransitioning) {
+                this.resizeSettleStartedAt = Date.now();
+                this.resizeComparisonBaseline = comparisonViewport
+                    ? { ...comparisonViewport }
+                    : { ...options.viewport };
+                this.captureResizeScrollLock();
+            }
+            if (this.resizeComparisonResetTimeout) {
+                clearTimeout(this.resizeComparisonResetTimeout);
+                this.resizeComparisonResetTimeout = null;
+            }
+
+            this.viewportResizeCooldownUntil = Date.now() + this.RESIZE_SETTLE_MAX_WAIT_MS;
+            this.hideContentForResize();
+            this.scheduleSettledResizeUpdate(
+                options,
+                (options.type & VisualUpdateType.ResizeEnd) !== 0
+            );
+            this.debugLog(
+                `${focusStateChanged ? "Focus state" : "Significant viewport"} transition detected; ` +
+                `waiting for stable dimensions (generation ${this.resizeGeneration}).`
+            );
+            return;
+        }
+
+        if (
+            !isSettledResizeCommit &&
+            (options.type & VisualUpdateType.ResizeEnd) !== 0
+        ) {
+            if (this.resizeComparisonResetTimeout) {
+                clearTimeout(this.resizeComparisonResetTimeout);
+                this.resizeComparisonResetTimeout = null;
+            }
+            this.resizeComparisonBaseline = null;
         }
 
         // Handle concurrent updates by debouncing
@@ -4609,8 +5191,10 @@ export class Visual implements IVisual {
             return;
         }
 
-        if (bypassResizeSettle) {
-            this.settledResizeViewportKey = null;
+        if (this.isMarginDragging) {
+            this.debugLog("Margin drag in progress, queuing Power BI update.");
+            this.pendingUpdate = options;
+            return;
         }
 
         this.debugLog("===== UPDATE() CALLED =====");
@@ -4641,7 +5225,8 @@ export class Visual implements IVisual {
         }
 
         if (this.isMarginDragging) {
-            this.debugLog("Margin drag in progress, skipping Power BI update");
+            this.debugLog("Margin drag in progress, queuing Power BI update");
+            this.pendingUpdate = options;
             return;
         }
 
@@ -4661,16 +5246,6 @@ export class Visual implements IVisual {
             const updateType = this.determineUpdateType(options);
             this.lastHostUpdateOptions = options;
             this.debugLog(`Update type detected: ${updateType}`);
-
-            // Hide content during significant viewport changes (e.g. Focus Mode)
-            // to prevent the 3-step layout thrashing stutter
-            if (updateType === UpdateType.Full && this.lastViewport) {
-                const widthRatio = Math.abs(options.viewport.width - this.lastViewport.width) / (this.lastViewport.width || 1);
-                const heightRatio = Math.abs(options.viewport.height - this.lastViewport.height) / (this.lastViewport.height || 1);
-                if (widthRatio > this.VIEWPORT_CHANGE_THRESHOLD || heightRatio > this.VIEWPORT_CHANGE_THRESHOLD) {
-                    this.hideContentForResize();
-                }
-            }
 
             this.clearLandingPage();
 
@@ -4768,6 +5343,9 @@ export class Visual implements IVisual {
             if (shouldShowInitialLoadIndicator) {
                 this.showInitialLoadIndicator();
                 await this.yieldInitialLoadFrame();
+                if (this.isDestroyed) {
+                    return;
+                }
             }
 
             const dataSignature = this.getDataSignature(dataView);
@@ -5372,41 +5950,54 @@ export class Visual implements IVisual {
             }
             this.isUpdating = false;
 
-            // Reveal content after rendering completes — uses rAF to ensure
-            // the browser paints the fully-rendered frame in one shot
-            if (this.isViewportTransitioning) {
-                requestAnimationFrame(() => this.revealContentAfterResize());
+            if (!renderingFailed && !this.isDestroyed) {
+                this.lastCommittedViewport = this.lastViewport
+                    ? { ...this.lastViewport }
+                    : { ...options.viewport };
+                if (options.isInFocus !== undefined) {
+                    this.lastCommittedFocusState = options.isInFocus;
+                }
             }
 
-            if (this.scrollHandlerBackup && this.scrollableContainer) {
+            if (
+                this.isViewportTransitioning &&
+                this.committingResizeGeneration !== null &&
+                this.committingResizeGeneration === this.resizeGeneration &&
+                this.committingResizeOptions === options &&
+                (options.type & VisualUpdateType.ResizeEnd) !== 0
+            ) {
+                this.scheduleContentRevealAfterResize(this.committingResizeGeneration);
+            }
+
+            if (!this.isDestroyed && this.scrollHandlerBackup && this.scrollableContainer) {
                 this.scrollableContainer.on("scroll", this.scrollHandlerBackup);
                 this.scrollHandlerBackup = null;
                 this.debugLog("Scroll handler restored in finally block");
             }
 
-            // Safe-guard for iOS/Late-settling containers:
-            // Sometime webviews report 0 or incorrect size initially, and even ResizeObserver might race.
-            // A short delay double-check ensures we catch these late layout settlements.
-            setTimeout(() => {
-                // Skip safeguard during resize cooldown — the container hasn't
-                // settled yet but PBI's viewport is authoritative, so the mismatch
-                // is expected and should not trigger a forced update.
-                if (Date.now() < this.viewportResizeCooldownUntil) {
-                    this.debugLog(`[Safeguard] Skipped — in resize cooldown`);
-                    return;
+            if (!this.isDestroyed) {
+                if (this.postRenderViewportCheckTimeout) {
+                    clearTimeout(this.postRenderViewportCheckTimeout);
                 }
-                if (this.target && this.lastViewport) {
-                    const currentWidth = this.target.clientWidth;
-                    const currentHeight = this.target.clientHeight;
-
-                    if (Math.abs(currentWidth - this.lastViewport.width) > 5 ||
-                        Math.abs(currentHeight - this.lastViewport.height) > 5) {
-
-                        this.debugLog(`[Safeguard] Size mismatch detected after delay: Rendered=[${this.lastViewport.width}x${this.lastViewport.height}], Actual=[${currentWidth}x${currentHeight}]. Forcing update.`);
-                        this.requestUpdate(true);
+                this.postRenderViewportCheckTimeout = setTimeout(() => {
+                    this.postRenderViewportCheckTimeout = null;
+                    if (this.isDestroyed || this.isViewportTransitioning || Date.now() < this.viewportResizeCooldownUntil) {
+                        this.debugLog(`[Safeguard] Skipped — in resize cooldown`);
+                        return;
                     }
-                }
-            }, 250);
+                    if (this.target && this.lastViewport) {
+                        const currentWidth = this.target.clientWidth;
+                        const currentHeight = this.target.clientHeight;
+
+                        if (Math.abs(currentWidth - this.lastViewport.width) > 5 ||
+                            Math.abs(currentHeight - this.lastViewport.height) > 5) {
+
+                            this.debugLog(`[Safeguard] Size mismatch detected after delay: Rendered=[${this.lastViewport.width}x${this.lastViewport.height}], Actual=[${currentWidth}x${currentHeight}]. Forcing update.`);
+                            this.requestUpdate(false);
+                        }
+                    }
+                }, 250);
+            }
 
 
         }
@@ -5505,11 +6096,6 @@ export class Visual implements IVisual {
             );
         }
 
-        // Reveal if we were transitioning (viewport-only path)
-        if (this.isViewportTransitioning) {
-            requestAnimationFrame(() => this.revealContentAfterResize());
-        }
-
         this.debugLog("--- Visual Update End (Viewport Only) ---");
     }
 
@@ -5524,8 +6110,16 @@ export class Visual implements IVisual {
      */
     private hideContentForResize(): void {
         this.isViewportTransitioning = true;
+        if (this.resizeRevealRaf !== null) {
+            cancelAnimationFrame(this.resizeRevealRaf);
+            this.resizeRevealRaf = null;
+        }
+
         if (this.target) {
+            const fadeDuration = this.getAnimationDuration(60);
             d3.select(this.target).select(".visual-wrapper")
+                .attr("aria-busy", "true")
+                .style("transition", fadeDuration > 0 ? `opacity ${fadeDuration}ms ease-out` : "none")
                 .style("opacity", "0")
                 .style("pointer-events", "none");
         }
@@ -5536,10 +6130,66 @@ export class Visual implements IVisual {
      * Reveals visual content after rendering has completed,
      * producing a clean single-frame transition.
      */
-    private revealContentAfterResize(): void {
+    private scheduleContentRevealAfterResize(generation: number): void {
+        if (this.resizeRevealRaf !== null) {
+            cancelAnimationFrame(this.resizeRevealRaf);
+        }
+
+        this.resizeRevealRaf = requestAnimationFrame(() => {
+            this.resizeRevealRaf = null;
+            if (this.isDestroyed || generation !== this.resizeGeneration) {
+                return;
+            }
+            this.revealContentAfterResize(generation);
+        });
+    }
+
+    private restoreResizeScrollLock(): void {
+        const scrollNode = this.scrollableContainer?.node();
+        const lock = this.resizeScrollLock;
+        if (scrollNode && lock) {
+            const maxScrollTop = Math.max(0, scrollNode.scrollHeight - scrollNode.clientHeight);
+            const maxScrollLeft = Math.max(0, scrollNode.scrollWidth - scrollNode.clientWidth);
+            scrollNode.scrollTop = Math.max(0, Math.min(lock.top, maxScrollTop));
+            scrollNode.scrollLeft = Math.max(0, Math.min(lock.left, maxScrollLeft));
+            this.preservedScrollTop = null;
+            this.preservedScrollLeft = null;
+        }
+
+        const listener = this.scrollHandlerBackup ?? this.scrollListener;
+        if (listener && this.scrollableContainer) {
+            this.scrollableContainer.on("scroll", listener);
+            this.scrollHandlerBackup = null;
+        }
+    }
+
+    private revealContentAfterResize(generation: number): void {
+        if (generation !== this.resizeGeneration) {
+            return;
+        }
+
+        this.restoreResizeScrollLock();
         this.isViewportTransitioning = false;
+        this.viewportResizeCooldownUntil = 0;
+        this.resizeSettleStartedAt = 0;
+        this.resizeScrollLock = null;
+        this.resizeComparisonBaseline = null;
+        this.pendingSettledResizeOptions = null;
+        this.committingResizeGeneration = null;
+        this.committingResizeOptions = null;
+        if (this.resizeMaxWaitTimeout) {
+            clearTimeout(this.resizeMaxWaitTimeout);
+            this.resizeMaxWaitTimeout = null;
+        }
+        if (this.resizeComparisonResetTimeout) {
+            clearTimeout(this.resizeComparisonResetTimeout);
+            this.resizeComparisonResetTimeout = null;
+        }
+
         if (this.target) {
             d3.select(this.target).select(".visual-wrapper")
+                .attr("aria-busy", null)
+                .style("transition", "none")
                 .style("opacity", "1")
                 .style("pointer-events", null);
         }
@@ -5830,7 +6480,12 @@ export class Visual implements IVisual {
                 self.preservedScrollTop = self.scrollableContainer.node().scrollTop;
             }
             self.preserveScrollOnUpdate = true;
-            // Note: We do NOT call self.requestUpdate(true) here to avoid double-update race conditions for scroll
+
+            if (self.pendingUpdate) {
+                const queuedUpdate = self.pendingUpdate;
+                self.pendingUpdate = null;
+                self.update(queuedUpdate);
+            }
         };
 
         const onMouseMove = (event: MouseEvent): void => {
@@ -6979,14 +7634,7 @@ export class Visual implements IVisual {
     }
 
     private canvasHasContent(): boolean {
-        if (!this.canvasElement || !this.canvasContext) return false;
-
-        try {
-            const imageData = this.canvasContext.getImageData(0, 0, 1, 1);
-            return imageData.data[3] > 0;
-        } catch {
-            return false;
-        }
+        return Boolean(this.canvasElement && this.canvasContext && this.canvasContentValid);
     }
 
     /**
@@ -7460,6 +8108,13 @@ export class Visual implements IVisual {
 
         // --- 7. Vertical Separators ---
         this.drawLabelColumnSeparators(chartHeight, currentLeftMargin);
+
+        if (this.useCanvasRendering && this.canvasContext) {
+            this.canvasContentValid = true;
+        }
+
+        this.applySvgTextSharpness(this.mainSvg);
+        this.applySvgTextSharpness(this.headerSvg);
     }
 
     private syncCanvasElementPresentation(currentLeftMargin: number): void {
@@ -9057,8 +9712,8 @@ export class Visual implements IVisual {
                 update => update,
                 exit => exit.remove()
             )
-            .attr("x", d => d.x)
-            .attr("y", yPos)
+            .attr("x", d => this.snapTextCoord(d.x))
+            .attr("y", this.snapTextCoord(yPos))
             .attr("text-anchor", d => d.anchor)
             .attr("dominant-baseline", "central")
             .style("font-family", fontFamily)
@@ -9624,7 +10279,11 @@ export class Visual implements IVisual {
                 const applyCriticalFormat = this.shouldApplyCriticalFormatToSegment(segment);
                 const taskFill = this.getSemanticTaskFillColor(task, taskColor, criticalColor, nearCriticalColor, applyCriticalFormat);
                 ctx.fillStyle = this.getDurationTextColor(taskFill);
-                ctx.fillText(textContent, this.snapTextCoord(startX + barWidth / 2), this.snapTextCoord(yPosition + taskHeight / 2));
+                ctx.fillText(
+                    textContent,
+                    this.snapCanvasTextX(startX + barWidth / 2),
+                    this.snapCanvasTextY(yPosition + taskHeight / 2)
+                );
             }
             ctx.restore();
         }
@@ -9673,13 +10332,13 @@ export class Visual implements IVisual {
                 }
 
                 if (xPos === null || isNaN(xPos)) continue;
-                xPos = this.snapTextCoord(xPos + this.dateLabelOffset);
+                xPos = this.snapCanvasTextX(xPos + this.dateLabelOffset);
 
                 const labelText = this.formatDate(dateToUse);
                 const textMetrics = ctx.measureText(labelText);
                 const textWidth = textMetrics.width;
                 const textHeight = dateTextFontSizePx * 1.4;
-                const yCenter = this.snapTextCoord(yPosition + taskHeight / 2);
+                const yCenter = this.snapCanvasTextY(yPosition + taskHeight / 2);
 
                 // Draw background box
                 if (dateBackgroundOpacity > 0) {
@@ -9844,58 +10503,44 @@ export class Visual implements IVisual {
             return false;
         }
 
-        const ctx = this.canvasElement.getContext('2d');
-        const canvasPixelRatio = this.getCanvasPixelRatio();
-        const backingStoreRatio = (ctx as any).webkitBackingStorePixelRatio ||
-            (ctx as any).mozBackingStorePixelRatio ||
-            (ctx as any).msBackingStorePixelRatio ||
-            (ctx as any).oBackingStorePixelRatio ||
-            (ctx as any).backingStorePixelRatio || 1;
-
-        const devicePixelRatio = canvasPixelRatio / backingStoreRatio;
-
         const displayWidth = Math.max(1, this.snapRectCoord(chartWidth));
         const displayHeight = Math.max(1, this.snapRectCoord(chartHeight));
-        const canvasWidth = Math.round(displayWidth * devicePixelRatio);
-        const canvasHeight = Math.round(displayHeight * devicePixelRatio);
+        const setup = this.setupHiDpiCanvas(
+            this.canvasElement,
+            displayWidth,
+            displayHeight,
+            this.getCanvasPixelRatio(),
+            {
+                alpha: true,
+                desynchronized: false,
+                willReadFrequently: false
+            }
+        );
 
-        this.canvasElement.style.width = `${displayWidth}px`;
-        this.canvasElement.style.height = `${displayHeight}px`;
-
-        if (this.canvasElement.width !== canvasWidth) {
-            this.canvasElement.width = canvasWidth;
-        }
-        if (this.canvasElement.height !== canvasHeight) {
-            this.canvasElement.height = canvasHeight;
-        }
-
-        this.canvasContext = this.canvasElement.getContext('2d', {
-            alpha: true,
-            desynchronized: false,
-            willReadFrequently: false
-        });
-
-        if (!this.canvasContext) {
+        if (!setup) {
             console.error("Failed to get 2D context from canvas.");
+            this.canvasContext = null;
+            this.canvasContentValid = false;
             return false;
         }
 
-        this.canvasContext.setTransform(1, 0, 0, 1, 0, 0);
-        this.canvasContext.clearRect(0, 0, canvasWidth, canvasHeight);
-        this.canvasContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+        this.canvasContext = setup.context;
+        this.canvasScaleX = setup.scaleX;
+        this.canvasScaleY = setup.scaleY;
+        this.canvasContentValid = false;
 
         this.canvasContext.beginPath();
-        this.canvasContext.rect(0, 0, displayWidth, displayHeight);
+        this.canvasContext.rect(0, 0, setup.cssWidth, setup.cssHeight);
         this.canvasContext.clip();
 
         this.canvasContext.imageSmoothingEnabled = false;
-        if ((this.canvasContext as any).textRendering) {
-            (this.canvasContext as any).textRendering = 'optimizeLegibility';
-        }
+        applyCanvasTextRendering(this.canvasContext);
 
-
-
-        this.debugLog(`Canvas setup: Ratio=${devicePixelRatio}, Display=${displayWidth}x${displayHeight}, Canvas=${canvasWidth}x${canvasHeight}`);
+        this.debugLog(
+            `Canvas setup: Scale=${setup.scaleX}x${setup.scaleY}, ` +
+            `Display=${setup.cssWidth}x${setup.cssHeight}, ` +
+            `Canvas=${setup.backingWidth}x${setup.backingHeight}`
+        );
         return true;
     }
 
@@ -11145,14 +11790,16 @@ export class Visual implements IVisual {
         ctx.lineJoin = "round";
 
         const drawText = (text: string, x: number, y: number, fill: string, bold: boolean) => {
+            const snappedX = this.snapCanvasTextX(x);
+            const snappedY = this.snapCanvasTextY(y);
             ctx.font = `${bold ? "700" : "600"} ${fontSize}px ${this.getFontFamily()}`;
             if (!this.highContrastMode) {
                 ctx.strokeStyle = haloColor;
                 ctx.lineWidth = 3;
-                ctx.strokeText(text, x, y);
+                ctx.strokeText(text, snappedX, snappedY);
             }
             ctx.fillStyle = this.highContrastMode ? this.highContrastForeground : fill;
-            ctx.fillText(text, x, y);
+            ctx.fillText(text, snappedX, snappedY);
         };
 
         if (bandPairs.length > 0) {
@@ -14108,7 +14755,7 @@ export class Visual implements IVisual {
             this.preserveScrollOnUpdate = true;
 
             this.scrollPreservationUntil = Date.now() + 2000;
-            this.updateInternal(this.lastUpdateOptions);
+            this.update(this.lastUpdateOptions);
         }
     }
 
@@ -14131,16 +14778,25 @@ export class Visual implements IVisual {
         if (!this.scrollableContainer?.node()) {
 
             this.preservedScrollTop = null;
+            this.preservedScrollLeft = null;
             this.wbsToggleScrollAnchor = null;
             return;
         }
 
         const containerNode = this.scrollableContainer.node();
         const maxScroll = Math.max(0, totalSvgHeight - containerNode.clientHeight);
+        const maxHorizontalScroll = Math.max(0, containerNode.scrollWidth - containerNode.clientWidth);
 
         if (this.scrollListener) {
             this.scrollableContainer.on("scroll", null);
 
+        }
+
+        if (this.preservedScrollLeft !== null) {
+            const clampedScrollLeft = Math.max(0, Math.min(this.preservedScrollLeft, maxHorizontalScroll));
+            this.preservedScrollLeft = null;
+            containerNode.scrollLeft = clampedScrollLeft;
+            void containerNode.scrollLeft;
         }
 
         if (this.preservedScrollTop !== null) {
@@ -15721,14 +16377,17 @@ export class Visual implements IVisual {
 
         this.mainSvg.append("text")
             .attr("class", "message-text")
-            .attr("x", width / 2)
-            .attr("y", height / 2)
+            .attr("x", this.snapTextCoord(width / 2))
+            .attr("y", this.snapTextCoord(height / 2))
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "middle")
+            .style("font-family", this.getFontFamily())
             .style("fill", this.resolveColor("#777777", "foreground"))
             .style("font-size", "14px")
             .style("font-weight", "bold")
             .text(message);
+
+        this.applySvgTextSharpness(this.mainSvg);
 
         const viewportWidth = this.lastUpdateOptions?.viewport.width || width;
 
@@ -15790,7 +16449,7 @@ export class Visual implements IVisual {
             .style("padding", `0 ${UI_TOKENS.spacing.lg}px`)
             .style("border", `1px solid ${headerLegendBorder}`)
             .style("border-radius", `${UI_TOKENS.radius.pill}px`)
-            .style("font-family", "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif")
+            .style("font-family", DEFAULT_SYSTEM_FONT_STACK)
             .style("font-size", this.fontPxFromPtSetting(8.5))
             .style("font-weight", "500")
             .style("color", headerLegendText)
@@ -16197,7 +16856,7 @@ export class Visual implements IVisual {
                 .style("color", mutedTextColor)
                 .style("font-style", "italic")
                 .style("font-size", "11px")
-                .style("font-family", "Segoe UI, sans-serif");
+                .style("font-family", DEFAULT_SYSTEM_FONT_STACK);
             this.dropdownFocusableItems = [];
             this.dropdownActiveIndex = -1;
             this.updateDropdownActiveState();
@@ -16292,7 +16951,7 @@ export class Visual implements IVisual {
                 .style("overflow-wrap", "break-word")
                 .style("line-height", "1.4")
                 .style("font-size", item.type === "task" ? "11px" : "10px")
-                .style("font-family", "Segoe UI, sans-serif")
+                .style("font-family", DEFAULT_SYSTEM_FONT_STACK)
                 .style("background-color", isActive ? hoverBackground : defaultBg)
                 .style("font-weight", isSelected ? "600" : "normal")
                 .text(item.label);
@@ -17107,7 +17766,7 @@ export class Visual implements IVisual {
             .style("display", "flex")
             .style("gap", `${UI_TOKENS.spacing.xs}px`)
             .style("align-items", "center")
-            .style("transition", `transform ${UI_TOKENS.motion.duration.normal}ms ${UI_TOKENS.motion.easing.standard}`)
+            .style("transition", "none")
             .style("padding", "0")
             .style("width", "max-content");
 
@@ -17151,14 +17810,13 @@ export class Visual implements IVisual {
                 .style("cursor", "pointer")
                 .style("user-select", "none")
                 .style("box-shadow", this.highContrastMode ? "none" : UI_TOKENS.shadow[1])
-                .style("transition", `transform ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, background ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, border-color ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, opacity ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}`)
+                .style("transition", `background ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, border-color ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, opacity ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}`)
                 .text(label);
 
             button.on("mouseenter", function () {
                 const current = d3.select(this);
                 if (current.attr("aria-disabled") === "true") return;
                 current
-                    .style("transform", "translateY(-1px)")
                     .style("background", buttonHoverBackground)
                     .style("border-color", buttonHoverBorder);
             });
@@ -17166,7 +17824,6 @@ export class Visual implements IVisual {
             button.on("mouseleave", function () {
                 const current = d3.select(this);
                 current
-                    .style("transform", "translateY(0)")
                     .style("background", buttonBackground)
                     .style("border-color", buttonBorder);
             });
@@ -17222,7 +17879,7 @@ export class Visual implements IVisual {
                 .style("user-select", "none")
                 .style("opacity", isSelected ? "1" : "0.7")
                 .style("box-shadow", isSelected && !this.highContrastMode ? `inset 0 1px 0 ${this.toRgba("#FFFFFF", 0.06)}` : "none")
-                .style("transition", `transform ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, opacity ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, border-color ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, background ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}`);
+                .style("transition", `opacity ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, border-color ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}, background ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.standard}`);
 
             item.append("div")
                 .attr("class", "legend-swatch")
@@ -17256,14 +17913,12 @@ export class Visual implements IVisual {
 
             item.on("mouseenter", function () {
                 d3.select(this)
-                    .style("opacity", "1")
-                    .style("transform", "translateY(-1px)");
+                    .style("opacity", "1");
             });
 
             item.on("mouseleave", function () {
                 d3.select(this)
-                    .style("opacity", isSelected ? "1" : "0.7")
-                    .style("transform", "translateY(0)");
+                    .style("opacity", isSelected ? "1" : "0.7");
             });
         });
 
@@ -17294,7 +17949,7 @@ export class Visual implements IVisual {
         };
 
         const setScrollPosition = (nextPosition: number) => {
-            scrollPosition = Math.max(0, Math.min(getMaxScroll(), nextPosition));
+            scrollPosition = Math.round(Math.max(0, Math.min(getMaxScroll(), nextPosition)));
             this.legendScrollPosition = scrollPosition;
             scrollableContent.style("transform", `translateX(-${scrollPosition}px)`);
             updateArrowStates();
@@ -18017,14 +18672,7 @@ export class Visual implements IVisual {
      */
     private getFontFamily(): string {
         const settingFont = this.settings?.textAndLabels?.fontFamily?.value?.value;
-        const defaultFontStack = "'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif";
-        if (typeof settingFont === "string" && settingFont.trim()) {
-            const font = settingFont.trim();
-            if (font.includes(",")) return font;
-            if (font === "DIN") return `'DIN', 'DIN Next', 'Segoe UI', sans-serif`;
-            return `'${font}', ${defaultFontStack}`;
-        }
-        return defaultFontStack;
+        return resolveFontFamilyStack(settingFont);
     }
 
     private getBackgroundColor(): string {
@@ -18494,7 +19142,7 @@ export class Visual implements IVisual {
             .style("background", this.getBackgroundColor())
             .style("border", `1px solid ${this.getForegroundColor()}`)
             .style("color", this.getForegroundColor())
-            .style("font-family", "Segoe UI, sans-serif")
+            .style("font-family", DEFAULT_SYSTEM_FONT_STACK)
             .style("box-shadow", "0 4px 12px rgba(0,0,0,0.08)");
 
         card.append("div")
@@ -18611,7 +19259,7 @@ export class Visual implements IVisual {
             .style('display', 'flex')
             .style('flex-direction', 'column')
             .style('overflow', 'hidden')
-            .style('font-family', 'Segoe UI, sans-serif')
+            .style('font-family', DEFAULT_SYSTEM_FONT_STACK)
             .style('color', this.getForegroundColor());
 
         // Header with close button
@@ -19361,7 +20009,7 @@ export class Visual implements IVisual {
         tasks: Task[]
     ): string {
         const columns = this.getVisibleExportColumns(tasks, true);
-        let html = `<table border="1" cellspacing="0" cellpadding="2" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
+        let html = `<table border="1" cellspacing="0" cellpadding="2" style="border-collapse: collapse; width: 100%; font-family: ${DEFAULT_SYSTEM_FONT_STACK}; font-size: 11px; white-space: nowrap;">`;
         html += this.getExportTableHeaderHtml(columns);
 
         tasks.forEach(task => {
@@ -19404,7 +20052,7 @@ export class Visual implements IVisual {
         const fallbackGroupTextColor = this.getWbsTextColor("#333333");
         const indentPerLevel = this.settings?.wbsGrouping?.indentPerLevel?.value || 20;
 
-        let html = `<table border="1" cellspacing="0" cellpadding="2" style="border-collapse: collapse; width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 11px; white-space: nowrap;">`;
+        let html = `<table border="1" cellspacing="0" cellpadding="2" style="border-collapse: collapse; width: 100%; font-family: ${DEFAULT_SYSTEM_FONT_STACK}; font-size: 11px; white-space: nowrap;">`;
         html += this.getExportTableHeaderHtml(columns);
 
         rows.forEach(row => {
@@ -19510,7 +20158,7 @@ ${selectedTaskBlock}
     }
 
     private generateClipboardTableExportFragment(tableHtml: string): string {
-        return `<div style="font-family: 'Segoe UI', Arial, sans-serif; color: #1f1f1f; background: #ffffff;">
+        return `<div style="font-family: ${DEFAULT_SYSTEM_FONT_STACK}; color: #1f1f1f; background: #ffffff;">
 <div>
 ${tableHtml}
 </div>
@@ -19519,7 +20167,7 @@ ${this.generateClipboardExportMetadataFragment()}
     }
 
     private generateClipboardHtmlExportFragment(chartImageDataUrl: string, tableHtml: string): string {
-        return `<div style="font-family: 'Segoe UI', Arial, sans-serif; color: #1f1f1f; background: #ffffff;">
+        return `<div style="font-family: ${DEFAULT_SYSTEM_FONT_STACK}; color: #1f1f1f; background: #ffffff;">
 ${this.generateClipboardExportMetadataFragment()}
 <div style="margin-bottom: 16px;">
 <img src="${chartImageDataUrl}" alt="Exported Gantt chart" style="max-width: 100%; height: auto; border: 1px solid #d0d0d0;">
@@ -19640,14 +20288,14 @@ ${tableHtml}
         Object.assign(toast.style, {
             position: 'absolute',
             bottom: '12px',
-            left: '50%',
-            transform: 'translateX(-50%)',
+            left: '0',
+            transform: 'none',
             background: 'rgba(0,0,0,0.8)',
             color: '#fff',
             padding: '8px 16px',
             borderRadius: '6px',
             fontSize: '12px',
-            fontFamily: "'Segoe UI', sans-serif",
+            fontFamily: DEFAULT_SYSTEM_FONT_STACK,
             zIndex: '10000',
             pointerEvents: 'none',
             opacity: '0',
@@ -19656,6 +20304,7 @@ ${tableHtml}
 
         this.target.style.position = this.target.style.position || 'relative';
         this.target.appendChild(toast);
+        toast.style.left = `${Math.round((this.target.clientWidth - toast.offsetWidth) / 2)}px`;
 
         // Trigger fade-in
         requestAnimationFrame(() => { toast.style.opacity = '1'; });

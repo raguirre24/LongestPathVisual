@@ -6,6 +6,11 @@ import { BoundFieldState } from "../data/Interfaces";
 import { getProgressLineDateModeLabel, getProgressLineReferenceLabel } from "../utils/ProgressLine";
 import type { ProgressLineDateMode, ProgressLineReference } from "../utils/ProgressLine";
 import {
+    DEFAULT_SYSTEM_FONT_STACK,
+    snapSvgCoordinateAttribute,
+    snapTextCoordinate
+} from "../utils/RenderingSharpness";
+import {
     computeHeaderButtonLayout,
     formatLookAheadWindowLabel,
     getActiveHiddenHeaderControlCount,
@@ -94,7 +99,7 @@ export type HeaderPalette = Partial<typeof HEADER_DOCK_TOKENS> & {
     usesCustomColours?: boolean;
 };
 
-const HEADER_FONT_FAMILY = "'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif";
+const HEADER_FONT_FAMILY = DEFAULT_SYSTEM_FONT_STACK;
 const LOOK_AHEAD_SELECT_FONT_SIZE = `${UI_TOKENS.fontSize.sm}px`;
 const LOOK_AHEAD_OPTION_LINE_HEIGHT = "1.2";
 const LOOK_AHEAD_OPTION_ROW_HEIGHT = 22;
@@ -140,6 +145,10 @@ export class Header {
             .style("position", "absolute")
             .style("top", "0")
             .style("left", "0")
+            .style("font-family", HEADER_FONT_FAMILY)
+            .style("-webkit-font-smoothing", "antialiased")
+            .style("-moz-osx-font-smoothing", "grayscale")
+            .style("text-rendering", "optimizeLegibility")
             .style("pointer-events", "none"); // Allow clicks to pass through to buttons underneath if any
 
         // Main group
@@ -225,6 +234,42 @@ export class Header {
 
         this.renderButtons();
         this.applyHeaderPaletteOverrides();
+        this.applyTextRenderingSharpness();
+    }
+
+    private applyTextRenderingSharpness(): void {
+        this.container
+            .style("font-family", HEADER_FONT_FAMILY)
+            .style("-webkit-font-smoothing", "antialiased")
+            .style("-moz-osx-font-smoothing", "grayscale")
+            .style("text-rendering", "optimizeLegibility");
+
+        this.container
+            .selectAll<HTMLElement, unknown>("button, input, div, span")
+            .style("font-family", HEADER_FONT_FAMILY)
+            .style("-webkit-font-smoothing", "antialiased")
+            .style("-moz-osx-font-smoothing", "grayscale")
+            .style("text-rendering", "optimizeLegibility");
+
+        this.container
+            .selectAll<SVGElement, unknown>("svg text, svg tspan")
+            .style("font-family", HEADER_FONT_FAMILY)
+            .style("-webkit-font-smoothing", "antialiased")
+            .style("-moz-osx-font-smoothing", "grayscale")
+            .style("text-rendering", "optimizeLegibility")
+            .each(function () {
+                for (const attributeName of ["x", "y"] as const) {
+                    const currentValue = this.getAttribute(attributeName);
+                    const snappedValue = snapSvgCoordinateAttribute(currentValue);
+                    if (
+                        snappedValue !== currentValue &&
+                        snappedValue !== null &&
+                        snappedValue !== undefined
+                    ) {
+                        this.setAttribute(attributeName, String(snappedValue));
+                    }
+                }
+            });
     }
 
     public destroy(): void {
@@ -484,9 +529,9 @@ export class Header {
         const overlay = this.container.append("div")
             .attr("class", "copy-notification-overlay")
             .style("position", "fixed") // Use fixed to center relative to viewport/iframe
-            .style("top", "50%")
-            .style("left", "50%")
-            .style("transform", "translate(-50%, -50%)")
+            .style("top", "0")
+            .style("left", "0")
+            .style("transform", "none")
             .style("background-color", this.getHeaderChipBackground())
             .style("padding", "16px 24px")
             .style("border-radius", "8px")
@@ -517,6 +562,14 @@ export class Header {
             .style("font-weight", "600")
             .style("color", this.getHeaderChipTextColor())
             .text("Data copied to clipboard");
+
+        const overlayNode = overlay.node();
+        if (overlayNode) {
+            const overlayRect = overlayNode.getBoundingClientRect();
+            overlay
+                .style("left", `${Math.round((window.innerWidth - overlayRect.width) / 2)}px`)
+                .style("top", `${Math.round((window.innerHeight - overlayRect.height) / 2)}px`);
+        }
 
         // Animate in
         requestAnimationFrame(() => {
@@ -996,8 +1049,8 @@ export class Header {
             .attr("stroke", buttonStroke)
             .attr("stroke-width", showBaseline ? 1.5 : 1);
 
-        const iconX = iconOnly ? (buttonWidth / 2) : (UI_TOKENS.spacing.lg + 2);
-        const iconY = buttonHeight / 2;
+        const iconX = snapTextCoordinate(iconOnly ? (buttonWidth / 2) : (UI_TOKENS.spacing.lg + 2));
+        const iconY = snapTextCoordinate(buttonHeight / 2);
 
         const iconG = svg.append("g")
             .attr("transform", `translate(${iconX}, ${iconY})`);
@@ -1023,7 +1076,7 @@ export class Header {
 
         iconG.append("text")
             .attr("x", 0)
-            .attr("y", -5.8)
+            .attr("y", snapTextCoordinate(-5.8))
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
             .style("font-family", HEADER_FONT_FAMILY)
@@ -1035,8 +1088,8 @@ export class Header {
         if (!iconOnly) {
             svg.append("text")
                 .attr("class", "toggle-text")
-                .attr("x", iconX + 18)
-                .attr("y", buttonHeight / 2)
+                .attr("x", snapTextCoordinate(iconX + 18))
+                .attr("y", snapTextCoordinate(buttonHeight / 2))
                 .attr("dominant-baseline", "central")
                 .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
@@ -1071,12 +1124,13 @@ export class Header {
                     bgRect.attr("fill", buttonFill)
                         .attr("stroke", buttonStroke)
                         .attr("stroke-width", showBaseline ? 1.5 : 1);
+                    select(this).style("opacity", "1");
                 })
                 .on("mousedown", function () {
-                    select(this).style("transform", "scale(0.98)");
+                    select(this).style("opacity", "0.86");
                 })
                 .on("mouseup", function () {
-                    select(this).style("transform", "scale(1)");
+                    select(this).style("opacity", "1");
                 });
         }
     }
@@ -1165,8 +1219,8 @@ export class Header {
             .attr("stroke", buttonStroke)
             .attr("stroke-width", showPreviousUpdate ? 1.5 : 1);
 
-        const iconX = iconOnly ? (buttonWidth / 2) : (UI_TOKENS.spacing.lg + 2);
-        const iconY = buttonHeight / 2;
+        const iconX = snapTextCoordinate(iconOnly ? (buttonWidth / 2) : (UI_TOKENS.spacing.lg + 2));
+        const iconY = snapTextCoordinate(buttonHeight / 2);
 
         const iconG = svg.append("g")
             .attr("transform", `translate(${iconX}, ${iconY})`);
@@ -1191,7 +1245,7 @@ export class Header {
 
         iconG.append("text")
             .attr("x", 0)
-            .attr("y", -5.8)
+            .attr("y", snapTextCoordinate(-5.8))
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
             .style("font-family", HEADER_FONT_FAMILY)
@@ -1203,8 +1257,8 @@ export class Header {
         if (!iconOnly) {
             svg.append("text")
                 .attr("class", "toggle-text")
-                .attr("x", iconX + 18)
-                .attr("y", buttonHeight / 2)
+                .attr("x", snapTextCoordinate(iconX + 18))
+                .attr("y", snapTextCoordinate(buttonHeight / 2))
                 .attr("dominant-baseline", "central")
                 .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", `${UI_TOKENS.fontSize.md}px`)
@@ -1239,12 +1293,13 @@ export class Header {
                     bgRect.attr("fill", buttonFill)
                         .attr("stroke", buttonStroke)
                         .attr("stroke-width", showPreviousUpdate ? 1.5 : 1);
+                    select(this).style("opacity", "1");
                 })
                 .on("mousedown", function () {
-                    select(this).style("transform", "scale(0.98)");
+                    select(this).style("opacity", "0.86");
                 })
                 .on("mouseup", function () {
-                    select(this).style("transform", "scale(1)");
+                    select(this).style("opacity", "1");
                 });
         }
     }
@@ -1529,7 +1584,10 @@ export class Header {
             .attr("stroke-width", wbsExpanded ? 1.5 : 1);
 
         const iconG = svg.append("g")
-            .attr("transform", `translate(${buttonSize / 2}, ${(buttonSize / 2) - 4})`);
+            .attr(
+                "transform",
+                `translate(${snapTextCoordinate(buttonSize / 2)}, ${snapTextCoordinate((buttonSize / 2) - 4)})`
+            );
 
         this.drawWbsHierarchyGlyph(iconG, iconColor, "tree", "plus");
 
@@ -1537,8 +1595,8 @@ export class Header {
 
         const textEl = svg.append("text")
             .attr("class", "toggle-text")
-            .attr("x", buttonSize / 2)
-            .attr("y", buttonSize - 10)
+            .attr("x", snapTextCoordinate(buttonSize / 2))
+            .attr("y", snapTextCoordinate(buttonSize - 10))
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
             .style("font-family", HEADER_FONT_FAMILY)
@@ -1643,7 +1701,10 @@ export class Header {
             .attr("stroke-width", isCollapsed ? 1.5 : 1);
 
         const iconG = svg.append("g")
-            .attr("transform", `translate(${buttonSize / 2}, ${(buttonSize / 2) - 4})`);
+            .attr(
+                "transform",
+                `translate(${snapTextCoordinate(buttonSize / 2)}, ${snapTextCoordinate((buttonSize / 2) - 4)})`
+            );
 
         this.drawWbsHierarchyGlyph(iconG, iconColor, "tree", "minus");
 
@@ -1651,8 +1712,8 @@ export class Header {
 
         const textEl = svg.append("text")
             .attr("class", "toggle-text")
-            .attr("x", buttonSize / 2)
-            .attr("y", buttonSize - 10)
+            .attr("x", snapTextCoordinate(buttonSize / 2))
+            .attr("y", snapTextCoordinate(buttonSize - 10))
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "central")
             .style("font-family", HEADER_FONT_FAMILY)
@@ -1882,7 +1943,10 @@ export class Header {
         if (buttonWidth < 80) {
             // Compact Mode: Show simple icon/text
             const iconG = svg.append("g")
-                .attr("transform", `translate(${buttonWidth / 2}, ${buttonHeight / 2})`);
+                .attr(
+                    "transform",
+                    `translate(${snapTextCoordinate(buttonWidth / 2)}, ${snapTextCoordinate(buttonHeight / 2)})`
+                );
 
             // Background circle/rounded rect for state indication
             const bgCompact = iconG.append("rect")
@@ -1931,7 +1995,10 @@ export class Header {
             const pillWidth = Math.min(106, buttonWidth - 20);
             const pillHeight = 22;
             const pillG = svg.append("g")
-                .attr("transform", `translate(${(buttonWidth - pillWidth) / 2}, ${buttonHeight / 2})`);
+                .attr(
+                    "transform",
+                    `translate(${snapTextCoordinate((buttonWidth - pillWidth) / 2)}, ${snapTextCoordinate(buttonHeight / 2)})`
+                );
 
             const pillX = isFloatBased ? pillWidth / 2 : 0;
 
@@ -1958,7 +2025,7 @@ export class Header {
                 .style("transition", `all ${UI_TOKENS.motion.duration.slow}ms ${UI_TOKENS.motion.easing.smooth}`);
 
             pillG.append("text")
-                .attr("x", pillWidth / 4)
+                .attr("x", snapTextCoordinate(pillWidth / 4))
                 .attr("y", 0)
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
@@ -1970,7 +2037,7 @@ export class Header {
                 .text("LP");
 
             pillG.append("text")
-                .attr("x", 3 * pillWidth / 4)
+                .attr("x", snapTextCoordinate(3 * pillWidth / 4))
                 .attr("y", 0)
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
@@ -1992,8 +2059,8 @@ export class Header {
 
         if (hasModeWarning) {
             const badgeRadius = buttonWidth < 80 ? 5.5 : 6.5;
-            const badgeCx = buttonWidth - (buttonWidth < 80 ? 8 : 10);
-            const badgeCy = buttonWidth < 80 ? 8 : 9;
+            const badgeCx = snapTextCoordinate(buttonWidth - (buttonWidth < 80 ? 8 : 10));
+            const badgeCy = snapTextCoordinate(buttonWidth < 80 ? 8 : 9);
             const badge = svg.append("g")
                 .attr("transform", `translate(${badgeCx}, ${badgeCy})`);
 
@@ -2006,7 +2073,7 @@ export class Header {
             badge.append("text")
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
-                .attr("y", 0.6)
+                .attr("y", snapTextCoordinate(0.6))
                 .style("font-family", HEADER_FONT_FAMILY)
                 .style("font-size", buttonWidth < 80 ? "8px" : "9px")
                 .style("font-weight", "800")
@@ -2779,7 +2846,10 @@ export class Header {
             .attr("stroke-width", 1);
 
         const iconG = svg.append('g')
-            .attr('transform', `translate(${buttonSize / 2}, ${buttonSize / 2})`);
+            .attr(
+                'transform',
+                `translate(${snapTextCoordinate(buttonSize / 2)}, ${snapTextCoordinate(buttonSize / 2)})`
+            );
 
         iconG.append('path')
             .attr('d', 'M-6,-7 L2,-7 L6,-3 L6,7 L-6,7 Z M2,-7 L2,-3 L6,-3')
@@ -2874,8 +2944,8 @@ export class Header {
             .style("stroke-width", 1.5);
 
         svg.append('text')
-            .attr('x', buttonSize / 2)
-            .attr('y', buttonSize / 2 + 1)
+            .attr('x', snapTextCoordinate(buttonSize / 2))
+            .attr('y', snapTextCoordinate(buttonSize / 2 + 1))
             .attr('text-anchor', 'middle')
             .attr('dominant-baseline', "central")
             .style('font-family', HEADER_FONT_FAMILY)
@@ -3106,8 +3176,8 @@ export class Header {
 
             svg.append("text")
                 .attr("class", "action-overflow-badge-text")
-                .attr("x", buttonSize - 7)
-                .attr("y", 7.6)
+                .attr("x", snapTextCoordinate(buttonSize - 7))
+                .attr("y", snapTextCoordinate(7.6))
                 .attr("text-anchor", "middle")
                 .attr("dominant-baseline", "central")
                 .style("font-family", HEADER_FONT_FAMILY)

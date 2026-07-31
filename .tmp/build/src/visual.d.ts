@@ -52,11 +52,13 @@ export declare class Visual implements IVisual {
     private tooltipDiv;
     private canvasElement;
     private canvasContext;
+    private canvasScaleX;
+    private canvasScaleY;
+    private canvasContentValid;
+    private lastDisplayPixelRatio;
     private useCanvasRendering;
     private CANVAS_THRESHOLD;
     private readonly MODE_TRANSITION_DURATION;
-    private readonly MAX_CANVAS_PIXEL_RATIO;
-    private readonly POWER_BI_CANVAS_SHARPNESS_SCALE;
     private canvasLayer;
     private loadingOverlay;
     private loadingAccent;
@@ -205,6 +207,7 @@ export declare class Visual implements IVisual {
     private forceFullUpdate;
     private preserveScrollOnUpdate;
     private preservedScrollTop;
+    private preservedScrollLeft;
     private scrollPreservationUntil;
     private lastWbsToggleTimestamp;
     private wbsToggleScrollAnchor;
@@ -218,9 +221,25 @@ export declare class Visual implements IVisual {
     private pendingUpdate;
     private readonly UPDATE_DEBOUNCE_MS;
     private resizeSettleTimeout;
+    private resizeMaxWaitTimeout;
+    private resizeComparisonResetTimeout;
     private resizeSettleRaf;
-    private settledResizeViewportKey;
+    private resizeRevealRaf;
+    private postRenderViewportCheckTimeout;
+    private pendingSettledResizeOptions;
+    private resizeScrollLock;
+    private resizeComparisonBaseline;
+    private resizeGeneration;
+    private committingResizeGeneration;
+    private committingResizeOptions;
+    private readonly resizeCommitGenerations;
+    private resizeSettleStartedAt;
+    private lastCommittedViewport;
+    private lastCommittedFocusState;
+    private devicePixelRatioMediaQuery;
+    private isDestroyed;
     private readonly RESIZE_SETTLE_DEBOUNCE_MS;
+    private readonly RESIZE_SETTLE_MAX_WAIT_MS;
     private zoomSliderContainer;
     private zoomSliderTrack;
     private zoomSliderSelection;
@@ -286,6 +305,13 @@ export declare class Visual implements IVisual {
     private isEmbeddedPowerBiHost;
     private getLocalCssScale;
     private getCanvasPixelRatio;
+    private getExportPixelRatio;
+    private setupHiDpiCanvas;
+    private snapCanvasTextX;
+    private snapCanvasTextY;
+    private readonly handleDevicePixelRatioChange;
+    private readonly handleDisplayScaleChange;
+    private bindDevicePixelRatioListener;
     private syncSvgPixelSize;
     private shouldUseCanvasForViewport;
     private createEmptyDataQuality;
@@ -300,15 +326,19 @@ export declare class Visual implements IVisual {
     private forceCanvasRefresh;
     private debouncedUpdate;
     private createViewportFromDimensions;
-    private getViewportKey;
     private getCurrentTargetViewport;
     private createResizeUpdateOptions;
     private preserveRenderedVisualForTransientInvalidUpdate;
     private queueSettledResizeUpdate;
+    private cancelResizeCommitCandidate;
+    private scheduleResizeComparisonReset;
+    private captureResizeScrollLock;
+    private forceLatestResizeCommit;
     private scheduleSettledResizeUpdate;
     private requestUpdate;
     private applyPublishModeOptimizations;
     private setupSVGRenderingHints;
+    private applySvgTextSharpness;
     private getDataSignature;
     private getWbsBindingSignature;
     private resetWbsBindingState;
@@ -505,6 +535,8 @@ export declare class Visual implements IVisual {
      */
     private updateExportButtonState;
     private exportVisualAsHtml;
+    private createRenderRect;
+    private toTargetLocalRect;
     private getIntersectionRect;
     private drawRenderedCanvasRegion;
     private renderCompositeExportCanvas;
@@ -562,6 +594,8 @@ export declare class Visual implements IVisual {
      * Reveals visual content after rendering has completed,
      * producing a clean single-frame transition.
      */
+    private scheduleContentRevealAfterResize;
+    private restoreResizeScrollLock;
     private revealContentAfterResize;
     private handleSettingsOnlyUpdate;
     /**

@@ -278,6 +278,15 @@ Rendering state is tightly coupled to persisted settings and current task filter
 When changing rendering, check both SVG and canvas branches if the feature is
 visible in both.
 
+Text sharpness is centralised in `RenderingSharpness`. SVG text and tspans use
+complete cross-platform font stacks, `optimizeLegibility`, platform font
+smoothing, and integer logical coordinates. Canvas surfaces use DPR-aware
+backing buffers and snap text to the physical-pixel grid. Significant viewport
+or Focus Mode changes wait for stable dimensions, preserve both scroll axes,
+perform one full layout pass, and reveal the wrapper on the following frame.
+Keep screen, mini-chart, visible export, full export, and PDF raster paths
+aligned when changing these rules.
+
 ## Utility Modules
 
 | Module | Responsibility |
@@ -289,6 +298,7 @@ visible in both.
 | `src/utils/HeaderLayout.ts` | Header control placement and overflow decisions. |
 | `src/utils/ColumnLayout.ts` | Left label column packing and auto-fit behaviour. |
 | `src/utils/DataSignature.ts` | Data signature for update detection. |
+| `src/utils/RenderingSharpness.ts` | Font-stack normalisation, SVG/canvas text coordinate snapping, HiDPI canvas sizing, canvas text hints, and viewport stability checks. |
 | `src/utils/Theme.ts` | Shared theme constants. |
 
 ## Export Behaviour
@@ -344,6 +354,7 @@ visible warnings unless a separate structural graph blocker is present.
 | `tests/utils/HeaderLayout.test.ts` | Header responsiveness, overflow menu behaviour, trace/search layout. |
 | `tests/utils/ColumnLayout.test.ts` | Label column packing and auto-fit. |
 | `tests/utils/DataSignature.test.ts` | Data signature changes for bindings and row values. |
+| `tests/utils/RenderingSharpness.test.ts` | Font-stack resolution, SVG and physical-pixel snapping, 100–200% DPR sizing, canvas text hints, and resize stability thresholds. |
 | `tests/settings/VisualSettings.test.ts` | Settings defaults and alignment with capability objects/help text. |
 | `tests/integration/XerPredecessorCsv.test.ts` | CSV-derived open task/milestone Longest Path expectations from relationship free float. |
 | `tests/stress/VisualStress.test.ts` | Large generated data, driving-chain scoring, path truncation, copy-to-Excel task type output. |

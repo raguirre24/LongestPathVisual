@@ -1,12 +1,40 @@
 // Import normalize.css (optional but good practice)
 // @import (less) "node_modules/normalize.css/normalize.css";
 
-// Base styles for the visual container
-.criticalPathVisual {
-    font-family: 'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+@default-system-font-stack: 'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+
+.sharp-text-rendering() {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+}
+
+// Keep every visual-owned HTML/SVG text surface on the same native system
+// fallback stack and rendering hints, including body-level overlays.
+.visual-wrapper,
+.criticalPathVisual,
+.critical-path-tooltip,
+.copy-toast,
+.help-overlay {
+    font-family: @default-system-font-stack;
+    .sharp-text-rendering();
+}
+
+.visual-wrapper *,
+.criticalPathVisual *,
+.visual-wrapper svg text,
+.visual-wrapper svg tspan,
+.criticalPathVisual text,
+.criticalPathVisual tspan,
+.critical-path-tooltip *,
+.copy-toast *,
+.help-overlay * {
+    font-family: @default-system-font-stack;
+    .sharp-text-rendering();
+}
+
+// Base styles for the visual container
+.criticalPathVisual {
     overflow: visible; // Allow elements like labels to go outside the main SVG bounds if needed
     max-width: none;
     flex-shrink: 0;
@@ -25,13 +53,12 @@
 }
 
 // Styles for SVG text elements (labels, dates, etc.)
-text {
+.visual-wrapper svg text,
+.criticalPathVisual text {
     fill: #333; // Default text color
     dominant-baseline: middle; // Vertically center text
     text-anchor: start; // Align text to the start (left)
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    .sharp-text-rendering();
 }
 
 // Specific style for task duration text inside bars
@@ -103,7 +130,7 @@ text {
 // ============================================================================
 
 .timeline-zoom-slider-container {
-    font-family: 'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif;
+    font-family: @default-system-font-stack;
     box-sizing: border-box;
 
     // Smooth transitions for all style changes
@@ -174,9 +201,7 @@ text {
 }
 
 .zoom-slider-mini-chart {
-    // Ensure crisp rendering
-    image-rendering: -webkit-optimize-contrast;
-    image-rendering: crisp-edges;
+    image-rendering: auto;
 }
 
 // ============================================================================
@@ -191,7 +216,7 @@ text {
     padding: 8px 12px;
     gap: 0;
     box-sizing: border-box;
-    font-family: 'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif;
+    font-family: @default-system-font-stack;
     color: #333;
 }
 
@@ -205,7 +230,7 @@ text {
     display: flex;
     gap: 20px;
     align-items: center;
-    transition: transform 0.3s ease;
+    transition: none;
     padding: 5px 0;
 }
 
@@ -275,7 +300,10 @@ text {
     padding: 4px 10px;
     border-radius: 6px;
     border: 1px solid var(--lpv-header-legend-border-color, #4D5A6E);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+        border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+        background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+        box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     opacity: 0.55;
     background-color: transparent;
 }
@@ -287,7 +315,6 @@ text {
 
 .legend-item:hover {
     background-color: #f8f9fa;
-    transform: translateY(-1px);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
@@ -367,7 +394,7 @@ text {
 
 // Phase 2: Float column styling
 .float-label {
-    font-family: 'Segoe UI Semibold', 'Segoe UI', sans-serif;
+    font-family: 'Segoe UI Semibold', @default-system-font-stack;
     pointer-events: none;
 }
 
@@ -528,42 +555,14 @@ text {
     }
 
     &:focus-visible {
-
-// ============================================================================
-// PHASE 2: REFACTORED HEADER STYLES
-// ============================================================================
-
-// Base class for all header toggle buttons
-.header-toggle-button {
-    position: absolute;
-    padding: 0;
-    box-sizing: border-box; // Fixes jitter when border width changes
-    will-change: auto; // Avoid persistent compositor rasterization during host scroll
-    border-style: solid;
-    border-radius: 4px; // Matches UI_TOKENS.radius.medium typical value
-    box-shadow: 0 1.6px 3.6px 0 rgba(0, 0, 0, 0.132), 0 0.3px 0.9px 0 rgba(0, 0, 0, 0.108); // Matches UI_TOKENS.shadow[2] typical value
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center; // Default centered, can be overridden
-    transition: all 0.2s cubic-bezier(0.33, 1, 0.68, 1); // Smooth transition
-
-    &.is-disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-        box-shadow: none;
-    }
-
-    &:focus-visible {
         outline: 2px solid #0078D4;
         outline-offset: 2px;
     }
 }
 
 .toggle-text {
-    font-family: 'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    font-family: @default-system-font-stack;
+    .sharp-text-rendering();
     font-size: 14px;
     fill: #323130;
     pointer-events: none;
@@ -610,9 +609,8 @@ text {
     padding: 5px 8px;
     border: 1px solid var(--lpv-header-legend-border-color, #4D5A6E);
     border-radius: 4px;
-    font-family: 'Segoe UI', wf_segoe-ui_normal, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    font-family: @default-system-font-stack;
+    .sharp-text-rendering();
     font-size: 9px;
     color: #333;
 }
@@ -640,7 +638,7 @@ text {
     background-color: rgba(255, 255, 255, 0.8);
     border: 1px solid var(--lpv-header-legend-border-color, #4D5A6E);
     border-radius: 4px;
-    font-family: 'Segoe UI', sans-serif;
+    font-family: @default-system-font-stack;
     font-size: 9px;
     color: #333;
     font-weight: bold;
