@@ -21,6 +21,12 @@ export interface Task {
     lateFinish: number;
     totalFloat: number;
     isCritical: boolean;
+    /**
+     * Authoritative result for the visual's documented minimum-relationship-float
+     * Longest Path calculation. Null means the result is unavailable or has not
+     * been calculated in the active mode.
+     */
+    isLongestPath: boolean | null;
     isCriticalByFloat?: boolean;
     isCriticalByRel?: boolean;
     isNearCritical?: boolean;
@@ -103,7 +109,10 @@ export interface Relationship {
     isCritical: boolean;
     lag: number | null;
     relationshipFloat?: number;
-    isDriving?: boolean;
+    /** Calculated from the minimum finite incoming relationship free float. */
+    isDriving: boolean | null;
+    /** True for finite relationship free float values below the calculation tolerance. */
+    hasNegativeFloat: boolean | null;
 }
 
 export interface DataQualityInfo {
@@ -112,13 +121,21 @@ export interface DataQualityInfo {
     dataFetchLimitReached: boolean;
     duplicateTaskIds: string[];
     conflictingTaskRows: string[];
+    conflictingScheduleTaskRows: string[];
     missingPredecessorIds: string[];
     relationshipCount: number;
     relationshipFreeFloatMissingCount: number;
     hasRelationshipFreeFloat: boolean;
+    invalidRelationshipTypeCount: number;
+    invalidRelationshipLagCount: number;
+    selfRelationshipCount: number;
     circularPaths: string[];
+    missingRawDateTaskIds: string[];
     invalidRawDateRangeTaskIds: string[];
     invalidVisualDateRangeTaskIds: string[];
+    longestPathBlockers: string[];
+    longestPathAdvisories: string[];
+    longestPathSafe: boolean;
     warnings: string[];
     cpmSafe: boolean;
 }

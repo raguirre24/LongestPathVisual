@@ -1,6 +1,7 @@
 import { normalizeRelationshipType, type RelationshipType } from "./RelationshipLogic";
 
 const DAY_IN_MS = 86400000;
+export const DRIVING_PATH_DURATION_TOLERANCE_DAYS = 1e-9;
 
 export type ScheduleEventKind = "start" | "finish";
 
@@ -64,6 +65,98 @@ export interface ExpandedDrivingPathResult<TRel extends ScheduleRelationshipLike
     truncatedByPathLimit: boolean;
     truncatedByExpansionLimit: boolean;
     expansionCount: number;
+}
+
+export interface PrimaryDrivingPathRank {
+    finishTime: number | null;
+    spanDays: number;
+    startTime: number | null;
+    taskIds: readonly string[];
+    relationshipIds: readonly string[];
+}
+
+/**
+ * Orders maximum-duration driving routes for presentation.
+ *
+ * Calculation status is not changed by this ordering. The first route is
+ * selector Path 1; exact-duration alternatives retain their authoritative
+ * activity and relationship statuses.
+ */
+export function comparePrimaryDrivingPathRanks(
+    a: PrimaryDrivingPathRank,
+    b: PrimaryDrivingPathRank
+): number {
+    const finishDifference = compareFiniteDescending(a.finishTime, b.finishTime);
+    if (finishDifference !== 0) {
+        return finishDifference;
+    }
+
+    const durationDifference = compareFiniteDescending(a.spanDays, b.spanDays);
+    if (durationDifference !== 0) {
+        return durationDifference;
+    }
+
+    const startDifference = compareFiniteAscending(a.startTime, b.startTime);
+    if (startDifference !== 0) {
+        return startDifference;
+    }
+
+    const taskDifference = a.taskIds.join(">").localeCompare(b.taskIds.join(">"));
+    if (taskDifference !== 0) {
+        return taskDifference;
+    }
+
+    return a.relationshipIds.join(">").localeCompare(b.relationshipIds.join(">"));
+}
+
+/**
+ * Applies the agreed deterministic presentation ranking and returns at most
+ * `maxPaths` candidates without mutating the input collection.
+ */
+export function selectRankedDrivingPaths<T>(
+    candidates: readonly T[],
+    getRank: (candidate: T) => PrimaryDrivingPathRank,
+    maxPaths: number
+): T[] {
+    const safeLimit = Number.isFinite(maxPaths)
+        ? Math.max(0, Math.floor(maxPaths))
+        : 0;
+
+    if (safeLimit === 0 || candidates.length === 0) {
+        return [];
+    }
+
+    return [...candidates]
+        .sort((a, b) => comparePrimaryDrivingPathRanks(getRank(a), getRank(b)))
+        .slice(0, safeLimit);
+}
+
+/**
+ * Resolves a zero-based selector index. A pending interaction takes precedence
+ * over persisted metadata so a host update carrying the previous value cannot
+ * undo a click before persistence is acknowledged.
+ */
+export function resolveDrivingPathSelectionIndex(
+    persistedOneBasedIndex: unknown,
+    pendingZeroBasedIndex: number | null,
+    totalPaths: number
+): number {
+    const safeTotalPaths = Number.isFinite(totalPaths)
+        ? Math.max(0, Math.floor(totalPaths))
+        : 0;
+    if (safeTotalPaths === 0) {
+        return 0;
+    }
+
+    const persistedIndex = Number(persistedOneBasedIndex);
+    const requestedIndex = typeof pendingZeroBasedIndex === "number" &&
+        Number.isFinite(pendingZeroBasedIndex)
+        ? Math.floor(pendingZeroBasedIndex)
+        : Number.isFinite(persistedIndex)
+            ? Math.floor(persistedIndex) - 1
+            : 0;
+
+    return Math.max(0, Math.min(requestedIndex, safeTotalPaths - 1));
 }
 
 export function getTaskEventNodeId(taskId: string, eventKind: ScheduleEventKind): string {
@@ -486,4 +579,22 @@ function compareTaskSchedules<TTask extends ScheduleTaskLike>(
     }
 
     return aId.localeCompare(bId);
+}
+
+function compareFiniteDescending(a: number | null, b: number | null): number {
+    const aValue = typeof a === "number" && Number.isFinite(a) ? a : -Infinity;
+    const bValue = typeof b === "number" && Number.isFinite(b) ? b : -Infinity;
+    if (aValue === bValue) {
+        return 0;
+    }
+    return aValue > bValue ? -1 : 1;
+}
+
+function compareFiniteAscending(a: number | null, b: number | null): number {
+    const aValue = typeof a === "number" && Number.isFinite(a) ? a : Infinity;
+    const bValue = typeof b === "number" && Number.isFinite(b) ? b : Infinity;
+    if (aValue === bValue) {
+        return 0;
+    }
+    return aValue < bValue ? -1 : 1;
 }

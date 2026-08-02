@@ -11,6 +11,7 @@ export declare class Visual implements IVisual {
     private static readonly DEFAULT_SHOW_ALL_TASKS;
     private static readonly DRIVING_PATH_MAX_PATHS;
     private static readonly DRIVING_PATH_MAX_EXPANSIONS;
+    private static readonly DRIVING_PATH_SELECTOR_MAX_PATHS;
     private readonly instanceId;
     private target;
     private visualWrapper;
@@ -31,6 +32,7 @@ export declare class Visual implements IVisual {
     private highContrastForegroundSelected;
     private lastTooltipItems;
     private lastTooltipIdentities;
+    private hoveredRelationshipKey;
     private progressLineCanvasTooltipTargets;
     private hoveredProgressLineTargetId;
     private header;
@@ -199,8 +201,10 @@ export declare class Visual implements IVisual {
     private liveRegion;
     private relationshipIndex;
     private hasRelationshipFreeFloat;
+    private authoritativeLongestPathReady;
     private allDrivingChains;
     private selectedPathIndex;
+    private pendingSelectedPathIndex;
     private drivingPathsTruncationMessage;
     private scopedCycleWarningMessage;
     private readonly VIEWPORT_CHANGE_THRESHOLD;
@@ -379,11 +383,12 @@ export declare class Visual implements IVisual {
     private getVisualMilestoneDate;
     private hasValidVisualDates;
     private hasValidPlotDates;
+    private clearCriticalPresentationState;
+    private clearAuthoritativeLongestPathState;
     private clearCriticalPathState;
     private isLongestPathMode;
     private isNoCalculationMode;
     private isCpmSafe;
-    private getUnsafeCpmWarningMessage;
     private getDrivingLogicStatusMessage;
     private getModeWarningMessage;
     private ensureTaskSortCache;
@@ -396,6 +401,7 @@ export declare class Visual implements IVisual {
     private updateConnectorHoverStyles;
     private toggleTaskDisplayInternal;
     private resetPathSelectionIndex;
+    private reconcilePendingPathSelection;
     private toggleBaselineDisplayInternal;
     private togglePreviousUpdateDisplayInternal;
     private toggleColumnDisplayInternal;
@@ -620,6 +626,12 @@ export declare class Visual implements IVisual {
     private getProgressLineTooltipTargetAtCanvasPoint;
     private isPointInsidePolygon;
     private getTaskAtCanvasPoint;
+    private getRelationshipAtCanvasPoint;
+    private getPointToSegmentDistance;
+    private getCalculatedStatusText;
+    private buildRelationshipTooltipDataItems;
+    private getRelationshipAccessibilityLabel;
+    private showRelationshipTooltip;
     private showTaskTooltip;
     private shouldShowProgressLineTooltips;
     private showProgressLineTooltip;
@@ -777,11 +789,12 @@ export declare class Visual implements IVisual {
      */
     private identifyLongestPathFromP6;
     /**
-    /**
      * Identifies which relationships are driving based on minimum float
      */
     private identifyDrivingRelationships;
-    private findProjectFinishTasks;
+    private calculateAuthoritativeLongestPathState;
+    private ensureAuthoritativeLongestPathState;
+    private applyDrivingPresentation;
     private getDrivingIncoming;
     private getDrivingOutgoing;
     private getDrivingTerminalTaskIds;
@@ -801,41 +814,20 @@ export declare class Visual implements IVisual {
     private buildBestDrivingChainsFromSource;
     private sortAndStoreDrivingChains;
     private sortForwardDrivingChains;
-    /**
-     * Gets the currently selected driving chain based on settings
-     * Validates index bounds to prevent errors when switching views
-     */
+    private getPrimaryDrivingPathRank;
     private getSelectedDrivingChain;
     /**
-     * Updates the path information label display with interactive navigation
-     * Professional navigation buttons with enhanced design and smooth animations
-     * Shows "Path 1/1" even with single path so users understand there's only one driving path
+     * Shows up to ten deterministically ranked maximum-duration routes.
      */
     private updatePathInfoLabel;
-    /**
-     * Navigate to the previous driving path
-     * Provides feedback when navigation is not possible
-     */
-    private navigateToPreviousPath;
-    /**
-     * Navigate to the next driving path
-     * Provides feedback when navigation is not possible
-     */
-    private navigateToNextPath;
-    /**
-     * Helper method for user feedback when navigation not possible
-     * Shows a brief message in the path info label
-     */
-    private showPathNavigationFeedback;
-    /**
-     * Persist the selected path index to settings
-     */
+    private navigateDrivingPath;
     private persistPathSelection;
     private recomputeLongestPathForCurrentInteraction;
     private identifyNearCriticalTasks;
     /**
      * Calculates CPM backward to a selected target task
-     * Populates allDrivingChains for multi-path support
+     * Calculates the complete driving trace and ranks its displayed Longest Path
+     * plus exact-duration alternatives.
      */
     private calculateCPMToTask;
     /**

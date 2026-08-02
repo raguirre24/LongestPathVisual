@@ -11,6 +11,24 @@ import {
     snapTextCoordinate
 } from "../utils/RenderingSharpness";
 import {
+    ensureColorContrast,
+    mixHexColors
+} from "../utils/AccessibleColor";
+import {
+    BASELINE_COMPARISON_GLYPH,
+    COLUMN_TABLE_GLYPH,
+    CONNECTOR_DEPENDENCY_GLYPH,
+    CRITICAL_ROUTE_GLYPH,
+    glyphPolylinePath,
+    PREVIOUS_UPDATE_GLYPH,
+    WBS_DEPTH_GLYPH,
+    WBS_HIERARCHY_GLYPH
+} from "../utils/HeaderGlyphGeometry";
+import type {
+    GlyphPolyline,
+    GlyphRect
+} from "../utils/HeaderGlyphGeometry";
+import {
     computeHeaderButtonLayout,
     formatLookAheadWindowLabel,
     getActiveHiddenHeaderControlCount,
@@ -303,7 +321,15 @@ export class Header {
     }
 
     private getHeaderControlHoverBackground(): string {
-        return this.getPaletteToken("buttonHoverBg");
+        if (this.currentPalette.isHighContrast) {
+            return this.getPaletteToken("buttonHoverBg");
+        }
+
+        return mixHexColors(
+            this.getHeaderControlBackground(),
+            this.getHeaderControlTextColor(),
+            0.08
+        );
     }
 
     private getHeaderControlTextColor(): string {
@@ -386,6 +412,130 @@ export class Header {
         return this.getPaletteToken("danger");
     }
 
+    private getHeaderInactiveIconColor(): string {
+        if (this.currentPalette.isHighContrast) {
+            return this.getHeaderControlTextColor();
+        }
+
+        const background = this.getHeaderControlBackground();
+        const text = this.getHeaderControlTextColor();
+        const preferred = this.currentPalette.usesCustomColours
+            ? mixHexColors(background, text, 0.62)
+            : HEADER_DOCK_TOKENS.buttonSubtle;
+        return ensureColorContrast(preferred, background, text, 3);
+    }
+
+    private getHeaderActiveIconColor(preferredColor: string): string {
+        if (this.currentPalette.isHighContrast) {
+            return this.getHeaderPrimaryColor();
+        }
+
+        const background = this.getHeaderControlBackground();
+        const fallback = ensureColorContrast(
+            this.getHeaderPrimaryColor(),
+            background,
+            this.getHeaderControlTextColor(),
+            3
+        );
+        return ensureColorContrast(preferredColor, background, fallback, 3);
+    }
+
+    private getHeaderHoverIconColor(isActive: boolean, activeColor: string): string {
+        return isActive
+            ? activeColor
+            : ensureColorContrast(
+                this.getHeaderControlTextColor(),
+                this.getHeaderControlBackground(),
+                this.getHeaderInactiveIconColor(),
+                3
+            );
+    }
+
+    private configureToggleGlyph(
+        iconGroup: Selection<SVGGElement, unknown, null, undefined>,
+        isActive: boolean
+    ): void {
+        iconGroup
+            .classed("toggle-glyph", true)
+            .attr("data-active", String(isActive));
+    }
+
+    private appendGlyphRect(
+        iconGroup: Selection<SVGGElement, unknown, null, undefined>,
+        rect: GlyphRect,
+        color: string,
+        className: string = "glyph-fill"
+    ): Selection<SVGRectElement, unknown, null, undefined> {
+        return iconGroup.append("rect")
+            .attr("class", className)
+            .attr("x", rect.x)
+            .attr("y", rect.y)
+            .attr("width", rect.width)
+            .attr("height", rect.height)
+            .attr("rx", rect.radius)
+            .attr("ry", rect.radius)
+            .attr("fill", color);
+    }
+
+    private appendGlyphPolyline(
+        iconGroup: Selection<SVGGElement, unknown, null, undefined>,
+        polyline: GlyphPolyline,
+        color: string,
+        strokeWidth: number = 1.5,
+        className: string = "glyph-stroke"
+    ): Selection<SVGPathElement, unknown, null, undefined> {
+        return iconGroup.append("path")
+            .attr("class", className)
+            .attr("d", glyphPolylinePath(polyline))
+            .attr("stroke", color)
+            .attr("stroke-width", strokeWidth)
+            .attr("fill", "none")
+            .attr("stroke-linecap", "round")
+            .attr("stroke-linejoin", "round");
+    }
+
+    private appendGlyphOutlineRect(
+        iconGroup: Selection<SVGGElement, unknown, null, undefined>,
+        rect: GlyphRect,
+        color: string,
+        strokeWidth: number = 1.2
+    ): Selection<SVGRectElement, unknown, null, undefined> {
+        return iconGroup.append("rect")
+            .attr("class", "glyph-stroke")
+            .attr("x", rect.x)
+            .attr("y", rect.y)
+            .attr("width", rect.width)
+            .attr("height", rect.height)
+            .attr("rx", rect.radius)
+            .attr("ry", rect.radius)
+            .attr("fill", "none")
+            .attr("stroke", color)
+            .attr("stroke-width", strokeWidth);
+    }
+
+    private appendActiveStateIndicator(
+        svg: Selection<SVGSVGElement, unknown, null, undefined>,
+        width: number,
+        height: number,
+        color: string,
+        isActive: boolean
+    ): void {
+        if (!isActive) {
+            return;
+        }
+
+        svg.append("rect")
+            .attr("class", "active-state-indicator")
+            .attr("aria-hidden", "true")
+            .attr("x", (width - 10) / 2)
+            .attr("y", height - 3.5)
+            .attr("width", 10)
+            .attr("height", 2)
+            .attr("rx", 1)
+            .attr("ry", 1)
+            .attr("fill", color);
+    }
+
     private getHeaderShadow(): string {
         return this.getPaletteToken("shadow");
     }
@@ -411,43 +561,6 @@ export class Header {
             .selectAll<HTMLButtonElement, unknown>("button.header-toggle-button")
             .style("background-color", "transparent")
             .style("color", foreground);
-
-        this.container
-            .selectAll<SVGRectElement, unknown>("button.header-toggle-button svg > rect:first-child")
-            .attr("fill", controlBackground)
-            .attr("stroke", border)
-            .style("fill", controlBackground)
-            .style("stroke", border);
-
-        this.container
-            .selectAll<SVGRectElement, unknown>("button.header-toggle-button svg > rect:not(:first-child)")
-            .style("fill", foreground);
-
-        this.container
-            .selectAll<SVGElement, unknown>("button.header-toggle-button svg .glyph-fill")
-            .attr("fill", foreground)
-            .style("fill", foreground);
-
-        this.container
-            .selectAll<SVGElement, unknown>("button.header-toggle-button svg .glyph-stroke")
-            .attr("stroke", foreground)
-            .style("stroke", foreground);
-
-        this.container
-            .selectAll<SVGPathElement | SVGLineElement, unknown>("button.header-toggle-button svg path, button.header-toggle-button svg line")
-            .attr("stroke", foreground)
-            .style("stroke", foreground);
-
-        this.container
-            .selectAll<SVGCircleElement, unknown>("button.header-toggle-button svg circle")
-            .attr("stroke", foreground)
-            .attr("fill", foreground)
-            .style("stroke", foreground)
-            .style("fill", foreground);
-
-        this.container
-            .selectAll<SVGTextElement, unknown>("button.header-toggle-button svg text")
-            .style("fill", foreground);
 
         this.container
             .selectAll<HTMLDivElement, unknown>("div.look-ahead-control-wrapper, div.look-ahead-option-list, div.float-threshold-wrapper")
@@ -601,182 +714,78 @@ export class Header {
 
     private drawConnectorDependencyGlyph(
         iconG: Selection<SVGGElement, unknown, null, undefined>,
-        color: string,
-        isActive: boolean
+        color: string
     ): void {
-        [
-            { x: -8, y: -7, width: 7, height: 4 },
-            { x: 1, y: 4, width: 7, height: 4 }
-        ].forEach(bar => {
-            iconG.append("rect")
-                .attr("class", "glyph-fill")
-                .attr("x", bar.x)
-                .attr("y", bar.y)
-                .attr("width", bar.width)
-                .attr("height", bar.height)
-                .attr("rx", 1.6)
-                .attr("ry", 1.6)
-                .attr("fill", color)
-                .attr("fill-opacity", isActive ? 1 : 0.85);
-        });
-
-        iconG.append("path")
-            .attr("class", "glyph-stroke")
-            .attr("d", "M-1,-5 H3 V6 H1")
-            .attr("stroke", color)
-            .attr("stroke-width", 1.8)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round")
-            .attr("stroke-dasharray", isActive ? null : "2.4,2.4");
-
-        if (isActive) {
-            iconG.append("path")
-                .attr("class", "glyph-stroke")
-                .attr("d", "M-1,4 L1,6 L-1,8")
-                .attr("stroke", color)
-                .attr("stroke-width", 1.8)
-                .attr("fill", "none")
-                .attr("stroke-linecap", "round")
-                .attr("stroke-linejoin", "round");
-        }
+        this.appendGlyphRect(iconG, CONNECTOR_DEPENDENCY_GLYPH.predecessorBar, color);
+        this.appendGlyphRect(iconG, CONNECTOR_DEPENDENCY_GLYPH.successorBar, color);
+        this.appendGlyphPolyline(iconG, CONNECTOR_DEPENDENCY_GLYPH.route, color, 1.5);
+        this.appendGlyphPolyline(iconG, CONNECTOR_DEPENDENCY_GLYPH.arrowhead, color, 1.5);
     }
 
     private drawWbsHierarchyGlyph(
         iconG: Selection<SVGGElement, unknown, null, undefined>,
-        color: string,
-        mode: "tree" | "flat",
-        control?: "plus" | "minus"
+        color: string
     ): void {
-        const rows = mode === "tree"
-            ? [
-                { bulletX: -7.2, barX: -2.8, barWidth: 6.8, y: -6 },
-                { bulletX: -4.2, barX: 0.2, barWidth: 5.8, y: 0 },
-                { bulletX: -1.2, barX: 3.2, barWidth: 4.8, y: 6 }
-            ]
-            : [
-                { bulletX: -7.2, barX: -2.8, barWidth: 8.8, y: -6 },
-                { bulletX: -7.2, barX: -2.8, barWidth: 8.8, y: 0 },
-                { bulletX: -7.2, barX: -2.8, barWidth: 8.8, y: 6 }
-            ];
-
-        if (mode === "tree") {
-            iconG.append("path")
-                .attr("class", "glyph-stroke")
-                .attr("d", "M-5.4,-4.2 V7.8 M-5.4,-4.2 H-2.8 M-5.4,1.8 H0.2 M-5.4,7.8 H3.2")
-                .attr("stroke", color)
-                .attr("stroke-width", 1.4)
-                .attr("fill", "none")
-                .attr("stroke-linecap", "round")
-                .attr("stroke-linejoin", "round");
-        }
-
-        rows.forEach(row => {
-            iconG.append("rect")
-                .attr("class", "glyph-fill")
-                .attr("x", row.bulletX)
-                .attr("y", row.y - 1.8)
-                .attr("width", 3.6)
-                .attr("height", 3.6)
-                .attr("rx", 1)
-                .attr("ry", 1)
-                .attr("fill", color);
-
-            iconG.append("rect")
-                .attr("class", "glyph-fill")
-                .attr("x", row.barX)
-                .attr("y", row.y - 1.6)
-                .attr("width", row.barWidth)
-                .attr("height", 3.2)
-                .attr("rx", 1.6)
-                .attr("ry", 1.6)
-                .attr("fill", color);
+        WBS_HIERARCHY_GLYPH.branches.forEach(branch => {
+            this.appendGlyphPolyline(iconG, branch, color, 1.35);
         });
+        WBS_HIERARCHY_GLYPH.nodes.forEach(node => {
+            this.appendGlyphRect(iconG, node, color);
+        });
+        WBS_HIERARCHY_GLYPH.labelBars.forEach(labelBar => {
+            this.appendGlyphRect(iconG, labelBar, color);
+        });
+    }
 
-        if (control) {
-            iconG.append("circle")
-                .attr("class", "glyph-stroke")
-                .attr("cx", 6.5)
-                .attr("cy", -6.5)
-                .attr("r", 3.2)
-                .attr("stroke", color)
-                .attr("stroke-width", 1.4)
-                .attr("fill", "none");
-
-            iconG.append("path")
-                .attr("class", "glyph-stroke")
-                .attr("d", control === "plus"
-                    ? "M4.9,-6.5 H8.1 M6.5,-8.1 V-4.9"
-                    : "M4.9,-6.5 H8.1")
-                .attr("stroke", color)
-                .attr("stroke-width", 1.6)
-                .attr("fill", "none")
-                .attr("stroke-linecap", "round");
-        }
+    private drawWbsDepthGlyph(
+        iconG: Selection<SVGGElement, unknown, null, undefined>,
+        color: string,
+        direction: "expand" | "collapse"
+    ): void {
+        WBS_DEPTH_GLYPH.branches.forEach(branch => {
+            this.appendGlyphPolyline(iconG, branch, color, 1.3);
+        });
+        WBS_DEPTH_GLYPH.nodes.forEach(node => {
+            this.appendGlyphRect(iconG, node, color);
+        });
+        this.appendGlyphPolyline(
+            iconG,
+            direction === "expand"
+                ? WBS_DEPTH_GLYPH.expandChevron
+                : WBS_DEPTH_GLYPH.collapseChevron,
+            color,
+            1.6
+        );
     }
 
     private drawColumnVisibilityGlyph(
         iconG: Selection<SVGGElement, unknown, null, undefined>,
-        color: string,
-        isVisible: boolean
+        color: string
     ): void {
+        const frame = COLUMN_TABLE_GLYPH.frame;
         iconG.append("rect")
             .attr("class", "glyph-stroke")
-            .attr("x", -6.5)
-            .attr("y", -6)
-            .attr("width", 13)
-            .attr("height", 12)
-            .attr("rx", 1.8)
-            .attr("ry", 1.8)
+            .attr("x", frame.x)
+            .attr("y", frame.y)
+            .attr("width", frame.width)
+            .attr("height", frame.height)
+            .attr("rx", frame.radius)
+            .attr("ry", frame.radius)
             .attr("stroke", color)
-            .attr("stroke-width", 1.4)
+            .attr("stroke-width", 1.5)
             .attr("fill", "none");
 
-        if (isVisible) {
-            [-2, 2].forEach(x => {
-                iconG.append("line")
-                    .attr("class", "glyph-stroke")
-                    .attr("x1", x)
-                    .attr("x2", x)
-                    .attr("y1", -6)
-                    .attr("y2", 6)
-                    .attr("stroke", color)
-                    .attr("stroke-width", 1.4)
-                    .attr("stroke-linecap", "round");
-            });
-
-            iconG.append("rect")
-                .attr("class", "glyph-fill")
-                .attr("x", 2.7)
-                .attr("y", -5)
-                .attr("width", 2.6)
-                .attr("height", 10)
-                .attr("rx", 1.1)
-                .attr("ry", 1.1)
-                .attr("fill", color)
-                .attr("fill-opacity", 0.9);
-            return;
-        }
-
-        iconG.append("rect")
-            .attr("class", "glyph-fill")
-            .attr("x", -5.2)
-            .attr("y", -5)
-            .attr("width", 6.7)
-            .attr("height", 10)
-            .attr("rx", 1.1)
-            .attr("ry", 1.1)
-            .attr("fill", color)
-            .attr("fill-opacity", 0.88);
-
-        iconG.append("path")
-            .attr("class", "glyph-stroke")
-            .attr("d", "M3.2,-3.5 L6,0 L3.2,3.5")
-            .attr("stroke", color)
-            .attr("stroke-width", 1.8)
-            .attr("fill", "none")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round");
+        COLUMN_TABLE_GLYPH.dividers.forEach(x => {
+            iconG.append("line")
+                .attr("class", "glyph-stroke")
+                .attr("x1", x)
+                .attr("x2", x)
+                .attr("y1", frame.y)
+                .attr("y2", frame.y + frame.height)
+                .attr("stroke", color)
+                .attr("stroke-width", 1.35)
+                .attr("stroke-linecap", "round");
+        });
     }
 
     public setExporting(isExporting: boolean): void {
@@ -835,7 +844,7 @@ export class Header {
 
         const btn = this.upsertButton("toggle-button-group")
             .attr("type", "button")
-            .attr("aria-label", isShowingCritical ? "Show all tasks" : "Show critical path only")
+            .attr("aria-label", "Critical path only")
             .attr("title", isShowingCritical ? "Show all tasks" : "Show critical path only")
             .attr("aria-pressed", isShowingCritical.toString())
             .classed("header-toggle-button", true)
@@ -857,12 +866,13 @@ export class Header {
             });
 
         const isActive = isShowingCritical;
-        const activeColor = this.getHeaderDangerColor();
+        const activeColor = this.getHeaderActiveIconColor(this.getHeaderDangerColor());
         const buttonFill = this.getHeaderControlBackground();
         const buttonStroke = isActive ? activeColor : this.getHeaderBorderColor();
         const hoverFill = this.getHeaderControlHoverBackground();
         const hoverStroke = isActive ? activeColor : this.getHeaderHoverBorderColor();
-        const iconColor = isActive ? activeColor : this.getHeaderControlTextColor();
+        const iconColor = isActive ? activeColor : this.getHeaderInactiveIconColor();
+        const hoverIconColor = this.getHeaderHoverIconColor(isActive, activeColor);
 
         // SVG Icon
         const svg = btn.append("svg")
@@ -887,63 +897,22 @@ export class Header {
 
         const iconCenterX = buttonWidth / 2;
         const iconCenterY = buttonHeight / 2;
-
-        if (!isShowingCritical) {
-            svg.append("rect")
-                .attr("x", iconCenterX - 6)
-                .attr("y", iconCenterY - 6)
-                .attr("width", 12)
-                .attr("height", 2)
-                .attr("rx", 1)
-                .attr("fill", iconColor);
-            svg.append("rect")
-                .attr("x", iconCenterX - 6)
-                .attr("y", iconCenterY - 1)
-                .attr("width", 12)
-                .attr("height", 2)
-                .attr("rx", 1)
-                .attr("fill", iconColor);
-            svg.append("rect")
-                .attr("x", iconCenterX - 6)
-                .attr("y", iconCenterY + 4)
-                .attr("width", 8)
-                .attr("height", 2)
-                .attr("rx", 1)
-                .attr("fill", iconColor);
-        } else {
-            const iconG = svg.append("g")
-                .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
-
-            iconG.append("path")
-                .attr("d", "M-7,-7 H7 L2,0 V6 L-2,7 V0 Z")
-                .attr("fill", "none")
-                .attr("stroke", iconColor)
-                .attr("stroke-width", 1.8)
-                .attr("stroke-linejoin", "round")
-                .attr("stroke-linecap", "round");
-
-            iconG.append("rect")
-                .attr("x", -6)
-                .attr("y", -3.3)
-                .attr("width", 7.2)
-                .attr("height", 1.7)
-                .attr("rx", 0.85)
-                .attr("fill", iconColor);
-
-            iconG.append("rect")
-                .attr("x", -6)
-                .attr("y", 1.3)
-                .attr("width", 4.8)
-                .attr("height", 1.7)
-                .attr("rx", 0.85)
-                .attr("fill", iconColor);
-
-            iconG.append("circle")
-                .attr("cx", 5.4)
-                .attr("cy", -5.3)
-                .attr("r", 1.8)
-                .attr("fill", activeColor);
-        }
+        const iconG = svg.append("g")
+            .attr("transform", `translate(${iconCenterX}, ${iconCenterY})`);
+        this.configureToggleGlyph(iconG, isActive);
+        CRITICAL_ROUTE_GLYPH.alternateConnectors.forEach(connector => {
+            this.appendGlyphPolyline(iconG, connector, iconColor, 1.1)
+                .attr("stroke-dasharray", "1.3 1.3");
+        });
+        CRITICAL_ROUTE_GLYPH.criticalConnectors.forEach(connector => {
+            this.appendGlyphPolyline(iconG, connector, iconColor, 1.6);
+        });
+        this.appendGlyphRect(iconG, CRITICAL_ROUTE_GLYPH.sourceBar, iconColor);
+        this.appendGlyphRect(iconG, CRITICAL_ROUTE_GLYPH.criticalBar, iconColor);
+        this.appendGlyphOutlineRect(iconG, CRITICAL_ROUTE_GLYPH.alternateBar, iconColor, 1.1)
+            .attr("stroke-dasharray", "1.3 1.3");
+        this.appendGlyphRect(iconG, CRITICAL_ROUTE_GLYPH.targetBar, iconColor);
+        this.appendActiveStateIndicator(svg, buttonWidth, buttonHeight, activeColor, isActive);
 
         btn.append("title")
             .text(isShowingCritical ? "Show All Tasks" : "Show Critical Path Only");
@@ -952,10 +921,14 @@ export class Header {
         btn.on("mouseover", function () {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", hoverIconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", hoverIconColor);
         })
             .on("mouseout", function () {
                 bgRect.attr("fill", buttonFill)
                     .attr("stroke", buttonStroke);
+                iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", iconColor);
+                iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", iconColor);
             })
             .on("mousedown", function () {
                 select(this).style("transform", "scale(0.96)");
@@ -977,13 +950,17 @@ export class Header {
         const isAvailable = this.currentState.baselineAvailable;
         const showBaseline = this.currentState.showBaseline;
 
-        const baselineColor = this.currentSettings.comparisonBars.baselineColor.value.value;
-        const inactiveColor = this.getHeaderControlTextColor();
+        const baselineColor = this.getHeaderActiveIconColor(
+            this.currentSettings.comparisonBars.baselineColor.value.value
+        );
+        const inactiveColor = this.getHeaderInactiveIconColor();
         const buttonFill = this.getHeaderControlBackground();
         const buttonStroke = showBaseline ? baselineColor : this.getHeaderBorderColor();
         const hoverFill = this.getHeaderControlHoverBackground();
         const hoverStroke = showBaseline ? baselineColor : this.getHeaderHoverBorderColor();
         const labelFill = showBaseline ? baselineColor : inactiveColor;
+        const iconColor = showBaseline ? baselineColor : inactiveColor;
+        const hoverIconColor = this.getHeaderHoverIconColor(showBaseline, baselineColor);
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
@@ -1001,7 +978,7 @@ export class Header {
 
         const btn = this.upsertButton("baseline-toggle-group")
             .attr("type", "button")
-            .attr("aria-label", `${showBaseline ? 'Hide' : 'Show'} baseline task bars`)
+            .attr("aria-label", "Baseline comparison bars")
             .attr("title", tooltipText)
             .attr("aria-pressed", showBaseline.toString())
             .attr("aria-disabled", (!isAvailable).toString())
@@ -1054,36 +1031,13 @@ export class Header {
 
         const iconG = svg.append("g")
             .attr("transform", `translate(${iconX}, ${iconY})`);
-
-        iconG.append("line")
-            .attr("x1", -8)
-            .attr("x2", 8)
-            .attr("y1", 6)
-            .attr("y2", 6)
-            .attr("stroke", showBaseline ? baselineColor : inactiveColor)
-            .attr("stroke-width", 2)
-            .attr("stroke-linecap", "round");
-
-        iconG.append("rect")
-            .attr("x", -7)
-            .attr("y", -1)
-            .attr("width", 14)
-            .attr("height", 4)
-            .attr("rx", 1.8)
-            .attr("ry", 1.8)
-            .attr("fill", showBaseline ? baselineColor : inactiveColor)
-            .style("opacity", showBaseline ? "1" : "0.7");
-
-        iconG.append("text")
-            .attr("x", 0)
-            .attr("y", snapTextCoordinate(-5.8))
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", HEADER_FONT_FAMILY)
-            .style("font-size", "7px")
-            .style("font-weight", "800")
-            .style("fill", showBaseline ? baselineColor : inactiveColor)
-            .text("BL");
+        this.configureToggleGlyph(iconG, showBaseline);
+        this.appendGlyphRect(iconG, BASELINE_COMPARISON_GLYPH.currentBar, iconColor);
+        this.appendGlyphOutlineRect(iconG, BASELINE_COMPARISON_GLYPH.comparisonBar, iconColor, 1.2)
+            .attr("stroke-dasharray", "2 1.3");
+        this.appendGlyphPolyline(iconG, BASELINE_COMPARISON_GLYPH.startAnchor, iconColor, 1.2);
+        this.appendGlyphPolyline(iconG, BASELINE_COMPARISON_GLYPH.finishAnchor, iconColor, 1.2);
+        this.appendActiveStateIndicator(svg, buttonWidth, buttonHeight, baselineColor, showBaseline);
 
         if (!iconOnly) {
             svg.append("text")
@@ -1119,11 +1073,15 @@ export class Header {
                 bgRect.attr("fill", hoverFill)
                     .attr("stroke", hoverStroke)
                     .attr("stroke-width", 2);
+                iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", hoverIconColor);
+                iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", hoverIconColor);
             })
                 .on("mouseout", function () {
                     bgRect.attr("fill", buttonFill)
                         .attr("stroke", buttonStroke)
                         .attr("stroke-width", showBaseline ? 1.5 : 1);
+                    iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", iconColor);
+                    iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", iconColor);
                     select(this).style("opacity", "1");
                 })
                 .on("mousedown", function () {
@@ -1147,13 +1105,17 @@ export class Header {
         const isAvailable = this.currentState.previousUpdateAvailable;
         const showPreviousUpdate = this.currentState.showPreviousUpdate;
 
-        const previousUpdateColor = this.currentSettings.comparisonBars.previousUpdateColor.value.value;
-        const inactiveColor = this.getHeaderControlTextColor();
+        const previousUpdateColor = this.getHeaderActiveIconColor(
+            this.currentSettings.comparisonBars.previousUpdateColor.value.value
+        );
+        const inactiveColor = this.getHeaderInactiveIconColor();
         const buttonFill = this.getHeaderControlBackground();
         const buttonStroke = showPreviousUpdate ? previousUpdateColor : this.getHeaderBorderColor();
         const hoverFill = this.getHeaderControlHoverBackground();
         const hoverStroke = showPreviousUpdate ? previousUpdateColor : this.getHeaderHoverBorderColor();
         const labelFill = showPreviousUpdate ? previousUpdateColor : inactiveColor;
+        const iconColor = showPreviousUpdate ? previousUpdateColor : inactiveColor;
+        const hoverIconColor = this.getHeaderHoverIconColor(showPreviousUpdate, previousUpdateColor);
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
@@ -1171,7 +1133,7 @@ export class Header {
 
         const btn = this.upsertButton("previous-update-toggle-group")
             .attr("type", "button")
-            .attr("aria-label", `${showPreviousUpdate ? 'Hide' : 'Show'} previous update task bars`)
+            .attr("aria-label", "Previous update comparison bars")
             .attr("title", tooltipText)
             .attr("aria-pressed", showPreviousUpdate.toString())
             .attr("aria-disabled", (!isAvailable).toString())
@@ -1224,35 +1186,17 @@ export class Header {
 
         const iconG = svg.append("g")
             .attr("transform", `translate(${iconX}, ${iconY})`);
-
-        iconG.append("path")
-            .attr("d", "M-8,5.5 H6 M3,2.8 L6,5.5 L3,8.2")
-            .attr("fill", "none")
-            .attr("stroke", showPreviousUpdate ? previousUpdateColor : inactiveColor)
-            .attr("stroke-width", 1.8)
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round");
-
-        iconG.append("rect")
-            .attr("x", -7)
-            .attr("y", -1)
-            .attr("width", 14)
-            .attr("height", 4)
-            .attr("rx", 1.8)
-            .attr("ry", 1.8)
-            .attr("fill", showPreviousUpdate ? previousUpdateColor : inactiveColor)
-            .style("opacity", showPreviousUpdate ? "1" : "0.7");
-
-        iconG.append("text")
-            .attr("x", 0)
-            .attr("y", snapTextCoordinate(-5.8))
-            .attr("text-anchor", "middle")
-            .attr("dominant-baseline", "central")
-            .style("font-family", HEADER_FONT_FAMILY)
-            .style("font-size", "7px")
-            .style("font-weight", "800")
-            .style("fill", showPreviousUpdate ? previousUpdateColor : inactiveColor)
-            .text("PV");
+        this.configureToggleGlyph(iconG, showPreviousUpdate);
+        this.appendGlyphRect(iconG, PREVIOUS_UPDATE_GLYPH.currentBar, iconColor);
+        this.appendGlyphOutlineRect(iconG, PREVIOUS_UPDATE_GLYPH.comparisonBar, iconColor, 1.2);
+        this.appendGlyphPolyline(iconG, PREVIOUS_UPDATE_GLYPH.previousChevron, iconColor, 1.5);
+        this.appendActiveStateIndicator(
+            svg,
+            buttonWidth,
+            buttonHeight,
+            previousUpdateColor,
+            showPreviousUpdate
+        );
 
         if (!iconOnly) {
             svg.append("text")
@@ -1288,11 +1232,15 @@ export class Header {
                 bgRect.attr("fill", hoverFill)
                     .attr("stroke", hoverStroke)
                     .attr("stroke-width", 2);
+                iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", hoverIconColor);
+                iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", hoverIconColor);
             })
                 .on("mouseout", function () {
                     bgRect.attr("fill", buttonFill)
                         .attr("stroke", buttonStroke)
                         .attr("stroke-width", showPreviousUpdate ? 1.5 : 1);
+                    iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", iconColor);
+                    iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", iconColor);
                     select(this).style("opacity", "1");
                 })
                 .on("mousedown", function () {
@@ -1420,16 +1368,17 @@ export class Header {
 
         const buttonY = UI_TOKENS.spacing.sm;
         const showConnectorLines = this.currentState.showConnectorLines;
-        const activeTextColor = this.getHeaderSuccessColor();
-        const inactiveTextColor = this.getHeaderControlTextColor();
+        const activeTextColor = this.getHeaderActiveIconColor(this.getHeaderSuccessColor());
+        const inactiveTextColor = this.getHeaderInactiveIconColor();
         const buttonFill = this.getHeaderControlBackground();
         const buttonStroke = showConnectorLines ? activeTextColor : this.getHeaderBorderColor();
         const hoverFill = this.getHeaderControlHoverBackground();
         const hoverStroke = showConnectorLines ? activeTextColor : this.getHeaderHoverBorderColor();
+        const hoverIconColor = this.getHeaderHoverIconColor(showConnectorLines, activeTextColor);
 
         const btn = this.upsertButton("connector-toggle-group")
             .attr("type", "button")
-            .attr("aria-label", `${showConnectorLines ? 'Hide' : 'Show'} connector lines between tasks`)
+            .attr("aria-label", "Connector lines")
             .attr("title", showConnectorLines ? "Click to hide connector lines between dependent tasks" : "Click to show connector lines between dependent tasks")
             .attr("aria-pressed", showConnectorLines.toString())
             .classed("header-toggle-button", true)
@@ -1476,7 +1425,15 @@ export class Header {
         const iconG = svg.append("g")
             .attr("transform", `translate(${buttonSize / 2}, ${buttonSize / 2})`);
 
-        this.drawConnectorDependencyGlyph(iconG, iconColor, showConnectorLines);
+        this.configureToggleGlyph(iconG, showConnectorLines);
+        this.drawConnectorDependencyGlyph(iconG, iconColor);
+        this.appendActiveStateIndicator(
+            svg,
+            buttonSize,
+            buttonSize,
+            activeTextColor,
+            showConnectorLines
+        );
 
         btn.append("title")
             .text(showConnectorLines
@@ -1487,8 +1444,8 @@ export class Header {
             bgRect.attr("fill", hoverFill)
                 .attr("stroke", hoverStroke)
                 .attr("stroke-width", 2);
-            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", iconColor);
-            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", iconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-fill").attr("fill", hoverIconColor);
+            iconG.selectAll<SVGElement, unknown>(".glyph-stroke").attr("stroke", hoverIconColor);
         })
             .on("mouseout", function () {
                 bgRect.attr("fill", buttonFill)
@@ -1526,7 +1483,7 @@ export class Header {
         const wbsExpanded = this.currentState.wbsExpanded;
 
         const buttonY = UI_TOKENS.spacing.sm;
-        const activeTextColor = this.getHeaderPrimaryColor();
+        const activeTextColor = this.getHeaderActiveIconColor(this.getHeaderPrimaryColor());
         const inactiveTextColor = this.getHeaderControlTextColor();
         const buttonFill = this.getHeaderControlBackground();
         const buttonStroke = wbsExpanded ? activeTextColor : this.getHeaderBorderColor();
@@ -1543,7 +1500,6 @@ export class Header {
             .attr("title", isCustom
                 ? "Custom (manual overrides). Click to expand and clear overrides"
                 : `Level ${currentLevel} (click to expand)`)
-            .attr("aria-pressed", wbsExpanded.toString())
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -1589,7 +1545,7 @@ export class Header {
                 `translate(${snapTextCoordinate(buttonSize / 2)}, ${snapTextCoordinate((buttonSize / 2) - 4)})`
             );
 
-        this.drawWbsHierarchyGlyph(iconG, iconColor, "tree", "plus");
+        this.drawWbsDepthGlyph(iconG, iconColor, "expand");
 
         const badgeText = isCustom ? "C" : `L${currentLevel}`;
 
@@ -1643,7 +1599,7 @@ export class Header {
         const isCollapsed = currentLevel === 0 || !this.currentState.wbsExpanded; // Logic approx
 
         const buttonY = UI_TOKENS.spacing.sm;
-        const activeTextColor = this.getHeaderPrimaryColor();
+        const activeTextColor = this.getHeaderActiveIconColor(this.getHeaderPrimaryColor());
         const inactiveTextColor = this.getHeaderControlTextColor();
         const buttonFill = this.getHeaderControlBackground();
         const buttonStroke = isCollapsed ? activeTextColor : this.getHeaderBorderColor();
@@ -1660,7 +1616,6 @@ export class Header {
             .attr("title", isCustom
                 ? "Custom (manual overrides). Click to collapse and clear overrides"
                 : `Level ${currentLevel} (click to collapse)`)
-            .attr("aria-pressed", isCollapsed.toString())
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -1706,7 +1661,7 @@ export class Header {
                 `translate(${snapTextCoordinate(buttonSize / 2)}, ${snapTextCoordinate((buttonSize / 2) - 4)})`
             );
 
-        this.drawWbsHierarchyGlyph(iconG, iconColor, "tree", "minus");
+        this.drawWbsDepthGlyph(iconG, iconColor, "collapse");
 
         const badgeText = isCustom ? "C" : `L${currentLevel}`;
 
@@ -1912,7 +1867,6 @@ export class Header {
             .attr("type", "button")
             .attr("aria-label", modeTitle)
             .attr("title", modeTitle)
-            .attr("aria-pressed", isFloatBased.toString())
             .classed("header-toggle-button", true)
             .style("position", "absolute")
             .style("left", `${buttonX}px`)
@@ -2419,18 +2373,18 @@ export class Header {
 
         const showColumns = this.currentState.showExtraColumns;
         const buttonY = UI_TOKENS.spacing.sm;
-        const activeTextColor = this.getHeaderPrimaryColor();
-        const inactiveTextColor = this.getHeaderControlTextColor();
+        const activeTextColor = this.getHeaderActiveIconColor(this.getHeaderSuccessColor());
+        const inactiveTextColor = this.getHeaderInactiveIconColor();
         const buttonFill = this.getHeaderControlBackground();
         const buttonStroke = showColumns ? activeTextColor : this.getHeaderBorderColor();
         const hoverFill = this.getHeaderControlHoverBackground();
         const hoverStroke = showColumns ? activeTextColor : this.getHeaderHoverBorderColor();
         const iconColor = showColumns ? activeTextColor : inactiveTextColor;
-        const hoverIconColor = showColumns ? activeTextColor : inactiveTextColor;
+        const hoverIconColor = this.getHeaderHoverIconColor(showColumns, activeTextColor);
 
         const btn = this.upsertButton("column-toggle-group")
             .attr("type", "button")
-            .attr("aria-label", showColumns ? "Hide data columns" : "Show data columns")
+            .attr("aria-label", "Data columns")
             .attr("title", showColumns ? "Hide data columns" : "Show data columns")
             .attr("aria-pressed", showColumns.toString())
             .classed("header-toggle-button", true)
@@ -2475,7 +2429,9 @@ export class Header {
         const iconG = svg.append("g")
             .attr("transform", `translate(${buttonSize / 2}, ${buttonSize / 2})`);
 
-        this.drawColumnVisibilityGlyph(iconG, iconColor, showColumns);
+        this.configureToggleGlyph(iconG, showColumns);
+        this.drawColumnVisibilityGlyph(iconG, iconColor);
+        this.appendActiveStateIndicator(svg, buttonSize, buttonSize, activeTextColor, showColumns);
 
         btn.on("mouseover", function () {
             bgRect.attr("fill", hoverFill)
@@ -2510,18 +2466,18 @@ export class Header {
 
         const buttonHeight = UI_TOKENS.height.standard;
         const buttonY = UI_TOKENS.spacing.sm;
-        const activeTextColor = this.getHeaderPrimaryColor();
-        const inactiveTextColor = this.getHeaderControlTextColor();
+        const activeTextColor = this.getHeaderActiveIconColor(this.getHeaderSuccessColor());
+        const inactiveTextColor = this.getHeaderInactiveIconColor();
         const buttonFill = this.getHeaderControlBackground();
         const buttonStroke = isEnabled ? activeTextColor : this.getHeaderBorderColor();
         const hoverFill = this.getHeaderControlHoverBackground();
         const hoverStroke = isEnabled ? activeTextColor : this.getHeaderHoverBorderColor();
         const wbsColor = isEnabled ? activeTextColor : inactiveTextColor;
-        const hoverIconColor = isEnabled ? activeTextColor : inactiveTextColor;
+        const hoverIconColor = this.getHeaderHoverIconColor(isEnabled, activeTextColor);
 
         const btn = this.upsertButton("wbs-enable-toggle-group")
             .attr("type", "button")
-            .attr("aria-label", isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping")
+            .attr("aria-label", "WBS grouping")
             .attr("title", isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping")
             .attr("aria-pressed", isEnabled.toString())
             .classed("header-toggle-button", true)
@@ -2567,7 +2523,9 @@ export class Header {
         const iconG = svg.append("g")
             .attr("transform", `translate(${buttonWidth / 2}, ${buttonHeight / 2})`);
 
-        this.drawWbsHierarchyGlyph(iconG, wbsColor, isEnabled ? "tree" : "flat");
+        this.configureToggleGlyph(iconG, isEnabled);
+        this.drawWbsHierarchyGlyph(iconG, wbsColor);
+        this.appendActiveStateIndicator(svg, buttonWidth, buttonHeight, activeTextColor, isEnabled);
 
         btn.append("title")
             .text(isEnabled ? "Disable WBS Grouping" : "Enable WBS Grouping");
@@ -3339,17 +3297,18 @@ export class Header {
         }
 
         const state = this.currentState;
+        const enabledColor = this.getHeaderActiveIconColor(this.getHeaderSuccessColor());
         switch (item.id) {
             case "baseline":
                 return state.showBaseline ? this.currentSettings.comparisonBars.baselineColor.value.value : null;
             case "previousUpdate":
                 return state.showPreviousUpdate ? this.currentSettings.comparisonBars.previousUpdateColor.value.value : null;
             case "connectorLines":
-                return state.showConnectorLines ? this.getHeaderSuccessColor() : null;
+                return state.showConnectorLines ? enabledColor : null;
             case "columns":
-                return state.showExtraColumns ? this.getHeaderPrimaryColor() : null;
+                return state.showExtraColumns ? enabledColor : null;
             case "wbsEnable":
-                return state.wbsEnabled ? this.getHeaderPrimaryColor() : null;
+                return state.wbsEnabled ? enabledColor : null;
             case "wbsExpand":
                 return state.wbsExpanded ? this.getHeaderPrimaryColor() : null;
             case "wbsCollapse":
@@ -3589,7 +3548,7 @@ export class Header {
             .attr("class", "progress-line-toggle-button")
             .attr("type", "button")
             .attr("aria-pressed", String(toggleSelected))
-            .attr("aria-label", `${toggleSelected ? "Hide" : "Show"} progress line`)
+            .attr("aria-label", "Progress line")
             .attr("title", item.title ?? item.label)
             .property("disabled", !!item.disabled)
             .style("height", "24px")
@@ -3787,7 +3746,7 @@ export class Header {
             .attr("class", "progress-line-variance-labels-toggle-button")
             .attr("type", "button")
             .attr("aria-pressed", String(labelsSelected))
-            .attr("aria-label", `${labelsSelected ? "Hide" : "Show"} progress-line variance labels`)
+            .attr("aria-label", "Progress-line variance labels")
             .attr("title", "Show or hide progress-line variance labels")
             .property("disabled", !!item.disabled)
             .style("height", "24px")

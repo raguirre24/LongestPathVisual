@@ -511,25 +511,32 @@ describe('DataProcessor', () => {
             expect(result.taskIdToTask.get('T2')!.predecessorIds).toEqual(['T1']);
         });
 
-        it('tracks blank Relationship Free Float as approximate fallback when no relationship float is provided', () => {
-            const columns: ColumnDef[] = [
-                ...COLUMNS_WITH_PRED,
-                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
-            ];
-            const rows = [
-                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
-                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 0, null],
-            ];
-            const dv = buildDataView(columns, rows);
-            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+        it.each([null, '', '   '])(
+            'blocks authoritative Longest Path when Relationship Free Float is blank (%j)',
+            (blankFloat) => {
+                const columns: ColumnDef[] = [
+                    ...COLUMNS_WITH_PRED,
+                    { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+                ];
+                const rows = [
+                    ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
+                    ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 0, blankFloat],
+                ];
+                const dv = buildDataView(columns, rows);
+                const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
 
-            expect(result.hasRelationshipFreeFloat).toBe(false);
-            expect(result.dataQuality.hasRelationshipFreeFloat).toBe(false);
-            expect(result.dataQuality.relationshipFreeFloatMissingCount).toBe(1);
-            expect(result.dataQuality.warnings.some(warning => warning.includes('approximated'))).toBe(true);
-        });
+                expect(result.hasRelationshipFreeFloat).toBe(false);
+                expect(result.dataQuality.hasRelationshipFreeFloat).toBe(false);
+                expect(result.dataQuality.relationshipFreeFloatMissingCount).toBe(1);
+                expect(result.dataQuality.longestPathSafe).toBe(false);
+                expect(result.dataQuality.longestPathBlockers).toContain(
+                    'no finite Relationship Free Float values are available'
+                );
+                expect(result.dataQuality.warnings.some(warning => warning.includes('approximated'))).toBe(false);
+            }
+        );
 
-        it('keeps strict Relationship Free Float mode when relationship float is mixed blank and nonblank', () => {
+        it('calculates with an advisory when relationship float is mixed blank and nonblank', () => {
             const columns: ColumnDef[] = [
                 ...COLUMNS_WITH_PRED,
                 { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
@@ -545,7 +552,85 @@ describe('DataProcessor', () => {
             expect(result.hasRelationshipFreeFloat).toBe(true);
             expect(result.dataQuality.hasRelationshipFreeFloat).toBe(true);
             expect(result.dataQuality.relationshipFreeFloatMissingCount).toBe(1);
-            expect(result.dataQuality.warnings.some(warning => warning.includes('blank Relationship Free Float'))).toBe(false);
+            expect(result.dataQuality.longestPathSafe).toBe(true);
+            expect(result.dataQuality.longestPathBlockers).toEqual([]);
+            expect(result.dataQuality.longestPathAdvisories).toContain(
+                '1 relationship(s) without finite Relationship Free Float were excluded from driving ranking'
+            );
+        });
+
+        it('retains signed negative Relationship Free Float without clamping it', () => {
+            const columns: ColumnDef[] = [
+                ...COLUMNS_WITH_PRED,
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', -2, -8],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.relationships[0].lag).toBe(-2);
+            expect(result.relationships[0].freeFloat).toBe(-8);
+            expect(result.relationships[0].isDriving).toBeNull();
+            expect(result.relationships[0].hasNegativeFloat).toBeNull();
+            expect(result.dataQuality.longestPathSafe).toBe(true);
+        });
+
+        it('blocks non-finite Relationship Free Float', () => {
+            const columns: ColumnDef[] = [
+                ...COLUMNS_WITH_PRED,
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 0, Infinity],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.relationships[0].freeFloat).toBeNull();
+            expect(result.dataQuality.relationshipFreeFloatMissingCount).toBe(1);
+            expect(result.dataQuality.longestPathSafe).toBe(false);
+        });
+
+        it('defaults invalid relationship details with advisories', () => {
+            const columns: ColumnDef[] = [
+                ...COLUMNS_WITH_PRED,
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), null, null, null, null],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'unsupported', 'not-a-number', -1],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.relationships[0].type).toBe('FS');
+            expect(result.relationships[0].lag).toBeNull();
+            expect(result.dataQuality.invalidRelationshipTypeCount).toBe(1);
+            expect(result.dataQuality.invalidRelationshipLagCount).toBe(1);
+            expect(result.dataQuality.longestPathSafe).toBe(true);
+            expect(result.dataQuality.longestPathAdvisories.some(advisory => advisory.includes('defaulted to FS'))).toBe(true);
+            expect(result.dataQuality.longestPathAdvisories.some(advisory => advisory.includes('lag value(s) were ignored'))).toBe(true);
+        });
+
+        it('excludes self-relationships with an advisory', () => {
+            const columns: ColumnDef[] = [
+                ...COLUMNS_WITH_PRED,
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
+            ];
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'T1', 'FS', 0, -1],
+            ];
+            const dv = buildDataView(columns, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.relationships).toHaveLength(0);
+            expect(result.dataQuality.selfRelationshipCount).toBe(1);
+            expect(result.dataQuality.longestPathSafe).toBe(true);
+            expect(result.dataQuality.longestPathAdvisories).toContain('1 self-relationship(s) were excluded');
         });
     });
 
@@ -557,9 +642,12 @@ describe('DataProcessor', () => {
             const columns: ColumnDef[] = [
                 ...STANDARD_COLUMNS,
                 { displayName: 'Predecessor', queryName: 'Table[PredID]', roles: { predecessorId: true } },
+                { displayName: 'Rel Type', queryName: 'Table[RelType]', roles: { relationshipType: true } },
+                { displayName: 'Lag', queryName: 'Table[Lag]', roles: { relationshipLag: true } },
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
             ];
             const rows = [
-                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'EXTERNAL_PRED'],
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'EXTERNAL_PRED', 'FS', 0, -1],
             ];
             const dv = buildDataView(columns, rows);
             const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
@@ -572,6 +660,8 @@ describe('DataProcessor', () => {
             expect(syntheticTask!.name).toBe('EXTERNAL_PRED');
             expect(result.dataQuality.missingPredecessorIds).toEqual(['EXTERNAL_PRED']);
             expect(result.dataQuality.cpmSafe).toBe(true);
+            expect(result.dataQuality.longestPathSafe).toBe(true);
+            expect(result.dataQuality.longestPathAdvisories).toContain('missing predecessor activities (1)');
             expect(result.dataQuality.warnings.some(warning => warning.includes('Missing predecessor'))).toBe(false);
         });
     });
@@ -901,6 +991,8 @@ describe('DataProcessor', () => {
             expect(result.dataQuality.conflictingTaskRows[0]).toContain('T1');
             expect(result.dataQuality.conflictingTaskRows[0]).toContain('Finish Date');
             expect(result.dataQuality.cpmSafe).toBe(true);
+            expect(result.dataQuality.longestPathSafe).toBe(true);
+            expect(result.dataQuality.longestPathAdvisories.some(advisory => advisory.includes('conflicting Start/Finish rows'))).toBe(true);
             expect(result.dataQuality.warnings.some(warning => warning.includes('Duplicate activity rows'))).toBe(false);
         });
 
@@ -944,11 +1036,14 @@ describe('DataProcessor', () => {
             const columns: ColumnDef[] = [
                 ...STANDARD_COLUMNS,
                 { displayName: 'Predecessor', queryName: 'Table[PredID]', roles: { predecessorId: true } },
+                { displayName: 'Rel Type', queryName: 'Table[RelType]', roles: { relationshipType: true } },
+                { displayName: 'Lag', queryName: 'Table[Lag]', roles: { relationshipLag: true } },
+                { displayName: 'Relationship Free Float', queryName: 'Table[RelFreeFloat]', roles: { relationshipFreeFloat: true } },
             ];
             // T1 → T2 → T1 (cycle)
             const rows = [
-                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'T2'],
-                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1'],
+                ['T1', 'Task A', 5, new Date('2025-01-01'), new Date('2025-01-06'), 'T2', 'FS', 0, 0],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10'), 'T1', 'FS', 0, 0],
             ];
             const dv = buildDataView(columns, rows);
             const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
@@ -960,7 +1055,10 @@ describe('DataProcessor', () => {
             expect(cycles.length).toBeGreaterThan(0);
             expect(result.dataQuality.circularPaths.length).toBeGreaterThan(0);
             expect(result.dataQuality.cpmSafe).toBe(true);
-            expect(result.dataQuality.warnings.some(warning => warning.includes('affected Longest Path scopes will be blocked'))).toBe(true);
+            expect(result.dataQuality.longestPathSafe).toBe(true);
+            expect(result.dataQuality.longestPathBlockers).toEqual([]);
+            expect(result.dataQuality.longestPathAdvisories.some(advisory => advisory.includes('circular relationship path(s)'))).toBe(true);
+            expect(result.dataQuality.warnings.some(warning => warning.includes('Longest Path is blocked'))).toBe(false);
             expect(result.dataQuality.warnings.some(warning => warning.includes('Critical path disabled: circular dependencies'))).toBe(false);
         });
 
@@ -983,6 +1081,54 @@ describe('DataProcessor', () => {
                 result.taskIdToTask
             );
             expect(cycles.length).toBe(0);
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // Longest Path availability tiers
+    // -----------------------------------------------------------------------
+    describe('Longest Path availability tiers', () => {
+        it('blocks when no real activity has a finite Finish Date', () => {
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-01'), null],
+            ];
+            const dv = buildDataView(STANDARD_COLUMNS, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.dataQuality.longestPathSafe).toBe(false);
+            expect(result.dataQuality.longestPathBlockers).toContain('no activity has a finite Finish Date');
+        });
+
+        it('keeps incomplete activity dates as advisories when a finish candidate exists', () => {
+            const rows = [
+                ['T1', 'Task A', 5, null, new Date('2025-01-06')],
+                ['T2', 'Task B', 3, new Date('2025-01-07'), new Date('2025-01-10')],
+            ];
+            const dv = buildDataView(STANDARD_COLUMNS, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.dataQuality.longestPathSafe).toBe(true);
+            expect(
+                result.dataQuality.longestPathAdvisories.some(advisory =>
+                    advisory.includes('missing Start or Finish dates')
+                )
+            ).toBe(true);
+        });
+
+        it('keeps an invalid activity date range as an advisory for relationship ranking', () => {
+            const rows = [
+                ['T1', 'Task A', 5, new Date('2025-01-10'), new Date('2025-01-06')],
+            ];
+            const dv = buildDataView(STANDARD_COLUMNS, rows);
+            const result = processor.processData(dv, settings, new Map(), new Set(), null, false, '#000');
+
+            expect(result.dataQuality.cpmSafe).toBe(false);
+            expect(result.dataQuality.longestPathSafe).toBe(true);
+            expect(
+                result.dataQuality.longestPathAdvisories.some(advisory =>
+                    advisory.includes('invalid Start/Finish ranges')
+                )
+            ).toBe(true);
         });
     });
 

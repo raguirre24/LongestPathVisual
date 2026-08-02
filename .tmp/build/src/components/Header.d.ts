@@ -119,6 +119,14 @@ export declare class Header {
     private getHeaderSuccessColor;
     private getHeaderWarningColor;
     private getHeaderDangerColor;
+    private getHeaderInactiveIconColor;
+    private getHeaderActiveIconColor;
+    private getHeaderHoverIconColor;
+    private configureToggleGlyph;
+    private appendGlyphRect;
+    private appendGlyphPolyline;
+    private appendGlyphOutlineRect;
+    private appendActiveStateIndicator;
     private getHeaderShadow;
     private applyHeaderPaletteOverrides;
     private renderButtons;
@@ -130,6 +138,7 @@ export declare class Header {
     private lightenColor;
     private drawConnectorDependencyGlyph;
     private drawWbsHierarchyGlyph;
+    private drawWbsDepthGlyph;
     private drawColumnVisibilityGlyph;
     setExporting(isExporting: boolean): void;
     private createOrUpdateToggleButton;

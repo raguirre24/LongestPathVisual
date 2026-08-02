@@ -155,7 +155,7 @@ function generateTsvContent(
     const headers = ["Index", "Task ID", "Task Name", "Task Type"];
     if (showBaseline) headers.push("Baseline Start", "Baseline Finish");
     if (showPreviousUpdate) headers.push("Previous Start", "Previous Finish");
-    headers.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
+    headers.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical", "Activity Is Longest Path");
     for (let i = 0; i < maxWbsDepth; i++) headers.push(`WBS Level ${i + 1}`);
 
     // Build rows
@@ -194,7 +194,8 @@ function generateTsvContent(
             task.finishDate ? dateFormatter(task.finishDate) : "",
             task.duration?.toString() || "0",
             totalFloat?.toString() || "0",
-            isCritical ? "Yes" : "No"
+            isCritical ? "Yes" : "No",
+            task.isLongestPath === null ? "Unavailable" : task.isLongestPath ? "Yes" : "No"
         );
 
         // Add WBS levels
@@ -232,7 +233,7 @@ function generateHtmlContent(
     const headers = ["Index", "Task ID", "Task Name", "Task Type"];
     if (showBaseline) headers.push("Baseline Start", "Baseline Finish");
     if (showPreviousUpdate) headers.push("Previous Start", "Previous Finish");
-    headers.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical");
+    headers.push("Start Date", "Finish Date", "Duration", "Total Float", "Is Critical", "Activity Is Longest Path");
 
     // Add WBS columns only if toggle is OFF (flat mode)
     if (!showWbs) {
@@ -370,6 +371,7 @@ function generateHtmlContent(
         html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.duration?.toString() || "0"}</td>`;
         html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${totalFloat?.toString() || "0"}</td>`;
         html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${isCritical ? "Yes" : "No"}</td>`;
+        html += `<td style="text-align: center; padding: 2px; white-space: nowrap;">${task.isLongestPath === null ? "Unavailable" : task.isLongestPath ? "Yes" : "No"}</td>`;
 
         // Add WBS columns only if toggle is OFF (flat mode)
         if (!showWbs) {

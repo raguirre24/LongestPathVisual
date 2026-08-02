@@ -5,9 +5,11 @@ import DataView = powerbi.DataView;
 import { DataProcessor } from "../../src/data/DataProcessor";
 import type { Relationship, Task } from "../../src/data/Interfaces";
 import { exportToClipboard } from "../../src/utils/ClipboardExporter";
+import { calculateLongestPathMembership } from "../../src/utils/LongestPathLogic";
 import {
     buildDrivingEventGraph,
     calculateLongestDrivingPaths,
+    DRIVING_PATH_DURATION_TOLERANCE_DAYS,
     expandBestDrivingPaths,
     getTaskEventNodeId,
     getTaskIdFromEventNodeId,
@@ -18,7 +20,7 @@ import {
 } from "../../src/utils/DrivingPathScoring";
 import { markMinimumFloatDrivingRelationships } from "../../src/utils/RelationshipLogic";
 
-const TOLERANCE_DAYS = 1e-9;
+const TOLERANCE_DAYS = DRIVING_PATH_DURATION_TOLERANCE_DAYS;
 const STRESS_TASK_COUNT = 1200;
 const LONGEST_PATH_TASK_TYPES = new Set(["TT_Task", "TT_Mile", "TT_FinMile"]);
 
@@ -53,7 +55,8 @@ interface GeneratedTask {
 
 type StressRelationship = ScheduleRelationshipLike & {
     relationshipFloat: number | null;
-    isDriving?: boolean;
+    isDriving?: boolean | null;
+    hasNegativeFloat?: boolean | null;
 };
 
 const STRESS_COLUMNS: ColumnDef[] = [
@@ -126,6 +129,7 @@ describe("visual stress coverage", () => {
         expect(result.dataQuality.possibleTruncation).toBe(false);
         expect(result.dataQuality.dataFetchLimitReached).toBe(false);
         expect(result.dataQuality.cpmSafe).toBe(true);
+        expect(result.dataQuality.longestPathSafe).toBe(true);
     });
 
     it("scores a large generated driving chain while ignoring higher-float alternate relationships", () => {
@@ -171,6 +175,32 @@ describe("visual stress coverage", () => {
             daysBetween(generated.tasks[0].startDate, generated.tasks[generated.tasks.length - 1].finishDate),
             9
         );
+    });
+
+    it("calculates authoritative membership across a large mixed-type relationship network", () => {
+        const generated = buildStressDataView(STRESS_TASK_COUNT);
+        const result = processStressDataView(generated.dataView);
+
+        for (const successorRelationships of result.relationshipIndex.values()) {
+            for (const relationship of successorRelationships) {
+                relationship.relationshipFloat = relationship.freeFloat;
+            }
+            markMinimumFloatDrivingRelationships(successorRelationships, TOLERANCE_DAYS);
+        }
+
+        const membership = calculateLongestPathMembership(
+            result.allTasksData,
+            result.relationships
+        );
+
+        expect(membership.finishTaskIds).toEqual([generated.terminalTaskId]);
+        expect(membership.taskIds.size).toBe(STRESS_TASK_COUNT);
+        expect(membership.relationships.size).toBe(STRESS_TASK_COUNT - 1);
+        expect(
+            result.relationships
+                .filter(relationship => relationship.freeFloat === 4)
+                .every(relationship => relationship.isDriving === false)
+        ).toBe(true);
     });
 
     it("caps expansion for many tied driving paths instead of enumerating every combination", () => {
@@ -244,12 +274,17 @@ describe("visual stress coverage", () => {
         const taskTypeIndex = tsvRows[0].split("\t").indexOf("Task Type");
         const zeroDurationActivityRow = tsvRows.find(row => row.includes("Zero duration activity"))?.split("\t");
         const finishMilestoneRow = tsvRows.find(row => row.includes("Finish milestone"))?.split("\t");
+        const longestPathIndex = tsvRows[0].split("\t").indexOf("Activity Is Longest Path");
 
         expect(tsvRows).toHaveLength(tasks.length + 1);
         expect(zeroDurationActivityRow?.[taskTypeIndex]).toBe("Activity");
         expect(finishMilestoneRow?.[taskTypeIndex]).toBe("Milestone");
+        expect(longestPathIndex).toBeGreaterThan(-1);
+        expect(zeroDurationActivityRow?.[longestPathIndex]).toBe("Yes");
+        expect(finishMilestoneRow?.[longestPathIndex]).toBe("No");
         expect(htmlContent).toMatch(/Zero duration activity<\/td><td[^>]*>Activity<\/td>/);
         expect(htmlContent).toMatch(/Finish milestone<\/td><td[^>]*>Milestone<\/td>/);
+        expect(htmlContent).toContain("Activity Is Longest Path");
     });
 
     it("applies WBS export colours to every WBS header cell for Excel paste", async () => {
@@ -556,6 +591,7 @@ function buildExportTask(id: string, name: string, type: string, duration: numbe
         isCritical: true,
         isCriticalByFloat: true,
         isCriticalByRel: true,
+        isLongestPath: id === "A0",
         startDate,
         finishDate,
         manualStartDate: startDate,

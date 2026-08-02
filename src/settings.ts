@@ -1253,7 +1253,7 @@ class LookAheadCard extends Card {
 }
 
 // ============================================================================
-// 14. PATH SELECTION - Task selection and multi-path
+// 14. PATH SELECTION - Task selection and Longest Path information
 // ============================================================================
 class PathSelectionCard extends Card {
     name: string = "pathSelection";
@@ -1303,20 +1303,13 @@ class PathSelectionCard extends Card {
         value: { value: "backward", displayName: "Trace Backward" }
     });
 
-    enableMultiPathToggle = new ToggleSwitch({
-        name: "enableMultiPathToggle",
-        displayName: "Enable Multi-Path Toggle",
-        description: "Toggle between driving paths of equal duration",
-        value: true
-    });
-
     selectedPathIndex = new NumUpDown({
         name: "selectedPathIndex",
         displayName: "Selected Path",
         value: 1,
         options: {
             minValue: { type: powerbi.visuals.ValidatorType.Min, value: 1 },
-            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 100 }
+            maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }
         }
     });
 
@@ -1332,8 +1325,6 @@ class PathSelectionCard extends Card {
         this.dropdownPosition,
         this.showSelectedTaskLabel,
         this.traceMode,
-        this.enableMultiPathToggle,
-        this.selectedPathIndex,
         this.showPathInfo
     ];
 }

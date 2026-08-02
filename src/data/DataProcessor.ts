@@ -1,7 +1,7 @@
 
 import { Task, WBSGroup, Relationship, BoundFieldState, DataQualityInfo, ExtraColumnInfo } from "./Interfaces";
 import { VisualSettings } from "../settings";
-import { normalizeRelationshipType } from "../utils/RelationshipLogic";
+import { normalizeRelationshipType, tryNormalizeRelationshipType } from "../utils/RelationshipLogic";
 import { normalizeLegendCategory } from "../utils/VisualState";
 import powerbi from "powerbi-visuals-api";
 import DataView = powerbi.DataView;
@@ -47,9 +47,13 @@ export interface ProcessedData {
 type DataQualityContext = {
     missingPredecessorIds: string[];
     conflictingTaskRows: string[];
+    conflictingScheduleTaskRows: string[];
     relationshipCount: number;
     relationshipFreeFloatMissingCount: number;
     hasRelationshipFreeFloat: boolean;
+    invalidRelationshipTypeCount: number;
+    invalidRelationshipLagCount: number;
+    selfRelationshipCount: number;
 };
 
 type TaskRowBucket = {
@@ -296,6 +300,9 @@ export class DataProcessor {
         const allPredecessorIds = new Set<string>();
         let relationshipRowCount = 0;
         let relationshipFreeFloatMissingCount = 0;
+        let invalidRelationshipTypeCount = 0;
+        let invalidRelationshipLagCount = 0;
+        let selfRelationshipCount = 0;
 
         // --- Pass 1: Group Rows by Task ID ---
         for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -331,28 +338,40 @@ export class DataProcessor {
 
             if (predIdIdx !== -1 && row[predIdIdx] != null) {
                 const predId = this.extractPredecessorId(row, dataView);
-                if (predId && predId !== taskId) {
+                if (predId === taskId) {
+                    selfRelationshipCount++;
+                } else if (predId) {
                     relationshipRowCount++;
 
                     allPredecessorIds.add(predId);
 
-                    const relType = normalizeRelationshipType(
-                        relTypeIdx !== -1 && row[relTypeIdx] != null
-                            ? String(row[relTypeIdx])
-                            : null
-                    );
+                    const rawRelationshipType = relTypeIdx !== -1 && row[relTypeIdx] != null
+                        ? String(row[relTypeIdx])
+                        : null;
+                    const strictRelationshipType = tryNormalizeRelationshipType(rawRelationshipType);
+                    if (!strictRelationshipType) {
+                        invalidRelationshipTypeCount++;
+                    }
+                    const relType = normalizeRelationshipType(rawRelationshipType);
 
                     let relLag: number | null = null;
                     if (relLagIdx !== -1 && row[relLagIdx] != null) {
                         const parsedLag = Number(row[relLagIdx]);
                         if (!isNaN(parsedLag) && isFinite(parsedLag)) {
                             relLag = parsedLag;
+                        } else {
+                            invalidRelationshipLagCount++;
                         }
                     }
 
                     let relFreeFloat: number | null = null;
-                    if (relFreeFloatIdx !== -1 && row[relFreeFloatIdx] != null) {
-                        const parsedFreeFloat = Number(row[relFreeFloatIdx]);
+                    const rawRelationshipFreeFloat = relFreeFloatIdx !== -1
+                        ? row[relFreeFloatIdx]
+                        : null;
+                    const hasRelationshipFreeFloatValue = rawRelationshipFreeFloat != null &&
+                        !(typeof rawRelationshipFreeFloat === "string" && rawRelationshipFreeFloat.trim() === "");
+                    if (hasRelationshipFreeFloatValue) {
+                        const parsedFreeFloat = Number(rawRelationshipFreeFloat);
                         if (!isNaN(parsedFreeFloat) && isFinite(parsedFreeFloat)) {
                             relFreeFloat = parsedFreeFloat;
                         }
@@ -440,6 +459,8 @@ export class DataProcessor {
                     freeFloat: rel.freeFloat,
                     lag: rel.lag,
                     isCritical: false,
+                    isDriving: null,
+                    hasNegativeFloat: null,
                 };
                 result.relationships.push(relationship);
 
@@ -483,6 +504,7 @@ export class DataProcessor {
                 lateFinish: Infinity,
                 totalFloat: Infinity,
                 isCritical: false,
+                isLongestPath: null,
                 isCriticalByFloat: false,
                 isCriticalByRel: false,
                 startDate: null,
@@ -518,9 +540,17 @@ export class DataProcessor {
         result.dataQuality = this.validateDataQuality(rows.length, result.allTasksData, result.taskIdToTask, {
             missingPredecessorIds: missingPredecessorIds.sort((a, b) => a.localeCompare(b)),
             conflictingTaskRows: this.detectConflictingTaskRows(taskDataMap, dataView),
+            conflictingScheduleTaskRows: this.detectConflictingTaskRows(
+                taskDataMap,
+                dataView,
+                ["startDate", "finishDate"]
+            ),
             relationshipCount: relationshipRowCount,
             relationshipFreeFloatMissingCount,
-            hasRelationshipFreeFloat: result.hasRelationshipFreeFloat
+            hasRelationshipFreeFloat: result.hasRelationshipFreeFloat,
+            invalidRelationshipTypeCount,
+            invalidRelationshipLagCount,
+            selfRelationshipCount
         }, dataFetchLimitReached);
 
         this.debugLog(`DataProcessor: Transformation complete. ${result.allTasksData.length} tasks.`);
@@ -751,6 +781,7 @@ export class DataProcessor {
             lateFinish: Infinity,
             totalFloat: Infinity,
             isCritical: false,
+            isLongestPath: null,
             isCriticalByFloat: false,
             isCriticalByRel: false,
             startDate: startDate,
@@ -1177,13 +1208,21 @@ export class DataProcessor {
             dataFetchLimitReached: false,
             duplicateTaskIds: [],
             conflictingTaskRows: [],
+            conflictingScheduleTaskRows: [],
             missingPredecessorIds: [],
             relationshipCount: 0,
             relationshipFreeFloatMissingCount: 0,
             hasRelationshipFreeFloat: false,
+            invalidRelationshipTypeCount: 0,
+            invalidRelationshipLagCount: 0,
+            selfRelationshipCount: 0,
             circularPaths: [],
+            missingRawDateTaskIds: [],
             invalidRawDateRangeTaskIds: [],
             invalidVisualDateRangeTaskIds: [],
+            longestPathBlockers: [],
+            longestPathAdvisories: [],
+            longestPathSafe: true,
             warnings: [],
             cpmSafe: true
         };
@@ -1213,8 +1252,12 @@ export class DataProcessor {
             endDate < startDate;
     }
 
-    private detectConflictingTaskRows(taskDataMap: Map<string, TaskRowBucket>, dataView: DataView): string[] {
-        const rolesToCompare = [
+    private detectConflictingTaskRows(
+        taskDataMap: Map<string, TaskRowBucket>,
+        dataView: DataView,
+        rolesOverride?: string[]
+    ): string[] {
+        const rolesToCompare = rolesOverride ?? [
             "taskName",
             "duration",
             "taskTotalFloat",
@@ -1305,12 +1348,24 @@ export class DataProcessor {
 
         const possibleTruncation = dataFetchLimitReached;
         const circularPaths = this.detectCircularDependencies(allTasksData, taskIdToTask);
+        const missingRawDateTaskIds = allTasksData
+            .filter(task => task.type !== "Synthetic")
+            .filter(task => {
+                const startTime = this.getRawStart(task)?.getTime();
+                const finishTime = this.getRawFinish(task)?.getTime();
+                return !Number.isFinite(startTime) || !Number.isFinite(finishTime);
+            })
+            .map(task => String(task.id ?? task.internalId));
         const invalidRawDateRangeTaskIds = allTasksData
             .filter(task => this.isEarlier(this.getRawFinish(task), this.getRawStart(task)))
             .map(task => String(task.id ?? task.internalId));
         const invalidVisualDateRangeTaskIds = allTasksData
             .filter(task => this.isEarlier(this.getVisualFinish(task), this.getVisualStart(task)))
             .map(task => String(task.id ?? task.internalId));
+        const finiteFinishCandidateCount = allTasksData
+            .filter(task => task.type !== "Synthetic")
+            .filter(task => Number.isFinite(this.getRawFinish(task)?.getTime()))
+            .length;
 
         const warnings: string[] = [];
         if (possibleTruncation) {
@@ -1320,20 +1375,71 @@ export class DataProcessor {
             warnings.push(`Duplicate Task IDs found: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? ` and ${duplicates.length - 5} more` : ''}`);
         }
         if (circularPaths.length > 0) {
-            warnings.push(`Circular dependencies detected (${circularPaths.length}); affected Longest Path scopes will be blocked.`);
+            warnings.push(`Circular dependencies detected (${circularPaths.length}); only an affected calculated driving scope is blocked.`);
         }
         if (invalidRawDateRangeTaskIds.length > 0) {
-            warnings.push(`Critical path disabled: invalid raw start/finish ranges found (${invalidRawDateRangeTaskIds.length}).`);
+            warnings.push(`Invalid raw start/finish ranges found (${invalidRawDateRangeTaskIds.length}); calculable Longest Path results continue with a data warning.`);
         }
         if (invalidVisualDateRangeTaskIds.length > 0) {
             warnings.push(`Visual date warnings: invalid plotted start/finish ranges found (${invalidVisualDateRangeTaskIds.length}).`);
         }
-        if (context.relationshipCount > 0 && !context.hasRelationshipFreeFloat) {
-            warnings.push("Relationship Free Float is not provided; driving logic is approximated from scheduled dates, relationship type, and lag.");
-        }
-
         const cpmSafe = !possibleTruncation &&
             invalidRawDateRangeTaskIds.length === 0;
+        const longestPathBlockers: string[] = [];
+        if (possibleTruncation) {
+            longestPathBlockers.push("Power BI data limit reached");
+        }
+        if (allTasksData.some(task => task.type !== "Synthetic") && finiteFinishCandidateCount === 0) {
+            longestPathBlockers.push("no activity has a finite Finish Date");
+        }
+        if (context.relationshipCount > 0 && !context.hasRelationshipFreeFloat) {
+            longestPathBlockers.push("no finite Relationship Free Float values are available");
+        }
+        if (longestPathBlockers.length > 0) {
+            warnings.push(`Longest Path unavailable: ${longestPathBlockers.join("; ")}.`);
+        }
+        const longestPathAdvisories: string[] = [];
+        if (missingRawDateTaskIds.length > 0) {
+            longestPathAdvisories.push(`missing Start or Finish dates for ${missingRawDateTaskIds.length} activity(s)`);
+        }
+        if (invalidRawDateRangeTaskIds.length > 0) {
+            longestPathAdvisories.push(`invalid Start/Finish ranges for ${invalidRawDateRangeTaskIds.length} activity(s)`);
+        }
+        if (context.missingPredecessorIds.length > 0) {
+            longestPathAdvisories.push(`missing predecessor activities (${context.missingPredecessorIds.length})`);
+        }
+        if (context.relationshipFreeFloatMissingCount > 0 && context.hasRelationshipFreeFloat) {
+            longestPathAdvisories.push(
+                `${context.relationshipFreeFloatMissingCount} relationship(s) without finite Relationship Free Float were excluded from driving ranking`
+            );
+        }
+        if (context.invalidRelationshipTypeCount > 0) {
+            longestPathAdvisories.push(
+                `${context.invalidRelationshipTypeCount} missing or invalid relationship type value(s) defaulted to FS`
+            );
+        }
+        if (context.invalidRelationshipLagCount > 0) {
+            longestPathAdvisories.push(
+                `${context.invalidRelationshipLagCount} invalid relationship lag value(s) were ignored`
+            );
+        }
+        if (context.selfRelationshipCount > 0) {
+            longestPathAdvisories.push(`${context.selfRelationshipCount} self-relationship(s) were excluded`);
+        }
+        if (context.conflictingScheduleTaskRows.length > 0) {
+            longestPathAdvisories.push(
+                `${context.conflictingScheduleTaskRows.length} activity(s) have conflicting Start/Finish rows; the canonical row was used`
+            );
+        }
+        if (circularPaths.length > 0) {
+            longestPathAdvisories.push(
+                `${circularPaths.length} circular relationship path(s) detected; affected driving scopes remain blocked`
+            );
+        }
+        if (longestPathAdvisories.length > 0) {
+            warnings.push(`Longest Path data warnings: ${longestPathAdvisories.join("; ")}.`);
+        }
+        const longestPathSafe = longestPathBlockers.length === 0;
 
         const dataQuality: DataQualityInfo = {
             rowCount,
@@ -1341,13 +1447,21 @@ export class DataProcessor {
             dataFetchLimitReached,
             duplicateTaskIds: duplicates,
             conflictingTaskRows: context.conflictingTaskRows,
+            conflictingScheduleTaskRows: context.conflictingScheduleTaskRows,
             missingPredecessorIds: context.missingPredecessorIds,
             relationshipCount: context.relationshipCount,
             relationshipFreeFloatMissingCount: context.relationshipFreeFloatMissingCount,
             hasRelationshipFreeFloat: context.hasRelationshipFreeFloat,
+            invalidRelationshipTypeCount: context.invalidRelationshipTypeCount,
+            invalidRelationshipLagCount: context.invalidRelationshipLagCount,
+            selfRelationshipCount: context.selfRelationshipCount,
             circularPaths,
+            missingRawDateTaskIds,
             invalidRawDateRangeTaskIds,
             invalidVisualDateRangeTaskIds,
+            longestPathBlockers,
+            longestPathAdvisories,
+            longestPathSafe,
             warnings,
             cpmSafe
         };

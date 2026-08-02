@@ -118,7 +118,7 @@
             "name": "relationshipFreeFloat",
             "kind": "Measure",
             "displayName": "Relationship Free Float",
-            "description": "Pre-calculated free float for relationships"
+            "description": "Used for Longest Path. The lowest finite incoming value per successor and ties are driving; negative values are retained. Rows without finite values are warned and excluded when other usable values exist."
         },
         {
             "name": "tooltip",
@@ -1715,12 +1715,6 @@
                                 "displayName": "Trace Forward"
                             }
                         ]
-                    }
-                },
-                "enableMultiPathToggle": {
-                    "displayName": "Enable Multi-Path Toggle",
-                    "type": {
-                        "bool": true
                     }
                 },
                 "selectedPathIndex": {

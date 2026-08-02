@@ -91,9 +91,9 @@ Core roles:
 | `taskTotalFloat` | Required in Float-Based mode. Drives critical and near-critical classification. |
 | `taskFreeFloat` | Optional task-level free float display/input. |
 | `predecessorId` | Optional predecessor activity ID for relationship rows. |
-| `relationshipType` | Optional relationship type. `PR_FS`, `PR_SS`, `PR_FF`, `PR_SF` are normalised to `FS`, `SS`, `FF`, `SF`. Invalid/missing values default to `FS`. |
+| `relationshipType` | Used for connector identity and endpoint geometry. `PR_FS`, `PR_SS`, `PR_FF`, `PR_SF` and P6 full names are normalised to `FS`, `SS`, `FF`, `SF`. Invalid or missing values default to `FS` and produce a Longest Path advisory. |
 | `relationshipLag` | Optional lag/lead in days. |
-| `relationshipFreeFloat` | Optional P6 relationship free float. When any finite relationship free float exists, blank values are non-driving. |
+| `relationshipFreeFloat` | Used for Longest Path. The lowest signed finite incoming value per successor and ties are driving. Every negative value is retained as a separate schedule-pressure status. Missing values are excluded with an advisory when other finite values exist; no finite relationship values remains a hard blocker. |
 | `baselineStartDate`, `baselineFinishDate` | Optional baseline comparison bars and export columns. Calculated modes require both roles; No Calculation mode can use `baselineFinishDate` alone as a finish marker. |
 | `previousUpdateStartDate`, `previousUpdateFinishDate` | Optional previous-update comparison bars and export columns. Calculated modes require both roles; No Calculation mode can use `previousUpdateFinishDate` alone as a finish marker. |
 | `dataDate` | Optional status/data date. Latest valid value across rows is used. |
@@ -157,16 +157,47 @@ It requires `taskId`, `duration`, `startDate`, and `finishDate`.
 
 Key behaviour:
 
-- `identifyLongestPathFromP6()` clears old state, identifies driving
-  relationships, finds terminal latest-finish tasks, builds driving chains, and
-  marks the selected chain critical.
-- `identifyDrivingRelationships()` uses P6 Relationship Free Float when present.
-  The minimum finite free float per successor is driving.
-- If relationship free float is not provided, the visual falls back to an
-  approximate calculation from dates, relationship type, and lag.
+- `identifyLongestPathFromP6()` validates the full relationship dataset,
+  identifies every activity tied at the latest Finish Date, and traces the
+  complete driving ancestry without task-terminal filtering.
+- `identifyDrivingRelationships()` uses the lowest signed finite Relationship
+  Free Float entering each successor. All minima tied within `1e-9` are driving.
+- Every relationship below `-1e-9` receives `hasNegativeFloat = true`.
+  Negative status is a schedule-pressure indicator and does not by itself make a
+  relationship driving or part of Longest Path.
+- Missing or invalid relationship free float is excluded from driving ranking.
+  Mixed finite and missing inputs remain internal diagnostics; if relationships
+  exist but none has a finite value, Longest Path is not calculated. There is no
+  date-and-lag approximation fallback.
+- `Task.isLongestPath` and `Relationship.isDriving` are authoritative for the
+  visual's documented minimum-float method. Existing `isCritical` state remains
+  presentation state for the global or selected trace.
+- Backward and forward selected-task traces collect the full reachable driving
+  closure, including every tied branch, without changing authoritative status.
 - `DrivingPathScoring` builds an event graph using start/finish nodes. This is
   important: scoring is elapsed schedule span, not a simple sum of task
   durations.
+- The route-duration calculation uses a strict `1e-9` day tolerance. It does
+  not reuse the `0.001` display float tolerance, so a route that is merely
+  close in duration is not presented as an exact tie.
+- Up to 10 maximum-duration Longest Path routes are presented using this order:
+  latest finish, greatest elapsed span, earliest start, then stable task and
+  relationship identity. Path 1 is the first-ranked route. All other calculated
+  driving ancestry retains
+  `Task.isLongestPath = true` and `Relationship.isDriving = true`, but does not
+  receive the selected critical presentation.
+- The Longest Path selector displays the selected route number, adds elapsed
+  calendar span on medium and wide layouts, and adds activity count on wide
+  layouts. Its hover and accessible descriptions include Early Start, Early
+  Finish, activity count, relationship count, and the calculation criteria.
+  Previous/next navigation is provided when more than one ranked route exists. Candidate
+  generation remains bounded separately for network safety, then the agreed
+  ranking is applied and the presented set is capped at 10.
+- A clicked zero-based route index remains pending until Power BI returns the
+  matching persisted one-based `selectedPathIndex`. This prevents an immediate
+  update carrying stale visual metadata from reverting the selector to Path 1.
+- The selector label's hover text explains the calculation criteria without
+  showing warning or authoritative-status detail.
 - Relationship endpoints use type semantics:
   - `FS`: predecessor finish -> successor start
   - `SS`: predecessor start -> successor start
@@ -175,16 +206,21 @@ Key behaviour:
 
 Safety gates:
 
-- Longest Path is disabled globally when CPM is unsafe because Power BI reports
-  more data than the visual can fetch, or because of invalid raw date ranges.
-- Circular dependencies are reported globally, but only block Longest Path
-  when the active latest-finish or selected-task driving scope is cyclic.
+- Longest Path is disabled globally only when Power BI reports more data than
+  the visual can fetch, no real activity has a finite Finish Date, or
+  relationships exist without any finite Relationship Free Float.
+- Missing individual dates or floats, missing predecessors, invalid/defaulted
+  relationship metadata, self-relationships, and conflicting duplicate dates
+  remain internal diagnostics rather than project-wide blockers.
+- Circular logic blocks only an affected calculated driving scope. A
+  non-driving or disconnected cycle does not suppress an otherwise valid
+  project Longest Path.
 - Duplicate relationship rows are allowed when only relationship-level fields
   differ.
-- Conflicting task-level duplicate rows are diagnostic-only. Longest Path uses
-  one canonical row per Task ID, currently the first row in the grouped
-  activity bucket, and keeps the inconsistent task-level fields in
-  `conflictingTaskRows` without adding a visible warning.
+- Conflicting task-level duplicate rows remain diagnostic. When Start or
+  Finish differs, the canonical row is used.
+- Longest Path validation continues to gate unsafe calculations, but warning
+  and status messages are intentionally not surfaced in the mode header.
 
 Task type assumption:
 
@@ -269,7 +305,7 @@ Key behaviour:
 | Task rendering | SVG/canvas task drawing, label drawing, virtual scroll, accessible canvas fallback. |
 | Connector rendering | Relationship geometry, SVG/canvas arrows, driving/non-driving styles, hover states. |
 | WBS | WBS grouping in `DataProcessor`, WBS state and rendering in `visual.ts`. |
-| Path and trace UI | Task dropdown, trace toggle, path navigation, selected path chip. |
+| Path and trace UI | Task dropdown, trace toggle, 10-route Longest Path selector, and criteria hover text. |
 | Legend | Legend category state, persisted selections, renderable category filtering. |
 | Export/help | Clipboard export, HTML/PDF export, help overlay, export metadata. |
 | Accessibility/high contrast | Live region, focus handling, high contrast colour resolution, keyboard handlers. |
@@ -309,11 +345,11 @@ There are two export/copy paths:
 - `ClipboardExporter` utility for legacy clipboard TSV/HTML payload coverage.
 
 The visual-level export/copy path mirrors the visible left-pane table columns
-and visible WBS/task row structure. Hidden/internal fields such as Task ID,
-Task Type, Index, Is Critical, Start, Duration, and Float are not exported
-unless they are visible on screen, for example as configured built-in or extra
-columns. When WBS grouping is off, export appends WBS Level columns after the
-visible columns so the hierarchy remains available.
+and visible WBS/task row structure, with an explicit `Activity Is Longest Path`
+status column. Other hidden/internal fields such as Task ID, Task Type, Index,
+Is Critical, Start, Duration, and Float are not exported unless they are
+visible on screen. When WBS grouping is off, export appends WBS Level columns
+after the visible columns so the hierarchy remains available.
 
 When editing export:
 
@@ -323,25 +359,29 @@ When editing export:
 - Re-test copy-to-Excel and HTML export with WBS on, WBS off, and finish-only
   Visualiser data.
 
-## Data Quality and Warnings
+## Data Quality and Calculation Safety
 
 `DataProcessor.validateDataQuality()` produces `DataQualityInfo`.
 
-Important warning classes:
+Important diagnostic classes:
 
 - Missing required roles.
 - Possible incomplete data when Power BI reaches the fetch-more limit.
 - Circular dependencies.
 - Invalid raw start/finish ranges.
 - Invalid visual/manual start/finish ranges.
-- Missing relationship free float when relationships exist.
+- Missing or invalid relationship free float, type, or lag when relationships
+  exist.
+- Missing predecessors, self-relationships, conflicting schedule dates, and
+  circular dependency paths. These are advisories unless they create a hard
+  blocker or occur in the active calculated driving scope.
 
-The visual uses `cpmSafe` for hard global blockers before Longest Path is
-attempted. Scoped driving-path builders then block the active path only when
-that active scope is cyclic. Do not bypass either layer without replacing it
-with an equally explicit safety decision. Duplicate task-row conflicts should
-remain available as diagnostics, but should not block Longest Path or add
-visible warnings unless a separate structural graph blocker is present.
+The visual uses `longestPathSafe` and `longestPathBlockers` for hard Longest
+Path gating. Recoverable issues are retained in `longestPathAdvisories` and
+calculation continues without surfacing advisory text in the Longest Path mode
+header. `cpmSafe` remains the legacy general schedule-date/data-limit diagnostic
+so Float-Based and Visualiser modes are not disabled by relationship-specific
+issues. Do not bypass the mode-specific gate.
 
 ## Tests and What They Cover
 
@@ -349,7 +389,7 @@ visible warnings unless a separate structural graph blocker is present.
 |---|---|
 | `tests/data/DataProcessor.test.ts` | DataView parsing, relationships, relationship type normalisation, duplicate rows, WBS, dates, validation, data date. |
 | `tests/utils/RelationshipLogic.test.ts` | P6 relationship type normalisation, relationship identity keys, minimum finite float driving logic. |
-| `tests/utils/DrivingPathScoring.test.ts` | FS/SS/FF/SF event scoring, lags, milestones, tied sinks, path truncation. |
+| `tests/utils/DrivingPathScoring.test.ts` | FS/SS/FF/SF event scoring, lags, milestones, strict duration ties, deterministic ranking, 10-route selector limiting, tied sinks, and path truncation. |
 | `tests/utils/VisualState.test.ts` | Legend serialisation, export sanitising, task type export labels, float text. |
 | `tests/utils/HeaderLayout.test.ts` | Header responsiveness, overflow menu behaviour, trace/search layout. |
 | `tests/utils/ColumnLayout.test.ts` | Label column packing and auto-fit. |

@@ -262,7 +262,6 @@ declare class PathSelectionCard extends Card {
     dropdownPosition: formattingSettings.ItemDropdown;
     showSelectedTaskLabel: formattingSettings.ToggleSwitch;
     traceMode: formattingSettings.ItemDropdown;
-    enableMultiPathToggle: formattingSettings.ToggleSwitch;
     selectedPathIndex: formattingSettings.NumUpDown;
     showPathInfo: formattingSettings.ToggleSwitch;
     slices: Slice[];

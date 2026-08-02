@@ -1,3 +1,4 @@
+export declare const DRIVING_PATH_DURATION_TOLERANCE_DAYS = 1e-9;
 export type ScheduleEventKind = "start" | "finish";
 export interface ScheduleTaskLike {
     internalId: string;
@@ -50,6 +51,32 @@ export interface ExpandedDrivingPathResult<TRel extends ScheduleRelationshipLike
     truncatedByExpansionLimit: boolean;
     expansionCount: number;
 }
+export interface PrimaryDrivingPathRank {
+    finishTime: number | null;
+    spanDays: number;
+    startTime: number | null;
+    taskIds: readonly string[];
+    relationshipIds: readonly string[];
+}
+/**
+ * Orders maximum-duration driving routes for presentation.
+ *
+ * Calculation status is not changed by this ordering. The first route is
+ * selector Path 1; exact-duration alternatives retain their authoritative
+ * activity and relationship statuses.
+ */
+export declare function comparePrimaryDrivingPathRanks(a: PrimaryDrivingPathRank, b: PrimaryDrivingPathRank): number;
+/**
+ * Applies the agreed deterministic presentation ranking and returns at most
+ * `maxPaths` candidates without mutating the input collection.
+ */
+export declare function selectRankedDrivingPaths<T>(candidates: readonly T[], getRank: (candidate: T) => PrimaryDrivingPathRank, maxPaths: number): T[];
+/**
+ * Resolves a zero-based selector index. A pending interaction takes precedence
+ * over persisted metadata so a host update carrying the previous value cannot
+ * undo a click before persistence is acknowledged.
+ */
+export declare function resolveDrivingPathSelectionIndex(persistedOneBasedIndex: unknown, pendingZeroBasedIndex: number | null, totalPaths: number): number;
 export declare function getTaskEventNodeId(taskId: string, eventKind: ScheduleEventKind): string;
 export declare function getTaskIdFromEventNodeId(nodeId: string): string;
 export declare function buildDrivingEventGraph<TTask extends ScheduleTaskLike, TRel extends ScheduleRelationshipLike>(tasksById: ReadonlyMap<string, TTask>, taskOrder: readonly string[], relationships: readonly TRel[]): DrivingEventGraph<TTask, TRel>;

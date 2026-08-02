@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
     buildDrivingEventGraph,
     calculateLongestDrivingPaths,
+    comparePrimaryDrivingPathRanks,
+    DRIVING_PATH_DURATION_TOLERANCE_DAYS,
     expandBestDrivingPaths,
     getTaskEventNodeId,
     getTaskIdFromEventNodeId,
     getTiedLatestFinishTaskIds,
+    resolveDrivingPathSelectionIndex,
+    selectRankedDrivingPaths,
     selectBestSinkNodeIds,
     type ScheduleRelationshipLike,
     type ScheduleTaskLike
@@ -24,7 +28,7 @@ type TestRelationship = ScheduleRelationshipLike & {
     type: string;
 };
 
-const TOLERANCE_DAYS = 1e-9;
+const TOLERANCE_DAYS = DRIVING_PATH_DURATION_TOLERANCE_DAYS;
 
 function atDay(dayOffset: number): Date {
     return new Date(Date.UTC(2025, 0, 1 + dayOffset));
@@ -173,6 +177,114 @@ describe("DrivingPathScoring", () => {
             ["B", "C"]
         ]);
         expect(result.expanded.paths.every(path => path.spanDays === 10)).toBe(true);
+    });
+
+    it("does not treat a slightly shorter route as an exact-duration tie", () => {
+        const tasks = [
+            {
+                internalId: "A",
+                startDate: atDay(0),
+                finishDate: atDay(5)
+            },
+            {
+                internalId: "B",
+                startDate: new Date(atDay(0).getTime() + 30_000),
+                finishDate: atDay(5)
+            },
+            buildTask("C", 5, 10)
+        ];
+        const result = computePaths(
+            tasks,
+            [
+                relationship("A", "C", "FS"),
+                relationship("B", "C", "FS")
+            ],
+            ["C"]
+        );
+
+        expect(result.expanded.paths).toHaveLength(1);
+        expect(result.expanded.paths[0].taskIds).toEqual(["A", "C"]);
+        expect(result.expanded.paths[0].spanDays).toBe(10);
+    });
+
+    it("ranks the displayed Longest Path by finish, span, start, and stable identity", () => {
+        const candidates = [
+            {
+                finishTime: 100,
+                spanDays: 10,
+                startTime: 0,
+                taskIds: ["B", "Z"],
+                relationshipIds: ["B|Z|FS|0"]
+            },
+            {
+                finishTime: 100,
+                spanDays: 10,
+                startTime: 0,
+                taskIds: ["A", "Z"],
+                relationshipIds: ["A|Z|FS|0"]
+            },
+            {
+                finishTime: 100,
+                spanDays: 9.999,
+                startTime: -1,
+                taskIds: ["EARLIER", "Z"],
+                relationshipIds: ["EARLIER|Z|FS|0"]
+            },
+            {
+                finishTime: 101,
+                spanDays: 1,
+                startTime: 100,
+                taskIds: ["LATEST"],
+                relationshipIds: []
+            }
+        ];
+
+        const ranked = [...candidates].sort(comparePrimaryDrivingPathRanks);
+
+        expect(ranked.map(candidate => candidate.taskIds[0])).toEqual([
+            "LATEST",
+            "A",
+            "B",
+            "EARLIER"
+        ]);
+    });
+
+    it("limits the selector to the first 10 deterministically ranked paths", () => {
+        const candidates = Array.from({ length: 12 }, (_, index) => {
+            const stableId = `P${String(11 - index).padStart(2, "0")}`;
+            return {
+                finishTime: 100,
+                spanDays: 10,
+                startTime: 0,
+                taskIds: [stableId, "FINISH"],
+                relationshipIds: [`${stableId}|FINISH|FS|0`]
+            };
+        });
+        const originalOrder = candidates.map(candidate => candidate.taskIds[0]);
+
+        const selected = selectRankedDrivingPaths(candidates, candidate => candidate, 10);
+
+        expect(selected).toHaveLength(10);
+        expect(selected.map(candidate => candidate.taskIds[0])).toEqual([
+            "P00",
+            "P01",
+            "P02",
+            "P03",
+            "P04",
+            "P05",
+            "P06",
+            "P07",
+            "P08",
+            "P09"
+        ]);
+        expect(candidates.map(candidate => candidate.taskIds[0])).toEqual(originalOrder);
+    });
+
+    it("keeps a clicked path selected while persisted metadata is stale", () => {
+        expect(resolveDrivingPathSelectionIndex(1, 1, 4)).toBe(1);
+        expect(resolveDrivingPathSelectionIndex(3, null, 4)).toBe(2);
+        expect(resolveDrivingPathSelectionIndex(10, 9, 3)).toBe(2);
+        expect(resolveDrivingPathSelectionIndex(undefined, null, 0)).toBe(0);
     });
 
     it("uses elapsed schedule span when overlapping durations would otherwise be misleading", () => {

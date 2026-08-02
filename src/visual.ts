@@ -31,12 +31,25 @@ import { UI_TOKENS, LAYOUT_BREAKPOINTS, HEADER_DOCK_TOKENS } from "./utils/Theme
 import {
     buildDrivingEventGraph,
     calculateLongestDrivingPaths,
+    DRIVING_PATH_DURATION_TOLERANCE_DAYS,
     expandBestDrivingPaths,
     getTaskEventNodeId,
     getTiedLatestFinishTaskIds,
-    selectBestSinkNodeIds
+    resolveDrivingPathSelectionIndex,
+    selectBestSinkNodeIds,
+    selectRankedDrivingPaths
 } from "./utils/DrivingPathScoring";
-import { getRelationshipIdentityKey, markMinimumFloatDrivingRelationships } from "./utils/RelationshipLogic";
+import type { PrimaryDrivingPathRank } from "./utils/DrivingPathScoring";
+import {
+    getRelationshipIdentityKey,
+    markMinimumFloatDrivingRelationships,
+    RELATIONSHIP_FLOAT_TOLERANCE
+} from "./utils/RelationshipLogic";
+import {
+    calculateLongestPathMembership,
+    collectDrivingTraceMembership
+} from "./utils/LongestPathLogic";
+import type { LongestPathMembership } from "./utils/LongestPathLogic";
 import {
     buildStableLegendCategoryOrder,
     normalizeLegendCategory,
@@ -92,6 +105,10 @@ import {
     packLabelColumns
 } from "./utils/ColumnLayout";
 import { computeSecondRowLayout, formatLookAheadWindowLabel } from "./utils/HeaderLayout";
+import {
+    formatPathSpanDays,
+    getPathSelectorVisibleLabel
+} from "./utils/PathSelectorPresentation";
 import { getConnectorRenderGeometry } from "./utils/ConnectorGeometry";
 import type { ConnectorRenderGeometry } from "./utils/ConnectorGeometry";
 import {
@@ -242,6 +259,7 @@ type WbsHeaderContextMenuAction = {
 
 type VisibleExportColumn =
     | { kind: "taskName"; header: string }
+    | { kind: "longestPath"; header: string }
     | { kind: "label"; header: string; column: LabelColumnLayoutItem }
     | { kind: "wbsLevel"; header: string; levelIndex: number };
 
@@ -267,6 +285,7 @@ export class Visual implements IVisual {
     private static readonly DEFAULT_SHOW_ALL_TASKS: boolean = false;
     private static readonly DRIVING_PATH_MAX_PATHS: number = 200;
     private static readonly DRIVING_PATH_MAX_EXPANSIONS: number = 20000;
+    private static readonly DRIVING_PATH_SELECTOR_MAX_PATHS: number = 10;
 
     private readonly instanceId: string;
     private target: HTMLElement;
@@ -288,6 +307,7 @@ export class Visual implements IVisual {
     private highContrastForegroundSelected: string = "#000000";
     private lastTooltipItems: VisualTooltipDataItem[] = [];
     private lastTooltipIdentities: powerbi.extensibility.ISelectionId[] = [];
+    private hoveredRelationshipKey: string | null = null;
     private progressLineCanvasTooltipTargets: ProgressLineTooltipTarget[] = [];
     private hoveredProgressLineTargetId: string | null = null;
 
@@ -500,9 +520,11 @@ export class Visual implements IVisual {
 
     private relationshipIndex: Map<string, Relationship[]> = new Map();
     private hasRelationshipFreeFloat: boolean = false;
+    private authoritativeLongestPathReady: boolean = false;
 
     private allDrivingChains: DrivingChain[] = [];
     private selectedPathIndex: number = 0;
+    private pendingSelectedPathIndex: number | null = null;
     private drivingPathsTruncationMessage: string | null = null;
     private scopedCycleWarningMessage: string | null = null;
 
@@ -601,11 +623,10 @@ export class Visual implements IVisual {
 
     private shouldShowPathInfoChip(): boolean {
         const showPathInfo = this.settings?.pathSelection?.showPathInfo?.value ?? true;
-        const multiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value ?? true;
         const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'floatBased';
         const hasAnyPaths = this.allDrivingChains.length > 0;
 
-        return showPathInfo && multiPathEnabled && mode === 'longestPath' && this.isCpmSafe() && hasAnyPaths;
+        return showPathInfo && mode === 'longestPath' && this.isCpmSafe() && hasAnyPaths;
     }
 
     /**
@@ -1199,13 +1220,21 @@ export class Visual implements IVisual {
             dataFetchLimitReached: false,
             duplicateTaskIds: [],
             conflictingTaskRows: [],
+            conflictingScheduleTaskRows: [],
             missingPredecessorIds: [],
             relationshipCount: 0,
             relationshipFreeFloatMissingCount: 0,
             hasRelationshipFreeFloat: false,
+            invalidRelationshipTypeCount: 0,
+            invalidRelationshipLagCount: 0,
+            selfRelationshipCount: 0,
             circularPaths: [],
+            missingRawDateTaskIds: [],
             invalidRawDateRangeTaskIds: [],
             invalidVisualDateRangeTaskIds: [],
+            longestPathBlockers: [],
+            longestPathAdvisories: [],
+            longestPathSafe: true,
             warnings: [],
             cpmSafe: true
         };
@@ -1669,6 +1698,7 @@ export class Visual implements IVisual {
             this.setHoveredTask(nextHoveredId);
 
             if (hoveredTask) {
+                this.hoveredRelationshipKey = null;
                 if (showTooltips) {
                     if (previousHoveredId === hoveredTask.internalId) {
                         this.moveTaskTooltip(event);
@@ -1678,6 +1708,22 @@ export class Visual implements IVisual {
                 }
                 d3.select(this.canvasElement).style("cursor", "pointer");
             } else {
+                const hoveredRelationship = this.getRelationshipAtCanvasPoint(coords.x, coords.y);
+                if (hoveredRelationship) {
+                    const relationshipKey = getRelationshipIdentityKey(hoveredRelationship);
+                    if (showTooltips) {
+                        if (this.hoveredRelationshipKey === relationshipKey) {
+                            this.moveTaskTooltip(event);
+                        } else {
+                            this.showRelationshipTooltip(hoveredRelationship, event);
+                        }
+                    }
+                    this.hoveredRelationshipKey = relationshipKey;
+                    d3.select(this.canvasElement).style("cursor", "help");
+                    return;
+                }
+
+                this.hoveredRelationshipKey = null;
                 if (showTooltips) {
                     this.hideTooltip();
                 }
@@ -1688,6 +1734,7 @@ export class Visual implements IVisual {
         d3.select(this.canvasElement).on("mouseout", () => {
             this.setHoveredTask(null);
             this.hoveredProgressLineTargetId = null;
+            this.hoveredRelationshipKey = null;
             this.hideTooltip();
             d3.select(this.canvasElement).style("cursor", "default");
         });
@@ -2387,9 +2434,8 @@ export class Visual implements IVisual {
         return this.hasValidVisualDates(task);
     }
 
-    private clearCriticalPathState(): void {
+    private clearCriticalPresentationState(): void {
         this.allDrivingChains = [];
-        this.selectedPathIndex = 0;
         this.drivingPathsTruncationMessage = null;
         this.scopedCycleWarningMessage = null;
         for (const task of this.allTasksData) {
@@ -2401,8 +2447,27 @@ export class Visual implements IVisual {
         }
         for (const rel of this.relationships) {
             rel.isCritical = false;
-            rel.isDriving = false;
         }
+    }
+
+    private clearAuthoritativeLongestPathState(): void {
+        this.authoritativeLongestPathReady = false;
+
+        for (const task of this.allTasksData) {
+            task.isLongestPath = null;
+        }
+        for (const rel of this.relationships) {
+            rel.relationshipFloat = undefined;
+            rel.isDriving = null;
+            rel.hasNegativeFloat = null;
+        }
+    }
+
+    private clearCriticalPathState(): void {
+        this.clearCriticalPresentationState();
+        this.selectedPathIndex = 0;
+        this.pendingSelectedPathIndex = null;
+        this.clearAuthoritativeLongestPathState();
     }
 
     private isLongestPathMode(): boolean {
@@ -2414,58 +2479,14 @@ export class Visual implements IVisual {
     }
 
     private isCpmSafe(): boolean {
-        return this.dataQuality?.cpmSafe ?? true;
-    }
-
-    private getUnsafeCpmWarningMessage(): string | null {
-        if (this.isCpmSafe()) {
-            return null;
-        }
-
-        const reasons: string[] = [];
-        if (this.dataQuality.possibleTruncation) {
-            reasons.push("Power BI data limit reached; results may be incomplete");
-        }
-        if (this.dataQuality.invalidRawDateRangeTaskIds.length > 0) {
-            reasons.push("invalid start/finish date ranges found");
-        }
-        if (reasons.length === 0) {
-            return "Longest Path unavailable: truncated or invalid schedule data.";
-        }
-
-        return `Longest Path disabled: ${reasons.join("; ")}.`;
+        return this.dataQuality?.longestPathSafe ?? true;
     }
 
     private getDrivingLogicStatusMessage(): string | null {
-        if ((this.dataQuality?.relationshipCount ?? 0) === 0) {
-            return null;
-        }
-
-        if (this.hasRelationshipFreeFloat) {
-            return "Using P6 Relationship Free Float for driving path logic.";
-        }
-
-        return "Relationship Free Float not provided; driving logic is approximated from scheduled dates, relationship type, and lag.";
+        return null;
     }
 
     private getModeWarningMessage(): string | null {
-        const unsafeMessage = this.getUnsafeCpmWarningMessage();
-        if (unsafeMessage) {
-            return unsafeMessage;
-        }
-
-        if (!this.isLongestPathMode()) {
-            return null;
-        }
-
-        if (this.scopedCycleWarningMessage) {
-            return this.scopedCycleWarningMessage;
-        }
-
-        if ((this.dataQuality?.relationshipCount ?? 0) > 0 && !this.hasRelationshipFreeFloat) {
-            return "Relationship Free Float not provided; Longest Path driving logic is approximate.";
-        }
-
         return null;
     }
 
@@ -2727,14 +2748,31 @@ export class Visual implements IVisual {
             return;
         }
 
+        const differentiateDrivers = this.settings?.connectorLines?.differentiateDrivers?.value ?? true;
+        const nonDrivingOpacity = (this.settings?.connectorLines?.nonDrivingOpacity?.value ?? 40) / 100;
+        const getOpacity = (relationship: Relationship): number => {
+            const baseOpacity = this.getConnectorOpacity(relationship);
+            const isNegativeNonDriving = relationship.hasNegativeFloat === true &&
+                relationship.isDriving !== true &&
+                !relationship.isCritical;
+            if (isNegativeNonDriving) {
+                return this.hoveredTaskId
+                    ? baseOpacity
+                    : Math.max(baseOpacity, 0.75);
+            }
+            return differentiateDrivers && relationship.isDriving !== true
+                ? baseOpacity * nonDrivingOpacity
+                : baseOpacity;
+        };
+
         this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship }>(".relationship-arrow")
-            .style("stroke-opacity", d => this.getConnectorOpacity(d.relationship));
+            .style("stroke-opacity", d => getOpacity(d.relationship));
 
         this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship }>(".relationship-arrowhead")
-            .style("fill-opacity", d => this.getConnectorOpacity(d.relationship));
+            .style("fill-opacity", d => getOpacity(d.relationship));
 
         this.arrowLayer.selectAll<SVGCircleElement, { relationship: Relationship }>(".connection-dot-start, .connection-dot-end")
-            .style("fill-opacity", d => this.getConnectorOpacity(d.relationship))
+            .style("fill-opacity", d => getOpacity(d.relationship))
             .style("stroke-opacity", 0.6);
     }
 
@@ -2775,9 +2813,31 @@ export class Visual implements IVisual {
 
     private resetPathSelectionIndex(): void {
         this.selectedPathIndex = 0;
+        this.pendingSelectedPathIndex = null;
         if (this.settings?.pathSelection?.selectedPathIndex) {
             this.settings.pathSelection.selectedPathIndex.value = 1;
         }
+    }
+
+    private reconcilePendingPathSelection(): void {
+        if (
+            this.pendingSelectedPathIndex === null ||
+            !this.settings?.pathSelection?.selectedPathIndex
+        ) {
+            return;
+        }
+
+        const pendingOneBasedIndex = this.pendingSelectedPathIndex + 1;
+        const configuredIndex = Number(this.settings.pathSelection.selectedPathIndex.value);
+        if (
+            Number.isFinite(configuredIndex) &&
+            Math.floor(configuredIndex) === pendingOneBasedIndex
+        ) {
+            this.pendingSelectedPathIndex = null;
+            return;
+        }
+
+        this.settings.pathSelection.selectedPathIndex.value = pendingOneBasedIndex;
     }
 
     private toggleBaselineDisplayInternal(): void {
@@ -5277,6 +5337,7 @@ export class Visual implements IVisual {
             const previousWbsEnabled = this.settings?.wbsGrouping?.enableWbsGrouping?.value;
 
             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+            this.reconcilePendingPathSelection();
             this.applyHeaderHeight();
             this.applyInitialLoadChromeColors();
 
@@ -5554,6 +5615,7 @@ export class Visual implements IVisual {
                 // Update local state from processed data
                 this.allTasksData = processedData.allTasksData;
                 this.relationships = processedData.relationships;
+                this.authoritativeLongestPathReady = false;
                 this.taskIdToTask = processedData.taskIdToTask;
                 this.predecessorIndex = processedData.predecessorIndex;
                 this.relationshipIndex = processedData.relationshipIndex;
@@ -5596,6 +5658,7 @@ export class Visual implements IVisual {
             }
 
             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
+            this.reconcilePendingPathSelection();
             this.applyHeaderHeight();
 
             if (this.wbsEnableOverride !== null && this.settings?.wbsGrouping?.enableWbsGrouping) {
@@ -6201,7 +6264,6 @@ export class Visual implements IVisual {
         this.lastUpdateOptions = options;
 
         const oldSelectedPathIndex = this.settings?.pathSelection?.selectedPathIndex?.value;
-        const oldMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
         const oldShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
         const oldMode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'floatBased';
         const oldLookAheadFilterSignature = this.getLookAheadFilterSignature();
@@ -6214,20 +6276,19 @@ export class Visual implements IVisual {
 
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(
             VisualSettings, options.dataViews[0]);
+        this.reconcilePendingPathSelection();
 
         const newSelectedPathIndex = this.settings?.pathSelection?.selectedPathIndex?.value;
-        const newMultiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value;
         const newShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
         const mode = this.settings?.criticalPath?.calculationMode?.value?.value ?? 'floatBased';
         const newLookAheadFilterSignature = this.getLookAheadFilterSignature();
         const newLookAheadFilterActive = this.shouldFilterToLookAhead();
 
         this.debugLog(`[Settings Update] Old path index: ${oldSelectedPathIndex}, New: ${newSelectedPathIndex}`);
-        this.debugLog(`[Settings Update] Old multi-path: ${oldMultiPathEnabled}, New: ${newMultiPathEnabled}`);
         this.debugLog(`[Settings Update] Old show info: ${oldShowPathInfo}, New: ${newShowPathInfo}`);
 
-        const requiresPathRecalc = oldSelectedPathIndex !== newSelectedPathIndex ||
-            oldMultiPathEnabled !== newMultiPathEnabled ||
+        const requiresPathRecalc =
+            oldSelectedPathIndex !== newSelectedPathIndex ||
             oldMode !== mode;
         const requiresLookAheadFilterRefresh = oldLookAheadFilterSignature !== newLookAheadFilterSignature &&
             (oldLookAheadFilterActive || newLookAheadFilterActive);
@@ -7163,6 +7224,168 @@ export class Visual implements IVisual {
         }
 
         return null;
+    }
+
+    private getRelationshipAtCanvasPoint(x: number, y: number): Relationship | null {
+        if (!this.showConnectorLinesInternal || !this.xScale || !this.yScale || !this.settings) {
+            return null;
+        }
+
+        const taskHeight = this.settings.taskBars.taskHeight.value;
+        const milestoneSizeSetting = this.settings.taskBars.milestoneSize.value;
+        const geometries = this.getVisibleRelationshipGeometries(
+            this.getVisibleTasks(),
+            this.xScale,
+            this.yScale,
+            taskHeight,
+            milestoneSizeSetting
+        );
+        const hitTolerance = Math.max(
+            5,
+            this.settings.connectorLines.connectorWidth.value + 3,
+            this.settings.connectorLines.criticalConnectorWidth.value + 2
+        );
+
+        let closestRelationship: Relationship | null = null;
+        let closestDistance = Number.POSITIVE_INFINITY;
+        for (const { relationship, geometry } of geometries) {
+            for (let index = 1; index < geometry.points.length; index++) {
+                const distance = this.getPointToSegmentDistance(
+                    x,
+                    y,
+                    geometry.points[index - 1].x,
+                    geometry.points[index - 1].y,
+                    geometry.points[index].x,
+                    geometry.points[index].y
+                );
+                if (distance <= hitTolerance && distance < closestDistance) {
+                    closestRelationship = relationship;
+                    closestDistance = distance;
+                }
+            }
+        }
+
+        return closestRelationship;
+    }
+
+    private getPointToSegmentDistance(
+        pointX: number,
+        pointY: number,
+        startX: number,
+        startY: number,
+        endX: number,
+        endY: number
+    ): number {
+        const deltaX = endX - startX;
+        const deltaY = endY - startY;
+        const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+        if (lengthSquared === 0) {
+            return Math.hypot(pointX - startX, pointY - startY);
+        }
+
+        const projection = Math.max(
+            0,
+            Math.min(1, ((pointX - startX) * deltaX + (pointY - startY) * deltaY) / lengthSquared)
+        );
+        const nearestX = startX + projection * deltaX;
+        const nearestY = startY + projection * deltaY;
+        return Math.hypot(pointX - nearestX, pointY - nearestY);
+    }
+
+    private getCalculatedStatusText(value: boolean | null): string {
+        if (value === null) {
+            return this.getLocalizedString("tooltip.status.unavailable", "Unavailable");
+        }
+        return value
+            ? this.getLocalizedString("tooltip.status.yes", "Yes")
+            : this.getLocalizedString("tooltip.status.no", "No");
+    }
+
+    private buildRelationshipTooltipDataItems(relationship: Relationship): VisualTooltipDataItem[] {
+        const predecessor = this.taskIdToTask.get(relationship.predecessorId);
+        const successor = this.taskIdToTask.get(relationship.successorId);
+        return [
+            {
+                displayName: this.getLocalizedString("tooltip.relationshipPredecessor", "Predecessor"),
+                value: predecessor?.name
+                    ? `${predecessor.name} (${relationship.predecessorId})`
+                    : relationship.predecessorId
+            },
+            {
+                displayName: this.getLocalizedString("tooltip.relationshipSuccessor", "Successor"),
+                value: successor?.name
+                    ? `${successor.name} (${relationship.successorId})`
+                    : relationship.successorId
+            },
+            {
+                displayName: this.getLocalizedString("tooltip.relationshipType", "Relationship Type"),
+                value: relationship.type
+            },
+            {
+                displayName: this.getLocalizedString("tooltip.relationshipLag", "Relationship Lag"),
+                value: String(relationship.lag ?? 0)
+            },
+            {
+                displayName: this.getLocalizedString("tooltip.relationshipFreeFloat", "Relationship Free Float"),
+                value: typeof relationship.freeFloat === "number"
+                    ? relationship.freeFloat.toLocaleString()
+                    : this.getLocalizedString("tooltip.status.unavailable", "Unavailable")
+            },
+            {
+                displayName: this.getLocalizedString("tooltip.relationshipIsDriving", "Relationship Is Driving"),
+                value: this.getCalculatedStatusText(relationship.isDriving)
+            },
+            {
+                displayName: this.getLocalizedString("tooltip.relationshipHasNegativeFloat", "Relationship Has Negative Float"),
+                value: this.getCalculatedStatusText(relationship.hasNegativeFloat)
+            }
+        ];
+    }
+
+    private getRelationshipAccessibilityLabel(relationship: Relationship): string {
+        return this.buildRelationshipTooltipDataItems(relationship)
+            .map(item => `${item.displayName}: ${item.value}`)
+            .join(". ");
+    }
+
+    private showRelationshipTooltip(relationship: Relationship, event: MouseEvent): void {
+        const showTooltips = this.settings?.generalSettings?.showTooltips?.value;
+        if (!showTooltips) {
+            return;
+        }
+
+        const dataItems = this.buildRelationshipTooltipDataItems(relationship);
+        const successor = this.taskIdToTask.get(relationship.successorId);
+        const identities = successor ? this.getTooltipIdentities(successor) : [];
+
+        if (this.tooltipService && this.tooltipService.enabled()) {
+            this.lastTooltipItems = dataItems;
+            this.lastTooltipIdentities = identities;
+            this.tooltipService.show({
+                coordinates: [event.clientX, event.clientY],
+                isTouchEvent: false,
+                dataItems,
+                identities
+            });
+            if (this.tooltipDiv) {
+                this.tooltipDiv.style("visibility", "hidden");
+            }
+            return;
+        }
+
+        const tooltip = this.tooltipDiv;
+        if (!tooltip) {
+            return;
+        }
+
+        tooltip.selectAll("*").remove();
+        tooltip.style("visibility", "visible");
+        for (const item of dataItems) {
+            const row = tooltip.append("div");
+            row.append("strong").text(`${item.displayName}: `);
+            row.append("span").text(item.value || "");
+        }
+        this.positionTooltip(tooltip.node(), event);
     }
 
     private showTaskTooltip(task: Task, event: MouseEvent): void {
@@ -10571,11 +10794,17 @@ export class Visual implements IVisual {
 
             relationshipGeometries.forEach(({ relationship: rel, geometry }) => {
                 const isCritical = rel.isCritical;
-                const isDriving = rel.isDriving ?? isCritical;
+                const isDriving = rel.isDriving === true;
+                const isNegativeNonDriving = rel.hasNegativeFloat === true && !isDriving && !isCritical;
+                const negativeFloatColor = this.highContrastMode
+                    ? this.highContrastForeground
+                    : (UI_TOKENS.color.warning?.default || "#C87800");
                 const baseLineWidth = isCritical ? criticalConnectorWidth : connectorWidth;
                 const enhancedLineWidth = isCritical
                     ? Math.max(1.6, baseLineWidth)
-                    : Math.max(1, baseLineWidth);
+                    : isNegativeNonDriving
+                        ? Math.max(1.4, baseLineWidth)
+                        : Math.max(1, baseLineWidth);
 
                 const previousAlpha = ctx.globalAlpha;
 
@@ -10585,14 +10814,26 @@ export class Visual implements IVisual {
                 const nonDrivingLineStyle = this.settings?.connectorLines?.nonDrivingLineStyle?.value?.value ?? 'dashed';
 
                 const baseOpacity = this.getConnectorOpacity(rel);
-                ctx.globalAlpha = differentiateDrivers && !isDriving ? baseOpacity * nonDrivingOpacity : baseOpacity;
-                ctx.strokeStyle = isCritical ? criticalColor : connectorColor;
+                ctx.globalAlpha = isNegativeNonDriving
+                    ? this.hoveredTaskId
+                        ? baseOpacity
+                        : Math.max(baseOpacity, 0.75)
+                    : differentiateDrivers && !isDriving
+                        ? baseOpacity * nonDrivingOpacity
+                        : baseOpacity;
+                ctx.strokeStyle = isCritical
+                    ? criticalColor
+                    : isNegativeNonDriving
+                        ? negativeFloatColor
+                        : connectorColor;
                 ctx.lineWidth = enhancedLineWidth;
                 ctx.lineCap = 'butt';
                 ctx.lineJoin = 'miter';
 
                 // Phase 2: Set dash pattern for non-driving lines
-                if (differentiateDrivers && !isDriving) {
+                if (isNegativeNonDriving) {
+                    ctx.setLineDash([3, 3]);
+                } else if (differentiateDrivers && !isDriving) {
                     switch (nonDrivingLineStyle) {
                         case 'dashed':
                             ctx.setLineDash([6, 4]);
@@ -10629,7 +10870,11 @@ export class Visual implements IVisual {
                 ctx.lineTo(arrowBaseX, geometry.endY - arrowSize / 2);
                 ctx.lineTo(arrowBaseX, geometry.endY + arrowSize / 2);
                 ctx.closePath();
-                ctx.fillStyle = isCritical ? criticalColor : connectorColor;
+                ctx.fillStyle = isCritical
+                    ? criticalColor
+                    : isNegativeNonDriving
+                        ? negativeFloatColor
+                        : connectorColor;
                 ctx.fill();
 
                 ctx.setLineDash([]); // Reset line dash for next connector
@@ -10779,16 +11024,33 @@ export class Visual implements IVisual {
         const differentiateDrivers = this.settings?.connectorLines?.differentiateDrivers?.value ?? true;
         const nonDrivingOpacity = (this.settings?.connectorLines?.nonDrivingOpacity?.value ?? 40) / 100;
         const nonDrivingLineStyle = this.settings?.connectorLines?.nonDrivingLineStyle?.value?.value ?? 'dashed';
+        const negativeFloatColor = this.highContrastMode
+            ? this.highContrastForeground
+            : (UI_TOKENS.color.warning?.default || "#C87800");
+        const isNegativeNonDriving = (rel: Relationship): boolean =>
+            rel.hasNegativeFloat === true && rel.isDriving !== true && !rel.isCritical;
+        const getRelationshipColor = (rel: Relationship): string =>
+            rel.isCritical
+                ? criticalColor
+                : isNegativeNonDriving(rel)
+                    ? negativeFloatColor
+                    : connectorColor;
 
         const getRelationshipOpacity = (rel: Relationship): number => {
-            const isDriving = rel.isDriving ?? rel.isCritical;
+            const isDriving = rel.isDriving === true;
             const baseOpacity = this.getConnectorOpacity(rel);
+            if (isNegativeNonDriving(rel)) {
+                return this.hoveredTaskId
+                    ? baseOpacity
+                    : Math.max(baseOpacity, 0.75);
+            }
             return differentiateDrivers && !isDriving ? baseOpacity * nonDrivingOpacity : baseOpacity;
         };
 
         // Helper to get dash array for SVG
         const getDashArray = (rel: Relationship): string => {
-            const isDriving = rel.isDriving ?? rel.isCritical;
+            const isDriving = rel.isDriving === true;
+            if (isNegativeNonDriving(rel)) return '3,3';
             if (!differentiateDrivers || isDriving) return 'none';
             switch (nonDrivingLineStyle) {
                 case 'dashed': return '6,4';
@@ -10805,7 +11067,8 @@ export class Visual implements IVisual {
             milestoneSizeSetting
         );
 
-        this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship; geometry: ConnectorRenderGeometry }>(".relationship-arrow")
+        const relationshipPaths = this.arrowLayer
+            .selectAll<SVGPathElement, { relationship: Relationship; geometry: ConnectorRenderGeometry }>(".relationship-arrow")
             .data(relationshipGeometries, d => getRelationshipIdentityKey(d.relationship))
             .join(
                 enter => enter.append("path"),
@@ -10813,21 +11076,46 @@ export class Visual implements IVisual {
                 exit => exit.remove()
             )
             .attr("class", d => {
-                const isDriving = d.relationship.isDriving ?? d.relationship.isCritical;
-                return `relationship-arrow ${d.relationship.isCritical ? "critical" : "normal"} ${isDriving ? "driving" : "non-driving"}`;
+                const isDriving = d.relationship.isDriving === true;
+                const negativeClass = d.relationship.hasNegativeFloat === true ? "negative-float" : "non-negative-float";
+                return `relationship-arrow ${d.relationship.isCritical ? "critical" : "normal"} ${isDriving ? "driving" : "non-driving"} ${negativeClass}`;
             })
             .attr("fill", "none")
-            .attr("stroke", (d) => d.relationship.isCritical ? criticalColor : connectorColor)
+            .attr("stroke", d => getRelationshipColor(d.relationship))
             .attr("stroke-opacity", (d) => getRelationshipOpacity(d.relationship))
             .attr("stroke-width", (d) => {
                 const baseWidth = d.relationship.isCritical ? criticalConnectorWidth : connectorWidth;
-                return d.relationship.isCritical ? Math.max(1.6, baseWidth) : Math.max(1, baseWidth);
+                return d.relationship.isCritical
+                    ? Math.max(1.6, baseWidth)
+                    : isNegativeNonDriving(d.relationship)
+                        ? Math.max(1.4, baseWidth)
+                        : Math.max(1, baseWidth);
             })
             .attr("stroke-linecap", "butt")
             .attr("stroke-linejoin", "miter")
             .attr("stroke-dasharray", (d) => getDashArray(d.relationship))
             .attr("marker-end", null)
-            .attr("d", d => d.geometry.pathData);
+            .attr("d", d => d.geometry.pathData)
+            .attr("role", "img")
+            .attr("tabindex", 0)
+            .attr("aria-label", d => this.getRelationshipAccessibilityLabel(d.relationship))
+            .style("pointer-events", "stroke")
+            .style("cursor", "help")
+            .on("mouseover", (event: MouseEvent, d) => {
+                this.hoveredRelationshipKey = getRelationshipIdentityKey(d.relationship);
+                this.showRelationshipTooltip(d.relationship, event);
+            })
+            .on("mousemove", (event: MouseEvent) => this.moveTaskTooltip(event))
+            .on("mouseout", () => {
+                this.hoveredRelationshipKey = null;
+                this.hideTooltip();
+            });
+
+        relationshipPaths
+            .selectAll<SVGTitleElement, { relationship: Relationship; geometry: ConnectorRenderGeometry }>("title")
+            .data(d => [d])
+            .join("title")
+            .text(d => this.getRelationshipAccessibilityLabel(d.relationship));
 
         const arrowSize = this.getConnectorArrowSize();
         this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship; geometry: ConnectorRenderGeometry }>(".relationship-arrowhead")
@@ -10838,14 +11126,15 @@ export class Visual implements IVisual {
                 exit => exit.remove()
             )
             .attr("class", d => {
-                const isDriving = d.relationship.isDriving ?? d.relationship.isCritical;
-                return `relationship-arrowhead ${d.relationship.isCritical ? "critical" : "normal"} ${isDriving ? "driving" : "non-driving"}`;
+                const isDriving = d.relationship.isDriving === true;
+                const negativeClass = d.relationship.hasNegativeFloat === true ? "negative-float" : "non-negative-float";
+                return `relationship-arrowhead ${d.relationship.isCritical ? "critical" : "normal"} ${isDriving ? "driving" : "non-driving"} ${negativeClass}`;
             })
             .attr("d", d => {
                 const arrowBaseX = d.geometry.endX - d.geometry.arrowDirectionX * arrowSize;
                 return `M ${d.geometry.endX},${d.geometry.endY} L ${arrowBaseX},${d.geometry.endY - arrowSize / 2} L ${arrowBaseX},${d.geometry.endY + arrowSize / 2} Z`;
             })
-            .attr("fill", d => d.relationship.isCritical ? criticalColor : connectorColor)
+            .attr("fill", d => getRelationshipColor(d.relationship))
             .attr("fill-opacity", d => getRelationshipOpacity(d.relationship))
             .style("pointer-events", "none");
 
@@ -10859,7 +11148,7 @@ export class Visual implements IVisual {
             .attr("cx", d => d.geometry.startX)
             .attr("cy", d => d.geometry.startY)
             .attr("r", 0)
-            .style("fill", d => d.relationship.isCritical ? criticalColor : connectorColor)
+            .style("fill", d => getRelationshipColor(d.relationship))
             .style("fill-opacity", 0)
             .style("pointer-events", "none");
 
@@ -10873,7 +11162,7 @@ export class Visual implements IVisual {
             .attr("cx", d => d.geometry.endX)
             .attr("cy", d => d.geometry.endY)
             .attr("r", 0)
-            .style("fill", d => d.relationship.isCritical ? criticalColor : connectorColor)
+            .style("fill", d => getRelationshipColor(d.relationship))
             .style("fill-opacity", 0)
             .style("pointer-events", "none");
 
@@ -12783,6 +13072,7 @@ export class Visual implements IVisual {
         let nearCriticalCount = 0;
 
         for (const task of this.allTasksData) {
+            task.isLongestPath = null;
             if (task.userProvidedTotalFloat !== undefined && !isNaN(task.userProvidedTotalFloat)) {
                 task.totalFloat = task.userProvidedTotalFloat;
                 task.isCritical = task.totalFloat <= 0;
@@ -12814,8 +13104,11 @@ export class Visual implements IVisual {
 
         for (const rel of this.relationships) {
             rel.isCritical = false;
-            rel.isDriving = false;
+            rel.isDriving = null;
+            rel.hasNegativeFloat = null;
+            rel.relationshipFloat = undefined;
         }
+        this.authoritativeLongestPathReady = false;
 
         this.updatePathInfoLabel();
 
@@ -12828,7 +13121,7 @@ export class Visual implements IVisual {
      * Identifies the longest path using P6 scheduled dates (reflective approach)
      */
     private identifyLongestPathFromP6(): void {
-        this.debugLog("Starting P6 reflective longest path identification...");
+        this.debugLog("Starting minimum-relationship-float Longest Path identification...");
         const startTime = performance.now();
 
         if (!this.isCpmSafe()) {
@@ -12842,11 +13135,16 @@ export class Visual implements IVisual {
             return;
         }
 
-        this.clearCriticalPathState();
+        this.clearCriticalPresentationState();
+        const authoritativeMembership = this.calculateAuthoritativeLongestPathState();
+        if (!authoritativeMembership) {
+            this.updatePathInfoLabel();
+            return;
+        }
 
-        this.identifyDrivingRelationships();
-
-        const projectFinishTasks = this.findProjectFinishTasks();
+        const projectFinishTasks = authoritativeMembership.finishTaskIds
+            .map(taskId => this.taskIdToTask.get(taskId))
+            .filter((task): task is Task => !!task);
         if (projectFinishTasks.length === 0) {
             console.warn("Could not identify project finish task");
             return;
@@ -12854,7 +13152,7 @@ export class Visual implements IVisual {
 
         this.debugLog(`Project finish tasks: ${projectFinishTasks.map(task => `${task.name} (${task.internalId})`).join(", ")}`);
 
-        const drivingScope = this.collectDrivingAncestorsForTargets(projectFinishTasks.map(task => task.internalId));
+        const drivingScope = authoritativeMembership.taskIds;
         const drivingChains = this.buildBestDrivingChains(
             drivingScope,
             projectFinishTasks.map(task => task.internalId)
@@ -12879,23 +13177,12 @@ export class Visual implements IVisual {
         this.allDrivingChains = this.sortAndStoreDrivingChains(resolvedChains);
 
         const selectedChain = this.getSelectedDrivingChain();
-
         if (selectedChain) {
-
-            for (const taskId of selectedChain.tasks) {
-                const task = this.taskIdToTask.get(taskId);
-                if (task) {
-                    task.isCritical = true;
-                    task.isCriticalByFloat = true;
-                    task.totalFloat = 0;
-                }
-            }
-
-            for (const rel of selectedChain.relationships) {
-                rel.isCritical = true;
-            }
-
-            this.debugLog(`Selected driving path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}: ${selectedChain.tasks.size} tasks, duration ${selectedChain.totalDuration}`);
+            this.applyDrivingPresentation(selectedChain.tasks, selectedChain.relationships);
+            this.debugLog(
+                `Selected Longest Path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}: ` +
+                `${selectedChain.tasks.size} tasks, ${selectedChain.totalDuration} days.`
+            );
         }
 
         if (this.showNearCritical && this.floatThreshold > 0) {
@@ -12905,106 +13192,95 @@ export class Visual implements IVisual {
         this.updatePathInfoLabel();
 
         const endTime = performance.now();
-        this.debugLog(`P6 longest path completed in ${endTime - startTime}ms`);
+        this.debugLog(`Minimum-float Longest Path completed in ${endTime - startTime}ms`);
     }
 
-    /**
     /**
      * Identifies which relationships are driving based on minimum float
      */
     private identifyDrivingRelationships(): void {
-
-        // P6 Relationship Free Float is authoritative when the dataset provides it.
-        // Uses flag calculated in DataProcessor to avoid O(N) iteration here
-        const useRelationshipFreeFloat = this.hasRelationshipFreeFloat;
-
         for (const rel of this.relationships) {
             const pred = this.taskIdToTask.get(rel.predecessorId);
             const succ = this.taskIdToTask.get(rel.successorId);
 
-            if (!pred || !succ) {
-                rel.relationshipFloat = Infinity;
-                rel.isDriving = false;
+            if (!pred || !succ || typeof rel.freeFloat !== "number" || !Number.isFinite(rel.freeFloat)) {
+                rel.relationshipFloat = undefined;
+                rel.isDriving = null;
+                rel.hasNegativeFloat = null;
                 rel.isCritical = false;
                 continue;
             }
 
-            if (useRelationshipFreeFloat) {
-                if (rel.freeFloat !== null && rel.freeFloat !== undefined) {
-                    rel.relationshipFloat = rel.freeFloat;
-                } else {
-                    // Blank P6 relationship float means this relationship cannot be used as driving.
-                    rel.relationshipFloat = Infinity;
-                }
-            } else {
-                // Fallback only: approximate from scheduled dates, relationship type, and lag.
-                // P6-scheduled datasets should provide Relationship Free Float whenever possible.
-                let relFloat: number;
-
-                if (!pred.startDate || !pred.finishDate ||
-                    !succ.startDate || !succ.finishDate) {
-                    rel.relationshipFloat = Infinity;
-                    rel.isDriving = false;
-                    rel.isCritical = false;
-                    continue;
-                }
-
-                const relType = rel.type || 'FS';
-                const lag = rel.lag || 0;
-
-                const predStart = pred.startDate.getTime() / 86400000;
-                const predFinish = pred.finishDate.getTime() / 86400000;
-                const succStart = succ.startDate.getTime() / 86400000;
-                const succFinish = succ.finishDate.getTime() / 86400000;
-
-                relFloat = 0;
-
-                switch (relType) {
-                    case 'FS': relFloat = succStart - (predFinish + lag); break;
-                    case 'SS': relFloat = succStart - (predStart + lag); break;
-                    case 'FF': relFloat = succFinish - (predFinish + lag); break;
-                    case 'SF': relFloat = succFinish - (predStart + lag); break;
-                }
-
-                rel.relationshipFloat = relFloat;
-            }
-
-            // Allow downstream logic to set isDriving based on minFloat unless strictly excluded
-            rel.isDriving = false;
+            rel.relationshipFloat = rel.freeFloat;
+            rel.isDriving = null;
+            rel.hasNegativeFloat = null;
             rel.isCritical = false;
         }
 
-        // Use the pre-built relationshipIndex (successorId -> Relationship[]) instead of
-        // rebuilding a successor map from scratch on every call.
         let drivingCount = 0;
+        let negativeFloatCount = 0;
         for (const [, rels] of this.relationshipIndex) {
-            drivingCount += markMinimumFloatDrivingRelationships(rels, this.floatTolerance);
+            drivingCount += markMinimumFloatDrivingRelationships(
+                rels,
+                RELATIONSHIP_FLOAT_TOLERANCE
+            );
+            negativeFloatCount += rels.filter(rel => rel.hasNegativeFloat === true).length;
         }
 
         this.debugLog(
-            `Identified ${drivingCount} driving relationships. ${useRelationshipFreeFloat
-                ? "Using P6 Relationship Free Float."
-                : "Approximating from scheduled dates, relationship type, and lag."}`
+            `Identified ${drivingCount} minimum-float driving relationships and ` +
+            `${negativeFloatCount} negative-float relationships.`
         );
     }
 
-    private findProjectFinishTasks(): Task[] {
-        const terminalTaskIds = this.getDrivingTerminalTaskIds();
-        const candidateTaskIds = terminalTaskIds.length > 0
-            ? terminalTaskIds
-            : this.allTasksData.map(task => task.internalId);
-        const tiedFinishTaskIds = getTiedLatestFinishTaskIds(
-            this.taskIdToTask,
-            candidateTaskIds,
-            this.floatTolerance
-        );
+    private calculateAuthoritativeLongestPathState(): LongestPathMembership<Relationship> | null {
+        this.clearAuthoritativeLongestPathState();
+        if (!this.isCpmSafe()) {
+            return null;
+        }
 
-        const tasks = tiedFinishTaskIds
-            .map(taskId => this.taskIdToTask.get(taskId))
-            .filter((task): task is Task => !!task);
+        this.identifyDrivingRelationships();
+        const membership = calculateLongestPathMembership(this.allTasksData, this.relationships);
+        if (membership.finishTaskIds.length === 0) {
+            return null;
+        }
+        if (this.getDrivingTopologicalOrder(membership.taskIds) === null) {
+            this.setScopedCycleWarningMessage();
+            return null;
+        }
 
-        this.debugLog(`Found ${tasks.length} tied terminal finish task(s).`);
-        return tasks;
+        for (const task of this.allTasksData) {
+            task.isLongestPath = membership.taskIds.has(task.internalId);
+        }
+
+        this.authoritativeLongestPathReady = true;
+        return membership;
+    }
+
+    private ensureAuthoritativeLongestPathState(): boolean {
+        if (this.authoritativeLongestPathReady) {
+            return true;
+        }
+        return this.calculateAuthoritativeLongestPathState() !== null;
+    }
+
+    private applyDrivingPresentation(
+        taskIds: Iterable<string>,
+        relationships: Iterable<Relationship>
+    ): void {
+        for (const taskId of taskIds) {
+            const task = this.taskIdToTask.get(taskId);
+            if (!task) {
+                continue;
+            }
+            task.isCritical = true;
+            task.isCriticalByRel = true;
+            task.totalFloat = 0;
+        }
+
+        for (const relationship of relationships) {
+            relationship.isCritical = true;
+        }
     }
 
     private getDrivingIncoming(taskId: string, scope?: Set<string>): Relationship[] {
@@ -13163,16 +13439,18 @@ export class Visual implements IVisual {
         }
 
         if (result.truncatedByPathLimit) {
-            this.drivingPathsTruncationMessage = `Showing first ${result.paths.length} paths`;
+            this.drivingPathsTruncationMessage =
+                `At least ${result.paths.length} maximum-duration routes found; tied alternatives were truncated`;
             return;
         }
 
         if (result.truncatedByExpansionLimit && result.paths.length > 0) {
-            this.drivingPathsTruncationMessage = `Showing first ${result.paths.length} paths`;
+            this.drivingPathsTruncationMessage =
+                `At least ${result.paths.length} maximum-duration routes found; expansion was truncated`;
             return;
         }
 
-        this.drivingPathsTruncationMessage = "Path generation truncated";
+        this.drivingPathsTruncationMessage = "Maximum-duration route generation was truncated";
     }
 
     private createDrivingChainBuildResult(chains: DrivingChain[] = [], blockedByCycle: boolean = false): DrivingChainBuildResult {
@@ -13265,11 +13543,15 @@ export class Visual implements IVisual {
             return this.createDrivingChainBuildResult();
         }
 
-        const longestPaths = calculateLongestDrivingPaths(graph, sourceNodeIds, this.floatTolerance);
+        const longestPaths = calculateLongestDrivingPaths(
+            graph,
+            sourceNodeIds,
+            DRIVING_PATH_DURATION_TOLERANCE_DAYS
+        );
         const bestSinkNodeIds = selectBestSinkNodeIds(
             longestPaths.distances,
             candidateSinkNodeIds,
-            this.floatTolerance
+            DRIVING_PATH_DURATION_TOLERANCE_DAYS
         );
 
         if (bestSinkNodeIds.length === 0) {
@@ -13345,7 +13627,7 @@ export class Visual implements IVisual {
         const sinkTaskIds = getTiedLatestFinishTaskIds(
             this.taskIdToTask,
             terminalTaskIds.length > 0 ? terminalTaskIds : descendantIds,
-            this.floatTolerance
+            DRIVING_PATH_DURATION_TOLERANCE_DAYS
         );
         const result = this.buildBestDrivingChains(descendantIds, sinkTaskIds, [sourceTaskId]);
         if (result.blockedByCycle || result.chains.length > 0) {
@@ -13364,123 +13646,123 @@ export class Visual implements IVisual {
     private sortAndStoreDrivingChains(chains: DrivingChain[]): DrivingChain[] {
         if (chains.length === 0) return [];
 
-        const sortedChains = [...chains].sort((a, b) => {
-            const aDate = a.startingTask?.startDate?.getTime() ?? Infinity;
-            const bDate = b.startingTask?.startDate?.getTime() ?? Infinity;
+        const sortedChains = selectRankedDrivingPaths(
+            chains,
+            chain => this.getPrimaryDrivingPathRank(chain),
+            Visual.DRIVING_PATH_SELECTOR_MAX_PATHS
+        );
 
-            if (aDate < bDate) return -1;
-            if (aDate > bDate) return 1;
-
-            if (a.totalDuration !== b.totalDuration) {
-                return b.totalDuration - a.totalDuration;
-            }
-
-            const endCompare = (a.endingTask?.internalId ?? "").localeCompare(b.endingTask?.internalId ?? "");
-            if (endCompare !== 0) {
-                return endCompare;
-            }
-
-            return (a.startingTask?.internalId ?? "").localeCompare(b.startingTask?.internalId ?? "");
-        });
-
-        this.debugLog(`Found ${sortedChains.length} driving paths`);
+        this.debugLog(
+            `Selected ${sortedChains.length} of ${chains.length} maximum-duration driving route(s) ` +
+            `for the ${Visual.DRIVING_PATH_SELECTOR_MAX_PATHS}-path selector`
+        );
 
         const logCount = Math.min(sortedChains.length, 5);
         for (let i = 0; i < logCount; i++) {
             const chain = sortedChains[i];
-            this.debugLog(`  Path ${i + 1}: ${chain.tasks.size} tasks, ` +
+            this.debugLog(`  Candidate ${i + 1}: ${chain.tasks.size} tasks, ` +
                 `${chain.totalDuration.toFixed(1)} days, ` +
                 `starts ${this.formatDate(chain.startingTask?.startDate)}`);
         }
         if (sortedChains.length > 5) {
-            this.debugLog(`  ... and ${sortedChains.length - 5} more paths`);
+            this.debugLog(`  ... and ${sortedChains.length - 5} more exact-duration alternatives`);
         }
 
         return sortedChains;
     }
 
     private sortForwardDrivingChains(chains: DrivingChain[]): DrivingChain[] {
-        if (chains.length === 0) {
-            return [];
-        }
-
-        return [...chains].sort((a, b) => {
-            const aEndDate = a.endingTask?.finishDate?.getTime() ?? -Infinity;
-            const bEndDate = b.endingTask?.finishDate?.getTime() ?? -Infinity;
-
-            if (aEndDate !== bEndDate) {
-                return bEndDate - aEndDate;
-            }
-
-            if (a.totalDuration !== b.totalDuration) {
-                return b.totalDuration - a.totalDuration;
-            }
-
-            return (a.endingTask?.internalId ?? "").localeCompare(b.endingTask?.internalId ?? "");
-        });
+        return this.sortAndStoreDrivingChains(chains);
     }
 
-    /**
-     * Gets the currently selected driving chain based on settings
-     * Validates index bounds to prevent errors when switching views
-     */
+    private getPrimaryDrivingPathRank(chain: DrivingChain): PrimaryDrivingPathRank {
+        return {
+            finishTime: chain.endingTask?.finishDate?.getTime() ?? null,
+            spanDays: chain.totalDuration,
+            startTime: chain.startingTask?.startDate?.getTime() ?? null,
+            taskIds: Array.from(chain.tasks),
+            relationshipIds: chain.relationships.map(relationship =>
+                getRelationshipIdentityKey(relationship)
+            )
+        };
+    }
+
     private getSelectedDrivingChain(): DrivingChain | null {
-        if (this.allDrivingChains.length === 0) return null;
-
-        const settingsIndex = this.settings?.pathSelection?.selectedPathIndex?.value ?? 1;
-
-        this.selectedPathIndex = Math.max(0, Math.min(settingsIndex - 1, this.allDrivingChains.length - 1));
-
-        const multiPathEnabled = this.settings?.pathSelection?.enableMultiPathToggle?.value ?? true;
-
-        if (!multiPathEnabled) {
+        if (this.allDrivingChains.length === 0) {
             this.selectedPathIndex = 0;
+            return null;
         }
 
-        this.debugLog(`[Path Selection] Index: ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}, ` +
-            `Multi-path: ${multiPathEnabled ? 'enabled' : 'disabled'}`);
+        this.selectedPathIndex = resolveDrivingPathSelectionIndex(
+            this.settings?.pathSelection?.selectedPathIndex?.value,
+            this.pendingSelectedPathIndex,
+            this.allDrivingChains.length
+        );
 
-        return this.allDrivingChains[this.selectedPathIndex];
+        if (this.settings?.pathSelection?.selectedPathIndex) {
+            this.settings.pathSelection.selectedPathIndex.value = this.selectedPathIndex + 1;
+        }
+
+        return this.allDrivingChains[this.selectedPathIndex] ?? null;
     }
 
     /**
-     * Updates the path information label display with interactive navigation
-     * Professional navigation buttons with enhanced design and smooth animations
-     * Shows "Path 1/1" even with single path so users understand there's only one driving path
+     * Shows up to ten deterministically ranked maximum-duration routes.
      */
     private updatePathInfoLabel(viewportWidth?: number): void {
         if (!this.pathInfoLabel) return;
-
-        const hasMultiplePaths = this.allDrivingChains.length > 1;
 
         if (!this.shouldShowPathInfoChip()) {
             this.pathInfoLabel.style("display", "none");
             return;
         }
 
-        const currentChain = this.allDrivingChains[this.selectedPathIndex];
-        if (!currentChain) {
+        const selectedChain = this.getSelectedDrivingChain();
+        if (!selectedChain) {
             this.pathInfoLabel.style("display", "none");
             return;
         }
 
-        // Use provided viewportWidth, falling back to lastUpdateOptions or default
         const effectiveWidth = viewportWidth ?? this.lastUpdateOptions?.viewport?.width ?? 800;
         const maxChipWidth = this.getPathInfoChipMaxWidth(effectiveWidth);
+        const layoutMode = this.getExtendedHeaderLayoutMode(effectiveWidth);
         const isTight = maxChipWidth <= 150;
-        const showTaskCount = maxChipWidth >= 170;
-        const showDuration = maxChipWidth >= 228;
+        const hasMultiplePaths = this.allDrivingChains.length > 1;
+        const pathNumber = this.selectedPathIndex + 1;
+        const totalPaths = this.allDrivingChains.length;
+        const activityCount = selectedChain.tasks.size;
+        const relationshipCount = selectedChain.relationships.length;
+        const span = formatPathSpanDays(selectedChain.totalDuration);
+        const startText = this.formatDate(selectedChain.startingTask?.startDate) || "Unavailable";
+        const finishText = this.formatDate(selectedChain.endingTask?.finishDate) || "Unavailable";
+        const visibleLabel = getPathSelectorVisibleLabel(layoutMode, {
+            pathNumber,
+            totalPaths,
+            spanDays: selectedChain.totalDuration,
+            activityCount
+        });
         const navButtonSize = isTight ? 18 : 20;
         const navIconSize = isTight ? 10 : 12;
         const chipPaddingX = isTight ? 4 : 5;
-        const chipGap = isTight ? 3 : 4;
-        const infoGap = isTight ? 3 : 4;
-        const infoPaddingX = isTight ? 1 : 2;
+        const chipGap = isTight ? 2 : 4;
+        const infoPaddingX = isTight ? 0 : 2;
         const controlBackground = this.getHeaderLegendControlBackgroundColor();
         const textColor = this.getHeaderLegendTextColor();
         const mutedTextColor = this.getHeaderLegendMutedTextColor();
         const borderColor = this.getHeaderLegendBorderColor();
         const hoverBackground = this.getHeaderLegendMenuHoverColor();
+        const calculationDescription =
+            "Longest Path criteria: latest Finish Date; lowest signed finite incoming " +
+            "Relationship Free Float per successor, including exact ties; greatest elapsed " +
+            "start-to-finish route span; then earliest start and stable task and relationship identity.";
+        const metricDescription =
+            `Path ${pathNumber} of ${totalPaths}. Calendar span ${span.spoken}. ` +
+            `${activityCount} ${activityCount === 1 ? "activity" : "activities"}. ` +
+            `${relationshipCount} ${relationshipCount === 1 ? "relationship" : "relationships"}. ` +
+            `Early Start ${startText}. Early Finish ${finishText}.`;
+        const selectorDescription =
+            `Longest Path selector. ${metricDescription} ${calculationDescription}`;
+        const hoverDescription = `${metricDescription}\n${calculationDescription}`;
 
         this.pathInfoLabel
             .style("padding", `0 ${chipPaddingX}px`)
@@ -13492,315 +13774,134 @@ export class Visual implements IVisual {
             .style("background-color", this.highContrastMode ? this.highContrastBackground : controlBackground)
             .style("border", `1px solid ${this.highContrastMode ? this.highContrastForeground : borderColor}`)
             .style("color", this.highContrastMode ? this.highContrastForeground : textColor)
-            .attr(
-                "title",
-                this.drivingPathsTruncationMessage
-                    ? `Current Path Information: Path Number | Total Tasks | Total Duration | ${this.drivingPathsTruncationMessage}`
-                    : "Current Path Information: Path Number | Total Tasks | Total Duration"
-            );
+            .attr("title", hoverDescription)
+            .attr("role", "group")
+            .attr("aria-label", selectorDescription);
 
         this.pathInfoLabel.selectAll("*").remove();
 
-        const pathNumber = this.selectedPathIndex + 1;
-        const totalPaths = this.allDrivingChains.length;
-        const duration = currentChain.totalDuration.toFixed(1);
-        const taskCount = currentChain.tasks.size;
-
-        const buttonOpacity = hasMultiplePaths ? "1" : "0.35";
-        const buttonCursor = hasMultiplePaths ? "pointer" : "default";
-        const buttonTitle = hasMultiplePaths ? "Previous driving path" : "Only one driving path";
-
-        const prevButton = this.pathInfoLabel.append("div")
-            .style("cursor", buttonCursor)
-            .style("opacity", buttonOpacity)
-            .style("padding", "2px")
-            .style("border-radius", `${UI_TOKENS.radius.small}px`)
-            .style("display", "flex")
-            .style("flex", "0 0 auto")
-            .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
-            .style("user-select", "none")
-            .style("box-sizing", "border-box")
-            .style("width", `${navButtonSize}px`)
-            .style("height", `${navButtonSize}px`)
-            .attr("title", buttonTitle);
-
-        const prevSvg = prevButton.append("svg")
-            .attr("width", `${navIconSize}`)
-            .attr("height", `${navIconSize}`)
-            .attr("viewBox", "0 0 12 12");
-
-        prevSvg.append("path")
-            .attr("d", "M 8 2 L 4 6 L 8 10")
-            .attr("stroke", mutedTextColor)
-            .attr("stroke-width", "2")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round")
-            .attr("fill", "none");
-
-        const self = this;
-
-        if (hasMultiplePaths) {
-            prevButton
-                .attr("role", "button")
-                .attr("tabindex", "0")
-                .attr("aria-label", buttonTitle)
-                .on("mouseover", function () {
-                    d3.select(this)
-                        .style("background-color", hoverBackground)
-                        .style("transform", "scale(1.1)");
-                    d3.select(this).select("path")
-                        .attr("stroke", textColor);
+        const appendNavigationButton = (
+            direction: "previous" | "next",
+            pathData: string,
+            offset: -1 | 1
+        ): void => {
+            const label = direction === "previous"
+                ? "Previous Longest Path"
+                : "Next Longest Path";
+            const button = this.pathInfoLabel.append<HTMLButtonElement>("button")
+                .attr("type", "button")
+                .attr("aria-label", `${label}; currently path ${pathNumber} of ${totalPaths}`)
+                .attr("title", label)
+                .style("display", "inline-flex")
+                .style("align-items", "center")
+                .style("justify-content", "center")
+                .style("flex", "0 0 auto")
+                .style("width", `${navButtonSize}px`)
+                .style("height", `${navButtonSize}px`)
+                .style("padding", "0")
+                .style("margin", "0")
+                .style("border", "0")
+                .style("border-radius", `${UI_TOKENS.radius.small}px`)
+                .style("background-color", "transparent")
+                .style("color", mutedTextColor)
+                .style("cursor", "pointer")
+                .style("transition", `background-color ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
+                .on("mouseenter", (event: MouseEvent) => {
+                    d3.select(event.currentTarget as HTMLButtonElement)
+                        .style("background-color", hoverBackground);
                 })
-                .on("mouseout", function () {
-                    d3.select(this)
-                        .style("background-color", "transparent")
-                        .style("transform", "scale(1)");
-                    d3.select(this).select("path")
-                        .attr("stroke", mutedTextColor);
+                .on("mouseleave", (event: MouseEvent) => {
+                    d3.select(event.currentTarget as HTMLButtonElement)
+                        .style("background-color", "transparent");
                 })
-                .on("mousedown", function () {
-                    d3.select(this).style("transform", "scale(0.95)");
-                })
-                .on("mouseup", function () {
-                    d3.select(this).style("transform", "scale(1.1)");
+                .on("click", (event: MouseEvent) => {
+                    event.stopPropagation();
+                    this.navigateDrivingPath(offset);
                 });
 
-            prevButton.on("click", function (event) {
-                event.stopPropagation();
-                self.navigateToPreviousPath();
-            });
+            const icon = button.append("svg")
+                .attr("width", navIconSize)
+                .attr("height", navIconSize)
+                .attr("viewBox", "0 0 12 12")
+                .attr("aria-hidden", "true")
+                .attr("focusable", "false");
 
-            prevButton.on("keydown", function (event: KeyboardEvent) {
-                if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    self.navigateToPreviousPath();
-                }
-            });
+            icon.append("path")
+                .attr("d", pathData)
+                .attr("stroke", "currentColor")
+                .attr("stroke-width", "2")
+                .attr("stroke-linecap", "round")
+                .attr("stroke-linejoin", "round")
+                .attr("fill", "none");
+        };
+
+        if (hasMultiplePaths) {
+            appendNavigationButton("previous", "M 8 2 L 4 6 L 8 10", -1);
         }
 
         const infoContainer = this.pathInfoLabel.append("div")
             .style("display", "flex")
             .style("flex", "1 1 auto")
             .style("align-items", "center")
-            .style("gap", `${infoGap}px`)
             .style("padding", `0 ${infoPaddingX}px`)
-            .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
+            .style("font-size", `${isTight ? 10 : UI_TOKENS.fontSize.sm}px`)
             .style("min-width", "0")
             .style("overflow", "hidden")
-            .style("white-space", "nowrap");
+            .style("white-space", "nowrap")
+            .attr("title", hoverDescription);
 
         infoContainer.append("span")
             .style("font-weight", "700")
             .style("letter-spacing", "0")
             .style("color", textColor)
-            .text(isTight ? `${pathNumber}/${totalPaths}` : `Path ${pathNumber}/${totalPaths}`)
-            .attr("aria-label", `Currently viewing path ${pathNumber} of ${totalPaths}`);
-
-        if (showTaskCount) {
-            infoContainer.append("span")
-                .style("color", HEADER_DOCK_TOKENS.primary)
-                .style("font-weight", "600")
-                .attr("aria-hidden", "true")
-                .text("|");
-
-            infoContainer.append("span")
-                .style("font-weight", "500")
-                .style("color", textColor)
-                .attr("aria-label", `${taskCount} tasks in this path`)
-                .text(`${taskCount} tasks`);
-
-            if (showDuration) {
-                infoContainer.append("span")
-                    .style("color", HEADER_DOCK_TOKENS.primary)
-                    .style("font-weight", "600")
-                    .attr("aria-hidden", "true")
-                    .text("|");
-
-                infoContainer.append("span")
-                    .style("font-weight", "500")
-                    .style("color", textColor)
-                    .attr("aria-label", `Total duration ${duration} days`)
-                    .text(`${duration}d`);
-            }
-        }
-
-        const nextButtonTitle = hasMultiplePaths ? "Next driving path" : "Only one driving path";
-        const nextButton = this.pathInfoLabel.append("div")
-            .style("cursor", buttonCursor)
-            .style("opacity", buttonOpacity)
-            .style("padding", "2px")
-            .style("border-radius", `${UI_TOKENS.radius.small}px`)
-            .style("display", "flex")
-            .style("flex", "0 0 auto")
-            .style("align-items", "center")
-            .style("justify-content", "center")
-            .style("transition", `all ${UI_TOKENS.motion.duration.fast}ms ${UI_TOKENS.motion.easing.smooth}`)
-            .style("user-select", "none")
-            .style("box-sizing", "border-box")
-            .style("width", `${navButtonSize}px`)
-            .style("height", `${navButtonSize}px`)
-            .attr("title", nextButtonTitle);
-
-        const nextSvg = nextButton.append("svg")
-            .attr("width", `${navIconSize}`)
-            .attr("height", `${navIconSize}`)
-            .attr("viewBox", "0 0 12 12");
-
-        nextSvg.append("path")
-            .attr("d", "M 4 2 L 8 6 L 4 10")
-            .attr("stroke", mutedTextColor)
-            .attr("stroke-width", "2")
-            .attr("stroke-linecap", "round")
-            .attr("stroke-linejoin", "round")
-            .attr("fill", "none");
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
+            .text(visibleLabel)
+            .attr("aria-hidden", "true");
 
         if (hasMultiplePaths) {
-            nextButton
-                .attr("role", "button")
-                .attr("tabindex", "0")
-                .attr("aria-label", nextButtonTitle)
-                .on("mouseover", function () {
-                    d3.select(this)
-                        .style("background-color", hoverBackground)
-                        .style("transform", "scale(1.1)");
-                    d3.select(this).select("path")
-                        .attr("stroke", textColor);
-                })
-                .on("mouseout", function () {
-                    d3.select(this)
-                        .style("background-color", "transparent")
-                        .style("transform", "scale(1)");
-                    d3.select(this).select("path")
-                        .attr("stroke", mutedTextColor);
-                })
-                .on("mousedown", function () {
-                    d3.select(this).style("transform", "scale(0.95)");
-                })
-                .on("mouseup", function () {
-                    d3.select(this).style("transform", "scale(1.1)");
-                });
-
-            nextButton.on("click", function (event) {
-                event.stopPropagation();
-                self.navigateToNextPath();
-            });
-
-            nextButton.on("keydown", function (event: KeyboardEvent) {
-                if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    self.navigateToNextPath();
-                }
-            });
+            appendNavigationButton("next", "M 4 2 L 8 6 L 4 10", 1);
         }
 
         this.pathInfoLabel.style("display", "flex");
     }
 
-    /**
-     * Navigate to the previous driving path
-     * Provides feedback when navigation is not possible
-     */
-    private navigateToPreviousPath(): void {
-
-        if (this.allDrivingChains.length === 0) {
-            this.debugLog("[Path Navigation] No driving chains available");
+    private navigateDrivingPath(offset: -1 | 1): void {
+        const totalPaths = this.allDrivingChains.length;
+        if (totalPaths <= 1) {
             return;
         }
 
-        if (this.allDrivingChains.length === 1) {
-            this.debugLog("[Path Navigation] Only one path exists - navigation disabled");
-            this.showPathNavigationFeedback("Only one driving path exists");
-            return;
-        }
-
-        this.selectedPathIndex = this.selectedPathIndex === 0
-            ? this.allDrivingChains.length - 1
-            : this.selectedPathIndex - 1;
-
-        this.debugLog(`[Path Navigation] Switched to path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}`);
-
+        this.selectedPathIndex =
+            (this.selectedPathIndex + offset + totalPaths) % totalPaths;
+        this.pendingSelectedPathIndex = this.selectedPathIndex;
         this.persistPathSelection();
-
         this.recomputeLongestPathForCurrentInteraction();
-
+        this.announceToLiveRegion(
+            `Longest Path ${this.selectedPathIndex + 1} of ${totalPaths} selected.`
+        );
+        this.captureScrollPosition();
+        this.forceCanvasRefresh();
         this.forceFullUpdate = true;
+
         if (this.lastUpdateOptions) {
             this.update(this.lastUpdateOptions);
+        } else {
+            this.updatePathInfoLabel();
         }
     }
 
-    /**
-     * Navigate to the next driving path
-     * Provides feedback when navigation is not possible
-     */
-    private navigateToNextPath(): void {
-
-        if (this.allDrivingChains.length === 0) {
-            this.debugLog("[Path Navigation] No driving chains available");
-            return;
-        }
-
-        if (this.allDrivingChains.length === 1) {
-            this.debugLog("[Path Navigation] Only one path exists - navigation disabled");
-            this.showPathNavigationFeedback("Only one driving path exists");
-            return;
-        }
-
-        this.selectedPathIndex = (this.selectedPathIndex + 1) % this.allDrivingChains.length;
-
-        this.debugLog(`[Path Navigation] Switched to path ${this.selectedPathIndex + 1}/${this.allDrivingChains.length}`);
-
-        this.persistPathSelection();
-
-        this.recomputeLongestPathForCurrentInteraction();
-
-        this.forceFullUpdate = true;
-        if (this.lastUpdateOptions) {
-            this.update(this.lastUpdateOptions);
-        }
-    }
-
-    /**
-     * Helper method for user feedback when navigation not possible
-     * Shows a brief message in the path info label
-     */
-    private showPathNavigationFeedback(message: string): void {
-        if (this.pathInfoLabel) {
-
-            const originalDisplay = this.pathInfoLabel.style("display");
-
-            this.pathInfoLabel
-                .style("display", "flex")
-                .selectAll("*").remove();
-
-            this.pathInfoLabel.append("span")
-                .style("color", UI_TOKENS.color.warning?.default || "#C87800")
-                .style("font-weight", "500")
-                .style("font-size", `${UI_TOKENS.fontSize.sm}px`)
-                .text(message);
-
-            setTimeout(() => {
-                this.pathInfoLabel.style("display", originalDisplay);
-                this.updatePathInfoLabel();
-            }, 2000);
-        }
-    }
-
-    /**
-     * Persist the selected path index to settings
-     */
     private persistPathSelection(): void {
+        const pathIndex1Based = Math.max(
+            1,
+            Math.min(this.selectedPathIndex + 1, Visual.DRIVING_PATH_SELECTOR_MAX_PATHS)
+        );
+
+        if (this.settings?.pathSelection?.selectedPathIndex) {
+            this.settings.pathSelection.selectedPathIndex.value = pathIndex1Based;
+        }
+
         try {
-            const pathIndex1Based = this.selectedPathIndex + 1;
-
-            if (this.settings?.pathSelection?.selectedPathIndex) {
-                this.settings.pathSelection.selectedPathIndex.value = pathIndex1Based;
-            }
-
             this.host.persistProperties({
                 merge: [{
                     objectName: "pathSelection",
@@ -13808,10 +13909,8 @@ export class Visual implements IVisual {
                     selector: null
                 }]
             });
-
-            this.debugLog(`[Path Selection] Persisted path index: ${pathIndex1Based}`);
         } catch (error) {
-            console.error("Error persisting path selection:", error);
+            console.error("Error persisting Longest Path selection:", error);
         }
     }
 
@@ -13827,8 +13926,12 @@ export class Visual implements IVisual {
         }
 
         if (this.selectedTaskId) {
-            const traceModeSetting = this.normalizeTraceMode(this.settings.pathSelection.traceMode.value.value);
-            const effectiveTraceMode = this.normalizeTraceMode(this.traceMode || traceModeSetting);
+            const configuredTraceMode = this.normalizeTraceMode(
+                this.settings.pathSelection.traceMode.value.value
+            );
+            const effectiveTraceMode = this.normalizeTraceMode(
+                this.traceMode || configuredTraceMode
+            );
             if (effectiveTraceMode === "forward") {
                 this.calculateCPMFromTask(this.selectedTaskId);
             } else {
@@ -13907,7 +14010,8 @@ export class Visual implements IVisual {
 
     /**
      * Calculates CPM backward to a selected target task
-     * Populates allDrivingChains for multi-path support
+     * Calculates the complete driving trace and ranks its displayed Longest Path
+     * plus exact-duration alternatives.
      */
     private calculateCPMToTask(targetTaskId: string | null): void {
         this.debugLog(`Calculating P6 driving path to task: ${targetTaskId || "None"}`);
@@ -13930,9 +14034,11 @@ export class Visual implements IVisual {
             return;
         }
 
-        this.clearCriticalPathState();
-
-        this.identifyDrivingRelationships();
+        this.clearCriticalPresentationState();
+        if (!this.ensureAuthoritativeLongestPathState()) {
+            this.updatePathInfoLabel();
+            return;
+        }
 
         const chains = this.buildBestDrivingChainsToTarget(targetTaskId);
         if (chains.blockedByCycle) {
@@ -13944,34 +14050,26 @@ export class Visual implements IVisual {
 
         this.allDrivingChains = this.sortAndStoreDrivingChains(chains.chains);
 
-        if (this.selectedPathIndex >= this.allDrivingChains.length) {
-            this.selectedPathIndex = 0;
-        }
-
+        const traceMembership = collectDrivingTraceMembership(
+            targetTaskId,
+            "backward",
+            this.allTasksData,
+            this.relationships
+        );
         const selectedChain = this.getSelectedDrivingChain();
-
         if (selectedChain) {
-
-            for (const taskId of selectedChain.tasks) {
-                const task = this.taskIdToTask.get(taskId);
-                if (task) {
-                    task.isCritical = true;
-                    task.isCriticalByFloat = true;
-                    task.totalFloat = 0;
-                }
-            }
-
-            for (const rel of selectedChain.relationships) {
-                rel.isCritical = true;
-            }
-
-            this.debugLog(`P6 path to ${targetTaskId}: ${selectedChain.tasks.size} tasks, ` +
-                `${this.allDrivingChains.length} total paths, ` +
-                `starting ${this.formatDate(selectedChain.startingTask?.startDate)}`);
+            this.applyDrivingPresentation(selectedChain.tasks, selectedChain.relationships);
+            this.debugLog(
+                `Selected backward route ${this.selectedPathIndex + 1}/${this.allDrivingChains.length} ` +
+                `to ${targetTaskId}: ${selectedChain.tasks.size} tasks ` +
+                `from ${traceMembership.taskIds.size} tasks in the complete driving trace, ` +
+                `${Math.max(0, this.allDrivingChains.length - 1)} exact-duration alternative(s), ` +
+                `starting ${this.formatDate(selectedChain.startingTask?.startDate)}`
+            );
         }
 
         targetTask.isCritical = true;
-        targetTask.isCriticalByFloat = true;
+        targetTask.isCriticalByRel = true;
 
         this.updatePathInfoLabel();
     }
@@ -14001,9 +14099,11 @@ export class Visual implements IVisual {
             return;
         }
 
-        this.clearCriticalPathState();
-
-        this.identifyDrivingRelationships();
+        this.clearCriticalPresentationState();
+        if (!this.ensureAuthoritativeLongestPathState()) {
+            this.updatePathInfoLabel();
+            return;
+        }
         const chains = this.buildBestDrivingChainsFromSource(sourceTaskId);
         if (chains.blockedByCycle) {
             this.setScopedCycleWarningMessage();
@@ -14014,33 +14114,25 @@ export class Visual implements IVisual {
 
         this.allDrivingChains = this.sortForwardDrivingChains(chains.chains);
 
-        if (this.selectedPathIndex >= this.allDrivingChains.length) {
-            this.selectedPathIndex = 0;
-        }
-
+        const traceMembership = collectDrivingTraceMembership(
+            sourceTaskId,
+            "forward",
+            this.allTasksData,
+            this.relationships
+        );
         const selectedChain = this.getSelectedDrivingChain();
-
         if (selectedChain) {
-
-            for (const taskId of selectedChain.tasks) {
-                const task = this.taskIdToTask.get(taskId);
-                if (task) {
-                    task.isCritical = true;
-                    task.isCriticalByFloat = true;
-                    task.totalFloat = 0;
-                }
-            }
-
-            for (const rel of selectedChain.relationships) {
-                rel.isCritical = true;
-            }
-
-            this.debugLog(`Forward path from ${sourceTaskId}: ${selectedChain.tasks.size} tasks, ` +
-                `${this.allDrivingChains.length} chains found`);
+            this.applyDrivingPresentation(selectedChain.tasks, selectedChain.relationships);
+            this.debugLog(
+                `Selected forward route ${this.selectedPathIndex + 1}/${this.allDrivingChains.length} ` +
+                `from ${sourceTaskId}: ${selectedChain.tasks.size} tasks ` +
+                `from ${traceMembership.taskIds.size} tasks in the complete driving trace, ` +
+                `${Math.max(0, this.allDrivingChains.length - 1)} exact-duration alternative(s)`
+            );
         } else {
 
             sourceTask.isCritical = true;
-            sourceTask.isCriticalByFloat = true;
+            sourceTask.isCriticalByRel = true;
             this.debugLog(`No forward driving path from ${sourceTaskId}. Task marked as critical endpoint.`);
         }
 
@@ -18819,6 +18911,7 @@ export class Visual implements IVisual {
         const durationLabel = this.getLocalizedString("tooltip.duration", "Remaining Duration");
         const totalFloatLabel = this.getLocalizedString("tooltip.totalFloat", "Total Float");
         const taskFreeFloatLabel = this.getLocalizedString("tooltip.taskFreeFloat", "Task Free Float");
+        const longestPathLabel = this.getLocalizedString("tooltip.activityIsLongestPath", "Activity Is Longest Path");
         const nearCriticalLabel = this.getLocalizedString("tooltip.nearCriticalThreshold", "Near Critical Threshold");
         const lookAheadLabel = this.getLocalizedString("tooltip.lookAhead", "Look-Ahead Window");
 
@@ -18836,6 +18929,21 @@ export class Visual implements IVisual {
             statusValue = this.getLocalizedString("tooltip.status.inSelectedPath", "In selected path");
         } else if (isNoCalculationMode) {
             statusValue = "";
+        } else if (mode === "longestPath" && task.isCritical && this.selectedTaskId) {
+            statusValue = this.getLocalizedString(
+                "tooltip.status.inSelectedDrivingTrace",
+                "In selected driving trace"
+            );
+        } else if (mode === "longestPath" && task.isCritical) {
+            statusValue = this.getLocalizedString(
+                "tooltip.status.primaryLongestPath",
+                "On Longest Path"
+            );
+        } else if (mode === "longestPath" && task.isLongestPath === true) {
+            statusValue = this.getLocalizedString(
+                "tooltip.status.secondaryLongestPathBranch",
+                "On secondary Longest Path branch"
+            );
         } else if (task.isCritical) {
             statusValue = mode === "floatBased"
                 ? this.getLocalizedString("tooltip.status.criticalFloat", "Critical (Float = 0)")
@@ -18869,6 +18977,16 @@ export class Visual implements IVisual {
         items.push({ displayName: modeLabel, value: modeValue });
         if (statusValue) {
             items.push({ displayName: statusLabel, value: statusValue });
+        }
+        if (mode === "longestPath") {
+            items.push({
+                displayName: longestPathLabel,
+                value: task.isLongestPath === null
+                    ? this.getLocalizedString("tooltip.status.unavailable", "Unavailable")
+                    : task.isLongestPath
+                        ? this.getLocalizedString("tooltip.status.yes", "Yes")
+                        : this.getLocalizedString("tooltip.status.no", "No")
+            });
         }
 
         if (mode === "floatBased") {
@@ -19509,7 +19627,7 @@ export class Visual implements IVisual {
         const cpmPara = modeSection.append('p')
             .style('font-size', '13px')
             .style('margin-bottom', '8px');
-        cpmPara.text('Highlights the driving chain of dependent activities using relationship logic. When P6 Relationship Free Float is provided, that value is authoritative for driving relationship decisions.');
+        cpmPara.text('Calculates driving relationships from the lowest signed Relationship Free Float entering each successor, including negative values and tied minima, then traces every driving relationship back from the latest-finish activities.');
 
         addSubtitle(modeSection, 'Float-Based');
         const floatPara = modeSection.append('p')
@@ -19527,10 +19645,9 @@ export class Visual implements IVisual {
 
         const modeList = createList(modeSection);
         addListItem(modeList, 'Show All / Critical', 'Switch between the full filtered schedule and a focused critical view. In Float mode, near-critical tasks can remain highlighted while the visible set follows the active Show All or Critical choice.');
-        addListItem(modeList, 'Relationship Free Float', 'When P6 Relationship Free Float is bound and populated, Longest Path uses it directly. Task Total Float does not trigger relationship-free-float strict mode.');
-        addListItem(modeList, 'Approximate Fallback', 'If Relationship Free Float is not provided, Longest Path falls back to scheduled dates, relationship type, and lag. That fallback is approximate because P6 calendars are not recalculated in the visual.');
-        addListItem(modeList, 'Multiple Driving Paths', 'If multiple valid driving paths exist, the path chip can show the active path and lets you step between paths when multi-path navigation is enabled.');
-        addListItem(modeList, 'Circular Logic', 'If circular relationships are detected, the visual reports them globally and blocks only affected Longest Path scopes instead of returning a misleading path.');
+        addListItem(modeList, 'Relationship Free Float', 'Every relationship in the calculation scope requires a finite Relationship Free Float. The lowest signed incoming value per successor and all ties are driving.');
+        addListItem(modeList, 'Negative Relationship Float', 'Every value below zero is retained and flagged as schedule pressure. Only a minimum incoming value or tie is driving; negative status alone does not add a relationship to Longest Path.');
+        addListItem(modeList, 'Longest Path', 'The visual ranks up to 10 maximum-duration routes using the latest Finish Date, minimum signed incoming Relationship Free Float and ties, greatest elapsed route span, earliest start, then stable task and relationship identity.');
 
         // ========== Header Controls ==========
         const headerSection = createSection('🧭', 'Header Controls');
@@ -19563,10 +19680,10 @@ export class Visual implements IVisual {
         const selectionList = createList(selectionSection);
         addListItem(selectionList, 'Task Search', 'Search by task ID or name, then choose a result from the dropdown list. Search combines with the current mode, legend, look-ahead, and WBS filters.');
         addListItem(selectionList, 'Select Task', 'Click a bar, milestone, or row to focus a task. The selected task is highlighted and can drive trace filtering.');
-        addListItem(selectionList, 'Trace Backward', 'Shows the predecessor chain leading into the selected task. In Longest Path mode, this can be constrained to the driving path.');
-        addListItem(selectionList, 'Trace Forward', 'Shows successor work flowing out from the selected task.');
+        addListItem(selectionList, 'Trace Backward', 'Calculates driving predecessors leading into the selected task and highlights the selected Longest Path route.');
+        addListItem(selectionList, 'Trace Forward', 'Calculates driving successors reachable from the selected task and highlights the selected Longest Path route.');
         addListItem(selectionList, 'Mode Interaction', 'Trace Backward/Forward, Show All/Critical, Float-Based mode, Longest Path mode, legend filtering, and look-ahead filtering combine. If no tasks survive the combined filters, the visual shows an empty-state message.');
-        addListItem(selectionList, 'Driving Path Navigation', 'When multiple best driving paths exist in Longest Path mode, use the path chip arrows to move between them.');
+        addListItem(selectionList, 'Longest Path Selector', 'Use the previous and next buttons to review up to 10 ranked maximum-duration routes. Path 1 is the highest-ranked route. Medium and wide layouts show the elapsed calendar span, while wide layouts also show the activity count. Hover over the selector label to review its Early Start, Early Finish, activity and relationship counts, and calculation criteria.');
 
         const tipPara = selectionSection.append('p')
             .style('font-size', '13px')
@@ -19639,7 +19756,7 @@ export class Visual implements IVisual {
         // ========== Export & Copy ==========
         const exportSection = createSection('📋', 'Export & Copy');
         const exportList = createList(exportSection);
-        addListItem(exportList, 'Copy To Excel Button', 'Copies the visible rows to the clipboard as plain text and HTML so you can paste into Excel or another document. This button stays outside the Controls and actions menu.');
+        addListItem(exportList, 'Copy To Excel Button', 'Copies the visible rows to the clipboard as plain text and HTML so you can paste into Excel or another document. Activity Is Longest Path is included as Yes, No, or Unavailable. This button stays outside the Controls and actions menu.');
         addListItem(exportList, 'HTML Button', 'Copies an HTML version of the current visual to the clipboard, including the chart image and visible table.');
         addListItem(exportList, 'PDF Button', 'Exports the current rendered view as a PDF.');
         addListItem(exportList, 'Controls Menu', 'If HTML export, PDF export, or help do not fit inline, open the Controls and actions menu and use the Actions section.');
@@ -19650,18 +19767,6 @@ export class Visual implements IVisual {
         exportNote.append('strong').text('Included data: ');
         exportNote.append('span').text('Exports mirror the visible table columns and row structure. When WBS grouping is off, WBS levels are appended as columns so the hierarchy remains available.');
 
-        // ========== Warnings ==========
-        const warningSection = createSection('🛡️', 'Warnings & Data Quality');
-        addParagraph(warningSection, 'The visual can show warnings when some analysis results should be treated carefully.');
-        const warningList = createList(warningSection);
-        addListItem(warningList, 'Relationship Free Float Source', 'The visual distinguishes between using P6 Relationship Free Float and approximating driving logic from dates, relationship type, and lag.');
-        addListItem(warningList, 'Blank Relationship Float', 'If Relationship Free Float is missing or blank, Longest Path can still run using the approximate fallback, but the results should be reviewed.');
-        addListItem(warningList, 'Missing Predecessor Activities', 'Predecessor IDs that are not present as task rows are tolerated so the visual does not break longest-path logic. They are represented as missing predecessor references in data quality feedback.');
-        addListItem(warningList, 'Circular Logic', 'Detected circular dependencies are reported globally. Longest Path is blocked only when the active driving scope contains a circular dependency.');
-        addListItem(warningList, 'Duplicate Activity Rows', 'Duplicate activity rows are tolerated; Longest Path uses one canonical row per Task ID while retaining inconsistent schedule fields as diagnostics.');
-        addListItem(warningList, 'Row Limit', 'If the dataset appears to hit the 30,000-row custom visual limit, relationship or WBS results may be incomplete.');
-        addListItem(warningList, 'Invalid Plotted Dates', 'Rows with invalid visual start/finish ranges are excluded from plotting and reported through data-quality feedback.');
-
         // ========== Tooltips ==========
         const tooltipSection = createSection('💬', 'Tooltips');
         addParagraph(tooltipSection, 'Hover over a task bar, milestone, or other plotted item to see more detail.');
@@ -19669,6 +19774,8 @@ export class Visual implements IVisual {
         addSimpleListItem(tooltipList, 'Task ID and task name');
         addSimpleListItem(tooltipList, 'Start, finish, and duration information');
         addSimpleListItem(tooltipList, 'Total Float, Task Free Float, and criticality status when available');
+        addSimpleListItem(tooltipList, 'Activity Is Longest Path on activity tooltips');
+        addSimpleListItem(tooltipList, 'Relationship Free Float, Relationship Is Driving, and Relationship Has Negative Float on connector tooltips');
         addSimpleListItem(tooltipList, 'Look-ahead window membership when the task is inside the active window');
         addSimpleListItem(tooltipList, 'Relationship/path mode context for the current analysis');
         addSimpleListItem(tooltipList, 'Additional project fields included in the bound data');
@@ -19801,7 +19908,8 @@ export class Visual implements IVisual {
 
     private getVisibleExportColumns(tasks: Task[], includeWbsLevelColumns: boolean): VisibleExportColumn[] {
         const columns: VisibleExportColumn[] = [
-            { kind: "taskName", header: this.getExportTaskNameHeader() }
+            { kind: "taskName", header: this.getExportTaskNameHeader() },
+            { kind: "longestPath", header: "Activity Is Longest Path" }
         ];
 
         const visibleLabelColumns = this.getLabelColumnLayout(this.getEffectiveLeftMargin()).items;
@@ -19934,6 +20042,8 @@ export class Visual implements IVisual {
         switch (column.kind) {
             case "taskName":
                 return task.name || "";
+            case "longestPath":
+                return this.getCalculatedStatusText(task.isLongestPath);
             case "label":
                 return this.getTaskVisibleExportColumnText(column.column.id, task, exportDateFormatter);
             case "wbsLevel":
@@ -19945,6 +20055,8 @@ export class Visual implements IVisual {
         switch (column.kind) {
             case "taskName":
                 return this.getWbsDisplayName(group);
+            case "longestPath":
+                return "";
             case "label":
                 return this.getWbsGroupVisibleExportColumnText(column.column.id, group, exportDateFormatter);
             case "wbsLevel":

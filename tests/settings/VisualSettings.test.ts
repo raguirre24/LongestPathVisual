@@ -158,7 +158,7 @@ describe("VisualSettings", () => {
         expect(taskBarGeometrySource).toContain("treatZeroDurationAsMilestone && task.duration === 0");
     });
 
-    it("blocks cyclic Longest Path scopes without using cycles as a global CPM kill switch", () => {
+    it("treats full-network cycles as advisories and blocks only affected driving scopes", () => {
         const visualSource = readFileSync("src/visual.ts", "utf8");
         const dataProcessorSource = readFileSync("src/data/DataProcessor.ts", "utf8");
         const slice = (source: string, startMarker: string, endMarker: string) => {
@@ -174,12 +174,34 @@ describe("VisualSettings", () => {
         const toTargetSource = slice(visualSource, "private buildBestDrivingChainsToTarget(", "private buildBestDrivingChainsFromSource(");
         const fromSourceSource = slice(visualSource, "private buildBestDrivingChainsFromSource(", "private sortAndStoreDrivingChains(");
         const wholePathSource = slice(visualSource, "private identifyLongestPathFromP6()", "private identifyDrivingRelationships()");
+        const authoritativeSource = slice(visualSource, "private calculateAuthoritativeLongestPathState()", "private ensureAuthoritativeLongestPathState()");
         const selectedTargetSource = slice(visualSource, "private calculateCPMToTask(", "private calculateCPMFromTask(");
         const selectedSourceSource = slice(visualSource, "private calculateCPMFromTask(", "private identifyPredecessorTasksFloatBased(");
+        const modeStatusSource = slice(
+            visualSource,
+            "private getDrivingLogicStatusMessage()",
+            "private getModeWarningMessage()"
+        );
+        const modeWarningSource = slice(
+            visualSource,
+            "private getModeWarningMessage()",
+            "private ensureTaskSortCache("
+        );
 
         expect(cpmSafeSource).not.toContain("circularPaths.length === 0");
         expect(dataProcessorSource).toContain("Circular dependencies detected");
-        expect(dataProcessorSource).toContain("affected Longest Path scopes will be blocked");
+        expect(dataProcessorSource).toContain('longestPathAdvisories.push(');
+        expect(dataProcessorSource).toContain('circular relationship path(s) detected; affected driving scopes remain blocked');
+        expect(dataProcessorSource).not.toContain('longestPathBlockers.push(`circular relationship paths');
+        expect(dataProcessorSource).toContain("const longestPathSafe = longestPathBlockers.length === 0;");
+        expect(wholePathSource).toContain("if (!this.isCpmSafe())");
+        expect(authoritativeSource).toContain("this.getDrivingTopologicalOrder(membership.taskIds) === null");
+        expect(authoritativeSource).toContain("this.setScopedCycleWarningMessage();");
+        expect(modeStatusSource).toContain("return null;");
+        expect(modeWarningSource).toContain("return null;");
+        expect(modeStatusSource).not.toContain("longestPathAdvisories");
+        expect(modeWarningSource).not.toContain("longestPathBlockers");
+        expect(modeWarningSource).not.toContain("scopedCycleWarningMessage");
         expect(visualSource).toContain("type DrivingChainBuildResult = {");
         expect(visualSource).toContain("blockedByCycle: boolean;");
         expect(pathBuilderSource).toContain("return this.createDrivingChainBuildResult([], true);");
@@ -191,6 +213,94 @@ describe("VisualSettings", () => {
         expect(selectedTargetSource).toContain("return;");
         expect(selectedSourceSource).toContain("if (chains.blockedByCycle)");
         expect(selectedSourceSource).toContain("return;");
+    });
+
+    it("presents up to 10 deterministically ranked Longest Paths with navigation", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilitiesSource = readFileSync("capabilities.json", "utf8");
+        const architectureSource = readFileSync("VISUAL_ARCHITECTURE.md", "utf8");
+        const resourcesSource = readFileSync("stringResources/en-US/resources.resjson", "utf8");
+        const slice = (source: string, startMarker: string, endMarker: string) => {
+            const start = source.indexOf(startMarker);
+            const end = source.indexOf(endMarker, start);
+            expect(start).toBeGreaterThan(-1);
+            expect(end).toBeGreaterThan(start);
+            return source.slice(start, end);
+        };
+
+        const globalPathSource = slice(
+            visualSource,
+            "private identifyLongestPathFromP6()",
+            "private identifyDrivingRelationships()"
+        );
+        const authoritativeSource = slice(
+            visualSource,
+            "private calculateAuthoritativeLongestPathState()",
+            "private ensureAuthoritativeLongestPathState()"
+        );
+        const backwardTraceSource = slice(
+            visualSource,
+            "private calculateCPMToTask(",
+            "private calculateCPMFromTask("
+        );
+        const forwardTraceSource = slice(
+            visualSource,
+            "private calculateCPMFromTask(",
+            "private identifyPredecessorTasksFloatBased("
+        );
+        const pathInfoSource = slice(
+            visualSource,
+            "private updatePathInfoLabel(",
+            "private identifyNearCriticalTasks()"
+        );
+        const pathSettingsSource = slice(
+            settingsSource,
+            "class PathSelectionCard extends Card",
+            "class WBSGroupingCard extends Card"
+        );
+
+        expect(globalPathSource).toContain("const selectedChain = this.getSelectedDrivingChain();");
+        expect(globalPathSource).toContain("this.applyDrivingPresentation(selectedChain.tasks, selectedChain.relationships);");
+        expect(authoritativeSource).toContain("task.isLongestPath = membership.taskIds.has(task.internalId);");
+        expect(backwardTraceSource).toContain('collectDrivingTraceMembership(');
+        expect(backwardTraceSource).toContain("this.applyDrivingPresentation(selectedChain.tasks, selectedChain.relationships);");
+        expect(forwardTraceSource).toContain('collectDrivingTraceMembership(');
+        expect(forwardTraceSource).toContain("this.applyDrivingPresentation(selectedChain.tasks, selectedChain.relationships);");
+        expect(visualSource).toContain("DRIVING_PATH_DURATION_TOLERANCE_DAYS");
+        expect(visualSource).toContain("private static readonly DRIVING_PATH_SELECTOR_MAX_PATHS: number = 10;");
+        expect(visualSource).toContain("selectRankedDrivingPaths(");
+        expect(visualSource).toContain("private pendingSelectedPathIndex: number | null = null;");
+        expect(visualSource).toContain("resolveDrivingPathSelectionIndex(");
+        expect(visualSource).toContain("this.pendingSelectedPathIndex = this.selectedPathIndex;");
+        expect(visualSource).toContain("private reconcilePendingPathSelection()");
+        expect((visualSource.match(/this\.reconcilePendingPathSelection\(\);/g) ?? []).length).toBeGreaterThanOrEqual(3);
+        expect(pathInfoSource).toContain("const visibleLabel = getPathSelectorVisibleLabel(layoutMode");
+        expect(pathInfoSource).toContain("Calendar span ${span.spoken}");
+        expect(pathInfoSource).toContain("Early Start ${startText}. Early Finish ${finishText}.");
+        expect(pathInfoSource).toContain(".text(visibleLabel)");
+        expect(pathInfoSource).toContain('"Longest Path criteria: latest Finish Date; lowest signed finite incoming "');
+        expect(pathInfoSource).not.toContain("Primary Longest Path");
+        expect(pathInfoSource).not.toContain("additional exact-duration driving");
+        expect(pathInfoSource).toContain('appendNavigationButton("previous"');
+        expect(pathInfoSource).toContain('appendNavigationButton("next"');
+        expect(pathInfoSource).toContain("private navigateDrivingPath(offset: -1 | 1)");
+        expect(pathInfoSource).toContain("private persistPathSelection()");
+        expect(pathInfoSource).not.toContain("showPathNavigationFeedback");
+        expect(pathInfoSource).toContain('.append<HTMLButtonElement>("button")');
+        expect(pathInfoSource).toContain('.attr("role", "group")');
+        expect(pathInfoSource).not.toContain('.attr("role", "status")');
+        expect(pathSettingsSource).not.toContain("this.enableMultiPathToggle,");
+        expect(pathSettingsSource).not.toContain("enableMultiPathToggle");
+        expect(capabilitiesSource).not.toContain('"enableMultiPathToggle"');
+        expect(pathSettingsSource).not.toContain("this.selectedPathIndex,");
+        expect(pathSettingsSource).toContain("maxValue: { type: powerbi.visuals.ValidatorType.Max, value: 10 }");
+        expect(capabilitiesSource).toContain('"displayName": "Selected Path"');
+        expect(architectureSource).toContain("the presented set is capped at 10");
+        expect(visualSource).toContain('"tooltip.status.primaryLongestPath",');
+        expect(visualSource).toContain('"On Longest Path"');
+        expect(visualSource).not.toContain('"On Primary Longest Path"');
+        expect(resourcesSource).toContain('"tooltip.status.primaryLongestPath": "On Longest Path"');
     });
 
     it("keeps timeline label colour under General header and legend colours", () => {
@@ -243,14 +353,14 @@ describe("VisualSettings", () => {
         };
 
         const showCriticalSource = slice(headerSource, "private createOrUpdateToggleButton()", "private createOrUpdateBaselineToggleButton()");
-        expect(showCriticalSource).toContain("const activeColor = this.getHeaderDangerColor();");
+        expect(showCriticalSource).toContain("const activeColor = this.getHeaderActiveIconColor(this.getHeaderDangerColor());");
         expect(showCriticalSource).toContain("const buttonFill = this.getHeaderControlBackground();");
         expect(showCriticalSource).not.toContain("HEADER_DOCK_TOKENS.dangerBg");
 
         const baselineSource = slice(headerSource, "private createOrUpdateBaselineToggleButton()", "private createOrUpdatePreviousUpdateToggleButton()");
         const previousUpdateSource = slice(headerSource, "private createOrUpdatePreviousUpdateToggleButton()", "private getExtendedLayoutMode");
-        expect(baselineSource).toContain("const inactiveColor = this.getHeaderControlTextColor();");
-        expect(previousUpdateSource).toContain("const inactiveColor = this.getHeaderControlTextColor();");
+        expect(baselineSource).toContain("const inactiveColor = this.getHeaderInactiveIconColor();");
+        expect(previousUpdateSource).toContain("const inactiveColor = this.getHeaderInactiveIconColor();");
         expect(baselineSource).not.toContain("UI_TOKENS.color.neutral.grey60");
         expect(previousUpdateSource).not.toContain("UI_TOKENS.color.neutral.grey60");
 
@@ -268,9 +378,13 @@ describe("VisualSettings", () => {
 
         const columnsSource = slice(headerSource, "private createColumnDisplayToggleButton()", "private createWbsEnableToggleButton()");
         const wbsEnableSource = slice(headerSource, "private createWbsEnableToggleButton()", "private createCopyButton()");
+        const connectorSource = slice(headerSource, "private createConnectorLinesToggleButton()", "private createWbsExpandCycleToggleButton()");
+        const overflowActiveColourSource = slice(headerSource, "private getHeaderMenuItemActiveColor", "private renderActionOverflowMenu");
         const exportSource = slice(headerSource, "private createExportButton()", "private createExportHtmlButton()");
-        expect(columnsSource).toContain("const activeTextColor = this.getHeaderPrimaryColor();");
-        expect(wbsEnableSource).toContain("const activeTextColor = this.getHeaderPrimaryColor();");
+        expect(connectorSource).toContain("const activeTextColor = this.getHeaderActiveIconColor(this.getHeaderSuccessColor());");
+        expect(columnsSource).toContain("const activeTextColor = this.getHeaderActiveIconColor(this.getHeaderSuccessColor());");
+        expect(wbsEnableSource).toContain("const activeTextColor = this.getHeaderActiveIconColor(this.getHeaderSuccessColor());");
+        expect(overflowActiveColourSource).toContain("const enabledColor = this.getHeaderActiveIconColor(this.getHeaderSuccessColor());");
         expect(exportSource).toContain("const buttonFill = this.getHeaderControlBackground();");
         expect(columnsSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
         expect(wbsEnableSource).not.toContain("HEADER_DOCK_TOKENS.primaryBg");
@@ -775,8 +889,11 @@ describe("VisualSettings", () => {
 
         expect(visualSource).toContain("Controls and actions menu");
         expect(visualSource).toContain("Look-Ahead Review");
-        expect(visualSource).toContain("Relationship Free Float Source");
-        expect(visualSource).toContain("Missing Predecessor Activities");
+        expect(visualSource).toContain("Longest Path Selector");
+        expect(visualSource).toContain("Path 1 is the highest-ranked route.");
+        expect(visualSource).toContain("Medium and wide layouts show the elapsed calendar span");
+        expect(visualSource).not.toContain("Warnings & Data Quality");
+        expect(visualSource).not.toContain("Missing Predecessor Activities");
         expect(visualSource).toContain("Collapse To Level");
         expect(visualSource).toContain("Shift + F10");
     });
@@ -1249,7 +1366,7 @@ describe("VisualSettings", () => {
         expect(svgArrowSource).toContain('.attr("fill-opacity", d => getRelationshipOpacity(d.relationship))');
         expect(visualSource).toContain('.relationship-arrowhead, .connection-dot-start, .connection-dot-end');
         expect(visualSource).toContain('this.arrowLayer.selectAll<SVGPathElement, { relationship: Relationship }>(".relationship-arrowhead")');
-        expect(visualSource).toContain('.style("fill-opacity", d => this.getConnectorOpacity(d.relationship));');
+        expect(visualSource).toContain('.style("fill-opacity", d => getOpacity(d.relationship));');
         expect(connectorGeometrySource).toContain("getCurrentTaskBarGeometry(");
         expect(connectorGeometrySource).toContain("input.treatZeroDurationAsMilestone");
         expect(connectorGeometrySource).toContain('if (mode === "hybridActualEarly")');

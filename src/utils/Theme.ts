@@ -156,7 +156,7 @@ export const HEADER_DOCK_TOKENS = {
     warning: '#F1B55B',
     warningBg: '#5D4320',
     warningText: '#FFE0A6',
-    danger: '#FF8B7A',
+    danger: '#FF5C5C',
     dangerBg: '#5B2C2B',
     shadow: '0 8px 20px rgba(8, 12, 18, 0.28)'
 };
