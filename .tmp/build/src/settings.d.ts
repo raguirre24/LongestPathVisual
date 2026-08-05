@@ -367,6 +367,8 @@ declare class PersistedStateCard extends Card {
     selectedLegendCategories: formattingSettings.TextInput;
     legendCategoryOrder: formattingSettings.TextInput;
     wbsExpandLevel: formattingSettings.NumUpDown;
+    wbsDisplayMode: formattingSettings.TextInput;
+    wbsOnlyLevel: formattingSettings.NumUpDown;
     wbsExpandedState: formattingSettings.TextInput;
     wbsManualToggledGroups: formattingSettings.TextInput;
     zoomRangeStart: formattingSettings.NumUpDown;

@@ -1490,13 +1490,15 @@ class PersistedStateCard extends Card {
     selectedLegendCategories = new TextInput({ name: "selectedLegendCategories", displayName: "", value: "", placeholder: "", visible: false });
     legendCategoryOrder = new TextInput({ name: "legendCategoryOrder", displayName: "", value: "", placeholder: "", visible: false });
     wbsExpandLevel = new NumUpDown({ name: "wbsExpandLevel", displayName: "", value: -2, visible: false });
+    wbsDisplayMode = new TextInput({ name: "wbsDisplayMode", displayName: "", value: "through", placeholder: "", visible: false });
+    wbsOnlyLevel = new NumUpDown({ name: "wbsOnlyLevel", displayName: "", value: 0, visible: false });
     wbsExpandedState = new TextInput({ name: "wbsExpandedState", displayName: "", value: "", placeholder: "", visible: false });
     wbsManualToggledGroups = new TextInput({ name: "wbsManualToggledGroups", displayName: "", value: "", placeholder: "", visible: false });
     zoomRangeStart = new NumUpDown({ name: "zoomRangeStart", displayName: "", value: 0, visible: false });
     zoomRangeEnd = new NumUpDown({ name: "zoomRangeEnd", displayName: "", value: 1, visible: false });
     lookAheadWindowDays = new NumUpDown({ name: "lookAheadWindowDays", displayName: "", value: -1, visible: false });
 
-    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories, this.legendCategoryOrder, this.wbsExpandLevel, this.wbsExpandedState, this.wbsManualToggledGroups, this.zoomRangeStart, this.zoomRangeEnd, this.lookAheadWindowDays];
+    slices: Slice[] = [this.selectedTaskId, this.floatThreshold, this.traceMode, this.selectedLegendCategories, this.legendCategoryOrder, this.wbsExpandLevel, this.wbsDisplayMode, this.wbsOnlyLevel, this.wbsExpandedState, this.wbsManualToggledGroups, this.zoomRangeStart, this.zoomRangeEnd, this.lookAheadWindowDays];
 }
 
 // ============================================================================

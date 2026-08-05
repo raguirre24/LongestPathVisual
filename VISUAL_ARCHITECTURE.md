@@ -121,7 +121,21 @@ existing task date sort, then child WBS groups recursively. Export and copy use
 the same visible order, so tasks with blank lower levels appear directly below
 their last populated WBS parent instead of under the next child group.
 
-When WBS grouping is active, `visual.ts` adds an internal bottom-level
+The WBS header context menu also supports a persisted `Show only Level N`
+display projection. The canonical hierarchy and task membership remain
+unchanged: only groups at the selected level receive display rows. Expanding a
+selected-level group flattens all of its filtered descendant activities beneath
+that row using the existing task-date ordering, without rendering deeper WBS
+headers. Duplicate visible group names gain their ancestor breadcrumb only when
+needed for disambiguation. Screen rows, virtual scrolling, accessibility labels,
+and visible exports share the same projection and view-relative indentation.
+
+Activities whose WBS path ends before the selected level, including activities
+with no WBS path, remain visible through a synthetic `No Level N WBS` group at
+the bottom. This fallback uses the selected level's styling and the same
+filtered summary calculations as other synthetic WBS groups.
+
+In the standard show-through view, `visual.ts` adds an internal bottom-level
 `Unassigned WBS` group for currently filtered tasks that do not have a WBS
 path. This group is visual-only, participates in expand/collapse, visible
 exports, and WBS summary display, and is removed when no unassigned tasks are
@@ -317,11 +331,14 @@ visible in both.
 Text sharpness is centralised in `RenderingSharpness`. SVG text and tspans use
 complete cross-platform font stacks, `optimizeLegibility`, platform font
 smoothing, and integer logical coordinates. Canvas surfaces use DPR-aware
-backing buffers and snap text to the physical-pixel grid. Significant viewport
-or Focus Mode changes wait for stable dimensions, preserve both scroll axes,
-perform one full layout pass, and reveal the wrapper on the following frame.
-Keep screen, mini-chart, visible export, full export, and PDF raster paths
-aligned when changing these rules.
+backing buffers and snap text to the physical-pixel grid. The vertically
+scrolling SVG and canvas body share a DPR- and host-scale-aware paint-origin
+compensation, including containing-frame transforms where the host exposes
+same-origin geometry. Native `scrollTop` remains unchanged for smooth scrolling,
+virtualisation, and restoration. Significant viewport or Focus Mode changes wait
+for stable dimensions, preserve both scroll axes, perform one full layout pass,
+and reveal the wrapper on the following frame. Keep screen, mini-chart, visible
+export, full export, and PDF raster paths aligned when changing these rules.
 
 ## Utility Modules
 
@@ -333,8 +350,9 @@ aligned when changing these rules.
 | `src/utils/VisualState.ts` | Small state/export helpers: legend serialisation, export text sanitising, legacy task type export labels, float text. |
 | `src/utils/HeaderLayout.ts` | Header control placement and overflow decisions. |
 | `src/utils/ColumnLayout.ts` | Left label column packing and auto-fit behaviour. |
+| `src/utils/WbsDisplayProjection.ts` | Shared show-through/show-only WBS row projection, display indentation, duplicate-name disambiguation, and pending display-selection reconciliation. |
 | `src/utils/DataSignature.ts` | Data signature for update detection. |
-| `src/utils/RenderingSharpness.ts` | Font-stack normalisation, SVG/canvas text coordinate snapping, HiDPI canvas sizing, canvas text hints, and viewport stability checks. |
+| `src/utils/RenderingSharpness.ts` | Font-stack normalisation, SVG/canvas text coordinate snapping, scroll-phase alignment, HiDPI canvas sizing, canvas text hints, and viewport stability checks. |
 | `src/utils/Theme.ts` | Shared theme constants. |
 
 ## Export Behaviour
@@ -393,8 +411,9 @@ issues. Do not bypass the mode-specific gate.
 | `tests/utils/VisualState.test.ts` | Legend serialisation, export sanitising, task type export labels, float text. |
 | `tests/utils/HeaderLayout.test.ts` | Header responsiveness, overflow menu behaviour, trace/search layout. |
 | `tests/utils/ColumnLayout.test.ts` | Label column packing and auto-fit. |
+| `tests/utils/WbsDisplayProjection.test.ts` | Exact-level WBS projection, flattened descendants, filtering, stable ordering, duplicate labels, fallback membership, and stale-host selection reconciliation. |
 | `tests/utils/DataSignature.test.ts` | Data signature changes for bindings and row values. |
-| `tests/utils/RenderingSharpness.test.ts` | Font-stack resolution, SVG and physical-pixel snapping, 100–200% DPR sizing, canvas text hints, and resize stability thresholds. |
+| `tests/utils/RenderingSharpness.test.ts` | Font-stack resolution, SVG and physical-pixel snapping, scroll-phase compensation, 100–200% DPR sizing, canvas text hints, and resize stability thresholds. |
 | `tests/settings/VisualSettings.test.ts` | Settings defaults and alignment with capability objects/help text. |
 | `tests/integration/XerPredecessorCsv.test.ts` | CSV-derived open task/milestone Longest Path expectations from relationship free float. |
 | `tests/stress/VisualStress.test.ts` | Large generated data, driving-chain scoring, path truncation, copy-to-Excel task type output. |

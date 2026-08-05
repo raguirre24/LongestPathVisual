@@ -99,6 +99,7 @@ export interface WBSGroup {
     summaryPreviousUpdateMilestoneMarkers?: WbsSummaryMilestoneMarker[];
     summaryTotalFloat?: number | null;
     isUnassignedWbsGroup?: boolean;
+    isWbsLevelFallbackGroup?: boolean;
 }
 
 export interface Relationship {

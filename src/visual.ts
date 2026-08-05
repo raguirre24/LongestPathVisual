@@ -84,6 +84,17 @@ import {
     sortWbsSummaryMilestoneMarkers
 } from "./utils/WbsSummaryMetrics";
 import {
+    buildWbsDisplayProjection,
+    normalizeWbsDisplaySelection,
+    reconcileWbsDisplaySelection,
+    wbsDisplaySelectionsEqual
+} from "./utils/WbsDisplayProjection";
+import type {
+    WbsDisplayMode,
+    WbsDisplayProjection,
+    WbsDisplaySelection
+} from "./utils/WbsDisplayProjection";
+import {
     getCriticalStatusMarkerDescriptor,
     getSemanticTaskFillColorForStyle,
     normalizeCriticalBarStyle,
@@ -117,6 +128,7 @@ import {
     DEFAULT_SYSTEM_FONT_STACK,
     getEffectiveCanvasPixelRatio,
     getHiDpiCanvasSize,
+    getPhysicalPixelAlignmentOffset,
     isSignificantViewportResize,
     resolveFontFamilyStack,
     snapCanvasTextCoordinate,
@@ -168,6 +180,13 @@ type MilestoneStatusMarkerBatch = {
     x: number;
     y: number;
     size: number;
+};
+
+type HostViewportTransform = {
+    scaleX: number;
+    scaleY: number;
+    offsetLeft: number;
+    offsetTop: number;
 };
 
 type BeforeDataDateOverlay = {
@@ -250,11 +269,15 @@ type ProgressLineAnalysisSummary = {
 };
 
 type WbsHeaderContextMenuAction = {
-    id: "expand-all" | `show-through-level-${number}` | "collapse-all";
+    id: "expand-all" | `show-through-level-${number}` | `show-only-level-${number}` | "collapse-all";
     label: string;
+    displayLabel: string;
     description: string;
+    displayMode: WbsDisplayMode;
+    layout: "full" | "through" | "only";
     targetLevel: number | null;
     announcement: string;
+    isCurrent: boolean;
 };
 
 type VisibleExportColumn =
@@ -335,6 +358,10 @@ export class Visual implements IVisual {
     private canvasScaleY: number = 1;
     private canvasContentValid: boolean = false;
     private lastDisplayPixelRatio: number = 1;
+    private bodyPixelAlignmentOffsetY: number = 0;
+    private bodyLayoutLeft: number = 0;
+    private bodyPixelAlignmentReady: boolean = false;
+    private readonly BODY_PIXEL_ALIGNMENT_EPSILON: number = 0.0001;
     private useCanvasRendering: boolean = false;
     private CANVAS_THRESHOLD: number = 250;
     private readonly MODE_TRANSITION_DURATION: number = 150;
@@ -396,6 +423,7 @@ export class Visual implements IVisual {
     private readonly TIMELINE_LEFT_GUTTER_PX = 12;
     private readonly UNASSIGNED_WBS_GROUP_ID = "__UNASSIGNED_WBS__";
     private readonly UNASSIGNED_WBS_GROUP_NAME = "Unassigned WBS";
+    private readonly WBS_ONLY_FALLBACK_GROUP_ID_PREFIX = "__WBS_ONLY_LEVEL_FALLBACK__";
     private legendFooterHeight = 52;
     private dateLabelOffset = 8;
     private floatTolerance = 0.001;
@@ -505,8 +533,16 @@ export class Visual implements IVisual {
     private wbsManualExpansionOverride: boolean = false;
     private wbsManuallyToggledGroups: Set<string> = new Set();
     private wbsEnableOverride: boolean | null = null;
+    private wbsDisplaySelection: WbsDisplaySelection = { mode: "through", level: null };
+    private pendingWbsDisplaySelection: WbsDisplaySelection | null = null;
+    private currentWbsDisplayProjection: WbsDisplayProjection | null = null;
+    private wbsDisplayTaskIndentLevels: Map<string, number> = new Map();
+    private wbsDisplayGroupIndentLevels: Map<string, number> = new Map();
+    private wbsDisplayGroupNames: Map<string, string> = new Map();
     private wbsGroupLayer: Selection<SVGGElement, unknown, null, undefined>;
     private wbsHeaderContextMenu: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
+    private wbsHeaderContextMenuReturnFocusTarget: (Element & { focus: () => void }) | null = null;
+    private pendingWbsGroupFocusId: string | null = null;
     private lastExpandCollapseAllState: boolean | null = null;
 
     private landingPageContainer: Selection<HTMLDivElement, unknown, null, undefined> | null = null;
@@ -889,6 +925,32 @@ export class Visual implements IVisual {
         const node = textElement.node();
         if (!node || maxWidth <= 0) {
             return "…";
+            this.setupSVGRenderingHints();
+            if (!this.isDestroyed) {
+                if (this.postRenderViewportCheckTimeout) {
+                    clearTimeout(this.postRenderViewportCheckTimeout);
+                }
+                this.postRenderViewportCheckTimeout = setTimeout(() => {
+                    this.postRenderViewportCheckTimeout = null;
+                    if (this.isDestroyed || this.isViewportTransitioning || Date.now() < this.viewportResizeCooldownUntil) {
+                        this.debugLog(`[Safeguard] Skipped — in resize cooldown`);
+                        return;
+                    }
+                    if (this.target && this.lastViewport) {
+                        const currentWidth = this.target.clientWidth;
+                        const currentHeight = this.target.clientHeight;
+
+                        if (Math.abs(currentWidth - this.lastViewport.width) > 5 ||
+                            Math.abs(currentHeight - this.lastViewport.height) > 5) {
+
+                            this.debugLog(`[Safeguard] Size mismatch detected after delay: Rendered=[${this.lastViewport.width}x${this.lastViewport.height}], Actual=[${currentWidth}x${currentHeight}]. Forcing update.`);
+                            this.requestUpdate(false);
+                        }
+                    }
+                }, 250);
+            }
+
+
         }
 
         textElement.text(normalized);
@@ -1045,17 +1107,147 @@ export class Visual implements IVisual {
         }
     }
 
-    private getLocalCssScale(): number {
+    private getTargetCssScale(): { x: number; y: number } {
         const targetNode = this.target;
         if (!targetNode) {
-            return 1;
+            return { x: 1, y: 1 };
         }
 
         const rect = targetNode.getBoundingClientRect();
         const widthScale = targetNode.clientWidth > 0 ? rect.width / targetNode.clientWidth : 1;
         const heightScale = targetNode.clientHeight > 0 ? rect.height / targetNode.clientHeight : 1;
-        const effectiveScale = Math.max(widthScale, heightScale);
-        return Number.isFinite(effectiveScale) && effectiveScale > 0 ? effectiveScale : 1;
+
+        return {
+            x: Number.isFinite(widthScale) && widthScale > 0 ? widthScale : 1,
+            y: Number.isFinite(heightScale) && heightScale > 0 ? heightScale : 1
+        };
+    }
+
+    /**
+     * Maps this browsing context onto the outermost same-origin viewport.
+     * Power BI can scale the report canvas around the visual frame in normal
+     * page views. Cross-origin frame boundaries deliberately retain the safe
+     * identity fallback because their geometry is not observable here.
+     */
+    private getHostViewportTransform(): HostViewportTransform {
+        let scaleX = 1;
+        let scaleY = 1;
+        let offsetLeft = 0;
+        let offsetTop = 0;
+        let currentWindow: Window = window;
+
+        for (let depth = 0; depth < 8; depth++) {
+            try {
+                const frameElement = currentWindow.frameElement as HTMLElement | null;
+                if (!frameElement) {
+                    break;
+                }
+
+                const frameRect = frameElement.getBoundingClientRect();
+                const frameScaleX = frameElement.offsetWidth > 0
+                    ? frameRect.width / frameElement.offsetWidth
+                    : 1;
+                const frameScaleY = frameElement.offsetHeight > 0
+                    ? frameRect.height / frameElement.offsetHeight
+                    : 1;
+                const safeFrameScaleX = Number.isFinite(frameScaleX) && frameScaleX > 0 ? frameScaleX : 1;
+                const safeFrameScaleY = Number.isFinite(frameScaleY) && frameScaleY > 0 ? frameScaleY : 1;
+                const frameContentLeft = frameRect.left + (frameElement.clientLeft * safeFrameScaleX);
+                const frameContentTop = frameRect.top + (frameElement.clientTop * safeFrameScaleY);
+
+                offsetLeft = frameContentLeft + (offsetLeft * safeFrameScaleX);
+                offsetTop = frameContentTop + (offsetTop * safeFrameScaleY);
+                scaleX *= safeFrameScaleX;
+                scaleY *= safeFrameScaleY;
+
+                if (currentWindow.parent === currentWindow) {
+                    break;
+                }
+                currentWindow = currentWindow.parent;
+            } catch {
+                break;
+            }
+        }
+
+        return { scaleX, scaleY, offsetLeft, offsetTop };
+    }
+
+    private getLocalCssScale(): number {
+        const targetScale = this.getTargetCssScale();
+        const hostTransform = this.getHostViewportTransform();
+        return Math.max(
+            targetScale.x * hostTransform.scaleX,
+            targetScale.y * hostTransform.scaleY
+        );
+    }
+
+    private getAlignedBodyTop(): number {
+        return this.snapRectCoord(this.margin.top) + this.bodyPixelAlignmentOffsetY;
+    }
+
+    private setBodyLayoutOrigin(leftMargin: number): void {
+        const nextLeft = this.snapRectCoord(leftMargin);
+        const originChanged = !this.bodyPixelAlignmentReady || nextLeft !== this.bodyLayoutLeft;
+
+        this.bodyLayoutLeft = nextLeft;
+        this.bodyPixelAlignmentReady = true;
+        this.syncBodyPixelAlignment(originChanged);
+    }
+
+    private resetBodyPixelAlignment(): void {
+        this.bodyPixelAlignmentOffsetY = 0;
+        this.bodyLayoutLeft = 0;
+        this.bodyPixelAlignmentReady = false;
+    }
+
+    /**
+     * Keeps the scrolling SVG and canvas body on the same physical-pixel phase.
+     * The native scroll offset remains untouched; only the paint origin receives
+     * a subpixel correction after host scaling and DPR are taken into account.
+     */
+    private syncBodyPixelAlignment(force: boolean = false): void {
+        if (this.isDestroyed || !this.bodyPixelAlignmentReady) {
+            return;
+        }
+
+        const svgNode = this.mainSvg?.node();
+        if (!svgNode) {
+            return;
+        }
+
+        const devicePixelRatio = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+            ? window.devicePixelRatio
+            : 1;
+        const targetScale = this.getTargetCssScale();
+        const hostTransform = this.getHostViewportTransform();
+        const effectiveVerticalScale = getEffectiveCanvasPixelRatio(
+            devicePixelRatio,
+            targetScale.y * hostTransform.scaleY
+        );
+        const baseTop = this.snapRectCoord(this.margin.top);
+        const svgViewportTop = hostTransform.offsetTop
+            + (svgNode.getBoundingClientRect().top * hostTransform.scaleY);
+        const physicalOrigin = (svgViewportTop * devicePixelRatio)
+            + (baseTop * effectiveVerticalScale);
+        const nextOffset = getPhysicalPixelAlignmentOffset(physicalOrigin, effectiveVerticalScale);
+
+        if (
+            !force
+            && Math.abs(nextOffset - this.bodyPixelAlignmentOffsetY) <= this.BODY_PIXEL_ALIGNMENT_EPSILON
+        ) {
+            return;
+        }
+
+        this.bodyPixelAlignmentOffsetY = nextOffset;
+        const alignedTop = this.getAlignedBodyTop();
+        this.mainGroup?.attr(
+            "transform",
+            `translate(${this.bodyLayoutLeft}, ${alignedTop})`
+        );
+
+        if (this.canvasElement) {
+            this.canvasElement.style.top = `${alignedTop}px`;
+        }
     }
 
     private getCanvasPixelRatio(): number {
@@ -1132,6 +1324,8 @@ export class Visual implements IVisual {
         if (this.isDestroyed) {
             return;
         }
+
+        this.syncBodyPixelAlignment(true);
 
         const nextRatio = this.getCanvasPixelRatio();
         if (Math.abs(nextRatio - this.lastDisplayPixelRatio) <= 0.001) {
@@ -2238,6 +2432,81 @@ export class Visual implements IVisual {
         this.wbsManualExpansionOverride = false;
         this.wbsExpandToLevel = undefined;
         this.wbsToggleScrollAnchor = null;
+        this.currentWbsDisplayProjection = null;
+        this.wbsDisplayTaskIndentLevels.clear();
+        this.wbsDisplayGroupIndentLevels.clear();
+        this.wbsDisplayGroupNames.clear();
+    }
+
+    private getConfiguredWbsDisplaySelection(): WbsDisplaySelection {
+        return normalizeWbsDisplaySelection(
+            this.settings?.persistedState?.wbsDisplayMode?.value,
+            this.settings?.persistedState?.wbsOnlyLevel?.value
+        );
+    }
+
+    private reconcilePendingWbsDisplaySelection(): void {
+        const reconciled = reconcileWbsDisplaySelection(
+            this.getConfiguredWbsDisplaySelection(),
+            this.pendingWbsDisplaySelection
+        );
+        this.wbsDisplaySelection = reconciled.selection;
+        this.pendingWbsDisplaySelection = reconciled.pending;
+
+        if (this.pendingWbsDisplaySelection) {
+            if (this.settings?.persistedState?.wbsDisplayMode) {
+                this.settings.persistedState.wbsDisplayMode.value = this.pendingWbsDisplaySelection.mode;
+            }
+            if (this.settings?.persistedState?.wbsOnlyLevel) {
+                this.settings.persistedState.wbsOnlyLevel.value = this.pendingWbsDisplaySelection.level ?? 0;
+            }
+        }
+    }
+
+    private beginWbsDisplaySelection(selection: WbsDisplaySelection): void {
+        const normalized = normalizeWbsDisplaySelection(selection.mode, selection.level);
+        this.wbsDisplaySelection = normalized;
+        this.pendingWbsDisplaySelection = normalized;
+        this.currentWbsDisplayProjection = null;
+
+        if (this.settings?.persistedState?.wbsDisplayMode) {
+            this.settings.persistedState.wbsDisplayMode.value = normalized.mode;
+        }
+        if (this.settings?.persistedState?.wbsOnlyLevel) {
+            this.settings.persistedState.wbsOnlyLevel.value = normalized.level ?? 0;
+        }
+    }
+
+    private getWbsDisplayPersistenceProperties(): { wbsDisplayMode: WbsDisplayMode; wbsOnlyLevel: number } {
+        return {
+            wbsDisplayMode: this.wbsDisplaySelection.mode,
+            wbsOnlyLevel: this.wbsDisplaySelection.level ?? 0
+        };
+    }
+
+    private ensureValidWbsDisplaySelection(): void {
+        if (
+            this.wbsDisplaySelection.mode !== "only" ||
+            this.wbsDisplaySelection.level === null ||
+            this.wbsAvailableLevels.includes(this.wbsDisplaySelection.level)
+        ) {
+            return;
+        }
+
+        const fallbackSelection: WbsDisplaySelection = { mode: "through", level: null };
+        if (wbsDisplaySelectionsEqual(this.wbsDisplaySelection, fallbackSelection)) {
+            return;
+        }
+
+        this.beginWbsDisplaySelection(fallbackSelection);
+        this.host.persistProperties({
+            merge: [{
+                objectName: "persistedState",
+                properties: this.getWbsDisplayPersistenceProperties(),
+                selector: null
+            }]
+        });
+        this.debugLog("Selected WBS-only level is no longer bound; restored show-through mode.");
     }
 
     private getCurrentBarDateMode(): CurrentBarDateMode {
@@ -3356,6 +3625,8 @@ export class Visual implements IVisual {
 
             this.captureWbsAnchorForGlobalToggle();
 
+            this.beginWbsDisplaySelection({ mode: "through", level: null });
+            this.removeWbsOnlyLevelFallbackGroups();
             this.applyWbsExpandLevel(effectiveNext);
 
             this.taskLabelLayer?.selectAll("*").remove();
@@ -3376,7 +3647,8 @@ export class Visual implements IVisual {
                     properties: {
                         wbsExpandLevel: persistedLevel,
                         wbsExpandedState: JSON.stringify(expandedStatePayload),
-                        wbsManualToggledGroups: JSON.stringify(manualGroupsPayload)
+                        wbsManualToggledGroups: JSON.stringify(manualGroupsPayload),
+                        ...this.getWbsDisplayPersistenceProperties()
                     },
                     selector: null
                 }]
@@ -5283,7 +5555,6 @@ export class Visual implements IVisual {
             cancelAnimationFrame(this.scrollThrottleTimeout);
             this.scrollThrottleTimeout = null;
         }
-
         if (this.isMarginDragging) {
             this.debugLog("Margin drag in progress, queuing Power BI update");
             this.pendingUpdate = options;
@@ -5338,6 +5609,7 @@ export class Visual implements IVisual {
 
             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
             this.reconcilePendingPathSelection();
+            this.reconcilePendingWbsDisplaySelection();
             this.applyHeaderHeight();
             this.applyInitialLoadChromeColors();
 
@@ -5659,6 +5931,8 @@ export class Visual implements IVisual {
 
             this.settings = this.formattingSettingsService.populateFormattingSettingsModel(VisualSettings, dataView);
             this.reconcilePendingPathSelection();
+            this.reconcilePendingWbsDisplaySelection();
+            this.ensureValidWbsDisplaySelection();
             this.applyHeaderHeight();
 
             if (this.wbsEnableOverride !== null && this.settings?.wbsGrouping?.enableWbsGrouping) {
@@ -5872,11 +6146,15 @@ export class Visual implements IVisual {
             if (wbsGroupingEnabled) {
                 // Ensure the WBS expansion level defaults are applied if a global level is set
                 // (Custom overrides are handled by wbsExpandedState in processData, but global levels need explicit application)
-                if (this.wbsExpandToLevel !== undefined) {
+                if (this.wbsDisplaySelection.mode === "through" && this.wbsExpandToLevel !== undefined) {
                     this.applyWbsExpandLevel(this.wbsExpandToLevel);
                 }
                 this.updateWbsFilteredCounts(tasksAfterLegendFilter);
-                this.syncUnassignedWbsGroup(tasksAfterLegendFilter);
+                if (this.wbsDisplaySelection.mode === "only") {
+                    this.syncWbsOnlyLevelFallbackGroup(tasksAfterLegendFilter);
+                } else {
+                    this.syncUnassignedWbsGroup(tasksAfterLegendFilter);
+                }
             }
 
             // Save the fully-filtered tasks BEFORE WBS ordering strips collapsed ones.
@@ -5963,7 +6241,7 @@ export class Visual implements IVisual {
             this.syncSvgPixelSize(this.headerSvg, viewportWidth, this.headerHeight);
 
             const effectiveMargin = this.getEffectiveLeftMargin();
-            this.mainGroup.attr("transform", `translate(${this.snapRectCoord(effectiveMargin)}, ${this.snapRectCoord(this.margin.top)})`);
+            this.setBodyLayoutOrigin(effectiveMargin);
             this.headerGridLayer.attr("transform", `translate(${this.snapRectCoord(effectiveMargin)}, 0)`);
 
             this.createMarginResizer();
@@ -5979,6 +6257,7 @@ export class Visual implements IVisual {
             this.taskElementHeight = taskHeight + taskPadding;
 
             this.restoreScrollPosition(totalSvgHeight);
+            this.syncBodyPixelAlignment(true);
 
             this.setupVirtualScroll(tasksToShow, taskHeight, taskPadding, totalRows, true);
 
@@ -6038,31 +6317,6 @@ export class Visual implements IVisual {
                 this.debugLog("Scroll handler restored in finally block");
             }
 
-            if (!this.isDestroyed) {
-                if (this.postRenderViewportCheckTimeout) {
-                    clearTimeout(this.postRenderViewportCheckTimeout);
-                }
-                this.postRenderViewportCheckTimeout = setTimeout(() => {
-                    this.postRenderViewportCheckTimeout = null;
-                    if (this.isDestroyed || this.isViewportTransitioning || Date.now() < this.viewportResizeCooldownUntil) {
-                        this.debugLog(`[Safeguard] Skipped — in resize cooldown`);
-                        return;
-                    }
-                    if (this.target && this.lastViewport) {
-                        const currentWidth = this.target.clientWidth;
-                        const currentHeight = this.target.clientHeight;
-
-                        if (Math.abs(currentWidth - this.lastViewport.width) > 5 ||
-                            Math.abs(currentHeight - this.lastViewport.height) > 5) {
-
-                            this.debugLog(`[Safeguard] Size mismatch detected after delay: Rendered=[${this.lastViewport.width}x${this.lastViewport.height}], Actual=[${currentWidth}x${currentHeight}]. Forcing update.`);
-                            this.requestUpdate(false);
-                        }
-                    }
-                }, 250);
-            }
-
-
         }
     }
 
@@ -6087,6 +6341,7 @@ export class Visual implements IVisual {
                 this.gridLayer, this.headerGridLayer);
         }
 
+        this.syncBodyPixelAlignment();
         this.calculateVisibleTasks();
 
         this.redrawVisibleTasks();
@@ -6219,6 +6474,8 @@ export class Visual implements IVisual {
             this.preservedScrollLeft = null;
         }
 
+        this.syncBodyPixelAlignment(true);
+
         const listener = this.scrollHandlerBackup ?? this.scrollListener;
         if (listener && this.scrollableContainer) {
             this.scrollableContainer.on("scroll", listener);
@@ -6277,6 +6534,7 @@ export class Visual implements IVisual {
         this.settings = this.formattingSettingsService.populateFormattingSettingsModel(
             VisualSettings, options.dataViews[0]);
         this.reconcilePendingPathSelection();
+        this.reconcilePendingWbsDisplaySelection();
 
         const newSelectedPathIndex = this.settings?.pathSelection?.selectedPathIndex?.value;
         const newShowPathInfo = this.settings?.pathSelection?.showPathInfo?.value;
@@ -6674,7 +6932,7 @@ export class Visual implements IVisual {
         }
 
         // 1. Update group transforms
-        this.mainGroup?.attr("transform", `translate(${this.snapRectCoord(effectiveMargin)}, ${this.snapRectCoord(this.margin.top)})`);
+        this.setBodyLayoutOrigin(effectiveMargin);
         this.headerGridLayer?.attr("transform", `translate(${this.snapRectCoord(effectiveMargin)}, 0)`);
 
         // 2. Compute new chart dimensions
@@ -6701,6 +6959,7 @@ export class Visual implements IVisual {
         this.taskLayer?.selectAll("*").remove();
         this.taskLabelLayer?.selectAll("*").remove();
         this.labelGridLayer?.selectAll("*").remove();
+        this.wbsGroupLayer?.selectAll("*").remove();
         this.headerGridLayer?.selectAll("*").remove();
 
         // 5. Redraw all visual elements except arrows
@@ -7780,6 +8039,8 @@ export class Visual implements IVisual {
             wbsAvailableLevels: this.wbsAvailableLevels,
             wbsExpandToLevel: this.getCurrentWbsExpandLevel(),
             wbsManualExpansionOverride: this.wbsManualExpansionOverride,
+            wbsDisplayMode: this.wbsDisplaySelection.mode,
+            wbsOnlyLevel: this.wbsDisplaySelection.level ?? undefined,
 
             currentMode: (this.settings?.criticalPath?.calculationMode?.value as any)?.value || 'floatBased',
             modeStatusMessage: this.getDrivingLogicStatusMessage(),
@@ -7964,8 +8225,9 @@ export class Visual implements IVisual {
 
         if (this.useCanvasRendering) {
             if (this.canvasElement) {
+                this.syncBodyPixelAlignment();
                 const leftMargin = this.snapRectCoord(this.getEffectiveLeftMargin());
-                const topMargin = this.snapRectCoord(this.margin.top);
+                const topMargin = this.getAlignedBodyTop();
                 const modeTransitionDuration = this.getAnimationDuration(this.MODE_TRANSITION_DURATION);
 
                 if (modeChanged) {
@@ -8001,7 +8263,6 @@ export class Visual implements IVisual {
                 this.arrowLayer.style("display", "block");
                 this.arrowLayer.style("visibility", "visible");
             }
-            this.setupSVGRenderingHints();
         }
 
         // Delegate to main drawing method to ensure consistency and use correct margins/columns
@@ -8157,6 +8418,8 @@ export class Visual implements IVisual {
             this.displayMessage("Error during drawing setup.");
             return;
         }
+
+        this.setBodyLayoutOrigin(currentLeftMargin);
 
         // Optimized: Removed aggressive clearing to allow D3 data binding to update elements
         // this.taskLabelLayer?.selectAll("*").remove();
@@ -8344,8 +8607,9 @@ export class Visual implements IVisual {
         if (!this.canvasElement) return;
 
         if (this.useCanvasRendering) {
+            this.syncBodyPixelAlignment();
             const leftMargin = this.snapRectCoord(currentLeftMargin);
-            const topMargin = this.snapRectCoord(this.margin.top);
+            const topMargin = this.getAlignedBodyTop();
 
             this.canvasElement.style.display = 'block';
             this.canvasElement.style.visibility = 'visible';
@@ -9461,7 +9725,7 @@ export class Visual implements IVisual {
                 .attr("class", "task-label")
                 // x: Start from left margin edge + padding + indent
                 .attr("x", (d: Task) => {
-                    const rawIndent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
+                    const rawIndent = wbsGroupingEnabled ? this.getWbsDisplayTaskIndentLevel(d) * wbsIndentPerLevel : 0;
                     const wbsInset = wbsGroupingEnabled ? this.WBS_TASK_LABEL_INSET : 0;
                     const effectiveIndent = Math.min(rawIndent, Math.max(0, effectiveAvailableWidth - wbsInset - 20));
                     return this.snapTextCoord(laneLeftX + effectiveIndent + wbsInset);
@@ -9475,7 +9739,7 @@ export class Visual implements IVisual {
                 .style("font-weight", (d: Task) => d.internalId === this.selectedTaskId ? selectionLabelWeight : "normal")
                 .each((d: Task, _i: number, nodes: BaseType[] | ArrayLike<BaseType>) => {
                     const textElement = d3.select(nodes[_i] as SVGTextElement);
-                    const rawIndent = wbsGroupingEnabled && d.wbsIndentLevel ? d.wbsIndentLevel * wbsIndentPerLevel : 0;
+                    const rawIndent = wbsGroupingEnabled ? this.getWbsDisplayTaskIndentLevel(d) * wbsIndentPerLevel : 0;
                     const wbsInset = wbsGroupingEnabled ? this.WBS_TASK_LABEL_INSET : 0;
                     const effectiveIndent = Math.min(rawIndent, Math.max(0, effectiveAvailableWidth - wbsInset - 20));
                     const x = laneLeftX + effectiveIndent + wbsInset;
@@ -9694,7 +9958,16 @@ export class Visual implements IVisual {
     }
 
     private getWbsDisplayName(group: WBSGroup): string {
-        return group.name;
+        return this.wbsDisplayGroupNames.get(group.id) ?? group.name;
+    }
+
+    private getWbsDisplayGroupIndentLevel(group: WBSGroup): number {
+        return this.wbsDisplayGroupIndentLevels.get(group.id) ?? Math.max(0, group.level - 1);
+    }
+
+    private getWbsDisplayTaskIndentLevel(task: Task): number {
+        return this.wbsDisplayTaskIndentLevels.get(task.internalId)
+            ?? Math.max(0, task.wbsIndentLevel ?? (task.wbsLevels?.length ?? 1) - 1);
     }
 
     private getFloatDisplayColor(value: number | null | undefined, fallbackColor: string): string {
@@ -12338,6 +12611,14 @@ export class Visual implements IVisual {
         if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
             return null;
         }
+        if (this.wbsDisplaySelection.mode === "only" && this.wbsDisplaySelection.level !== null) {
+            const targetLevel = this.wbsDisplaySelection.level;
+            if (!task.wbsGroupId || (task.wbsLevels?.length ?? 0) < targetLevel) {
+                return this.getWbsOnlyLevelFallbackGroup() ?? null;
+            }
+            const targetGroupId = task.wbsGroupId.split("|").slice(0, targetLevel).join("|");
+            return this.wbsGroupMap.get(targetGroupId) ?? null;
+        }
         if (!task.wbsGroupId) return null;
         return this.wbsGroupMap.get(task.wbsGroupId) ?? null;
     }
@@ -14462,9 +14743,10 @@ export class Visual implements IVisual {
             .attr("aria-hidden", "true")
             .style("position", "absolute")
             .style("display", "none")
-            .style("flex-direction", "column")
-            .style("gap", "2px")
-            .style("width", "168px")
+            .style("grid-template-columns", "minmax(0, 1fr) 68px")
+            .style("grid-auto-flow", "row")
+            .style("gap", "3px 4px")
+            .style("width", "260px")
             .style("padding", "4px")
             .style("box-sizing", "border-box")
             .style("background-color", this.getHeaderLegendMenuBackgroundColor())
@@ -14485,21 +14767,26 @@ export class Visual implements IVisual {
                 if (event.key === "Escape") {
                     event.preventDefault();
                     event.stopPropagation();
-                    this.hideWbsHeaderContextMenu();
+                    this.hideWbsHeaderContextMenu(true);
                 }
             });
 
         return this.wbsHeaderContextMenu;
     }
 
-    private hideWbsHeaderContextMenu(): void {
-        if (!this.wbsHeaderContextMenu?.node()) {
-            return;
+    private hideWbsHeaderContextMenu(restoreFocus: boolean = false): void {
+        const returnFocusTarget = this.wbsHeaderContextMenuReturnFocusTarget;
+        this.wbsHeaderContextMenuReturnFocusTarget = null;
+
+        if (this.wbsHeaderContextMenu?.node()) {
+            this.wbsHeaderContextMenu
+                .attr("aria-hidden", "true")
+                .style("display", "none");
         }
 
-        this.wbsHeaderContextMenu
-            .attr("aria-hidden", "true")
-            .style("display", "none");
+        if (restoreFocus && returnFocusTarget?.isConnected) {
+            window.setTimeout(() => returnFocusTarget.focus(), 0);
+        }
     }
 
     private focusWbsHeaderContextMenuItem(offset: number): void {
@@ -14539,13 +14826,47 @@ export class Visual implements IVisual {
         event.stopPropagation();
         this.hideTooltip();
 
+        const returnFocusCandidate = anchorElement ?? event.currentTarget;
+        this.wbsHeaderContextMenuReturnFocusTarget = returnFocusCandidate instanceof Element &&
+            typeof (returnFocusCandidate as Element & { focus?: () => void }).focus === "function"
+            ? returnFocusCandidate as Element & { focus: () => void }
+            : null;
+
         const menu = this.getWbsHeaderContextMenu();
+        const menuBackground = this.getHeaderLegendMenuBackgroundColor();
         const textColor = this.getHeaderLegendTextColor();
         const mutedTextColor = this.getHeaderLegendMutedTextColor();
         const borderColor = this.getHeaderLegendBorderColor();
         const hoverBackground = this.getHeaderLegendMenuHoverColor();
+        const activeColor = this.getHeaderLegendActiveColor();
+        const secondaryBackground = this.highContrastMode
+            ? menuBackground
+            : this.blendColors(menuBackground, hoverBackground, 0.76);
+        const currentBackground = this.highContrastMode
+            ? hoverBackground
+            : this.blendColors(menuBackground, activeColor, 0.8);
+        const interactiveBackground = this.highContrastMode
+            ? hoverBackground
+            : this.blendColors(menuBackground, activeColor, 0.68);
+        const getActionBackground = (action: WbsHeaderContextMenuAction): string => {
+            if (action.isCurrent) return currentBackground;
+            return action.layout === "only" ? secondaryBackground : "transparent";
+        };
+        const getActionBorderColor = (action: WbsHeaderContextMenuAction): string => action.layout === "only" && !this.highContrastMode
+            ? this.toRgba(borderColor, 0.68)
+            : borderColor;
+        const applyActionInteractionState = (
+            element: HTMLButtonElement,
+            action: WbsHeaderContextMenuAction,
+            isInteractive: boolean
+        ): void => {
+            d3.select(element)
+                .style("background-color", isInteractive ? interactiveBackground : getActionBackground(action))
+                .style("border-color", isInteractive ? activeColor : getActionBorderColor(action))
+                .style("box-shadow", isInteractive ? `inset 0 0 0 1px ${activeColor}` : "none");
+        };
         menu
-            .style("background-color", this.getHeaderLegendMenuBackgroundColor())
+            .style("background-color", menuBackground)
             .style("color", textColor)
             .style("border", `1px solid ${borderColor}`);
         const availableLevels = (this.wbsAvailableLevels.length > 0
@@ -14553,28 +14874,56 @@ export class Visual implements IVisual {
             : Array.from(new Set(this.wbsGroups.map(wbsGroup => wbsGroup.level))))
             .filter(level => Number.isFinite(level) && level > 0)
             .sort((a, b) => a - b);
+        const currentExpandLevel = this.getCurrentWbsExpandLevel();
         const showThroughLevelActions: WbsHeaderContextMenuAction[] = availableLevels.map(level => ({
             id: `show-through-level-${level}` as `show-through-level-${number}`,
             label: `Show through Level ${level}`,
+            displayLabel: `Show through Level ${level}`,
             description: level === 1 ? "Show top WBS level only" : `Show WBS levels 1-${level}`,
+            displayMode: "through",
+            layout: "through",
             targetLevel: Math.max(0, level - 1),
-            announcement: `Showing WBS through Level ${level}.`
+            announcement: `Showing WBS through Level ${level}.`,
+            isCurrent: this.wbsDisplaySelection.mode === "through" && currentExpandLevel === Math.max(0, level - 1)
         }));
+        const showOnlyLevelActions: WbsHeaderContextMenuAction[] = availableLevels.map(level => ({
+            id: `show-only-level-${level}` as `show-only-level-${number}`,
+            label: `Show only Level ${level}`,
+            displayLabel: `Only L${level}`,
+            description: `Show Level ${level} WBS rows; expand a row to show its activities`,
+            displayMode: "only",
+            layout: "only",
+            targetLevel: level,
+            announcement: `Showing only WBS Level ${level}.`,
+            isCurrent: this.wbsDisplaySelection.mode === "only" && this.wbsDisplaySelection.level === level
+        }));
+        const pairedLevelActions = availableLevels.flatMap((_level, index) => [
+            showThroughLevelActions[index],
+            showOnlyLevelActions[index]
+        ]);
         const actions: WbsHeaderContextMenuAction[] = [
             {
                 id: "collapse-all",
                 label: "Collapse all",
+                displayLabel: "Collapse all",
                 description: "Show top WBS level only",
+                displayMode: "through",
+                layout: "full",
                 targetLevel: 0,
-                announcement: "Collapsed all WBS groups."
+                announcement: "Collapsed all WBS groups.",
+                isCurrent: this.wbsDisplaySelection.mode === "through" && currentExpandLevel === 0
             },
-            ...showThroughLevelActions,
+            ...pairedLevelActions,
             {
                 id: "expand-all",
                 label: "Expand all",
+                displayLabel: "Expand all",
                 description: "Open every WBS branch",
+                displayMode: "through",
+                layout: "full",
                 targetLevel: null,
-                announcement: "Expanded all WBS groups."
+                announcement: "Expanded all WBS groups.",
+                isCurrent: this.wbsDisplaySelection.mode === "through" && this.wbsExpandToLevel === null
             }
         ];
 
@@ -14589,19 +14938,18 @@ export class Visual implements IVisual {
             .attr("class", "wbs-header-context-menu-item")
             .attr("type", "button")
             .attr("role", "menuitem")
-            .style("height", "40px")
-            .style("padding", "4px 9px")
+            .style("min-width", "0")
             .style("border", `1px solid ${borderColor}`)
             .style("border-radius", `${UI_TOKENS.radius.small}px`)
-            .style("background", "transparent")
             .style("color", textColor)
             .style("font-family", this.getFontFamily())
-            .style("text-align", "left")
             .style("cursor", "pointer")
             .style("display", "flex")
-            .style("flex-direction", "column")
+            .style("align-items", "center")
             .style("justify-content", "center")
-            .style("gap", "1px");
+            .style("white-space", "nowrap")
+            .style("overflow", "hidden")
+            .style("transition", "background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease");
 
         itemEnter.append("span").attr("class", "wbs-header-context-menu-label");
         itemEnter.append("span").attr("class", "wbs-header-context-menu-description");
@@ -14610,19 +14958,34 @@ export class Visual implements IVisual {
 
         mergedItems
             .style("color", textColor)
-            .style("border", `1px solid ${borderColor}`)
+            .style("height", action => action.layout === "full" ? "34px" : "32px")
+            .style("padding", action => action.layout === "only" ? "4px 7px" : "4px 9px")
+            .style("grid-column", action => action.layout === "full" ? "1 / span 2" : (action.layout === "through" ? "1" : "2"))
+            .style("text-align", action => action.layout === "only" ? "center" : "left")
+            .style("justify-content", action => action.layout === "only" ? "center" : "flex-start")
+            .style("background-color", action => getActionBackground(action))
+            .style("border-color", action => getActionBorderColor(action))
+            .style("box-shadow", "none")
             .attr("tabindex", "-1")
-            .attr("aria-label", action => action.label)
-            .on("mouseover", function () {
-                d3.select(this).style("background-color", hoverBackground);
+            .attr("title", action => `${action.label}. ${action.description}`)
+            .attr("aria-label", action => `${action.label}. ${action.description}${action.isCurrent ? ", current selection" : ""}`)
+            .attr("aria-current", action => action.isCurrent ? "true" : null)
+            .on("mouseenter", function (_mouseEvent: MouseEvent, action) {
+                applyActionInteractionState(this, action, true);
             })
-            .on("mouseout", function () {
-                d3.select(this).style("background-color", "transparent");
+            .on("mouseleave", function (_mouseEvent: MouseEvent, action) {
+                applyActionInteractionState(this, action, document.activeElement === this);
+            })
+            .on("focus", function (_focusEvent: FocusEvent, action) {
+                applyActionInteractionState(this, action, true);
+            })
+            .on("blur", function (_focusEvent: FocusEvent, action) {
+                applyActionInteractionState(this, action, false);
             })
             .on("click", (clickEvent: MouseEvent, action) => {
                 clickEvent.preventDefault();
                 clickEvent.stopPropagation();
-                this.applyWbsGlobalExpandFromHeaderContextMenu(action.targetLevel, group.id, action.announcement);
+                this.applyWbsGlobalDisplayFromHeaderContextMenu(action, group.id);
             })
             .on("keydown", (keyboardEvent: KeyboardEvent, action) => {
                 switch (keyboardEvent.key) {
@@ -14630,14 +14993,16 @@ export class Visual implements IVisual {
                     case " ":
                         keyboardEvent.preventDefault();
                         keyboardEvent.stopPropagation();
-                        this.applyWbsGlobalExpandFromHeaderContextMenu(action.targetLevel, group.id, action.announcement);
+                        this.applyWbsGlobalDisplayFromHeaderContextMenu(action, group.id);
                         break;
                     case "ArrowDown":
+                    case "ArrowRight":
                         keyboardEvent.preventDefault();
                         keyboardEvent.stopPropagation();
                         this.focusWbsHeaderContextMenuItem(1);
                         break;
                     case "ArrowUp":
+                    case "ArrowLeft":
                         keyboardEvent.preventDefault();
                         keyboardEvent.stopPropagation();
                         this.focusWbsHeaderContextMenuItem(-1);
@@ -14656,15 +15021,18 @@ export class Visual implements IVisual {
             });
 
         mergedItems.select<HTMLSpanElement>("span.wbs-header-context-menu-label")
-            .style("font-size", "12px")
-            .style("font-weight", "600")
-            .style("line-height", "15px")
-            .text(action => action.label);
+            .style("display", "block")
+            .style("min-width", "0")
+            .style("max-width", "100%")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis")
+            .style("font-size", action => action.layout === "only" ? "10.5px" : "11.5px")
+            .style("font-weight", action => action.isCurrent ? "700" : (action.layout === "only" ? "500" : "600"))
+            .style("line-height", "14px")
+            .text(action => `${action.isCurrent ? "✓ " : ""}${action.displayLabel}`);
 
         mergedItems.select<HTMLSpanElement>("span.wbs-header-context-menu-description")
-            .style("font-size", "10px")
-            .style("font-weight", "500")
-            .style("line-height", "12px")
+            .style("display", "none")
             .style("color", mutedTextColor)
             .text(action => action.description);
 
@@ -14681,9 +15049,9 @@ export class Visual implements IVisual {
         const clientY = "clientY" in event && typeof event.clientY === "number" && event.clientY > 0
             ? event.clientY
             : (anchorRect ? anchorRect.top + Math.max(12, anchorRect.height / 2) : wrapperRect.top + 12);
-        const menuWidth = 168;
-        const rawMenuHeight = 8 + (actions.length * 42);
         const menuMargin = 6;
+        const menuWidth = Math.max(168, Math.min(260, wrapperRect.width - (menuMargin * 2)));
+        const rawMenuHeight = 79 + (availableLevels.length * 35);
         const menuHeight = Math.max(48, Math.min(rawMenuHeight, wrapperRect.height - (menuMargin * 2), 360));
         const left = Math.max(
             menuMargin,
@@ -14696,21 +15064,21 @@ export class Visual implements IVisual {
 
         menu
             .attr("aria-hidden", "false")
+            .style("width", `${Math.round(menuWidth)}px`)
             .style("left", `${Math.round(left)}px`)
             .style("top", `${Math.round(top)}px`)
             .style("max-height", `${Math.round(menuHeight)}px`)
             .style("overflow-y", rawMenuHeight > menuHeight ? "auto" : "visible")
-            .style("display", "flex");
+            .style("display", "grid");
 
         window.setTimeout(() => {
             menu.select<HTMLButtonElement>("button.wbs-header-context-menu-item").node()?.focus();
         }, 0);
     }
 
-    private applyWbsGlobalExpandFromHeaderContextMenu(
-        targetLevel: number | null,
-        sourceGroupId: string,
-        announcement: string
+    private applyWbsGlobalDisplayFromHeaderContextMenu(
+        action: WbsHeaderContextMenuAction,
+        sourceGroupId: string
     ): void {
         try {
             if (!this.wbsDataExists || !this.settings?.wbsGrouping?.enableWbsGrouping?.value) {
@@ -14718,6 +15086,7 @@ export class Visual implements IVisual {
             }
 
             this.hideTooltip();
+            this.pendingWbsGroupFocusId = sourceGroupId;
             this.hideWbsHeaderContextMenu();
             this.lastWbsToggleTimestamp = Date.now();
             this.scrollPreservationUntil = Math.max(this.scrollPreservationUntil, this.lastWbsToggleTimestamp + 2000);
@@ -14736,9 +15105,9 @@ export class Visual implements IVisual {
             this.wbsExpandedState.clear();
 
             const maxLevel = this.getMaxWbsLevel();
-            const effectiveLevel = targetLevel === null
+            const effectiveLevel = action.targetLevel === null
                 ? null
-                : Math.min(Math.max(targetLevel, 0), maxLevel);
+                : Math.min(Math.max(action.targetLevel, action.displayMode === "only" ? 1 : 0), maxLevel);
             const anchorGroupId = effectiveLevel === 0
                 ? this.getRootWbsGroupId(sourceGroupId)
                 : sourceGroupId;
@@ -14747,13 +15116,31 @@ export class Visual implements IVisual {
                 this.captureWbsAnchorForGlobalToggle();
             }
 
-            this.applyWbsExpandLevel(effectiveLevel);
+            if (action.displayMode === "only" && effectiveLevel !== null) {
+                this.beginWbsDisplaySelection({ mode: "only", level: effectiveLevel });
+                this.removeWbsOnlyLevelFallbackGroups();
+                this.wbsExpandToLevel = undefined;
+                this.wbsManualExpansionOverride = true;
+                for (const wbsGroup of this.wbsGroups) {
+                    if (!wbsGroup.isUnassignedWbsGroup && !wbsGroup.isWbsLevelFallbackGroup && wbsGroup.level === effectiveLevel) {
+                        wbsGroup.isExpanded = false;
+                        this.wbsExpandedState.set(wbsGroup.id, false);
+                    }
+                }
+                this.wbsExpandedInternal = false;
+            } else {
+                this.beginWbsDisplaySelection({ mode: "through", level: null });
+                this.removeWbsOnlyLevelFallbackGroups();
+                this.applyWbsExpandLevel(effectiveLevel);
+            }
 
             this.taskLabelLayer?.selectAll("*").remove();
             this.labelGridLayer?.selectAll("*").remove();
             this.wbsGroupLayer?.selectAll("*").remove();
 
-            const persistedLevel = effectiveLevel === null ? -1 : effectiveLevel;
+            const persistedLevel = action.displayMode === "only"
+                ? -2
+                : (effectiveLevel === null ? -1 : effectiveLevel);
             const expandedStatePayload = this.getWbsExpandedStatePayload();
             const manualGroupsPayload = Array.from(this.wbsManuallyToggledGroups);
 
@@ -14767,7 +15154,8 @@ export class Visual implements IVisual {
                     properties: {
                         wbsExpandLevel: persistedLevel,
                         wbsExpandedState: JSON.stringify(expandedStatePayload),
-                        wbsManualToggledGroups: JSON.stringify(manualGroupsPayload)
+                        wbsManualToggledGroups: JSON.stringify(manualGroupsPayload),
+                        ...this.getWbsDisplayPersistenceProperties()
                     },
                     selector: null
                 }]
@@ -14782,7 +15170,7 @@ export class Visual implements IVisual {
                 this.requestUpdate();
             }
 
-            this.announceToLiveRegion(announcement);
+            this.announceToLiveRegion(action.announcement);
         } catch (error) {
             console.error("Error applying WBS header context menu action:", error);
         }
@@ -14813,7 +15201,7 @@ export class Visual implements IVisual {
         }
 
         const priorExpandedInternal = this.wbsExpandedInternal;
-        if (this.wbsExpandToLevel === undefined) {
+        if (this.wbsDisplaySelection.mode === "through" && this.wbsExpandToLevel === undefined) {
             this.wbsExpandToLevel = priorExpandedInternal ? null : 0;
         }
         this.wbsManualExpansionOverride = true;
@@ -14822,7 +15210,11 @@ export class Visual implements IVisual {
 
         group.isExpanded = !group.isExpanded;
         this.wbsExpandedState.set(groupId, group.isExpanded);
-        this.wbsExpandedInternal = Array.from(this.wbsGroupMap.values()).some(g => g.isExpanded);
+        this.wbsExpandedInternal = this.wbsDisplaySelection.mode === "only"
+            ? Array.from(this.wbsGroupMap.values()).some(candidate =>
+                (candidate.level === this.wbsDisplaySelection.level || candidate.isWbsLevelFallbackGroup) && candidate.isExpanded
+            )
+            : Array.from(this.wbsGroupMap.values()).some(candidate => candidate.isExpanded);
 
         const expandedStatePayload = this.getWbsExpandedStatePayload();
         const manualGroupsPayload = Array.from(this.wbsManuallyToggledGroups);
@@ -14832,7 +15224,8 @@ export class Visual implements IVisual {
                 properties: {
                     wbsExpandLevel: -2,
                     wbsExpandedState: JSON.stringify(expandedStatePayload),
-                    wbsManualToggledGroups: JSON.stringify(manualGroupsPayload)
+                    wbsManualToggledGroups: JSON.stringify(manualGroupsPayload),
+                    ...this.getWbsDisplayPersistenceProperties()
                 },
                 selector: null
             }]
@@ -14943,36 +15336,21 @@ export class Visual implements IVisual {
      * Returns tasks sorted by WBS hierarchy with collapsed groups filtered out
      */
     private applyWbsOrdering(tasks: Task[]): Task[] {
-        const orderedTasks: Task[] = [];
-        const taskSet = new Set(tasks.map(t => t.internalId));
-
-        const processGroup = (group: WBSGroup): void => {
-            if (group.isExpanded) {
-
-                for (const task of this.getSortedVisibleWbsGroupTasks(group, taskSet)) {
-                    orderedTasks.push(task);
-                }
-
-                for (const child of group.children) {
-                    processGroup(child);
-                }
-            }
-
-        };
-
-        for (const rootGroup of this.wbsRootGroups) {
-            if (rootGroup.isUnassignedWbsGroup) continue;
-            processGroup(rootGroup);
-        }
-
-        const unassignedGroup = this.getUnassignedWbsGroup();
-        if (unassignedGroup?.isExpanded) {
-            for (const task of this.getSortedVisibleWbsGroupTasks(unassignedGroup, taskSet)) {
-                orderedTasks.push(task);
-            }
-        }
-
-        return orderedTasks;
+        const hideEmptyGroups = this.settings?.wbsGrouping?.hideEmptyGroups?.value ?? true;
+        const fallbackGroup = this.getWbsOnlyLevelFallbackGroup();
+        this.currentWbsDisplayProjection = buildWbsDisplayProjection({
+            mode: this.wbsDisplaySelection.mode,
+            onlyLevel: this.wbsDisplaySelection.level,
+            rootGroups: this.wbsRootGroups,
+            visibleTasks: tasks,
+            hideEmptyGroups,
+            sortTasks: values => this.sortTasksByBarStart(values),
+            fallbackGroup
+        });
+        this.wbsDisplayTaskIndentLevels = this.currentWbsDisplayProjection.taskIndentLevels;
+        this.wbsDisplayGroupIndentLevels = this.currentWbsDisplayProjection.groupIndentLevels;
+        this.wbsDisplayGroupNames = this.currentWbsDisplayProjection.groupDisplayNames;
+        return this.currentWbsDisplayProjection.tasks;
     }
 
     private getUnassignedWbsGroup(): WBSGroup | undefined {
@@ -14987,6 +15365,30 @@ export class Visual implements IVisual {
         this.wbsGroupMap.delete(this.UNASSIGNED_WBS_GROUP_ID);
         this.wbsGroups = this.wbsGroups.filter(group => group.id !== this.UNASSIGNED_WBS_GROUP_ID);
         this.wbsRootGroups = this.wbsRootGroups.filter(group => group.id !== this.UNASSIGNED_WBS_GROUP_ID);
+    }
+
+    private getWbsOnlyLevelFallbackGroupId(level: number): string {
+        return `${this.WBS_ONLY_FALLBACK_GROUP_ID_PREFIX}${level}`;
+    }
+
+    private getWbsOnlyLevelFallbackGroup(): WBSGroup | undefined {
+        const level = this.wbsDisplaySelection.level;
+        return level === null
+            ? undefined
+            : this.wbsGroupMap.get(this.getWbsOnlyLevelFallbackGroupId(level));
+    }
+
+    private removeWbsOnlyLevelFallbackGroups(): void {
+        const fallbackIds = new Set(
+            this.wbsGroups
+                .filter(group => group.isWbsLevelFallbackGroup)
+                .map(group => group.id)
+        );
+        if (fallbackIds.size === 0) return;
+
+        fallbackIds.forEach(groupId => this.wbsGroupMap.delete(groupId));
+        this.wbsGroups = this.wbsGroups.filter(group => !fallbackIds.has(group.id));
+        this.wbsRootGroups = this.wbsRootGroups.filter(group => !fallbackIds.has(group.id));
     }
 
     private getUnassignedWbsExpandedState(): boolean {
@@ -15048,7 +15450,65 @@ export class Visual implements IVisual {
             isUnassignedWbsGroup: true
         };
 
-        this.updateUnassignedWbsGroupSummary(group);
+        this.updateSyntheticWbsGroupSummary(group);
+        this.wbsGroups.push(group);
+        this.wbsRootGroups.push(group);
+        this.wbsGroupMap.set(group.id, group);
+        this.wbsExpandedState.set(group.id, group.isExpanded);
+    }
+
+    private syncWbsOnlyLevelFallbackGroup(filteredTasks: Task[]): void {
+        this.removeUnassignedWbsGroup();
+        this.removeWbsOnlyLevelFallbackGroups();
+
+        const targetLevel = this.wbsDisplaySelection.level;
+        if (this.wbsDisplaySelection.mode !== "only" || targetLevel === null) {
+            return;
+        }
+
+        const fallbackTasks = this.sortTasksByBarStart(filteredTasks.filter(task =>
+            (task.wbsLevels?.length ?? 0) < targetLevel
+        ));
+        if (fallbackTasks.length === 0) {
+            return;
+        }
+
+        const groupId = this.getWbsOnlyLevelFallbackGroupId(targetLevel);
+        const group: WBSGroup = {
+            id: groupId,
+            level: targetLevel,
+            name: `No Level ${targetLevel} WBS`,
+            fullPath: `No Level ${targetLevel} WBS`,
+            parentId: null,
+            children: [],
+            tasks: fallbackTasks,
+            allTasks: fallbackTasks,
+            isExpanded: this.wbsExpandedState.get(groupId) ?? false,
+            yOrder: undefined,
+            visibleTaskCount: fallbackTasks.length,
+            summaryStartDate: null,
+            summaryFinishDate: null,
+            summaryEarlyStartDate: null,
+            summaryEarlyFinishDate: null,
+            hasCriticalTasks: false,
+            taskCount: fallbackTasks.length,
+            criticalStartDate: null,
+            criticalFinishDate: null,
+            hasNearCriticalTasks: false,
+            nearCriticalStartDate: null,
+            nearCriticalFinishDate: null,
+            summaryBaselineStartDate: null,
+            summaryBaselineFinishDate: null,
+            summaryPreviousUpdateStartDate: null,
+            summaryPreviousUpdateFinishDate: null,
+            summaryMilestoneMarkers: [],
+            summaryBaselineMilestoneMarkers: [],
+            summaryPreviousUpdateMilestoneMarkers: [],
+            summaryTotalFloat: null,
+            isWbsLevelFallbackGroup: true
+        };
+
+        this.updateSyntheticWbsGroupSummary(group);
         this.wbsGroups.push(group);
         this.wbsRootGroups.push(group);
         this.wbsGroupMap.set(group.id, group);
@@ -15067,7 +15527,7 @@ export class Visual implements IVisual {
         return this.sortTasksByBarStart(group.tasks.filter(task => taskSet.has(task.internalId)));
     }
 
-    private updateUnassignedWbsGroupSummary(group: WBSGroup): void {
+    private updateSyntheticWbsGroupSummary(group: WBSGroup): void {
         let minStart: Date | null = null;
         let maxFinish: Date | null = null;
         let minEarlyStart: Date | null = null;
@@ -15198,6 +15658,7 @@ export class Visual implements IVisual {
      */
     private updateWbsFilteredCounts(filteredTasks: Task[]): void {
         this.removeUnassignedWbsGroup();
+        this.removeWbsOnlyLevelFallbackGroups();
 
         for (const group of this.wbsGroups) {
             group.visibleTaskCount = 0;
@@ -15463,7 +15924,6 @@ export class Visual implements IVisual {
      * @param tasksToShow - Final filtered list of tasks to display (after collapse/expand)
      */
     private assignWbsYOrder(tasksToShow: Task[]): void {
-
         for (const group of this.wbsGroups) {
             group.yOrder = undefined;
         }
@@ -15472,50 +15932,29 @@ export class Visual implements IVisual {
             task.yOrder = undefined;
         }
 
-        const visibleTaskIds = new Set(tasksToShow.map(t => t.internalId));
-
         let currentYOrder = 0;
 
-        const hideEmptyGroups = this.settings?.wbsGrouping?.hideEmptyGroups?.value ?? true;
-        const isGroupVisible = (group: WBSGroup): boolean => {
+        const projection = this.currentWbsDisplayProjection ?? buildWbsDisplayProjection({
+            mode: this.wbsDisplaySelection.mode,
+            onlyLevel: this.wbsDisplaySelection.level,
+            rootGroups: this.wbsRootGroups,
+            visibleTasks: tasksToShow,
+            hideEmptyGroups: this.settings?.wbsGrouping?.hideEmptyGroups?.value ?? true,
+            sortTasks: values => this.sortTasksByBarStart(values),
+            fallbackGroup: this.getWbsOnlyLevelFallbackGroup()
+        });
+        this.currentWbsDisplayProjection = projection;
+        this.wbsDisplayTaskIndentLevels = projection.taskIndentLevels;
+        this.wbsDisplayGroupIndentLevels = projection.groupIndentLevels;
+        this.wbsDisplayGroupNames = projection.groupDisplayNames;
 
-            if (hideEmptyGroups && group.visibleTaskCount === 0) return false;
-
-            if (group.taskCount === 0) return false;
-
-            if (!group.parentId) return true;
-
-            const parent = this.wbsGroupMap.get(group.parentId);
-            return parent ? parent.isExpanded && isGroupVisible(parent) : true;
-        };
-
-        const assignYOrderRecursive = (group: WBSGroup): void => {
-            if (!isGroupVisible(group)) return;
-
-            group.yOrder = currentYOrder++;
-
-            if (group.isExpanded) {
-
-                for (const task of this.getSortedVisibleWbsGroupTasks(group, visibleTaskIds)) {
-                    task.yOrder = currentYOrder++;
-                }
-
-                for (const child of group.children) {
-                    assignYOrderRecursive(child);
-                }
+        projection.rows.forEach(row => {
+            if (row.kind === "group") {
+                row.group.yOrder = currentYOrder++;
+            } else {
+                row.task.yOrder = currentYOrder++;
             }
-
-        };
-
-        for (const rootGroup of this.wbsRootGroups) {
-            if (rootGroup.isUnassignedWbsGroup) continue;
-            assignYOrderRecursive(rootGroup);
-        }
-
-        const unassignedGroup = this.getUnassignedWbsGroup();
-        if (unassignedGroup) {
-            assignYOrderRecursive(unassignedGroup);
-        }
+        });
 
         this.debugLog(`Assigned yOrder to ${currentYOrder} items (groups + tasks)`);
     }
@@ -15647,7 +16086,7 @@ export class Visual implements IVisual {
             const bandStart = yScale(domainKey)!;
             const bandCenter = Math.round(bandStart + taskHeight / 2);
 
-            const rawIndent = Math.max(0, (group.level - 1) * indentPerLevel);
+            const rawIndent = self.getWbsDisplayGroupIndentLevel(group) * indentPerLevel;
             const levelStyle = self.getWbsLevelStyle(group.level, defaultGroupHeaderColor);
             const accentColor = self.resolveColor(levelStyle.background, "foreground");
             const groupNameColor = wbsTextColor;
@@ -16235,6 +16674,7 @@ export class Visual implements IVisual {
 
             g.attr('role', 'button')
                 .attr('tabindex', 0)
+                .attr('aria-keyshortcuts', 'Shift+F10')
                 .attr('aria-expanded', String(group.isExpanded))
                 .attr('aria-label', `${group.isExpanded ? 'Collapse' : 'Expand'} WBS group ${displayName}. ${group.visibleTaskCount} visible task${group.visibleTaskCount === 1 ? '' : 's'}. Right click or press Shift F10 for WBS actions.`);
 
@@ -16268,6 +16708,21 @@ export class Visual implements IVisual {
                     .style('stroke-width', 1);
             });
         });
+
+        if (this.pendingWbsGroupFocusId) {
+            const renderedGroupNodes = groupsUpdate.nodes();
+            if (renderedGroupNodes.length > 0) {
+                const focusGroupId = this.pendingWbsGroupFocusId;
+                const focusTarget = renderedGroupNodes.find(node => d3.select<SVGGElement, WBSGroup>(node).datum().id === focusGroupId)
+                    ?? renderedGroupNodes[0];
+                this.pendingWbsGroupFocusId = null;
+                window.setTimeout(() => {
+                    if (focusTarget.isConnected) {
+                        focusTarget.focus();
+                    }
+                }, 0);
+            }
+        }
     }
 
 
@@ -16465,6 +16920,7 @@ export class Visual implements IVisual {
         const height = containerNode?.clientHeight || Math.max(100, this.target.clientHeight - this.headerHeight);
 
         this.syncSvgPixelSize(this.mainSvg, width, height);
+        this.resetBodyPixelAlignment();
         this.mainGroup?.attr("transform", null);
 
         this.mainSvg.append("text")
@@ -19121,6 +19577,7 @@ export class Visual implements IVisual {
         this.viewportStartIndex = 0;
         this.viewportEndIndex = 0;
         this.visibleTaskCount = 0;
+        this.resetBodyPixelAlignment();
 
         const width = containerNode.clientWidth || this.target?.clientWidth || 300;
         const height = containerNode.clientHeight || Math.max(100, (this.target?.clientHeight ?? 100) - this.headerHeight);
@@ -19699,8 +20156,9 @@ export class Visual implements IVisual {
         addListItem(wbsList, 'Enable / Disable', 'Use the WBS button in the header to switch between grouped and flat task views.');
         addListItem(wbsList, 'Expand / Collapse Level', 'Use the + and − WBS buttons to cycle through grouping depth, from collapsed to fully expanded and back again.');
         addListItem(wbsList, 'Manual Open / Close', 'Click a group chevron to expand or collapse a single branch without changing the whole view.');
-        addListItem(wbsList, 'Header Context Menu', 'Right-click a WBS group header, or use Shift+F10 from a focused WBS header, to collapse all, show the hierarchy through any available WBS level, or expand all.');
+        addListItem(wbsList, 'Header Context Menu', 'Right-click a WBS group header, or use Shift+F10 from a focused WBS header, to collapse all, show through a level, show only one WBS level, or expand all.');
         addListItem(wbsList, 'Collapse To Level', 'Choose a WBS level from the context menu to show levels 1 through the selected level and collapse deeper branches.');
+        addListItem(wbsList, 'Show Only Level', 'Choose Show only Level N to hide all other WBS header levels. Expand a visible group to show all of its descendant activities as a flat list. Activities without the selected level are kept under a No Level N WBS row.');
         addListItem(wbsList, 'Scroll Anchoring', 'When a global WBS expand/collapse action is applied, the visual attempts to keep the visible WBS area anchored so the viewport does not jump unexpectedly.');
 
         const wbsNote = wbsSection.append('p')
@@ -20108,7 +20566,7 @@ export class Visual implements IVisual {
         }
 
         const indentPerLevel = this.settings?.wbsGrouping?.indentPerLevel?.value ?? 20;
-        const indentLevel = task.wbsIndentLevel ?? task.wbsLevels?.length ?? 0;
+        const indentLevel = this.getWbsDisplayTaskIndentLevel(task);
         return Math.max(0, indentLevel * indentPerLevel);
     }
 
@@ -20170,7 +20628,7 @@ export class Visual implements IVisual {
         rows.forEach(row => {
             if (row.kind === "group") {
                 const group = row.group;
-                const indent = Math.max(0, (group.level - 1) * indentPerLevel);
+                const indent = this.getWbsDisplayGroupIndentLevel(group) * indentPerLevel;
                 const rowBgColor = this.getWbsExportRowBackgroundColor(group.level, fallbackGroupHeaderColor);
                 const textColor = this.getWbsExportRowTextColor(rowBgColor, fallbackGroupTextColor);
                 html += `<tr style="background-color: ${rowBgColor}; color: ${textColor}; font-weight: bold;">`;
@@ -20213,8 +20671,8 @@ export class Visual implements IVisual {
                     : this.getTaskExportColumnText(column, row.task, exportDateFormatter);
                 if (column.kind === "taskName") {
                     const indentLevel = row.kind === "group"
-                        ? row.group.level - 1
-                        : row.task.wbsIndentLevel ?? row.task.wbsLevels?.length ?? 0;
+                        ? this.getWbsDisplayGroupIndentLevel(row.group)
+                        : this.getWbsDisplayTaskIndentLevel(row.task);
                     return `${this.getPlainTextIndent(indentLevel)}${this.sanitizeExportCell(value)}`;
                 }
                 return this.sanitizeExportCell(value);

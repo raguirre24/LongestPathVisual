@@ -26,6 +26,13 @@ export declare function snapTextCoordinate(value: number): number;
  */
 export declare function snapCanvasTextCoordinate(value: number, physicalScale: number): number;
 /**
+ * Returns the smallest local-coordinate offset that moves an already measured
+ * physical origin onto the nearest physical-pixel boundary. This keeps a
+ * scrolling SVG/canvas surface on a stable raster phase without changing its
+ * native scroll offset.
+ */
+export declare function getPhysicalPixelAlignmentOffset(physicalOrigin: number, effectivePhysicalScale: number): number;
+/**
  * Returns physical pixels per logical canvas pixel. CSS transforms can add
  * physical scale beyond window.devicePixelRatio, so both values participate.
  */

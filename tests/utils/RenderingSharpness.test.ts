@@ -7,6 +7,7 @@ import {
     areViewportsStable,
     getEffectiveCanvasPixelRatio,
     getHiDpiCanvasSize,
+    getPhysicalPixelAlignmentOffset,
     isSignificantViewportResize,
     resolveFontFamilyStack,
     snapCanvasTextCoordinate,
@@ -60,6 +61,33 @@ describe("RenderingSharpness", () => {
             expect(snapCanvasTextCoordinate(10.2, 1.25)).toBe(10.4);
             expect(snapCanvasTextCoordinate(10.4, 0)).toBe(10);
             expect(snapCanvasTextCoordinate(10.4, Number.NaN)).toBe(10);
+        });
+
+        it.each([1, 1.25, 1.5, 2])(
+            "aligns fractional scrolling origins at an effective scale of %s",
+            (effectiveScale) => {
+                const physicalOrigins = [0, 0.2, 10.5, 123.75, -42.4];
+
+                physicalOrigins.forEach((physicalOrigin) => {
+                    const offset = getPhysicalPixelAlignmentOffset(physicalOrigin, effectiveScale);
+                    const alignedOrigin = physicalOrigin + (offset * effectiveScale);
+
+                    expect(alignedOrigin).toBeCloseTo(Math.round(physicalOrigin), 12);
+                    expect(Math.abs(offset)).toBeLessThanOrEqual((0.5 / effectiveScale) + 1e-12);
+                    expect(getPhysicalPixelAlignmentOffset(alignedOrigin, effectiveScale)).toBe(0);
+                });
+            }
+        );
+
+        it("normalises invalid physical alignment inputs without producing non-finite output", () => {
+            expect(getPhysicalPixelAlignmentOffset(Number.NaN, 1.25)).toBe(0);
+            expect(getPhysicalPixelAlignmentOffset(Number.POSITIVE_INFINITY, 1.25)).toBe(0);
+            expect(getPhysicalPixelAlignmentOffset(Number.NEGATIVE_INFINITY, 1.25)).toBe(0);
+            expect(getPhysicalPixelAlignmentOffset(10.25, 0)).toBe(-0.25);
+            expect(getPhysicalPixelAlignmentOffset(10.25, -1.25)).toBe(-0.25);
+            expect(getPhysicalPixelAlignmentOffset(10.25, Number.NaN)).toBe(-0.25);
+            expect(getPhysicalPixelAlignmentOffset(10.25, Number.POSITIVE_INFINITY)).toBe(-0.25);
+            expect(getPhysicalPixelAlignmentOffset(10.25, Number.NEGATIVE_INFINITY)).toBe(-0.25);
         });
 
         it("snaps numeric SVG attributes but preserves percentages and CSS values", () => {

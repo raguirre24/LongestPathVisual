@@ -86,6 +86,8 @@ export interface HeaderState {
     wbsAvailableLevels: number[];
     wbsExpandToLevel?: number;
     wbsManualExpansionOverride: boolean;
+    wbsDisplayMode: "through" | "only";
+    wbsOnlyLevel?: number;
     currentMode: string;
     modeStatusMessage?: string | null;
     modeWarningMessage?: string | null;
@@ -1479,6 +1481,7 @@ export class Header {
         }
 
         const isCustom = this.currentState.wbsManualExpansionOverride;
+        const isOnlyLevel = this.currentState.wbsDisplayMode === "only";
         const currentLevel = this.currentState.wbsExpandToLevel ?? 0;
         const wbsExpanded = this.currentState.wbsExpanded;
 
@@ -1494,10 +1497,14 @@ export class Header {
 
         const btn = this.upsertButton("wbs-expand-toggle-group")
             .attr("type", "button")
-            .attr("aria-label", isCustom
+            .attr("aria-label", isOnlyLevel
+                ? `Only Level ${this.currentState.wbsOnlyLevel}. Click to return to hierarchy view and expand`
+                : isCustom
                 ? "Custom (manual overrides). Click to expand and clear overrides"
                 : `Level ${currentLevel} (click to expand)`)
-            .attr("title", isCustom
+            .attr("title", isOnlyLevel
+                ? `Only Level ${this.currentState.wbsOnlyLevel}. Click to return to hierarchy view and expand`
+                : isCustom
                 ? "Custom (manual overrides). Click to expand and clear overrides"
                 : `Level ${currentLevel} (click to expand)`)
             .classed("header-toggle-button", true)
@@ -1547,7 +1554,7 @@ export class Header {
 
         this.drawWbsDepthGlyph(iconG, iconColor, "expand");
 
-        const badgeText = isCustom ? "C" : `L${currentLevel}`;
+        const badgeText = isOnlyLevel ? `O${this.currentState.wbsOnlyLevel}` : (isCustom ? "C" : `L${currentLevel}`);
 
         const textEl = svg.append("text")
             .attr("class", "toggle-text")
@@ -1595,6 +1602,7 @@ export class Header {
         }
 
         const isCustom = this.currentState.wbsManualExpansionOverride;
+        const isOnlyLevel = this.currentState.wbsDisplayMode === "only";
         const currentLevel = this.currentState.wbsExpandToLevel ?? 0;
         const isCollapsed = currentLevel === 0 || !this.currentState.wbsExpanded; // Logic approx
 
@@ -1610,10 +1618,14 @@ export class Header {
 
         const btn = this.upsertButton("wbs-collapse-toggle-group")
             .attr("type", "button")
-            .attr("aria-label", isCustom
+            .attr("aria-label", isOnlyLevel
+                ? `Only Level ${this.currentState.wbsOnlyLevel}. Click to return to hierarchy view and collapse`
+                : isCustom
                 ? "Custom (manual overrides). Click to collapse and clear overrides"
                 : `Level ${currentLevel} (click to collapse)`)
-            .attr("title", isCustom
+            .attr("title", isOnlyLevel
+                ? `Only Level ${this.currentState.wbsOnlyLevel}. Click to return to hierarchy view and collapse`
+                : isCustom
                 ? "Custom (manual overrides). Click to collapse and clear overrides"
                 : `Level ${currentLevel} (click to collapse)`)
             .classed("header-toggle-button", true)
@@ -1663,7 +1675,7 @@ export class Header {
 
         this.drawWbsDepthGlyph(iconG, iconColor, "collapse");
 
-        const badgeText = isCustom ? "C" : `L${currentLevel}`;
+        const badgeText = isOnlyLevel ? `O${this.currentState.wbsOnlyLevel}` : (isCustom ? "C" : `L${currentLevel}`);
 
         const textEl = svg.append("text")
             .attr("class", "toggle-text")
@@ -3251,7 +3263,9 @@ export class Header {
                 id: "wbsEnable",
                 section: "WBS",
                 label: "WBS grouping",
-                status: state.wbsEnabled ? "On" : "Off",
+                status: state.wbsEnabled
+                    ? (state.wbsDisplayMode === "only" ? `Only L${state.wbsOnlyLevel}` : "On")
+                    : "Off",
                 disabled: !state.wbsDataExists,
                 callback: this.callbacks.onToggleWbsEnable
             },
@@ -3259,7 +3273,9 @@ export class Header {
                 id: "wbsExpand",
                 section: "WBS",
                 label: "Expand WBS",
-                status: state.wbsExpandToLevel && state.wbsExpandToLevel > 0 ? `To L${state.wbsExpandToLevel}` : "All",
+                status: state.wbsDisplayMode === "only"
+                    ? `Only L${state.wbsOnlyLevel}`
+                    : (state.wbsExpandToLevel && state.wbsExpandToLevel > 0 ? `To L${state.wbsExpandToLevel}` : "All"),
                 disabled: !state.wbsDataExists || !state.wbsEnabled,
                 callback: this.callbacks.onToggleWbsExpand
             },
@@ -3267,7 +3283,9 @@ export class Header {
                 id: "wbsCollapse",
                 section: "WBS",
                 label: "Collapse WBS",
-                status: state.wbsExpandToLevel && state.wbsExpandToLevel > 0 ? `To L${state.wbsExpandToLevel}` : "All",
+                status: state.wbsDisplayMode === "only"
+                    ? `Only L${state.wbsOnlyLevel}`
+                    : (state.wbsExpandToLevel && state.wbsExpandToLevel > 0 ? `To L${state.wbsExpandToLevel}` : "All"),
                 disabled: !state.wbsDataExists || !state.wbsEnabled,
                 callback: this.callbacks.onToggleWbsCollapse
             },

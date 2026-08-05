@@ -2397,6 +2397,18 @@
                         "numeric": true
                     }
                 },
+                "wbsDisplayMode": {
+                    "displayName": "",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "wbsOnlyLevel": {
+                    "displayName": "",
+                    "type": {
+                        "numeric": true
+                    }
+                },
                 "wbsExpandedState": {
                     "displayName": "",
                     "type": {

@@ -49,6 +49,8 @@ export interface HeaderState {
     wbsAvailableLevels: number[];
     wbsExpandToLevel?: number;
     wbsManualExpansionOverride: boolean;
+    wbsDisplayMode: "through" | "only";
+    wbsOnlyLevel?: number;
     currentMode: string;
     modeStatusMessage?: string | null;
     modeWarningMessage?: string | null;

@@ -58,6 +58,10 @@ export declare class Visual implements IVisual {
     private canvasScaleY;
     private canvasContentValid;
     private lastDisplayPixelRatio;
+    private bodyPixelAlignmentOffsetY;
+    private bodyLayoutLeft;
+    private bodyPixelAlignmentReady;
+    private readonly BODY_PIXEL_ALIGNMENT_EPSILON;
     private useCanvasRendering;
     private CANVAS_THRESHOLD;
     private readonly MODE_TRANSITION_DURATION;
@@ -106,6 +110,7 @@ export declare class Visual implements IVisual {
     private readonly TIMELINE_LEFT_GUTTER_PX;
     private readonly UNASSIGNED_WBS_GROUP_ID;
     private readonly UNASSIGNED_WBS_GROUP_NAME;
+    private readonly WBS_ONLY_FALLBACK_GROUP_ID_PREFIX;
     private legendFooterHeight;
     private dateLabelOffset;
     private floatTolerance;
@@ -190,8 +195,16 @@ export declare class Visual implements IVisual {
     private wbsManualExpansionOverride;
     private wbsManuallyToggledGroups;
     private wbsEnableOverride;
+    private wbsDisplaySelection;
+    private pendingWbsDisplaySelection;
+    private currentWbsDisplayProjection;
+    private wbsDisplayTaskIndentLevels;
+    private wbsDisplayGroupIndentLevels;
+    private wbsDisplayGroupNames;
     private wbsGroupLayer;
     private wbsHeaderContextMenu;
+    private wbsHeaderContextMenuReturnFocusTarget;
+    private pendingWbsGroupFocusId;
     private lastExpandCollapseAllState;
     private landingPageContainer;
     private helpOverlayContainer;
@@ -307,7 +320,24 @@ export declare class Visual implements IVisual {
     private snapRectCoord;
     private snapTextCoord;
     private isEmbeddedPowerBiHost;
+    private getTargetCssScale;
+    /**
+     * Maps this browsing context onto the outermost same-origin viewport.
+     * Power BI can scale the report canvas around the visual frame in normal
+     * page views. Cross-origin frame boundaries deliberately retain the safe
+     * identity fallback because their geometry is not observable here.
+     */
+    private getHostViewportTransform;
     private getLocalCssScale;
+    private getAlignedBodyTop;
+    private setBodyLayoutOrigin;
+    private resetBodyPixelAlignment;
+    /**
+     * Keeps the scrolling SVG and canvas body on the same physical-pixel phase.
+     * The native scroll offset remains untouched; only the paint origin receives
+     * a subpixel correction after host scaling and DPR are taken into account.
+     */
+    private syncBodyPixelAlignment;
     private getCanvasPixelRatio;
     private getExportPixelRatio;
     private setupHiDpiCanvas;
@@ -346,6 +376,11 @@ export declare class Visual implements IVisual {
     private getDataSignature;
     private getWbsBindingSignature;
     private resetWbsBindingState;
+    private getConfiguredWbsDisplaySelection;
+    private reconcilePendingWbsDisplaySelection;
+    private beginWbsDisplaySelection;
+    private getWbsDisplayPersistenceProperties;
+    private ensureValidWbsDisplaySelection;
     private getCurrentBarDateMode;
     private getCriticalBarStyle;
     private getTaskBarGeometry;
@@ -679,6 +714,8 @@ export declare class Visual implements IVisual {
     private getHeaderBandPalette;
     private getWbsCountLabel;
     private getWbsDisplayName;
+    private getWbsDisplayGroupIndentLevel;
+    private getWbsDisplayTaskIndentLevel;
     private getFloatDisplayColor;
     private reflowHeaderLineLabels;
     private drawColumnHeaders;
@@ -872,7 +909,7 @@ export declare class Visual implements IVisual {
     private hideWbsHeaderContextMenu;
     private focusWbsHeaderContextMenuItem;
     private showWbsHeaderContextMenu;
-    private applyWbsGlobalExpandFromHeaderContextMenu;
+    private applyWbsGlobalDisplayFromHeaderContextMenu;
     /**
      * WBS GROUPING: Toggle expansion state for a WBS group
      */
@@ -900,11 +937,15 @@ export declare class Visual implements IVisual {
     private applyWbsOrdering;
     private getUnassignedWbsGroup;
     private removeUnassignedWbsGroup;
+    private getWbsOnlyLevelFallbackGroupId;
+    private getWbsOnlyLevelFallbackGroup;
+    private removeWbsOnlyLevelFallbackGroups;
     private getUnassignedWbsExpandedState;
     private syncUnassignedWbsGroup;
+    private syncWbsOnlyLevelFallbackGroup;
     private sortTasksByBarStart;
     private getSortedVisibleWbsGroupTasks;
-    private updateUnassignedWbsGroupSummary;
+    private updateSyntheticWbsGroupSummary;
     /**
      * WBS GROUPING: Update filtered task counts for groups
      * This must be called BEFORE applyWbsOrdering so that collapse state doesn't affect counts

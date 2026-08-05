@@ -456,7 +456,7 @@ describe("VisualSettings", () => {
 
         const taskDropdownChromeSource = slice(visualSource, "private createpathSelectionDropdown(): void", "private createTraceModeToggle(): void");
         const taskDropdownRowsSource = slice(visualSource, "private renderTaskDropdown(searchText: string)", "private openDropdown()");
-        const wbsMenuSource = slice(visualSource, "private getWbsHeaderContextMenu()", "private hideWbsHeaderContextMenu()");
+        const wbsMenuSource = slice(visualSource, "private getWbsHeaderContextMenu()", "private hideWbsHeaderContextMenu(");
         const legendSource = slice(visualSource, "private renderLegend(viewportWidth: number)", "private hexToRgb");
         expect(taskDropdownChromeSource).toContain("const headerLegendBorder = this.getHeaderLegendBorderColor();");
         expect(taskDropdownChromeSource).toContain('.style("border", `1px solid ${headerLegendBorder}`)');
@@ -898,7 +898,7 @@ describe("VisualSettings", () => {
         expect(visualSource).toContain("Shift + F10");
     });
 
-    it("orders the WBS header context menu from collapse through levels to expand", () => {
+    it("pairs a compact Only action to the right of each Show Through level", () => {
         const visualSource = readFileSync("src/visual.ts", "utf8");
         const start = visualSource.indexOf("const actions: WbsHeaderContextMenuAction[] = [");
         const end = visualSource.indexOf("const items = menu", start);
@@ -907,13 +907,50 @@ describe("VisualSettings", () => {
 
         const actionsSource = visualSource.slice(start, end);
         const collapseIndex = actionsSource.indexOf('id: "collapse-all"');
-        const levelsIndex = actionsSource.indexOf("...showThroughLevelActions");
+        const pairedLevelsIndex = actionsSource.indexOf("...pairedLevelActions");
         const expandIndex = actionsSource.indexOf('id: "expand-all"');
 
         expect(collapseIndex).toBeGreaterThan(-1);
-        expect(levelsIndex).toBeGreaterThan(collapseIndex);
-        expect(expandIndex).toBeGreaterThan(levelsIndex);
-        expect(visualSource).toContain("to collapse all, show the hierarchy through any available WBS level, or expand all.");
+        expect(pairedLevelsIndex).toBeGreaterThan(collapseIndex);
+        expect(expandIndex).toBeGreaterThan(pairedLevelsIndex);
+        expect(visualSource).toContain("const pairedLevelActions = availableLevels.flatMap");
+        expect(visualSource).toContain("showThroughLevelActions[index],");
+        expect(visualSource).toContain("showOnlyLevelActions[index]");
+        expect(visualSource).toContain('label: `Show only Level ${level}`');
+        expect(visualSource).toContain('displayLabel: `Only L${level}`');
+        expect(visualSource).toContain('.style("grid-template-columns", "minmax(0, 1fr) 68px")');
+        expect(visualSource).toContain('.style("width", "260px")');
+        expect(visualSource).toContain("Math.min(260, wrapperRect.width");
+        expect(visualSource).toContain('.style("grid-column", action => action.layout === "full" ? "1 / span 2"');
+        expect(visualSource).toContain('.style("display", "grid")');
+        expect(visualSource).toContain('.style("display", "none")');
+        expect(visualSource).toContain('const interactiveBackground = this.highContrastMode');
+        expect(visualSource).toContain('.style("transition", "background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease")');
+        expect(visualSource).toContain('.style("box-shadow", isInteractive ? `inset 0 0 0 1px ${activeColor}` : "none")');
+        expect(visualSource).toContain('.on("mouseenter", function (_mouseEvent: MouseEvent, action)');
+        expect(visualSource).toContain('.on("mouseleave", function (_mouseEvent: MouseEvent, action)');
+        expect(visualSource).toContain('.on("focus", function (_focusEvent: FocusEvent, action)');
+        expect(visualSource).toContain('.on("blur", function (_focusEvent: FocusEvent, action)');
+        expect(visualSource).toContain('.attr("aria-current", action => action.isCurrent ? "true" : null)');
+        expect(visualSource).toContain('case "ArrowRight":');
+        expect(visualSource).toContain('case "ArrowLeft":');
+        expect(visualSource).toContain("this.hideWbsHeaderContextMenu(true);");
+        expect(visualSource).toContain("private pendingWbsGroupFocusId: string | null = null;");
+        expect(visualSource).toContain("focusTarget.focus();");
+    });
+
+    it("persists WBS-only selection and protects it from stale host metadata", () => {
+        const visualSource = readFileSync("src/visual.ts", "utf8");
+        const settingsSource = readFileSync("src/settings.ts", "utf8");
+        const capabilities = JSON.parse(readFileSync("capabilities.json", "utf8"));
+
+        expect(settingsSource).toContain('wbsDisplayMode = new TextInput({ name: "wbsDisplayMode"');
+        expect(settingsSource).toContain('wbsOnlyLevel = new NumUpDown({ name: "wbsOnlyLevel"');
+        expect(capabilities.objects.persistedState.properties.wbsDisplayMode.type.text).toBe(true);
+        expect(capabilities.objects.persistedState.properties.wbsOnlyLevel.type.numeric).toBe(true);
+        expect(visualSource).toContain("private pendingWbsDisplaySelection: WbsDisplaySelection | null = null;");
+        expect((visualSource.match(/this\.reconcilePendingWbsDisplaySelection\(\);/g) ?? []).length).toBeGreaterThanOrEqual(3);
+        expect(visualSource).toContain("...this.getWbsDisplayPersistenceProperties()");
     });
 
     it("keeps left-pane column defaults aligned with the names-first layout", () => {
@@ -1076,6 +1113,7 @@ describe("VisualSettings", () => {
         };
 
         expect(interfacesSource).toContain("isUnassignedWbsGroup?: boolean;");
+        expect(interfacesSource).toContain("isWbsLevelFallbackGroup?: boolean;");
         expect(visualSource).toContain('private readonly UNASSIGNED_WBS_GROUP_ID = "__UNASSIGNED_WBS__";');
         expect(visualSource).toContain('private readonly UNASSIGNED_WBS_GROUP_NAME = "Unassigned WBS";');
         expect(visualSource).toContain("this.syncUnassignedWbsGroup(tasksAfterLegendFilter);");
@@ -1087,31 +1125,18 @@ describe("VisualSettings", () => {
         expect(finishLineSource).toContain("return realWbsTasks.length > 0 ? realWbsTasks : sourceTasks;");
 
         const orderingSource = slice(visualSource, "private applyWbsOrdering(tasks: Task[]): Task[]", "private updateWbsFilteredCounts(filteredTasks: Task[]): void");
-        expect(orderingSource).toContain("if (rootGroup.isUnassignedWbsGroup) continue;");
-        expect(orderingSource).toContain("const unassignedGroup = this.getUnassignedWbsGroup();");
+        expect(orderingSource).toContain("buildWbsDisplayProjection({");
+        expect(orderingSource).toContain("rootGroups: this.wbsRootGroups");
+        expect(orderingSource).toContain("const fallbackGroup = this.getWbsOnlyLevelFallbackGroup();");
         expect(orderingSource).toContain("name: this.UNASSIGNED_WBS_GROUP_NAME");
-        expect(orderingSource).not.toContain("tasksWithoutWbs");
-        const orderedDirectTaskLoopIndex = orderingSource.indexOf("for (const task of this.getSortedVisibleWbsGroupTasks(group, taskSet))");
-        const orderedChildGroupLoopIndex = orderingSource.indexOf("for (const child of group.children)");
-        const orderedRealRootLoopIndex = orderingSource.indexOf("for (const rootGroup of this.wbsRootGroups)");
-        const orderedUnassignedGroupIndex = orderingSource.indexOf("const unassignedGroup = this.getUnassignedWbsGroup();");
-        expect(orderedDirectTaskLoopIndex).toBeGreaterThan(-1);
-        expect(orderedChildGroupLoopIndex).toBeGreaterThan(-1);
-        expect(orderedDirectTaskLoopIndex).toBeLessThan(orderedChildGroupLoopIndex);
-        expect(orderedUnassignedGroupIndex).toBeGreaterThan(orderedRealRootLoopIndex);
+        expect(orderingSource).toContain('name: `No Level ${targetLevel} WBS`');
+        expect(orderingSource).toContain("isWbsLevelFallbackGroup: true");
 
         const yOrderSource = slice(visualSource, "private assignWbsYOrder(tasksToShow: Task[]): void", "private drawWbsGroupHeaders(");
-        expect(yOrderSource).toContain("if (rootGroup.isUnassignedWbsGroup) continue;");
-        expect(yOrderSource).toContain("const unassignedGroup = this.getUnassignedWbsGroup();");
-        expect(yOrderSource).not.toContain("tasksWithoutWbs");
-        const yOrderDirectTaskLoopIndex = yOrderSource.indexOf("for (const task of this.getSortedVisibleWbsGroupTasks(group, visibleTaskIds))");
-        const yOrderChildGroupLoopIndex = yOrderSource.indexOf("for (const child of group.children)");
-        const yOrderRealRootLoopIndex = yOrderSource.indexOf("for (const rootGroup of this.wbsRootGroups)");
-        const yOrderUnassignedGroupIndex = yOrderSource.indexOf("const unassignedGroup = this.getUnassignedWbsGroup();");
-        expect(yOrderDirectTaskLoopIndex).toBeGreaterThan(-1);
-        expect(yOrderChildGroupLoopIndex).toBeGreaterThan(-1);
-        expect(yOrderDirectTaskLoopIndex).toBeLessThan(yOrderChildGroupLoopIndex);
-        expect(yOrderUnassignedGroupIndex).toBeGreaterThan(yOrderRealRootLoopIndex);
+        expect(yOrderSource).toContain("projection.rows.forEach(row =>");
+        expect(yOrderSource).toContain('if (row.kind === "group")');
+        expect(yOrderSource).toContain("row.group.yOrder = currentYOrder++");
+        expect(yOrderSource).toContain("row.task.yOrder = currentYOrder++");
 
         const exportRowsSource = slice(visualSource, "private getVisibleWbsExportRows(", "private getExportTableHeaderHtml(");
         expect(exportRowsSource).toContain("visibleWbsGroups.forEach(group =>");
